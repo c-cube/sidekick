@@ -8,8 +8,8 @@ Copyright 2014 Simon Cruanes
 
 open Msat
 
-module F = Minismt_sat.Expr
-module T = Msat_tseitin.Make(F)
+module Th = Msat_sat.Th
+module F = Msat_tseitin.Make(Th)
 
 let (|>) x f = f x
 
@@ -42,14 +42,14 @@ exception Incorrect_model
 module type BASIC_SOLVER = sig
   type t
   val create : unit -> t
-  val solve : t -> ?assumptions:F.t list -> unit -> solver_res
-  val assume : t -> ?tag:int -> F.t list list -> unit
+  val solve : t -> ?assumptions:F.atom list -> unit -> solver_res
+  val assume : t -> ?tag:int -> F.atom list list -> unit
 end
 
 let mk_solver (): (module BASIC_SOLVER) =
   let module S = struct
-    include Minismt_sat
-    let create() = create()
+    include Msat_sat
+    let create() = create (Msat_sat.Th.create())
     let solve st ?assumptions () =
       match solve st ?assumptions() with
       | Sat _ ->
@@ -68,20 +68,20 @@ let errorf msg = Format.ksprintf error msg
 
 module Test = struct
   type action =
-    | A_assume of F.t list list
-    | A_solve of F.t list * [`Expect_sat | `Expect_unsat]
+    | A_assume of F.atom list list
+    | A_solve of F.atom list * [`Expect_sat | `Expect_unsat]
 
   type t = {
     name: string;
     actions: action list;
   }
 
+  let st = F.create @@ Th.create()
+
   let mk_test name l = {name; actions=l}
-  let assume l = A_assume (List.map (List.map F.make) l)
+  let assume l = A_assume l
   let assume1 c = assume [c]
-  let solve ?(assumptions=[]) e =
-    let assumptions = List.map F.make assumptions in
-    A_solve (assumptions, e)
+  let solve ?(assumptions=[]) e = A_solve (assumptions, e)
 
   type result =
     | Pass

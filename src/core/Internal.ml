@@ -6,8 +6,7 @@ Copyright 2014 Simon Cruanes
 
 module Make
     (St : Solver_types.S)
-    (Plugin : Plugin_intf.S with type term = St.term
-                             and type formula = St.formula
+    (Th : Theory_intf.S with type formula = St.formula
                              and type proof = St.proof)
 = struct
   module Proof = Res.Make(St)
@@ -15,11 +14,11 @@ module Make
   open St
 
   module H = Heap.Make(struct
-    type t = St.Elt.t
-    let[@inline] cmp i j = Elt.weight j < Elt.weight i (* comparison by weight *)
-    let dummy = Elt.of_var St.Var.dummy
-    let idx = Elt.idx
-    let set_idx = Elt.set_idx
+    type t = St.var
+    let[@inline] cmp i j = Var.weight j < Var.weight i (* comparison by weight *)
+    let dummy = St.Var.dummy
+    let idx = St.Var.idx
+    let set_idx = St.Var.set_idx
   end)
 
   exception Sat
@@ -50,6 +49,8 @@ module Make
   type t = {
     st : St.t;
 
+    th: Th.t;
+
     (* Clauses are simplified for eficiency purposes. In the following
        vectors, the comments actually refer to the original non-simplified
        clause. *)
@@ -73,16 +74,20 @@ module Make
     mutable next_decision : atom option;
     (* When the last conflict was a semantic one, this stores the next decision to make *)
 
-    trail : trail_elt Vec.t;
+    trail : atom Vec.t;
     (* decision stack + propagated elements (atoms or assignments). *)
 
     elt_levels : int Vec.t;
     (* decision levels in [trail]  *)
-    th_levels : Plugin.level Vec.t;
-    (* theory states corresponding to elt_levels *)
 
     user_levels : int Vec.t;
-    (* user levels in [clauses_temp] *)
+    (* user levels in [clause_tmp] *)
+
+    backtrack_levels : int Vec.t;
+    (* user levels in [backtrack] *)
+
+    backtrack : (unit -> unit) Vec.t;
+    (** Actions to call when backtracking *)
 
     mutable th_head : int;
     (* Start offset in the queue {!trail} of
@@ -122,8 +127,9 @@ module Make
   }
 
   (* Starting environment. *)
-  let create_ ~st ~size_trail ~size_lvl () : t = {
+  let create_ ~st ~size_trail ~size_lvl th : t = {
     st;
+    th;
     unsat_conflict = None;
     next_decision = None;
 
@@ -137,9 +143,10 @@ module Make
     th_head = 0;
     elt_head = 0;
 
-    trail = Vec.make size_trail (Trail_elt.of_atom Atom.dummy);
+    trail = Vec.make size_trail Atom.dummy;
     elt_levels = Vec.make size_lvl (-1);
-    th_levels = Vec.make size_lvl Plugin.dummy;
+    backtrack_levels = Vec.make size_lvl (-1);
+    backtrack = Vec.make size_lvl (fun () -> ());
     user_levels = Vec.make 0 (-1);
 
     order = H.create();
@@ -153,13 +160,15 @@ module Make
     dirty=false;
   }
 
-  let create ?(size=`Big) ?st () : t =
+  let create ?(size=`Big) ?st th : t =
     let st = match st with Some s -> s | None -> St.create ~size () in
     let size_trail, size_lvl = match size with
       | `Tiny -> 0, 0
       | `Small -> 32, 16
       | `Big -> 600, 50
-    in create_ ~st ~size_trail ~size_lvl ()
+    in create_ ~st ~size_trail ~size_lvl th
+
+  let theory st = st.th
 
   (* Misc functions *)
   let to_float = float_of_int
@@ -178,35 +187,9 @@ module Make
     | Some _ -> true
     | None -> false
 
-  (* Iteration over subterms.
-     When incrementing activity, we want to be able to iterate over
-     all subterms of a formula. However, the function provided by the theory
-     may be costly (if it walks a tree-like structure, and does some processing
-     to ignore some subterms for instance), so we want to 'cache' the list
-     of subterms of each formula, so we have a field [v_assignable]
-     directly in variables to do so.  *)
-  let iter_sub f v =
-    if St.mcsat then
-      match v.v_assignable with
-      | Some l -> List.iter f l
-      | None -> assert false
-
   (* When we have a new literal,
      we need to first create the list of its subterms. *)
-  let mk_atom st (f:St.formula) : atom =
-    let res = Atom.make st.st f in
-    if St.mcsat then (
-      begin match res.var.v_assignable with
-        | Some _ -> ()
-        | None ->
-          let l = ref [] in
-          Plugin.iter_assignable
-            (fun t -> l := Lit.make st.st t :: !l)
-            res.var.pa.lit;
-          res.var.v_assignable <- Some !l;
-      end;
-    );
-    res
+  let[@inline] mk_atom st (f:St.formula) : atom = Atom.make st.st f
 
   (* Variable and literal activity.
      Activity is used to decide on which variable to decide when propagation
@@ -215,27 +198,11 @@ module Make
      When we add a variable (which wraps a formula), we also need to add all
      its subterms.
   *)
-  let rec insert_var_order st (elt:elt) : unit =
-    H.insert st.order elt;
-    begin match elt with
-      | E_lit _ -> ()
-      | E_var v -> insert_subterms_order st v
-    end
-
-  and insert_subterms_order st (v:St.var) : unit =
-    iter_sub (fun t -> insert_var_order st (Elt.of_lit t)) v
-
-  (* Add new litterals/atoms on which to decide on, even if there is no
-     clause that constrains it.
-     We could maybe check if they have already has been decided before
-     inserting them into the heap, if it appears that it helps performance. *)
-  let new_lit st t =
-    let l = Lit.make st.st t in
-    insert_var_order st (E_lit l)
+  let[@inline] insert_var_order st (v:var) : unit = H.insert st.order v
 
   let new_atom st (p:formula) : unit =
     let a = mk_atom st p in
-    insert_var_order st (E_var a.var)
+    insert_var_order st a.var
 
   (* Rather than iterate over all the heap when we want to decrease all the
      variables/literals activity, we instead increase the value by which
@@ -247,37 +214,17 @@ module Make
     st.clause_incr <- st.clause_incr *. clause_decay
 
   (* increase activity of [v] *)
-  let var_bump_activity_aux st v =
+  let var_bump_activity st v =
     v.v_weight <- v.v_weight +. st.var_incr;
     if v.v_weight > 1e100 then (
       for i = 0 to St.nb_elt st.st - 1 do
-        Elt.set_weight (St.get_elt st.st i) ((Elt.weight (St.get_elt st.st i)) *. 1e-100)
+        Var.set_weight (St.get_elt st.st i) ((Var.weight (St.get_elt st.st i)) *. 1e-100)
       done;
       st.var_incr <- st.var_incr *. 1e-100;
     );
-    let elt = Elt.of_var v in
-    if H.in_heap elt then (
-      H.decrease st.order elt
+    if H.in_heap v then (
+      H.decrease st.order v
     )
-
-  (* increase activity of literal [l] *)
-  let lit_bump_activity_aux st (l:lit): unit =
-    l.l_weight <- l.l_weight +. st.var_incr;
-    if l.l_weight > 1e100 then (
-      for i = 0 to St.nb_elt st.st - 1 do
-        Elt.set_weight (St.get_elt st.st i) ((Elt.weight (St.get_elt st.st i)) *. 1e-100)
-      done;
-      st.var_incr <- st.var_incr *. 1e-100;
-    );
-    let elt = Elt.of_lit l in
-    if H.in_heap elt then (
-      H.decrease st.order elt
-    )
-
-  (* increase activity of var [v] *)
-  let var_bump_activity st (v:var): unit =
-    var_bump_activity_aux st v;
-    iter_sub (lit_bump_activity_aux st) v
 
   (* increase activity of clause [c] *)
   let clause_bump_activity st (c:clause) : unit =
@@ -391,7 +338,7 @@ module Make
     assert (st.th_head = Vec.size st.trail);
     assert (st.elt_head = Vec.size st.trail);
     Vec.push st.elt_levels (Vec.size st.trail);
-    Vec.push st.th_levels (Plugin.current_level ()); (* save the current theory state *)
+    Vec.push st.backtrack_levels (Vec.size st.backtrack); (* save the current theory state *)
     ()
 
   (* Attach/Detach a clause.
@@ -406,6 +353,15 @@ module Make
     Vec.push c.atoms.(0).neg.watched c;
     Vec.push c.atoms.(1).neg.watched c;
     c.attached <- true;
+    ()
+
+  let backtrack_down_to (st:t) (l:int): unit =
+    Log.debugf 2
+      (fun k->k "@{<Yellow>** now at level %d (backtrack)@}" l);
+    while Vec.size st.backtrack > l do
+      let f = Vec.pop_last st.backtrack in
+      f()
+    done;
     ()
 
   (* Backtracking.
@@ -426,46 +382,35 @@ module Make
       (* Now we need to cleanup the vars that are not valid anymore
          (i.e to the right of elt_head in the queue. *)
       for c = st.elt_head to Vec.size st.trail - 1 do
-        match (Vec.get st.trail c) with
+        let a = Vec.get st.trail c in
         (* A literal is unassigned, we nedd to add it back to
            the heap of potentially assignable literals, unless it has
            a level lower than [lvl], in which case we just move it back. *)
-        | Lit l ->
-          if l.l_level <= lvl then (
-            Vec.set st.trail !head (Trail_elt.of_lit l);
-            head := !head + 1
-          ) else (
-            l.assigned <- None;
-            l.l_level <- -1;
-            insert_var_order st (Elt.of_lit l)
-          )
-        (* A variable is not true/false anymore, one of two things can happen: *)
-        | Atom a ->
-          if a.var.v_level <= lvl then (
-            (* It is a late propagation, which has a level
-               lower than where we backtrack, so we just move it to the head
-               of the queue, to be propagated again. *)
-            Vec.set st.trail !head (Trail_elt.of_atom a);
-            head := !head + 1
-          ) else (
-            (* it is a result of bolean propagation, or a semantic propagation
-               with a level higher than the level to which we backtrack,
-               in that case, we simply unset its value and reinsert it into the heap. *)
-            a.is_true <- false;
-            a.neg.is_true <- false;
-            a.var.v_level <- -1;
-            a.var.reason <- None;
-            insert_var_order st (Elt.of_var a.var)
-          )
+        if a.var.v_level <= lvl then (
+          (* It is a late propagation, which has a level
+             lower than where we backtrack, so we just move it to the head
+             of the queue, to be propagated again. *)
+          Vec.set st.trail !head a;
+          head := !head + 1
+        ) else (
+          (* it is a result of bolean propagation, or a semantic propagation
+             with a level higher than the level to which we backtrack,
+             in that case, we simply unset its value and reinsert it into the heap. *)
+          a.is_true <- false;
+          a.neg.is_true <- false;
+          a.var.v_level <- -1;
+          a.var.reason <- None;
+          insert_var_order st a.var
+        )
       done;
       (* Recover the right theory state. *)
-      Plugin.backtrack (Vec.get st.th_levels lvl);
+      backtrack_down_to st (Vec.get st.backtrack_levels lvl);
       (* Resize the vectors according to their new size. *)
       Vec.shrink st.trail !head;
       Vec.shrink st.elt_levels lvl;
-      Vec.shrink st.th_levels lvl;
+      Vec.shrink st.backtrack_levels lvl;
     );
-    assert (Vec.size st.elt_levels = Vec.size st.th_levels);
+    assert (Vec.size st.elt_levels = Vec.size st.backtrack_levels);
     ()
 
   (* Unsatisfiability is signaled through an exception, since it can happen
@@ -527,35 +472,10 @@ module Make
     a.is_true <- true;
     a.var.v_level <- lvl;
     a.var.reason <- Some reason;
-    Vec.push st.trail (Trail_elt.of_atom a);
+    Vec.push st.trail a;
     Log.debugf debug
       (fun k->k "Enqueue (%d): %a" (Vec.size st.trail) Atom.debug a);
     ()
-
-  let enqueue_semantic st a terms =
-    if not a.is_true then (
-      let l = List.map (Lit.make st.st) terms in
-      let lvl = List.fold_left (fun acc {l_level; _} ->
-          assert (l_level > 0); max acc l_level) 0 l in
-      H.grow_to_at_least st.order (St.nb_elt st.st);
-      enqueue_bool st a ~level:lvl Semantic
-    )
-
-  (* MCsat semantic assignment *)
-  let enqueue_assign st l value lvl =
-    match l.assigned with
-    | Some _ ->
-      Log.debugf error
-        (fun k -> k "Trying to assign an already assigned literal: %a" Lit.debug l);
-      assert false
-    | None ->
-      assert (l.l_level < 0);
-      l.assigned <- Some value;
-      l.l_level <- lvl;
-      Vec.push st.trail (Trail_elt.of_lit l);
-      Log.debugf debug
-        (fun k -> k "Enqueue (%d): %a" (Vec.size st.trail) Lit.debug l);
-      ()
 
   (* swap elements of array *)
   let[@inline] swap_arr a i j =
@@ -583,17 +503,6 @@ module Make
            swap_arr arr 1 i;
          ))
       arr
-
-  (* evaluate an atom for MCsat, if it's not assigned
-     by boolean propagation/decision *)
-  let th_eval st a : bool option =
-    if a.is_true || a.neg.is_true then None
-    else match Plugin.eval a.lit with
-      | Plugin_intf.Unknown -> None
-      | Plugin_intf.Valued (b, l) ->
-        let atom = if b then a else a.neg in
-        enqueue_semantic st atom l;
-        Some b
 
   (* find which level to backtrack to, given a conflict clause
      and a boolean stating whether it is
@@ -626,9 +535,7 @@ module Make
     cr_is_uip: bool; (* conflict is UIP? *)
   }
 
-  let get_atom st i =
-    match Vec.get st.trail i with
-    | Lit _ -> assert false | Atom x -> x
+  let[@inline] get_atom st i = Vec.get st.trail i
 
   (* conflict analysis for SAT
      Same idea as the mcsat analyze function (without semantic propagations),
@@ -690,12 +597,8 @@ module Make
       (* look for the next node to expand *)
       while
         let a = Vec.get st.trail !tr_ind in
-        Log.debugf debug (fun k -> k "  looking at: %a" Trail_elt.debug a);
-        match a with
-        | Atom q ->
-          (not (Var.seen_both q.var)) ||
-          (q.var.v_level < conflict_level)
-        | Lit _ -> true
+        Log.debugf debug (fun k -> k "  looking at: %a" St.Atom.debug a);
+        (not (Var.seen_both a.var)) || (a.var.v_level < conflict_level)
       do
         decr tr_ind;
       done;
@@ -792,7 +695,7 @@ module Make
     Log.debugf debug (fun k -> k "Adding clause: @[<hov>%a@]" Clause.debug init);
     (* Insertion of new lits is done before simplification. Indeed, else a lit in a
        trivial clause could end up being not decided on, which is a bug. *)
-    Array.iter (fun x -> insert_var_order st (Elt.of_var x.var)) init.atoms;
+    Array.iter (fun x -> insert_var_order st x.var) init.atoms;
     let vec = clause_vector st init in
     try
       let c = eliminate_duplicates init in
@@ -909,13 +812,7 @@ module Make
           st.elt_head <- Vec.size st.trail;
           raise (Conflict c)
         ) else (
-          match th_eval st first with
-          | None -> (* clause is unit, keep the same watches, but propagate *)
-            enqueue_bool st first ~level:(decision_level st) (Bcp c)
-          | Some true -> ()
-          | Some false ->
-            st.elt_head <- Vec.size st.trail;
-            raise (Conflict c)
+          enqueue_bool st first ~level:(decision_level st) (Bcp c)
         );
         Watch_kept
       with Exit ->
@@ -950,18 +847,11 @@ module Make
     ()
 
   (* Propagation (boolean and theory) *)
-  let create_atom st f =
-    let a = mk_atom st f in
-    ignore (th_eval st a);
-    a
+  let[@inline] create_atom st f = mk_atom st f
 
-  let slice_get st i =
-    match Vec.get st.trail i with
-    | Atom a ->
-      Plugin_intf.Lit a.lit
-    | Lit {term; assigned = Some v; _} ->
-      Plugin_intf.Assign (term, v)
-    | Lit _ -> assert false
+  let[@inline] slice_get st i =
+    let a = Vec.get st.trail i in
+    a.lit
 
   let slice_push st (l:formula list) (lemma:proof): unit =
     let atoms = List.rev_map (create_atom st) l in
@@ -969,45 +859,52 @@ module Make
     Log.debugf info (fun k->k "Pushing clause %a" Clause.debug c);
     Stack.push c st.clauses_to_add
 
-  let slice_propagate (st:t) f = function
-    | Plugin_intf.Eval l ->
-      let a = mk_atom st f in
-      enqueue_semantic st a l
-    | Plugin_intf.Consequence (causes, proof) ->
-      let l = List.rev_map (mk_atom st) causes in
-      if List.for_all (fun a -> a.is_true) l then (
-        let p = mk_atom st f in
-        let c = Clause.make (p :: List.map Atom.neg l) (Lemma proof) in
-        if p.is_true then ()
-        else if p.neg.is_true then (
-          Stack.push c st.clauses_to_add
-        ) else (
-          H.grow_to_at_least st.order (St.nb_elt st.st);
-          insert_subterms_order st p.var;
-          enqueue_bool st p ~level:(decision_level st) (Bcp c)
-        )
+  let slice_propagate (st:t) f causes proof : unit =
+    let l = List.rev_map (mk_atom st) causes in
+    if List.for_all (fun a -> a.is_true) l then (
+      let p = mk_atom st f in
+      let c = Clause.make (p :: List.map Atom.neg l) (Lemma proof) in
+      if p.is_true then ()
+      else if p.neg.is_true then (
+        Stack.push c st.clauses_to_add
       ) else (
-        invalid_arg "Msat.Internal.slice_propagate"
+        H.grow_to_at_least st.order (St.nb_elt st.st);
+        insert_var_order st p.var;
+        enqueue_bool st p ~level:(decision_level st) (Bcp c)
       )
+    ) else (
+      invalid_arg "the solver.Internal.slice_propagate"
+    )
 
-  let current_slice st : (_,_,_) Plugin_intf.slice = {
-    Plugin_intf.start = st.th_head;
+  let slice_on_backtrack st f : unit =
+    Vec.push st.backtrack f
+
+
+  let slice_at_level_0 st () : bool =
+    Vec.is_empty st.backtrack_levels
+
+  let current_slice st : (_,_) Theory_intf.slice = {
+    Theory_intf.start = st.th_head;
     length = Vec.size st.trail - st.th_head;
     get = slice_get st;
     push = slice_push st;
     propagate = slice_propagate st;
+    on_backtrack = slice_on_backtrack st;
+    at_level_0 = slice_at_level_0 st;
   }
 
   (* full slice, for [if_sat] final check *)
-  let full_slice st : (_,_,_) Plugin_intf.slice = {
-    Plugin_intf.start = 0;
+  let full_slice st : (_,_) Theory_intf.slice = {
+    Theory_intf.start = 0;
     length = Vec.size st.trail;
     get = slice_get st;
     push = slice_push st;
     propagate = (fun _ -> assert false);
+    on_backtrack = slice_on_backtrack st;
+    at_level_0 = slice_at_level_0 st;
   }
 
-  (* some boolean literals were decided/propagated within Msat. Now we
+  (* some boolean literals were decided/propagated within the solver. Now we
      need to inform the theory of those assumptions, so it can do its job.
      @return the conflict clause, if the theory detects unsatisfiability *)
   let rec theory_propagate st : clause option =
@@ -1018,14 +915,14 @@ module Make
     ) else (
       let slice = current_slice st in
       st.th_head <- st.elt_head; (* catch up *)
-      match Plugin.assume slice with
-      | Plugin_intf.Sat ->
+      match Th.assume st.th slice with
+      | Theory_intf.Sat ->
         propagate st
-      | Plugin_intf.Unsat (l, p) ->
+      | Theory_intf.Unsat (l, p) ->
         (* conflict *)
         let l = List.rev_map (create_atom st) l in
         H.grow_to_at_least st.order (St.nb_elt st.st);
-        List.iter (fun a -> insert_var_order st (Elt.of_var a.var)) l;
+        List.iter (fun a -> insert_var_order st a.var) l;
         let c = St.Clause.make l (Lemma p) in
         Some c
     )
@@ -1043,12 +940,9 @@ module Make
       let num_props = ref 0 in
       let res = ref None in
       while st.elt_head < Vec.size st.trail do
-        begin match Vec.get st.trail st.elt_head with
-          | Lit _ -> ()
-          | Atom a ->
-            incr num_props;
-            propagate_atom st a res
-        end;
+        let a = Vec.get st.trail st.elt_head in
+        incr num_props;
+        propagate_atom st a res;
         st.elt_head <- st.elt_head + 1;
       done;
       match !res with
@@ -1067,14 +961,11 @@ module Make
     if v.v_level >= 0 then (
       assert (v.pa.is_true || v.na.is_true);
       pick_branch_lit st
-    ) else match Plugin.eval atom.lit with
-      | Plugin_intf.Unknown ->
-        new_decision_level st;
-        let current_level = decision_level st in
-        enqueue_bool st atom ~level:current_level Decision
-      | Plugin_intf.Valued (b, l) ->
-        let a = if b then atom else atom.neg in
-        enqueue_semantic st a l
+    ) else (
+      new_decision_level st;
+      let current_level = decision_level st in
+      enqueue_bool st atom ~level:current_level Decision
+    )
 
   and pick_branch_lit st =
     match st.next_decision with
@@ -1083,17 +974,7 @@ module Make
       pick_branch_aux st atom
     | None ->
       begin match H.remove_min st.order with
-        | E_lit l ->
-          if Lit.level l >= 0 then
-            pick_branch_lit st
-          else (
-            let value = Plugin.assign l.term in
-            new_decision_level st;
-            let current_level = decision_level st in
-            enqueue_assign st l value current_level
-          )
-        | E_var v ->
-          pick_branch_aux st v.pa
+        | v -> pick_branch_aux st v.pa
         | exception Not_found -> raise Sat
       end
 
@@ -1140,22 +1021,14 @@ module Make
     else assert (var.v_level >= 0);
     let truth = var.pa.is_true in
     let value = match negated with
-      | Formula_intf.Negated -> not truth
-      | Formula_intf.Same_sign -> truth
+      | Theory_intf.Negated -> not truth
+      | Theory_intf.Same_sign -> truth
     in
     value, var.v_level
 
   let eval st lit = fst (eval_level st lit)
 
   let[@inline] unsat_conflict st = st.unsat_conflict
-
-  let model (st:t) : (term * term) list =
-    let opt = function Some a -> a | None -> assert false in
-    Vec.fold
-      (fun acc e -> match e with
-         | Lit v -> (v.term, opt v.assigned)  :: acc
-         | Atom _ -> acc)
-      [] st.trail
 
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
@@ -1174,9 +1047,9 @@ module Make
             n_of_learnts   := !n_of_learnts *. learntsize_inc
           | Sat ->
             assert (st.elt_head = Vec.size st.trail);
-            begin match Plugin.if_sat (full_slice st) with
-              | Plugin_intf.Sat -> ()
-              | Plugin_intf.Unsat (l, p) ->
+            begin match Th.if_sat st.th (full_slice st) with
+              | Theory_intf.Sat -> ()
+              | Theory_intf.Unsat (l, p) ->
                 let atoms = List.rev_map (create_atom st) l in
                 let c = Clause.make atoms (Lemma p) in
                 Log.debugf info (fun k -> k "Theory conflict clause: %a" Clause.debug c);
@@ -1202,14 +1075,14 @@ module Make
     cancel_until st (base_level st);
     Log.debugf debug
       (fun k -> k "@[<v>Status:@,@[<hov 2>trail: %d - %d@,%a@]"
-          st.elt_head st.th_head (Vec.print ~sep:"" Trail_elt.debug) st.trail);
+          st.elt_head st.th_head (Vec.print ~sep:"" Atom.debug) st.trail);
     begin match propagate st with
       | Some confl ->
         report_unsat st confl
       | None ->
         Log.debugf debug
           (fun k -> k "@[<v>Current trail:@,@[<hov>%a@]@]"
-              (Vec.print ~sep:"" Trail_elt.debug) st.trail);
+              (Vec.print ~sep:"" Atom.debug) st.trail);
         Log.debug info "Creating new user level";
         new_decision_level st;
         Vec.push st.user_levels (Vec.size st.clauses_temp);

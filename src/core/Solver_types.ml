@@ -1,21 +1,3 @@
-(**************************************************************************)
-(*                                                                        *)
-(*                                  Cubicle                               *)
-(*             Combining model checking algorithms and SMT solvers        *)
-(*                                                                        *)
-(*                  Sylvain Conchon and Alain Mebsout                     *)
-(*                  Universite Paris-Sud 11                               *)
-(*                                                                        *)
-(*  Copyright 2011. This file is distributed under the terms of the       *)
-(*  Apache Software License version 2.0                                   *)
-(*                                                                        *)
-(**************************************************************************)
-(*
-MSAT is free software, using the Apache license, see file LICENSE
-Copyright 2016 Guillaume Bury
-Copyright 2016 Simon Cruanes
-*)
-
 module type S = Solver_types_intf.S
 
 module Var_fields = Solver_types_intf.Var_fields
@@ -27,31 +9,16 @@ let () = Var_fields.freeze()
 (* Solver types for McSat Solving *)
 (* ************************************************************************ *)
 
-module McMake (E : Expr_intf.S) = struct
+module Make (E : Theory_intf.S) = struct
 
-  (* Flag for Mcsat v.s Pure Sat *)
-  let mcsat = true
-
-  type term = E.Term.t
-  type formula = E.Formula.t
+  type formula = E.Form.t
   type proof = E.proof
-
-  let pp_form = E.Formula.dummy
 
   type seen =
     | Nope
     | Both
     | Positive
     | Negative
-
-  type lit = {
-    lid : int;
-    term : term;
-    mutable l_level : int;
-    mutable l_idx: int;
-    mutable l_weight : float;
-    mutable assigned : term option;
-  }
 
   type var = {
     vid : int;
@@ -61,7 +28,6 @@ module McMake (E : Expr_intf.S) = struct
     mutable v_level : int;
     mutable v_idx: int; (** position in heap *)
     mutable v_weight : float; (** Weight (for the heap), tracking activity *)
-    mutable v_assignable: lit list option;
     mutable reason : reason option;
   }
 
@@ -95,14 +61,6 @@ module McMake (E : Expr_intf.S) = struct
     | Lemma of proof
     | History of clause list
 
-  type elt =
-    | E_lit of lit
-    | E_var of var
-
-  type trail_elt =
-    | Lit of lit
-    | Atom of atom
-
   let rec dummy_var =
     { vid = -101;
       pa = dummy_atom;
@@ -111,12 +69,11 @@ module McMake (E : Expr_intf.S) = struct
       v_level = -1;
       v_weight = -1.;
       v_idx= -1;
-      v_assignable = None;
       reason = None;
     }
   and dummy_atom =
     { var = dummy_var;
-      lit = E.Formula.dummy;
+      lit = E.Form.dummy;
       watched = Obj.magic 0;
       (* should be [Vec.make_empty dummy_clause]
          but we have to break the cycle *)
@@ -135,13 +92,11 @@ module McMake (E : Expr_intf.S) = struct
   let () = dummy_atom.watched <- Vec.make_empty dummy_clause
 
   (* Constructors *)
-  module MF = Hashtbl.Make(E.Formula)
-  module MT = Hashtbl.Make(E.Term)
+  module MF = Hashtbl.Make(E.Form)
 
   type t = {
-    t_map: lit MT.t;
     f_map: var MF.t;
-    vars: elt Vec.t;
+    vars: var Vec.t;
     mutable cpt_mk_var: int;
     mutable cpt_mk_clause: int;
   }
@@ -150,8 +105,7 @@ module McMake (E : Expr_intf.S) = struct
 
   let create_ size_map size_vars () : t = {
     f_map = MF.create size_map;
-    t_map = MT.create size_map;
-    vars = Vec.make size_vars (E_var dummy_var);
+    vars = Vec.make size_vars dummy_var;
     cpt_mk_var = 0;
     cpt_mk_clause = 0;
   }
@@ -174,42 +128,6 @@ module McMake (E : Expr_intf.S) = struct
     | Lemma _ -> "T" ^ string_of_int c.name
     | History _ -> "C" ^ string_of_int c.name
 
-  module Lit = struct
-    type t = lit
-    let[@inline] term l = l.term
-    let[@inline] level l = l.l_level
-    let[@inline] assigned l = l.assigned
-    let[@inline] weight l = l.l_weight
-
-    let make (st:state) (t:term) : t =
-      try MT.find st.t_map t
-      with Not_found ->
-        let res = {
-          lid = st.cpt_mk_var;
-          term = t;
-          l_weight = 1.;
-          l_idx= -1;
-          l_level = -1;
-          assigned = None;
-        } in
-        st.cpt_mk_var <- st.cpt_mk_var + 1;
-        MT.add st.t_map t res;
-        Vec.push st.vars (E_lit res);
-        res
-
-    let debug_assign fmt v =
-      match v.assigned with
-      | None ->
-        Format.fprintf fmt ""
-      | Some t ->
-        Format.fprintf fmt "@[<hov>@@%d->@ %a@]" v.l_level E.Term.print t
-
-    let pp out v = E.Term.print out v.term
-    let debug out v =
-      Format.fprintf out "%d[%a][lit:@[<hov>%a@]]"
-        (v.lid+1) debug_assign v E.Term.print v.term
-  end
-
   module Var = struct
     type t = var
     let dummy = dummy_var
@@ -217,11 +135,18 @@ module McMake (E : Expr_intf.S) = struct
     let[@inline] pos v = v.pa
     let[@inline] neg v = v.na
     let[@inline] reason v = v.reason
-    let[@inline] assignable v = v.v_assignable
     let[@inline] weight v = v.v_weight
 
-    let make (st:state) (t:formula) : var * Expr_intf.negated =
-      let lit, negated = E.Formula.norm t in
+    let[@inline] id v =v.vid
+    let[@inline] level v =v.v_level
+    let[@inline] idx v = v.v_idx
+
+    let[@inline] set_level v lvl = v.v_level <- lvl
+    let[@inline] set_idx v i = v.v_idx <- i
+    let[@inline] set_weight v w = v.v_weight <- w
+
+    let make (st:state) (t:formula) : var * Theory_intf.negated =
+      let lit, negated = E.Form.norm t in
       try
         MF.find st.f_map lit, negated
       with Not_found ->
@@ -234,7 +159,6 @@ module McMake (E : Expr_intf.S) = struct
             v_level = -1;
             v_idx= -1;
             v_weight = 0.;
-            v_assignable = None;
             reason = None;
           }
         and pa =
@@ -246,14 +170,14 @@ module McMake (E : Expr_intf.S) = struct
             aid = cpt_double (* aid = vid*2 *) }
         and na =
           { var = var;
-            lit = E.Formula.neg lit;
+            lit = E.Form.neg lit;
             watched = Vec.make 10 dummy_clause;
             neg = pa;
             is_true = false;
             aid = cpt_double + 1 (* aid = vid*2+1 *) } in
         MF.add st.f_map lit var;
         st.cpt_mk_var <- st.cpt_mk_var + 1;
-        Vec.push st.vars (E_var var);
+        Vec.push st.vars var;
         var, negated
 
     (* Marking helpers *)
@@ -296,10 +220,10 @@ module McMake (E : Expr_intf.S) = struct
     let[@inline] make st lit =
       let var, negated = Var.make st lit in
       match negated with
-      | Formula_intf.Negated -> var.na
-      | Formula_intf.Same_sign -> var.pa
+      | Theory_intf.Negated -> var.na
+      | Theory_intf.Same_sign -> var.pa
 
-    let pp fmt a = E.Formula.print fmt a.lit
+    let pp fmt a = E.Form.print fmt a.lit
 
     let pp_a fmt v =
       if Array.length v = 0 then (
@@ -341,43 +265,10 @@ module McMake (E : Expr_intf.S) = struct
 
     let debug out a =
       Format.fprintf out "%s%d[%a][atom:@[<hov>%a@]]"
-        (sign a) (a.var.vid+1) debug_value a E.Formula.print a.lit
+        (sign a) (a.var.vid+1) debug_value a E.Form.print a.lit
 
     let debug_a out vec =
       Array.iter (fun a -> Format.fprintf out "%a@ " debug a) vec
-  end
-
-  (* Elements *)
-  module Elt = struct
-    type t = elt
-    let[@inline] of_lit l = E_lit l
-    let[@inline] of_var v = E_var v
-
-    let[@inline] id = function
-      | E_lit l -> l.lid | E_var v ->  v.vid
-    let[@inline] level = function
-      | E_lit l -> l.l_level | E_var v ->  v.v_level
-    let[@inline] idx = function
-      | E_lit l -> l.l_idx | E_var v ->  v.v_idx
-    let[@inline] weight = function
-      | E_lit l -> l.l_weight | E_var v ->  v.v_weight
-
-    let[@inline] set_level e lvl = match e with
-      | E_lit l -> l.l_level <- lvl | E_var v ->  v.v_level <- lvl
-    let[@inline] set_idx e i = match e with
-      | E_lit l -> l.l_idx <- i | E_var v ->  v.v_idx <- i
-    let[@inline] set_weight e w = match e with
-      | E_lit l -> l.l_weight <- w | E_var v ->  v.v_weight <- w
-  end
-
-  module Trail_elt = struct
-    type t = trail_elt
-    let[@inline] of_lit l = Lit l
-    let[@inline] of_atom a = Atom a
-
-    let debug fmt = function
-      | Lit l -> Lit.debug fmt l
-      | Atom a -> Atom.debug fmt a
   end
 
   module Clause = struct
@@ -449,28 +340,8 @@ module McMake (E : Expr_intf.S) = struct
       Format.fprintf fmt "%a0" aux atoms
   end
 
-  module Term = struct
-    include E.Term
-    let pp = print
-  end
-
   module Formula = struct
-    include E.Formula
+    include E.Form
     let pp = print
   end
 end[@@inline]
-
-
-(* Solver types for pure SAT Solving *)
-(* ************************************************************************ *)
-
-module SatMake (E : Formula_intf.S) = struct
-  include McMake(struct
-      include E
-      module Term = E
-      module Formula = E
-    end)
-
-  let mcsat = false
-end[@@inline]
-

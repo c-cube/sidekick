@@ -17,6 +17,6 @@ module type Arg = Tseitin_intf.Arg
 module type S = Tseitin_intf.S
 (** The exposed interface of Tseitin's CNF conversion. *)
 
-module Make : functor (F : Arg) -> S with type atom = F.t
+module Make(A : Arg) : S with type atom = A.Form.t and type fresh_state = A.t
 (** This functor provides an implementation of Tseitin's CNF conversion. *)
 

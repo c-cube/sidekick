@@ -9,9 +9,8 @@ Copyright 2016 Guillaume Bury
     atomic propositions.
 *)
 
-module Expr = Expr_sat
-module Type = Type_sat
+module Th = Th_sat
 
-include Minismt.Solver.S with type formula = Expr.t
+include module type of Msat.Make(Th)
 (** A functor that can generate as many solvers as needed. *)
 
