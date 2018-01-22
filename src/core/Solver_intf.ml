@@ -1,9 +1,3 @@
-(*
-MSAT is free software, using the Apache license, see file LICENSE
-Copyright 2016 Guillaume Bury
-Copyright 2016 Simon Cruanes
-*)
-
 (** Interface for Solvers
 
     This modules defines the safe external interface for solvers.
@@ -11,7 +5,7 @@ Copyright 2016 Simon Cruanes
     functor in {!Solver} or {!Mcsolver}.
 *)
 
-type ('term, 'form) sat_state = {
+type 'form sat_state = Sat_state of {
   eval: 'form -> bool;
   (** Returns the valuation of a formula in the current state
       of the sat solver.
@@ -22,15 +16,13 @@ type ('term, 'form) sat_state = {
       the atom to have this value; otherwise it is due to choices
       that can potentially be backtracked.
       @raise UndecidedLit if the literal is not decided *)
-  iter_trail : ('form -> unit) -> ('term -> unit) -> unit;
-  (** Iter thorugh the formulas and terms in order of decision/propagation
+  iter_trail : ('form -> unit) -> unit;
+  (** Iter through the formulas and terms in order of decision/propagation
       (starting from the first propagation, to the last propagation). *)
-  model: unit -> ('term * 'term) list;
-  (** Returns the model found if the formula is satisfiable. *)
 }
 (** The type of values returned when the solver reaches a SAT state. *)
 
-type ('clause, 'proof) unsat_state = {
+type ('clause, 'proof) unsat_state = Unsat_state of {
   unsat_conflict : unit -> 'clause;
   (** Returns the unsat clause found at the toplevel *)
   get_proof : unit -> 'proof;
@@ -54,11 +46,11 @@ module type S = sig
       These are the internal modules used, you should probably not use them
       if you're not familiar with the internals of mSAT. *)
 
-  type term (** user terms *)
-
   type formula (** user formulas *)
 
   type clause
+
+  type theory (** user theory *)
 
   module Proof : Res.S with type clause = clause
   (** A module to manipulate proofs. *)
@@ -80,7 +72,7 @@ module type S = sig
 
   (** Result type for the solver *)
   type res =
-    | Sat of (term,formula) sat_state (** Returned when the solver reaches SAT, with a model *)
+    | Sat of formula sat_state (** Returned when the solver reaches SAT, with a model *)
     | Unsat of (clause,Proof.proof) unsat_state (** Returned when the solver reaches UNSAT, with a proof *)
 
   exception UndecidedLit
@@ -88,6 +80,8 @@ module type S = sig
       has not yet been assigned a value. *)
 
   (** {2 Base operations} *)
+
+  val theory : t -> theory
 
   val assume : t -> ?tag:int -> atom list list -> unit
   (** Add the list of clauses to the current set of assumptions.
@@ -101,11 +95,6 @@ module type S = sig
       @param assumptions additional atomic assumptions to be temporarily added.
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state. *)
-
-  val new_lit : t -> term -> unit
-  (** Add a new litteral (i.e term) to the solver. This term will
-      be decided on at some point during solving, wether it appears
-      in clauses or not. *)
 
   val new_atom : t -> atom -> unit
   (** Add a new atom (i.e propositional formula) to the solver.
@@ -132,6 +121,9 @@ module type S = sig
   (** Return to last save point, discarding clauses added since last
       call to [push] *)
 
+  val actions : t -> (formula,Proof.lemma) Theory_intf.actions
+  (** Obtain actions *)
+
   val export : t -> clause export
 
   (** {2 Re-export some functions} *)
@@ -153,11 +145,6 @@ module type S = sig
 
   module Formula : sig
     type t = formula
-    val pp : t printer
-  end
-
-  module Term : sig
-    type t = term
     val pp : t printer
   end
 end

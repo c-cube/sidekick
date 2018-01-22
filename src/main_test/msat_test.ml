@@ -4,8 +4,6 @@ Copyright 2014 Guillaume Bury
 Copyright 2014 Simon Cruanes
 *)
 
-open Msat
-
 exception Incorrect_model
 exception Out_of_time
 exception Out_of_space
@@ -28,7 +26,13 @@ end
 
 module Make
     (S : Msat.S)
-    (T : Minismt.Type.S with type atom := S.atom)
+    (Th : sig
+       include Msat.Theory_intf.S with type t = S.theory
+    end)
+    (T : sig
+       include Type.S with type atom := S.atom
+       val create : Th.t -> t
+    end)
   : sig
     val do_task : Dolmen.Statement.t -> unit
   end = struct
@@ -38,13 +42,15 @@ module Make
   let hyps = ref []
 
   let st = S.create ~size:`Big ()
+  let th = S.theory st
+  let t_st = T.create th
 
-  let check_model sat =
+  let check_model (Msat.Sat_state sat) =
     let check_clause c =
       let l = List.map (function a ->
           Log.debugf 99
             (fun k -> k "Checking value of %a" S.Formula.pp a);
-          sat.Msat.eval a) c in
+          sat.eval a) c in
       List.exists (fun x -> x) l
     in
     let l = List.map check_clause !hyps in
@@ -60,9 +66,9 @@ module Make
             raise Incorrect_model;
         let t' = Sys.time () -. t in
         Format.printf "Sat (%f/%f)@." t t'
-      | S.Unsat state ->
+      | S.Unsat (Msat.Unsat_state us) ->
         if !p_check then begin
-          let p = state.Msat.get_proof () in
+          let p = us.get_proof () in
           S.Proof.check p;
           if !p_dot_proof <> "" then begin
             let fmt = Format.formatter_of_out_channel (open_out !p_dot_proof) in
@@ -73,20 +79,20 @@ module Make
         Format.printf "Unsat (%f/%f)@." t t'
     end
 
-  let do_task s =
+  let do_task s : unit =
     match s.Dolmen.Statement.descr with
-    | Dolmen.Statement.Def (id, t) -> T.def id t
-    | Dolmen.Statement.Decl (id, t) -> T.decl id t
+    | Dolmen.Statement.Def (id, t) -> T.def t_st id t
+    | Dolmen.Statement.Decl (id, t) -> T.decl t_st id t
     | Dolmen.Statement.Clause l ->
-      let cnf = T.antecedent (Dolmen.Term.or_ l) in
+      let cnf = T.antecedent t_st (Dolmen.Term.or_ l) in
       hyps := cnf @ !hyps;
       S.assume st cnf
     | Dolmen.Statement.Consequent t ->
-      let cnf = T.consequent t in
+      let cnf = T.consequent t_st t in
       hyps := cnf @ !hyps;
       S.assume st cnf
     | Dolmen.Statement.Antecedent t ->
-      let cnf = T.antecedent t in
+      let cnf = T.antecedent t_st t in
       hyps := cnf @ !hyps;
       S.assume st cnf
     | Dolmen.Statement.Pack [
@@ -95,7 +101,7 @@ module Make
         { Dolmen.Statement.descr = Dolmen.Statement.Prove;_ };
         { Dolmen.Statement.descr = Dolmen.Statement.Pop 1;_ };
       ] ->
-      let assumptions = T.assumptions f in
+      let assumptions = T.assumptions t_st f in
       prove ~assumptions ()
     | Dolmen.Statement.Prove ->
       prove ~assumptions:[] ()
@@ -107,15 +113,17 @@ module Make
         Dolmen.Statement.print s
 end
 
-module Sat = Make(Minismt_sat)(Minismt_sat.Type)
-module Smt = Make(Minismt_smt)(Minismt_smt.Type)
-module Mcsat = Make(Minismt_mcsat)(Minismt_smt.Type)
+module Sat = Make(Msat_sat)(Msat_sat.Th)(Type_sat)
+    (*
+module Smt = Make(Minismt_smt)(Msat_sat.Th)(Minismt_smt.Type)
+       *)
 
 let solver = ref (module Sat : S)
 let solver_list = [
   "sat", (module Sat : S);
+(* FIXME
   "smt", (module Smt : S);
-  "mcsat", (module Mcsat : S);
+*)
 ]
 
 let error_msg opt arg l =
@@ -228,8 +236,10 @@ let () =
   | Incorrect_model ->
     Format.printf "Internal error : incorrect *sat* model@.";
     exit 4
-  | Minismt_sat.Type.Typing_error (msg, t)
-  | Minismt_smt.Type.Typing_error (msg, t) ->
+  (* FIXME
+  | Minismt_smt.Type.Typing_error (msg, t)
+  *)
+  | Type_sat.Typing_error (msg, t) ->
     let b = Printexc.get_backtrace () in
     let loc = match t.Dolmen.Term.loc with
       | Some l -> l | None -> Dolmen.ParseLocation.mk "<>" 0 0 0 0

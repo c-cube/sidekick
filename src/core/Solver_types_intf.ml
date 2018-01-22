@@ -1,21 +1,3 @@
-(**************************************************************************)
-(*                                                                        *)
-(*                                  Cubicle                               *)
-(*             Combining model checking algorithms and SMT solvers        *)
-(*                                                                        *)
-(*                  Sylvain Conchon and Alain Mebsout                     *)
-(*                  Universite Paris-Sud 11                               *)
-(*                                                                        *)
-(*  Copyright 2011. This file is distributed under the terms of the       *)
-(*  Apache Software License version 2.0                                   *)
-(*                                                                        *)
-(**************************************************************************)
-(*
-MSAT is free software, using the Apache license, see file LICENSE
-Copyright 2016 Guillaume Bury
-Copyright 2016 Simon Cruanes
-*)
-
 (** Internal types (interface)
 
     This modules defines the interface of most of the internal types
@@ -29,9 +11,6 @@ type 'a printer = Format.formatter -> 'a -> unit
 module type S = sig
   (** The signatures of clauses used in the Solver. *)
 
-  val mcsat : bool
-  (** TODO:deprecate. *)
-
   type t
   (** State for creating new terms, literals, clauses *)
 
@@ -39,10 +18,9 @@ module type S = sig
 
   (** {2 Type definitions} *)
 
-  type term
   type formula
   type proof
-  (** The types of terms, formulas and proofs. All of these are user-provided. *)
+  (** The types of formulas and proofs. All of these are user-provided. *)
 
   type seen =
     | Nope
@@ -54,16 +32,6 @@ module type S = sig
      instead, provide well defined modules [module Lit : sig type t val …]
      that define their API in Msat itself (not here) *)
 
-  type lit = {
-    lid : int;                      (** Unique identifier *)
-    term : term;                    (** Wrapped term *)
-    mutable l_level : int;          (** Decision level of the assignment *)
-    mutable l_idx: int;             (** index in heap *)
-    mutable l_weight : float;       (** Weight (for the heap) *)
-    mutable assigned : term option; (** Assignment *)
-  }
-  (** Wrapper type for literals, i.e. theory terms (for mcsat only). *)
-
   type var = {
     vid : int;  (** Unique identifier *)
     pa : atom;  (** Link for the positive atom *)
@@ -72,8 +40,6 @@ module type S = sig
     mutable v_level : int;      (** Level of decision/propagation *)
     mutable v_idx: int;         (** rank in variable heap *)
     mutable v_weight : float;   (** Variable weight (for the heap) *)
-    mutable v_assignable: lit list option;
-    (** In mcsat, the list of lits that wraps subterms of the formula wrapped. *)
     mutable reason : reason option;
     (** The reason for propagation/decision of the literal *)
   }
@@ -131,40 +97,17 @@ module type S = sig
       satisfied by the solver. *)
 
   (** {2 Decisions and propagations} *)
-  type trail_elt =
-    | Lit of lit
-    | Atom of atom (**)
-  (** Either a lit of an atom *)
 
   (** {2 Elements} *)
 
-  type elt =
-    | E_lit of lit
-    | E_var of var (**)
-  (** Either a lit of a var *)
-
   val nb_elt : t -> int
-  val get_elt : t -> int -> elt
-  val iter_elt : t -> (elt -> unit) -> unit
+  val get_elt : t -> int -> var
+  val iter_elt : t -> (var -> unit) -> unit
   (** Read access to the vector of variables created *)
 
   (** {2 Variables, Literals & Clauses } *)
 
   type state = t
-
-  module Lit : sig
-    type t = lit
-    val term : t -> term
-    val make : state -> term -> t
-    (** Returns the variable associated with the term *)
-
-    val level : t -> int
-    val assigned : t -> term option
-    val weight : t -> float
-
-    val pp : t printer
-    val debug : t printer
-  end
 
   module Var : sig
     type t = var
@@ -174,11 +117,15 @@ module type S = sig
     val neg : t -> atom
 
     val level : t -> int
+    val idx : t -> int
     val reason : t -> reason option
-    val assignable : t -> lit list option
     val weight : t -> float
 
-    val make : state -> formula -> t * Formula_intf.negated
+    val set_level : t -> int -> unit
+    val set_idx : t -> int -> unit
+    val set_weight : t -> float -> unit
+
+    val make : state -> formula -> t * Theory_intf.negated
     (** Returns the variable linked with the given formula,
         and whether the atom associated with the formula
         is [var.pa] or [var.na] *)
@@ -221,22 +168,6 @@ module type S = sig
     val debug_a : t array printer
   end
 
-  module Elt : sig
-    type t = elt
-
-    val of_lit : Lit.t -> t
-    val of_var : Var.t -> t
-
-    val id : t -> int
-    val level : t -> int
-    val idx : t -> int
-    val weight : t -> float
-
-    val set_level : t -> int -> unit
-    val set_idx : t -> int -> unit
-    val set_weight : t -> float -> unit
-  end
-
   module Clause : sig
     type t = clause
     val dummy : t
@@ -260,22 +191,6 @@ module type S = sig
     val debug : t printer
 
     module Tbl : Hashtbl.S with type key = t
-  end
-
-  module Trail_elt : sig
-    type t = trail_elt
-
-    val of_lit : Lit.t -> t
-    val of_atom : Atom.t -> t
-    (** Constructors and destructors *)
-    val debug : t printer
-  end
-
-  module Term : sig
-    type t = term
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val pp : t printer
   end
 
   module Formula : sig

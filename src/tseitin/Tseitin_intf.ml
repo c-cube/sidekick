@@ -19,17 +19,22 @@ module type Arg = sig
       Tseitin's CNF conversion.
   *)
 
+  module Form : sig
+    type t
+    (** Type of atomic formulas. *)
+
+    val neg : t -> t
+    (** Negation of atomic formulas. *)
+
+    val print : Format.formatter -> t -> unit
+    (** Print the given formula. *)
+  end
+
   type t
-  (** Type of atomic formulas. *)
+  (** State *)
 
-  val neg : t -> t
-  (** Negation of atomic formulas. *)
-
-  val fresh : unit -> t
+  val fresh : t -> Form.t
   (** Generate fresh formulas (that are different from any other). *)
-
-  val print : Format.formatter -> t -> unit
-  (** Print the given formula. *)
 
 end
 
@@ -75,7 +80,15 @@ module type S = sig
   val make_equiv : t -> t -> t
   (** [make_equiv p q] creates the boolena formula "[p] is equivalent to [q]". *)
 
-  val make_cnf : t -> atom list list
+  type fresh_state
+  (** State used to produce fresh atoms *)
+
+  type state
+  (** State used for the Tseitin transformation *)
+
+  val create : fresh_state -> state
+
+  val make_cnf : state -> t -> atom list list
   (** [make_cnf f] returns a conjunctive normal form of [f] under the form: a
       list (which is a conjunction) of lists (which are disjunctions) of
       atomic formulas. *)

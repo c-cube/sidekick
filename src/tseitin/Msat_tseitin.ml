@@ -14,12 +14,13 @@ module type Arg = Tseitin_intf.Arg
 
 module type S = Tseitin_intf.S
 
-module Make (F : Tseitin_intf.Arg) = struct
+module Make (A : Tseitin_intf.Arg) = struct
+  module F = A.Form
 
   exception Empty_Or
   type combinator = And | Or | Imp | Not
 
-  type atom = F.t
+  type atom = A.Form.t
   type t =
     | True
     | Lit of atom
@@ -129,118 +130,34 @@ module Make (F : Tseitin_intf.Arg) = struct
   let ( @@ ) l1 l2 = List.rev_append l1 l2
   (* let ( @ ) = `Use_rev_append_instead   (* prevent use of non-tailrec append *) *)
 
-  (*
-  let distrib l_and l_or =
-    let l =
-      if l_or = [] then l_and
-      else
-        List.rev_map
-          (fun x ->
-             match x with
-             | Lit _ -> Comb (Or, x::l_or)
-             | Comb (Or, l) -> Comb (Or, l @@ l_or)
-             | _ -> assert false
-          ) l_and
-    in
-    Comb (And, l)
+  type fresh_state = A.t
 
-  let rec flatten_or = function
-    | [] -> []
-    | Comb (Or, l)::r -> l @@ (flatten_or r)
-    | Lit a :: r -> (Lit a)::(flatten_or r)
-    | _ -> assert false
+  type state = {
+    fresh: fresh_state;
+    mutable acc_or : (atom * atom list) list;
+    mutable acc_and : (atom * atom list) list;
 
-  let rec flatten_and = function
-    | [] -> []
-    | Comb (And, l)::r -> l @@ (flatten_and r)
-    | a :: r -> a::(flatten_and r)
+  }
 
+  let create fresh : state = {
+    fresh;
+    acc_or=[];
+    acc_and=[];
+  }
 
-  let rec cnf f =
-    match f with
-    | Comb (Or, l) ->
-      begin
-        let l = List.rev_map cnf l in
-        let l_and, l_or =
-          List.partition (function Comb(And,_) -> true | _ -> false) l in
-        match l_and with
-        | [ Comb(And, l_conj) ] ->
-          let u = flatten_or l_or in
-          distrib l_conj u
-
-        | Comb(And, l_conj) :: r ->
-          let u = flatten_or l_or in
-          cnf (Comb(Or, (distrib l_conj u)::r))
-
-        | _ ->
-          begin
-            match flatten_or l_or with
-            | [] -> assert false
-            | [r] -> r
-            | v -> Comb (Or, v)
-          end
-      end
-    | Comb (And, l) ->
-      Comb (And, List.rev_map cnf l)
-    | f -> f
-
-  let rec mk_cnf = function
-    | Comb (And, l) ->
-      List.fold_left (fun acc f ->  (mk_cnf f) @@ acc) [] l
-
-    | Comb (Or, [f1;f2]) ->
-      let ll1 = mk_cnf f1 in
-      let ll2 = mk_cnf f2 in
-      List.fold_left
-        (fun acc l1 -> (List.rev_map (fun l2 -> l1 @@ l2)ll2) @@ acc) [] ll1
-
-    | Comb (Or, f1 :: l) ->
-      let ll1 = mk_cnf f1 in
-      let ll2 = mk_cnf (Comb (Or, l)) in
-      List.fold_left
-        (fun acc l1 -> (List.rev_map (fun l2 -> l1 @@ l2)ll2) @@ acc) [] ll1
-
-    | Lit a -> [[a]]
-    | Comb (Not, [Lit a]) -> [[F.neg a]]
-    | _ -> assert false
-
-
-  let rec unfold mono f =
-    match f with
-    | Lit a -> a::mono
-    | Comb (Not, [Lit a]) ->
-      (F.neg a)::mono
-    | Comb (Or, l) ->
-      List.fold_left unfold mono l
-    | _ -> assert false
-
-  let rec init monos f =
-    match f with
-    | Comb (And, l) ->
-      List.fold_left init monos l
-    | f -> (unfold [] f)::monos
-
-  let make_cnf f =
-    let sfnc = cnf (sform f) in
-    init [] sfnc
-  *)
-
-  let mk_proxy = F.fresh
-
-  let acc_or = ref []
-  let acc_and = ref []
+  let mk_proxy st : F.t = A.fresh st.fresh
 
   (* build a clause by flattening (if sub-formulas have the
      same combinator) and proxy-ing sub-formulas that have the
      opposite operator. *)
-  let rec cnf f = match f with
+  let rec cnf st f = match f with
     | Lit a -> None, [a]
     | Comb (Not, [Lit a]) -> None, [F.neg a]
 
     | Comb (And, l) ->
       List.fold_left
         (fun (_, acc) f ->
-           match cnf f with
+           match cnf st f with
            | _, [] -> assert false
            | _cmb, [a] -> Some And, a :: acc
            | Some And, l ->
@@ -249,8 +166,8 @@ module Make (F : Tseitin_intf.Arg) = struct
            (* acc_and := (proxy, l) :: !acc_and; *)
            (* proxy :: acc *)
            | Some Or, l ->
-             let proxy = mk_proxy () in
-             acc_or := (proxy, l) :: !acc_or;
+             let proxy = mk_proxy st in
+             st.acc_or <- (proxy, l) :: st.acc_or;
              Some And, proxy :: acc
            | None, l -> Some And, l @@ acc
            | _ -> assert false
@@ -259,7 +176,7 @@ module Make (F : Tseitin_intf.Arg) = struct
     | Comb (Or, l) ->
       List.fold_left
         (fun (_, acc) f ->
-           match cnf f with
+           match cnf st f with
            | _, [] -> assert false
            | _cmb, [a] -> Some Or, a :: acc
            | Some Or, l ->
@@ -268,20 +185,20 @@ module Make (F : Tseitin_intf.Arg) = struct
            (* acc_or := (proxy, l) :: !acc_or; *)
            (* proxy :: acc *)
            | Some And, l ->
-             let proxy = mk_proxy () in
-             acc_and := (proxy, l) :: !acc_and;
+             let proxy = mk_proxy st  in
+             st.acc_and <- (proxy, l) :: st.acc_and;
              Some Or, proxy :: acc
            | None, l -> Some Or, l @@ acc
-           | _ -> assert false
-        ) (None, []) l
+           | _ -> assert false)
+        (None, []) l
     | _ -> assert false
 
-  let cnf f =
+  let cnf st f =
     let acc = match f with
       | True -> []
       | Comb(Not, [True]) -> [[]]
-      | Comb (And, l) -> List.rev_map (fun f -> snd(cnf f)) l
-      | _ -> [snd (cnf f)]
+      | Comb (And, l) -> List.rev_map (fun f -> snd(cnf st f)) l
+      | _ -> [snd (cnf st f)]
     in
     let proxies = ref [] in
     (* encore clauses that make proxies in !acc_and equivalent to
@@ -297,8 +214,8 @@ module Make (F : Tseitin_intf.Arg) = struct
              List.fold_left
                (fun (cl,acc) a -> (F.neg a :: cl), [np; a] :: acc)
                ([p],acc) l in
-           cl :: acc
-        ) acc !acc_and
+           cl :: acc)
+        acc st.acc_and
     in
     (* encore clauses that make proxies in !acc_or equivalent to
        their clause *)
@@ -310,15 +227,15 @@ module Make (F : Tseitin_intf.Arg) = struct
               [l1 => p], [l2 => p], etc. *)
            let acc = List.fold_left (fun acc a -> [p; F.neg a]::acc)
                acc l in
-           (F.neg p :: l) :: acc
-        ) acc !acc_or
+           (F.neg p :: l) :: acc)
+        acc st.acc_or
     in
     acc
 
-  let make_cnf f =
-    acc_or := [];
-    acc_and := [];
-    cnf (sform f (fun f' -> f'))
+  let make_cnf st f : _ list list =
+    st.acc_or <- [];
+    st.acc_and <- [];
+    cnf st (sform f (fun f' -> f'))
 
   (* Naive CNF XXX remove???
      let make_cnf f = mk_cnf (sform f)

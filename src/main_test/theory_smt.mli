@@ -304,9 +304,6 @@ module Atom : sig
   val dummy : atom
   (** A dummy atom, different from any other atom. *)
 
-  val fresh : unit -> atom
-  (** Create a fresh propositional atom. *)
-
   val eq : term -> term -> atom
   (** Create an equality over two terms. The two given terms
       must have the same type [t], which must be different from {!Ty.prop} *)
@@ -317,7 +314,7 @@ module Atom : sig
   val neg : atom -> atom
   (** Returns the negation of the given atom *)
 
-  val norm : atom -> atom * Formula_intf.negated
+  val norm : atom -> atom * Msat.negated
   (** Normalization functions as required by msat. *)
 
 end

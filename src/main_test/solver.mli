@@ -14,17 +14,10 @@ Copyright 2014 Simon Cruanes
 module type S = Msat.S
 (** The interface of instantiated solvers. *)
 
-module DummyTheory(F : Formula_intf.S) :
-  Theory_intf.S with type formula = F.t
-                 and type proof = F.proof
-(** Simple case where the theory is empty and
-    the proof type is the one given in the formula interface *)
-
-module Make (F : Formula_intf.S)
-    (Th : Theory_intf.S with type formula = F.t
-                         and type proof = F.proof)
-  : S with type formula = F.t
-       and type Proof.lemma = F.proof
+module Make (Th : Theory_intf.S)
+  : S with type formula = Th.formula
+       and type Proof.lemma = Th.proof
+       and type theory = Th.t
 (** Functor to create a SMT Solver parametrised by the atomic
     formulas and a theory. *)
 

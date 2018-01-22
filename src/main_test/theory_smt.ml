@@ -499,10 +499,6 @@ module Atom = struct
     else
       mk_formula (Pred t)
 
-  let fresh () =
-    let id = Id.ty "fresh" Ty.prop in
-    pred (Term.of_id id)
-
   let neg f =
     { f with sign = not f.sign }
 
@@ -516,10 +512,198 @@ module Atom = struct
 
   let norm f =
     { f with sign = true },
-    if f.sign then Formula_intf.Same_sign
-    else Formula_intf.Negated
+    if f.sign then Msat.Same_sign
+    else Msat.Negated
 
 end
 
-module Formula = Msat_tseitin.Make(Atom)
+module Ts_arg = struct
+  module Form = Atom
+
+  type t = unit
+
+  let fresh () : Form.t =
+    let id = Id.ty "fresh" Ty.prop in
+    Form.pred (Term.of_id id)
+
+end
+
+
+module Formula = Msat_tseitin.Make(Ts_arg)
+
+(** {2 Theory} *)
+
+module E = Eclosure.Make(Term)
+module H = Backtrack.Hashtbl(Term)
+module M = Hashtbl.Make(Term)
+
+let uf acts = E.create acts
+
+let assign t =
+  match E.find_tag uf t with
+  | _, None -> t
+  | _, Some (_, v) -> v
+
+(* Propositional constants *)
+
+let true_ = Theory_smt.(Term.of_id (Id.ty "true" Ty.prop))
+let false_ = Theory_smt.(Term.of_id (Id.ty "false" Ty.prop))
+
+(* Uninterpreted functions and predicates *)
+
+let map : Theory_smt.term H.t = H.create stack
+let watch = M.create 4096
+let interpretation = H.create stack
+
+let pop_watches t =
+  try
+    let l = M.find watch t in
+    M.remove watch t;
+    l
+  with Not_found ->
+    []
+
+let add_job j x =
+  let l = try M.find watch x with Not_found -> [] in
+  M.add watch x (j :: l)
+
+let update_job x ((t, watchees) as job) =
+  try
+    let y = List.find (fun y -> not (H.mem map y)) watchees in
+    add_job job y
+  with Not_found ->
+    add_job job x;
+    begin match t with
+      | { Theory_smt.term = Theory_smt.App (f, tys, l);_ } ->
+        let is_prop = Theory_smt.(Ty.equal t.t_type Ty.prop) in
+        let t_v = H.find map t in
+        let l' = List.map (H.find map) l in
+        let u = Theory_smt.Term.apply f tys l' in
+        begin try
+            let t', u_v = H.find interpretation u in
+            if not (Theory_smt.Term.equal t_v u_v) then begin
+              match t' with
+              | { Theory_smt.term = Theory_smt.App (_, _, r); _ } when is_prop ->
+                let eqs = List.map2 (fun a b -> Theory_smt.Atom.neg (Theory_smt.Atom.eq a b)) l r in
+                if Theory_smt.(Term.equal u_v true_) then begin
+                  let res = Theory_smt.Atom.pred t ::
+                            Theory_smt.Atom.neg (Theory_smt.Atom.pred t') :: eqs in
+                  raise (Absurd res)
+                end else begin
+                  let res = Theory_smt.Atom.pred t' ::
+                            Theory_smt.Atom.neg (Theory_smt.Atom.pred t) :: eqs in
+                  raise (Absurd res)
+                end
+              | { Theory_smt.term = Theory_smt.App (_, _, r); _ } ->
+                let eqs = List.map2 (fun a b -> Theory_smt.Atom.neg (Theory_smt.Atom.eq a b)) l r in
+                let res = Theory_smt.Atom.eq t t' :: eqs in
+                raise (Absurd res)
+              | _ -> assert false
+            end
+          with Not_found ->
+            H.add interpretation u (t, t_v);
+        end
+      | _ -> assert false
+    end
+
+let rec update_watches x = function
+  | [] -> ()
+  | job :: r ->
+    begin
+      try
+        update_job x job;
+      with exn ->
+        List.iter (fun j -> add_job j x) r;
+        raise exn
+    end;
+    update_watches x r
+
+let add_watch t l =
+  update_job t (t, l)
+
+let add_assign t v =
+  H.add map t v;
+  update_watches t (pop_watches t)
+
+(* Assignemnts *)
+
+let rec iter_aux f = function
+  | { Theory_smt.term = Theory_smt.Var _; _ } as t ->
+    Log.debugf 10 (fun k -> k "Adding %a as assignable" Theory_smt.Term.print t);
+    f t
+  | { Theory_smt.term = Theory_smt.App (_, _, l); _ } as t ->
+    if l <> [] then add_watch t (t :: l);
+    List.iter (iter_aux f) l;
+    Log.debugf 10 (fun k -> k "Adding %a as assignable" Theory_smt.Term.print t);
+    f t
+
+let iter_assignable f = function
+  | { Theory_smt.atom = Theory_smt.Pred { Theory_smt.term = Theory_smt.Var _;_ }; _ } -> ()
+  | { Theory_smt.atom = Theory_smt.Pred ({ Theory_smt.term = Theory_smt.App (_, _, l);_} as t); _ } ->
+    if l <> [] then add_watch t (t :: l);
+    List.iter (iter_aux f) l;
+  | { Theory_smt.atom = Theory_smt.Equal (a, b);_ } ->
+    iter_aux f a; iter_aux f b
+
+let eval = function
+  | { Theory_smt.atom = Theory_smt.Pred t; _ } ->
+    begin try
+        let v = H.find map t in
+        if Theory_smt.Term.equal v true_ then
+          Plugin_intf.Valued (true, [t])
+        else if Theory_smt.Term.equal v false_ then
+          Plugin_intf.Valued (false, [t])
+        else
+          Plugin_intf.Unknown
+      with Not_found ->
+        Plugin_intf.Unknown
+    end
+  | { Theory_smt.atom = Theory_smt.Equal (a, b); sign; _ } ->
+    begin try
+        let v_a = H.find map a in
+        let v_b = H.find map b in
+        if Theory_smt.Term.equal v_a v_b then
+          Plugin_intf.Valued(sign, [a; b])
+        else
+          Plugin_intf.Valued(not sign, [a; b])
+      with Not_found ->
+        Plugin_intf.Unknown
+    end
+
+
+(* Theory propagation *)
+
+let rec chain_eq = function
+  | [] | [_] -> []
+  | a :: ((b :: _) as l) -> (Theory_smt.Atom.eq a b) :: chain_eq l
+
+let assume s =
+  let open Plugin_intf in
+  try
+    for i = s.start to s.start + s.length - 1 do
+      match s.get i with
+      | Assign (t, v) ->
+        add_assign t v;
+        E.add_tag uf t v
+      | Lit f ->
+        begin match f with
+          | { Theory_smt.atom = Theory_smt.Equal (u, v); sign = true;_ } ->
+            E.add_eq uf u v
+          | { Theory_smt.atom = Theory_smt.Equal (u, v); sign = false;_ } ->
+            E.add_neq uf u v
+          | { Theory_smt.atom = Theory_smt.Pred p; sign;_ } ->
+            let v = if sign then true_ else false_ in
+            add_assign p v
+        end
+    done;
+    Plugin_intf.Sat
+  with
+  | Absurd l ->
+    Plugin_intf.Unsat (l, ())
+  | E.Unsat (a, b, l) ->
+    let c = Theory_smt.Atom.eq a b :: List.map Theory_smt.Atom.neg (chain_eq l) in
+    Plugin_intf.Unsat (c, ())
+
+let if_sat _ =
+  Plugin_intf.Sat
 

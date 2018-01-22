@@ -10,8 +10,7 @@ open Solver_intf
 
 module Make
     (St : Solver_types.S)
-    (Th : Plugin_intf.S with type term = St.term
-                         and type formula = St.formula
+    (Th :  Theory_intf.S with type formula = St.formula
                          and type proof = St.proof)
 = struct
 
@@ -24,18 +23,18 @@ module Make
   exception UndecidedLit = S.UndecidedLit
 
   type formula = St.formula
-  type term = St.term
   type atom = St.formula
   type clause = St.clause
+  type theory = Th.t
 
   type t = S.t
   type solver = t
 
-  let[@inline] create ?size () = S.create ?size ()
+  let[@inline] create ?size () : t = S.create ?size ()
 
   (* Result type *)
   type res =
-    | Sat of (St.term,St.formula) sat_state
+    | Sat of St.formula sat_state
     | Unsat of (St.clause,Proof.proof) unsat_state
 
   let pp_all st lvl status =
@@ -44,26 +43,19 @@ module Make
           "@[<v>%s - Full resume:@,@[<hov 2>Trail:@\n%a@]@,\
            @[<hov 2>Temp:@\n%a@]@,@[<hov 2>Hyps:@\n%a@]@,@[<hov 2>Lemmas:@\n%a@]@,@]@."
           status
-          (Vec.print ~sep:"" St.Trail_elt.debug) (S.trail st)
+          (Vec.print ~sep:"" St.Atom.debug) (S.trail st)
           (Vec.print ~sep:"" St.Clause.debug) (S.temp st)
           (Vec.print ~sep:"" St.Clause.debug) (S.hyps st)
           (Vec.print ~sep:"" St.Clause.debug) (S.history st)
       )
 
-  let mk_sat (st:S.t) : (_,_) sat_state =
+  let mk_sat (st:S.t) : _ sat_state =
     pp_all st 99 "SAT";
-    let t = S.trail st in
-    let iter f f' =
-      Vec.iter (function
-          | St.Atom a -> f a.St.lit
-          | St.Lit l -> f' l.St.term)
-        t
-    in
-    {
+    let iter f : unit = Vec.iter (fun a -> f a.St.lit) (S.trail st) in
+    Sat_state {
       eval = S.eval st;
       eval_level = S.eval_level st;
       iter_trail = iter;
-      model = (fun () -> S.model st);
     }
 
   let mk_unsat (st:S.t) : (_,_) unsat_state =
@@ -77,7 +69,7 @@ module Make
       let c = unsat_conflict () in
       S.Proof.prove_unsat c
     in
-    { unsat_conflict; get_proof; }
+    Unsat_state { unsat_conflict; get_proof; }
 
   (* clean local state *)
   let[@inline] cleanup_ (st:t) : unit =
@@ -85,6 +77,8 @@ module Make
       S.pop st; (* reset *)
       st.S.dirty <- false;
     )
+
+  let theory = S.theory
 
   (* Wrappers around internal functions*)
   let[@inline] assume st ?tag cls : unit =
@@ -124,13 +118,11 @@ module Make
 
   let get_tag cl = St.(cl.tag)
 
-  let[@inline] new_lit st t =
-    cleanup_ st;
-    S.new_lit st t
-
   let[@inline] new_atom st a =
     cleanup_ st;
     S.new_atom st a
+
+  let actions = S.actions
 
   let export (st:t) : St.clause export =
     let hyps = S.hyps st in
@@ -150,5 +142,4 @@ module Make
   end
 
   module Formula = St.Formula
-  module Term = St.Term
 end
