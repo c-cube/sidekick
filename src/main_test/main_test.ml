@@ -25,9 +25,9 @@ module type S = sig
 end
 
 module Make
-    (S : Msat.S)
+    (S : CDCL.S)
     (Th : sig
-       include Msat.Theory_intf.S with type t = S.theory
+       include CDCL.Theory_intf.S with type t = S.theory
     end)
     (T : sig
        include Type.S with type atom := S.atom
@@ -37,7 +37,7 @@ module Make
     val do_task : Dolmen.Statement.t -> unit
   end = struct
 
-  module D = Msat_backend.Dot.Make(S.Proof)(Msat_backend.Dot.Default(S.Proof))
+  module D = CDCL_backend.Dot.Make(S.Proof)(CDCL_backend.Dot.Default(S.Proof))
 
   let hyps = ref []
 
@@ -45,7 +45,7 @@ module Make
   let th = S.theory st
   let t_st = T.create th
 
-  let check_model (Msat.Sat_state sat) =
+  let check_model (CDCL.Sat_state sat) =
     let check_clause c =
       let l = List.map (function a ->
           Log.debugf 99
@@ -66,7 +66,7 @@ module Make
             raise Incorrect_model;
         let t' = Sys.time () -. t in
         Format.printf "Sat (%f/%f)@." t t'
-      | S.Unsat (Msat.Unsat_state us) ->
+      | S.Unsat (CDCL.Unsat_state us) ->
         if !p_check then begin
           let p = us.get_proof () in
           S.Proof.check p;
@@ -113,9 +113,9 @@ module Make
         Dolmen.Statement.print s
 end
 
-module Sat = Make(Msat_sat)(Msat_sat.Th)(Type_sat)
+module Sat = Make(CDCL_sat)(CDCL_sat.Th)(Type_sat)
     (*
-module Smt = Make(Minismt_smt)(Msat_sat.Th)(Minismt_smt.Type)
+module Smt = Make(Minismt_smt)(CDCL_sat.Th)(Minismt_smt.Type)
        *)
 
 let solver = ref (module Sat : S)

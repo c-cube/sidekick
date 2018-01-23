@@ -22,13 +22,14 @@ build-dev:
 	jbuilder build $(OPTS) @install --dev
 
 build-test: build
-	jbuilder build $(OPTS) src/main_test/msat_test.exe
+	jbuilder build $(OPTS) src/main_test/main_test.exe
 
 test: build-test
 	@echo "run API tests…"
 	jbuilder runtest
 	@echo "run benchmarks…"
-	@/usr/bin/time -f "%e" ./tests/run smt
+	@/usr/bin/time -f "%e" ./tests/run sat
+	#@/usr/bin/time -f "%e" ./tests/run smt
 	# @/usr/bin/time -f "%e" ./tests/run mcsat
 
 enable_log:

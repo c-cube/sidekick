@@ -8,7 +8,7 @@
     near optimal efficiency (both in terms of space and time).
 *)
 
-open Msat
+open CDCL
 
 include Theory_intf.S with type formula = int and type proof = unit
 (** This modules implements the requirements for implementing an SAT Solver. *)

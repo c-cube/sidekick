@@ -5,5 +5,5 @@ Copyright 2016 Guillaume Bury
 
 module Th = Th_sat
 
-include Msat.Make(Th)
+include CDCL.Make(Th)
 

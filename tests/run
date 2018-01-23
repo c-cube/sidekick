@@ -1,10 +1,12 @@
 #!/bin/bash
 
 CURDIR=`dirname $0`
-SOLVER="$CURDIR/../msat.exe"
+SOLVER="$CURDIR/../main.exe"
 
 solvertest () {
-    for f in `find -L $1 -type f -name '*.cnf' -o -name '*.smt2'`
+    # FIXME
+    #for f in `find -L $1 -type f -name '*.cnf' -o -name '*.smt2'`
+    for f in `find -L $1 -type f -name '*.cnf'`
     do
         echo -ne "\r\033[KTesting $f..."
         "$SOLVER" -s $3 -time 30s -size 1G -check $f | grep $2

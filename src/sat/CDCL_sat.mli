@@ -11,6 +11,6 @@ Copyright 2016 Guillaume Bury
 
 module Th = Th_sat
 
-include module type of Msat.Make(Th)
+include module type of CDCL.Make(Th)
 (** A functor that can generate as many solvers as needed. *)
 

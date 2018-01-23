@@ -1,5 +1,5 @@
 opam-version: "1.2"
-name: "msat"
+name: "cdcl"
 license: "Apache"
 version: "dev"
 author: ["Sylvain Conchon" "Alain Mebsout" "Stephane Lecuyer" "Simon Cruanes" "Guillaume Bury"]
@@ -19,7 +19,7 @@ available: [
   ocaml-version >= "4.03.0"
 ]
 tags: [ "sat" "smt" ]
-homepage: "https://github.com/Gbury/mSAT"
-dev-repo: "https://github.com/Gbury/mSAT.git"
-bug-reports: "https://github.com/Gbury/mSAT/issues/"
+homepage: "https://github.com/c-cube/cdcl"
+dev-repo: "https://github.com/c-cube/cdcl.git"
+bug-reports: "https://github.com/c-cube/cdcl/issues/"
 

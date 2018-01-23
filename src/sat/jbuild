@@ -1,11 +1,11 @@
 ; vim:ft=lisp:
 
 (library
-  ((name msat_sat)
-   (public_name msat.sat)
-   (libraries (msat msat.tseitin))
+  ((name CDCL_sat)
+   (public_name cdcl.sat)
+   (libraries (cdcl cdcl.tseitin))
    (synopsis "sat interface")
-   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open Msat))
+   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open CDCL))
    (ocamlopt_flags (:standard -O3 -bin-annot
                     -unbox-closures -unbox-closures-factor 20))
   ))

@@ -9,8 +9,6 @@ Copyright 2014 Simon Cruanes
     Work in progress...
 *)
 
-open Msat
-
 module type S = Backend_intf.S
 
 module type Arg = sig

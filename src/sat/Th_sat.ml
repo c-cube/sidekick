@@ -8,7 +8,7 @@ type proof = unit
 type formula = int
 
 type t = {
-  actions: (formula, proof) Msat.actions;
+  actions: (formula, proof) CDCL.actions;
   mutable max_index: int;
   mutable max_fresh: int;
 }
@@ -49,9 +49,9 @@ module Form = struct
 
   let norm a =
     abs a, if a < 0 then
-      Msat.Negated
+      CDCL.Negated
     else
-      Msat.Same_sign
+      CDCL.Same_sign
 
   let print fmt a =
     Format.fprintf fmt "%s%s%d"
@@ -82,6 +82,6 @@ let iter: (t -> unit) -> unit = fun f ->
   done
 *)
 
-let assume _ _ = Msat.Theory_intf.Sat
+let assume _ _ = CDCL.Theory_intf.Sat
 
-let if_sat _ _ = Msat.Theory_intf.Sat
+let if_sat _ _ = CDCL.Theory_intf.Sat

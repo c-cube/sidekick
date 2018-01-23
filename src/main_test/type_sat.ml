@@ -10,7 +10,7 @@ Copyright 2014 Simon Cruanes
 module Id = Dolmen.Id
 module Ast = Dolmen.Term
 module H = Hashtbl.Make(Id)
-module Formula = Msat_tseitin.Make(Msat_sat.Th)
+module Formula = CDCL_tseitin.Make(CDCL_sat.Th)
 
 (* Exceptions *)
 (* ************************************************************************ *)
@@ -36,7 +36,7 @@ let find_id st id =
   try
     H.find st.symbols id
   with Not_found ->
-    let res = Msat_sat.Th.fresh st.fresh in
+    let res = CDCL_sat.Th.fresh st.fresh in
     H.add st.symbols id res;
     res
 

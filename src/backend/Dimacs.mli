@@ -10,8 +10,6 @@ Copyright 2014 Simon Cruanes
     iCNF formats.
 *)
 
-open Msat
-
 module type S = sig
   type st
 

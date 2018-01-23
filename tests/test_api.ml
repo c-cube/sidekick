@@ -6,10 +6,10 @@ Copyright 2014 Simon Cruanes
 
 (* Tests that require the API *)
 
-open Msat
+open CDCL
 
-module Th = Msat_sat.Th
-module F = Msat_tseitin.Make(Th)
+module Th = CDCL_sat.Th
+module F = CDCL_tseitin.Make(Th)
 
 let (|>) x f = f x
 
@@ -48,7 +48,7 @@ end
 
 let mk_solver (): (module BASIC_SOLVER) =
   let module S = struct
-    include Msat_sat
+    include CDCL_sat
     let create() = create()
     let solve st ?assumptions () =
       match solve st ?assumptions() with

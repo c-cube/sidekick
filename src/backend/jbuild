@@ -2,11 +2,11 @@
 
 ; main binary
 (library
-  ((name msat_backend)
-   (public_name msat.backend)
-   (synopsis "proof backends for msat")
-   (libraries (msat))
-   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string))
+  ((name CDCL_backend)
+   (public_name cdcl.backend)
+   (synopsis "proof backends for cdcl")
+   (libraries (cdcl))
+   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open CDCL))
    (ocamlopt_flags (:standard -O3 -bin-annot
                     -unbox-closures -unbox-closures-factor 20))
   ))
