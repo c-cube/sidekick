@@ -2,16 +2,13 @@
 
 {2 License}
 
-This code is free, under the {{:https://github.com/Gbury/mSAT/blob/master/LICENSE}Apache 2.0 license}.
+This code is free, under the {{:https://github.com/c-cube/cdcl/blob/master/LICENSE}Apache 2.0 license}.
 
 {2 Contents}
 
-mSAT is an ocaml library providing SAT/SMT/McSat solvers. More precisely,
-what mSAT provides are functors to easily create such solvers. Indeed, the core
-of a sat solver does not need much information about either the exact representation
-of terms or the inner workings of a theory.
+An ocaml library to implement CDCL(T) solvers. 
 
-Most modules in mSAT actually define functors. These functors usually take one
+Most modules in CDCL actually define functors. These functors usually take one
 or two arguments, usually an implementation of Terms and formulas used, and an implementation
 of the theory used during solving.
 
@@ -21,32 +18,18 @@ The following modules allow to easily create a SAT or SMT solver (remark: a SAT 
 simply an SMT solver with an empty theory).
 
 {!modules:
-Msat
+CDCL
 }
 
-The following modules allow the creation of a McSat solver (Model Constructing solver):
+Finally, mSAT also provides an implementation of Tseitin's CNF conversion:
 
 {!modules:
-Msat_mcsolver
-}
-
-{4 Useful tools}
-
-An instanciation of a pure sat solver is also provided:
-
-{!modules:
-Msat_sat
-}
-
-Lastly, mSAT also provides an implementation of Tseitin's CNF conversion:
-
-{!modules:
-Msat_tseitin
+CDCL_tseitin
 }
 
 {4 Proof Management}
 
-mSAT solvers are able to provide detailed proofs when an unsat state is reached. To do
+CDCL solvers are able to provide detailed proofs when an unsat state is reached. To do
 so, it require the provided theory to give proofs of the tautologies it gives the solver.
 These proofs will be called lemmas. The type of lemmas is defined by the theory and can
 very well be [unit].
@@ -59,8 +42,8 @@ leafs of the tree are either hypotheses, or tautologies (i.e. conflicts returned
 the theory).
 
 {!modules:
-Msat__Res
-Msat__Res_intf
+CDCL__Res
+CDCL__Res_intf
 }
 
 Backends for exporting proofs to different formats:
