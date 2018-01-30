@@ -135,3 +135,14 @@ It's very important that, in a long chain of reduction `t1 → t2 → … → tn
 only `tn` is active and the other terms are only there to provide explanations
 but do not cost any complexity during CC.
 
+## Theories
+
+- have `x+2y+z` be arith terms
+- shostak like canonizer (turns equations into `x := …`)
+- use same evaluation mechanism as for evaluation of terms,
+  for dynamic simplifications (rewriting).
+  * no preprocessing, everything done dynamically
+  * theory terms subscribe to their arguments (subterms) to potentially
+    rewrite themselves if their arguments change
+    e.g.  `x+y+1` subscribes to {x,y} so as to reduce to `y+z+3` when
+    x:=z+2 happens

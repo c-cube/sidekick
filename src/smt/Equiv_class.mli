@@ -1,6 +1,25 @@
 
 open Solver_types
 
+(** {1 Equivalence Classes} *)
+
+(** An equivalence class is a set of terms that are currently equal
+    in the partial model built by the solver.
+    The class is represented by a collection of nodes, one of which is
+    distinguished and is called the "representative".
+
+    All information pertaining to the whole equivalence class is stored
+    in this representative's node.
+
+    When two classes become equal (are "merged"), one of the two
+    representatives is picked as the representative of the new class.
+    The new class contains the union of the two old classes' nodes.
+
+    We also allow theories to store additional information in the
+    representative. This information can be used when two classes are
+    merged, to detect conflicts and solve equations à la Shostak.
+*)
+
 type t = cc_node
 type repr = private t
 type payload = cc_node_payload
