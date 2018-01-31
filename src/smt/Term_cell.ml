@@ -27,10 +27,11 @@ module Make_eq(A : ARG) = struct
       in
       Hash.combine3 8 (sub_hash u) hash_m
     | Builtin (B_not a) -> Hash.combine2 20 (sub_hash a)
-    | Builtin (B_and (t1,t2)) -> Hash.combine3 21 (sub_hash t1) (sub_hash t2)
-    | Builtin (B_or (t1,t2)) -> Hash.combine3 22 (sub_hash t1) (sub_hash t2)
-    | Builtin (B_imply (t1,t2)) -> Hash.combine3 23 (sub_hash t1) (sub_hash t2)
+    | Builtin (B_and l) -> Hash.combine2 21 (Hash.list sub_hash l)
+    | Builtin (B_or l) -> Hash.combine2 22 (Hash.list sub_hash l)
+    | Builtin (B_imply (l1,t2)) -> Hash.combine3 23 (Hash.list sub_hash l1) (sub_hash t2)
     | Builtin (B_eq (t1,t2)) -> Hash.combine3 24 (sub_hash t1) (sub_hash t2)
+    | Custom {view;tc} -> tc.tc_t_hash sub_hash view
 
   (* equality that relies on physical equality of subterms *)
   let equal (a:A.t term_cell) b : bool = match a, b with
@@ -51,18 +52,21 @@ module Make_eq(A : ARG) = struct
     | Builtin b1, Builtin b2 ->
       begin match b1, b2 with
         | B_not a1, B_not a2 -> sub_eq a1 a2
-        | B_and (a1,b1), B_and (a2,b2)
-        | B_or (a1,b1), B_or (a2,b2)
-        | B_eq (a1,b1), B_eq (a2,b2)
-        | B_imply (a1,b1), B_imply (a2,b2) -> sub_eq a1 a2 && sub_eq b1 b2
+        | B_and l1, B_and l2
+        | B_or l1, B_or l2 -> CCEqual.list sub_eq l1 l2
+        | B_eq (a1,b1), B_eq (a2,b2) -> sub_eq a1 a2 && sub_eq b1 b2
+        | B_imply (a1,b1), B_imply (a2,b2) -> CCEqual.list sub_eq a1 a2 && sub_eq b1 b2
         | B_not _, _ | B_and _, _ | B_eq _, _
         | B_or _, _ | B_imply _, _ -> false
       end
+    | Custom r1, Custom r2 ->
+      r1.tc.tc_t_equal sub_eq r1.view r2.view
     | True, _
     | App_cst _, _
     | If _, _
     | Case _, _
     | Builtin _, _
+    | Custom _, _
       -> false
 end[@@inline]
 
@@ -90,23 +94,25 @@ let cstor_proj cstor i t =
   app_cst p (IArray.singleton t)
 
 let builtin b =
+  let mk_ x = Builtin x in
   (* normalize a bit *)
-  let b = match b with
-    | B_eq (a,b) when a.term_id > b.term_id -> B_eq (b,a)
-    | B_and (a,b) when a.term_id > b.term_id -> B_and (b,a)
-    | B_or (a,b) when a.term_id > b.term_id -> B_or (b,a)
-    | _ -> b
-  in
-  Builtin b
+  begin match b with
+    | B_imply ([], x) -> x.term_cell
+    | B_eq (a,b) when a.term_id = b.term_id -> true_
+    | B_eq (a,b) when a.term_id > b.term_id -> mk_ @@ B_eq (b,a)
+    | _ -> mk_ b
+  end
 
 let not_ t = match t.term_cell with
   | Builtin (B_not t') -> t'.term_cell
   | _ -> builtin (B_not t)
 
-let and_ a b = builtin (B_and (a,b))
-let or_ a b = builtin (B_or (a,b))
+let and_ l = builtin (B_and l)
+let or_ l = builtin (B_or l)
 let imply a b = builtin (B_imply (a,b))
 let eq a b = builtin (B_eq (a,b))
+
+let custom ~tc view = Custom {view;tc}
 
 (* type of an application *)
 let rec app_ty_ ty l : Ty.t = match Ty.view ty, l with
@@ -132,6 +138,7 @@ let ty (t:t): Ty.t = match t with
     let _, rhs = ID.Map.choose m in
     rhs.term_ty
   | Builtin _ -> Ty.prop
+  | Custom {view;tc} -> tc.tc_t_ty (fun t -> t.term_ty) view
 
 module Tbl = CCHashtbl.Make(struct
     type t = term term_cell

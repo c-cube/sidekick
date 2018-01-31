@@ -23,13 +23,66 @@ and 'a term_cell =
   | If of 'a * 'a * 'a
   | Case of 'a * 'a ID.Map.t (* check head constructor *)
   | Builtin of 'a builtin
+  | Custom of {
+      view: 'a term_view_custom;
+      tc: term_view_tc;
+    }
 
 and 'a builtin =
   | B_not of 'a
   | B_eq of 'a * 'a
-  | B_and of 'a * 'a
-  | B_or of 'a * 'a
-  | B_imply of 'a * 'a
+  | B_and of 'a list
+  | B_or of 'a list
+  | B_imply of 'a list * 'a
+
+(** Methods on the custom term view whose leaves are ['a].
+    Terms must be comparable, hashable, printable, and provide
+    some additional theory handles.
+
+    - [tc_t_sub] must return all immediate subterms (all ['a] contained in the term)
+
+    - [tc_t_subst] must use the function to replace all subterms (all the ['a]
+      returned by [tc_t_sub]) by ['b]
+
+    - [tc_t_relevant] must return a subset of [tc_t_sub] (possibly the same set).
+      The terms it returns will be activated and evaluated whenever possible.
+      Terms in [tc_t_sub t \ tc_t_relevant t] are considered for
+      congruence but not for evaluation.
+
+    - If [t1] and [t2] satisfy [tc_t_is_semantic] and have the same type,
+      then [tc_t_solve t1 t2] must succeed by returning some {!solve_result}.
+
+    - if [tc_t_equal eq a b = true], then [tc_t_explain eq a b] must
+      return all the pairs of equal subterms that are sufficient
+      for [a] and [b] to be equal.
+*)
+and term_view_tc = {
+  tc_t_pp : 'a. 'a Fmt.printer -> 'a term_view_custom Fmt.printer;
+  tc_t_equal : 'a. 'a CCEqual.t -> 'a term_view_custom CCEqual.t;
+  tc_t_hash : 'a. 'a Hash.t -> 'a term_view_custom Hash.t;
+  tc_t_ty : 'a. ('a -> ty) -> 'a term_view_custom -> ty;
+  tc_t_is_semantic : cc_node term_view_custom -> bool; (* is this a semantic term? semantic terms must be solvable *)
+  tc_t_solve: cc_node term_view_custom -> cc_node term_view_custom -> solve_result; (* solve an equation between classes *)
+  tc_t_sub : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on immediate subterms *)
+  tc_t_relevant : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on relevant immediate subterms *)
+  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a term_view_custom -> 'b term_view_custom; (* substitute immediate subterms and canonize *)
+  tc_t_explain : 'a. 'a CCEqual.t -> 'a term_view_custom -> 'a term_view_custom -> ('a * 'a) list;
+  (* explain why the two views are equal *)
+}
+
+(** Custom term view for theories *)
+and 'a term_view_custom = ..
+
+(** The result of a call to {!solve}. *)
+and solve_result =
+  | Solve_ok of {
+    subst: (cc_node * term) list; (** binding leaves to other terms *)
+  } (** Success,  the two terms being equal is equivalent
+        to the given substitution *)
+  | Solve_fail of {
+    expl: explanation;
+  } (** Failure, because of the given explanation.
+        The two terms cannot be equal *)
 
 (** A node of the congruence closure.
     An equivalence class is represented by its "root" element,
@@ -43,21 +96,32 @@ and cc_node = {
   mutable n_class: cc_node Bag.t; (* terms in the same equiv class *)
   mutable n_parents: cc_node Bag.t; (* parent terms of the whole equiv class *)
   mutable n_root: cc_node; (* representative of congruence class (itself if a representative) *)
-  mutable n_expl: (cc_node * cc_explanation) option; (* the rooted forest for explanations *)
+  mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
   mutable n_payload: cc_node_payload list; (* list of theory payloads *)
 }
 
 (** Theory-extensible payloads *)
 and cc_node_payload = ..
 
+and explanation_forest_link =
+  | E_none
+  | E_some of {
+      next: cc_node;
+      expl: explanation;
+    }
+
 (* atomic explanation in the congruence closure *)
-and cc_explanation =
-  | CC_reduction (* by pure reduction, tautologically equal *)
-  | CC_lit of lit (* because of this literal *)
-  | CC_congruence of cc_node * cc_node (* same shape *)
-  | CC_injectivity of cc_node * cc_node (* arguments of those constructors *)
-  | CC_reduce_eq of cc_node * cc_node (* reduce because those are equal *)
-(* TODO: theory expl *)
+and explanation =
+  | E_reduction (* by pure reduction, tautologically equal *)
+  | E_lit of lit (* because of this literal *)
+  | E_congruence of cc_node * cc_node (* these terms are congruent *)
+  | E_injectivity of cc_node * cc_node (* injective function *)
+  | E_reduce_eq of cc_node * cc_node (* reduce because those are equal by reduction *)
+  | E_custom of {
+      name: ID.t; (* name of the rule *)
+      args: explanation list; (* sub-explanations *)
+      pp: (ID.t * explanation list) Fmt.printer;
+    } (** Custom explanation, typically for theories *)
 
 (* boolean literal *)
 and lit = {
@@ -85,7 +149,7 @@ and cst_kind =
 
 (* what kind of constant is that? *)
 and cst_defined_info =
-  | Cst_recursive
+  | Cst_recursive (* TODO: the set of Horn rules compiled from the def *)
   | Cst_non_recursive
 
 (* this is a disjunction of sufficient conditions for the existence of
@@ -171,23 +235,26 @@ let hash_lit a =
 
 let cmp_cc_node a b = term_cmp_ a.n_term b.n_term
 
-let cmp_cc_expl a b =
+let rec cmp_exp a b =
   let toint = function
-    | CC_congruence _ -> 0 | CC_lit _ -> 1
-    | CC_reduction -> 2 | CC_injectivity _ -> 3
-    | CC_reduce_eq _ -> 5
+    | E_congruence _ -> 0 | E_lit _ -> 1
+    | E_reduction -> 2 | E_injectivity _ -> 3
+    | E_reduce_eq _ -> 5
+    | E_custom _ -> 6
   in
   begin match a, b with
-    | CC_congruence (t1,t2), CC_congruence (u1,u2) ->
+    | E_congruence (t1,t2), E_congruence (u1,u2) ->
       CCOrd.(cmp_cc_node t1 u1 <?> (cmp_cc_node, t2, u2))
-    | CC_reduction, CC_reduction -> 0
-    | CC_lit l1, CC_lit l2 -> cmp_lit l1 l2
-    | CC_injectivity (t1,t2), CC_injectivity (u1,u2) ->
+    | E_reduction, E_reduction -> 0
+    | E_lit l1, E_lit l2 -> cmp_lit l1 l2
+    | E_injectivity (t1,t2), E_injectivity (u1,u2) ->
       CCOrd.(cmp_cc_node t1 u1 <?> (cmp_cc_node, t2, u2))
-    | CC_reduce_eq (t1, u1), CC_reduce_eq (t2,u2) ->
+    | E_reduce_eq (t1, u1), E_reduce_eq (t2,u2) ->
       CCOrd.(cmp_cc_node t1 t2 <?> (cmp_cc_node, u1, u2))
-    | CC_congruence _, _ | CC_lit _, _ | CC_reduction, _
-    | CC_injectivity _, _ | CC_reduce_eq _, _
+    | E_custom r1, E_custom r2 ->
+      CCOrd.(ID.compare r1.name r2.name <?> (list cmp_exp, r1.args, r2.args))
+    | E_congruence _, _ | E_lit _, _ | E_reduction, _
+    | E_injectivity _, _ | E_reduce_eq _, _ | E_custom _, _
       -> CCInt.compare (toint a)(toint b)
   end
 
@@ -237,14 +304,15 @@ let pp_term_top ~ids out t =
       Fmt.fprintf out "(@[match %a@ (@[<hv>%a@])@])"
         pp t print_map (ID.Map.to_seq m)
     | Builtin (B_not t) -> Fmt.fprintf out "(@[<hv1>not@ %a@])" pp t
-    | Builtin (B_and (a,b)) ->
-      Fmt.fprintf out "(@[<hv1>and@ %a@ %a@])" pp a pp b
-    | Builtin (B_or (a,b)) ->
-      Fmt.fprintf out "(@[<hv1>or@ %a@ %a@])" pp a pp b
+    | Builtin (B_and l) ->
+      Fmt.fprintf out "(@[<hv1>and@ %a])" (Util.pp_list pp) l
+    | Builtin (B_or l) ->
+      Fmt.fprintf out "(@[<hv1>or@ %a@])" (Util.pp_list pp) l
     | Builtin (B_imply (a,b)) ->
-      Fmt.fprintf out "(@[<hv1>=>@ %a@ %a@])" pp a pp b
+      Fmt.fprintf out "(@[<hv1>=>@ %a@ %a@])" (Util.pp_list pp) a pp b
     | Builtin (B_eq (a,b)) ->
       Fmt.fprintf out "(@[<hv1>=@ %a@ %a@])" pp a pp b
+    | Custom {view; tc} -> tc.tc_t_pp pp out view
   and pp_id =
     if ids then ID.pp else ID.pp_name
   in
@@ -263,12 +331,13 @@ let pp_lit out l =
 
 let pp_cc_node out n = pp_term out n.n_term
 
-let pp_cc_explanation out (e:cc_explanation) = match e with
-  | CC_reduction -> Fmt.string out "reduction"
-  | CC_lit lit -> pp_lit out lit
-  | CC_congruence (a,b) ->
+let pp_explanation out (e:explanation) = match e with
+  | E_reduction -> Fmt.string out "reduction"
+  | E_lit lit -> pp_lit out lit
+  | E_congruence (a,b) ->
     Format.fprintf out "(@[<hv1>congruence@ %a@ %a@])" pp_cc_node a pp_cc_node b
-  | CC_injectivity (a,b) ->
+  | E_injectivity (a,b) ->
     Format.fprintf out "(@[<hv1>injectivity@ %a@ %a@])" pp_cc_node a pp_cc_node b
-  | CC_reduce_eq (t, u) ->
+  | E_reduce_eq (t, u) ->
     Format.fprintf out "(@[<hv1>reduce_eq@ %a@ %a@])" pp_cc_node t pp_cc_node u
+  | E_custom {name; args; pp} -> pp out (name,args)

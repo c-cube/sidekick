@@ -25,7 +25,7 @@ val builtin : state -> t builtin -> t
 val and_ : state -> t -> t -> t
 val or_ : state -> t -> t -> t
 val not_ : state -> t -> t
-val imply : state -> t -> t -> t
+val imply : state -> t list -> t -> t
 val eq : state -> t -> t -> t
 val neq : state -> t -> t -> t
 val and_eager : state -> t -> t -> t (* evaluate left argument first *)

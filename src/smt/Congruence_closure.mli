@@ -9,14 +9,14 @@ type t
 type node = Equiv_class.t
 (** Node in the congruence closure *)
 
-type repr = Equiv_class.repr
+type repr = Equiv_class.t
 (** Node that is currently a representative *)
 
 val create :
   ?size:int ->
   on_backtrack:((unit -> unit) -> unit) ->
   at_lvl_0:(unit -> bool) ->
-  on_merge:(repr -> repr -> cc_explanation -> unit) list ->
+  on_merge:(repr -> repr -> explanation -> unit) list ->
   Term.state ->
   t
 (** Create a new congruence closure.
@@ -30,7 +30,7 @@ val find : t -> node -> repr
 val same_class : t -> node -> node -> bool
 (** Are these two classes the same in the current CC? *)
 
-val union : t -> node -> node -> cc_explanation -> unit
+val union : t -> node -> node -> explanation -> unit
 (** Merge the two equivalence classes. Will be undone on backtracking. *)
 
 val assert_lit : t -> Lit.t -> unit
@@ -48,19 +48,19 @@ val add_seq : t -> term Sequence.t -> unit
 (** Add a sequence of terms to the congruence closure *)
 
 type actions =
-  | Propagate of Lit.t * cc_explanation list
-  | Split of Lit.t list * cc_explanation list
+  | Propagate of Lit.t * explanation list
+  | Split of Lit.t list * explanation list
   | Merge of node * node (* merge these two classes *)
 
 type result =
   | Sat of actions list
-  | Unsat of cc_explanation list
+  | Unsat of explanation Bag.t
   (* list of direct explanations to the conflict. *)
 
 val check : t -> result
 
 val final_check : t -> result
 
-val explain_unfold: t -> cc_explanation list -> Lit.Set.t
+val explain_unfold: t -> explanation list -> Lit.Set.t
 (** Unfold those explanations into a complete set of
     literals implying them *)

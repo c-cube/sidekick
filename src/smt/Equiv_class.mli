@@ -21,7 +21,6 @@ open Solver_types
 *)
 
 type t = cc_node
-type repr = private t
 type payload = cc_node_payload
 
 val field_expanded : Node_bits.field
@@ -42,6 +41,10 @@ val field_add_level_0 : Node_bits.field
 (** Is the corresponding term to be re-added upon backtracking,
     down to level 0? *)
 
+val field_is_active : Node_bits.field
+(** The term is needed for evaluation. We must try to evaluate it
+    or to find a value for it using the theory *)
+
 (** {2 basics} *)
 
 val term : t -> term
@@ -49,20 +52,6 @@ val equal : t -> t -> bool
 val hash : t -> int
 val pp : t Fmt.printer
 val payload : t -> payload list
-
-module Repr : sig
-  type node = t
-  type t = repr
-
-  val term : t -> term
-  val equal : t -> t -> bool
-  val hash : t -> int
-  val pp : t Fmt.printer
-  val payload : t -> payload list
-
-  val parents : t -> node Bag.t
-  val class_ : t -> node Bag.t
-end
 
 (** {2 Helpers} *)
 
@@ -80,6 +69,4 @@ val set_payload : ?can_erase:(payload -> bool) -> t -> payload -> unit
 
 (**/**)
 val dummy : t
-val unsafe_repr_of_node : t -> repr
-val unsafe_repr_seq_of_seq : t Sequence.t -> repr Sequence.t
 (**/**)

@@ -1,5 +1,4 @@
 
-open CDCL
 open Solver_types
 
 type t = term
@@ -62,9 +61,19 @@ let if_ st a b c = make st (Term_cell.if_ a b c)
 
 let not_ st t = make st (Term_cell.not_ t)
 
-let and_ st a b = make st (Term_cell.and_ a b)
-let or_ st a b = make st (Term_cell.or_ a b)
-let imply st a b = make st (Term_cell.imply a b)
+let and_l st = function
+  | [] -> true_ st
+  | [t] -> t
+  | l -> make st (Term_cell.and_ l)
+
+let or_l st = function
+  | [] -> false_ st
+  | [t] -> t
+  | l -> make st (Term_cell.or_ l)
+
+let and_ st a b = and_l st [a;b]
+let or_ st a b = and_l st [a;b]
+let imply st a b = match a with [] -> b | _ -> make st (Term_cell.imply a b)
 let eq st a b = make st (Term_cell.eq a b)
 let neq st a b = not_ st (eq st a b)
 let builtin st b = make st (Term_cell.builtin b)
@@ -80,16 +89,6 @@ let abs t : t * bool = match t.term_cell with
   | Builtin (B_not t) -> t, false
   | _ -> t, true
 
-let rec and_l st = function
-  | [] -> true_ st
-  | [t] -> t
-  | a :: l -> and_ st a (and_l st l)
-
-let or_l st = function
-  | [] -> false_ st
-  | [t] -> t
-  | a :: l -> List.fold_left (or_ st) a l
-
 let fold_map_builtin
     (f:'a -> term -> 'a * term) (acc:'a) (b:t builtin): 'a * t builtin =
   let fold_binary acc a b =
@@ -101,17 +100,18 @@ let fold_map_builtin
     | B_not t ->
       let acc, t' = f acc t in
       acc, B_not t'
-    | B_and (a,b) ->
-      let acc, a, b = fold_binary acc a b in
-      acc, B_and (a,b)
-    | B_or (a,b) ->
-      let acc, a, b = fold_binary acc a b in
-      acc, B_or (a, b)
+    | B_and l ->
+      let acc, l = CCList.fold_map f acc l in
+      acc, B_and l
+    | B_or l ->
+      let acc, l = CCList.fold_map f acc l in
+      acc, B_or l
     | B_eq (a,b) ->
       let acc, a, b = fold_binary acc a b in
       acc, B_eq (a, b)
     | B_imply (a,b) ->
-      let acc, a, b = fold_binary acc a b in
+      let acc, a = CCList.fold_map f acc a in
+      let acc, b = f acc b in
       acc, B_imply (a, b)
 
 let is_const t = match t.term_cell with
@@ -124,10 +124,9 @@ let map_builtin f b =
 
 let builtin_to_seq b yield = match b with
   | B_not t -> yield t
-  | B_or (a,b)
-  | B_imply (a,b)
+  | B_or l | B_and l -> List.iter yield l
+  | B_imply (a,b) -> List.iter yield a; yield b
   | B_eq (a,b) -> yield a; yield b
-  | B_and (a,b) -> yield a; yield b
 
 module As_key = struct
     type t = term
@@ -150,6 +149,7 @@ let to_seq t yield =
         aux t;
         ID.Map.iter (fun _ rhs -> aux rhs) m
       | Builtin b -> builtin_to_seq b aux
+      | Custom {view;tc} -> tc.tc_t_sub view aux
   in
   aux t
 
@@ -181,11 +181,7 @@ let as_unif (t:term): unif_form = match t.term_cell with
     Unif_cstor (c,cstor,a)
   | _ -> Unif_none
 
-let fpf = Format.fprintf
-
 let pp = Solver_types.pp_term
-
-
 
 let dummy : t = {
   term_id= -1;

@@ -3,7 +3,7 @@ open CDCL
 open Solver_types
 
 type node = Equiv_class.t
-type repr = Equiv_class.repr
+type repr = Equiv_class.t
 
 (** A signature is a shallow term shape where immediate subterms
     are representative *)
@@ -14,12 +14,12 @@ end
 
 module Sig_tbl = CCHashtbl.Make(Signature)
 
-type merge_op = node * node * cc_explanation
+type merge_op = node * node * explanation
 (* a merge operation to perform *)
 
 type actions =
-  | Propagate of Lit.t * cc_explanation list
-  | Split of Lit.t list * cc_explanation list
+  | Propagate of Lit.t * explanation list
+  | Split of Lit.t list * explanation list
   | Merge of node * node (* merge these two classes *)
 
 type t = {
@@ -38,7 +38,7 @@ type t = {
   (* register a function to be called when we backtrack *)
   at_lvl_0: unit -> bool;
   (* currently at level 0? *)
-  on_merge: (repr -> repr -> cc_explanation -> unit) list;
+  on_merge: (repr -> repr -> explanation -> unit) list;
   (* callbacks to call when we merge classes *)
   pending: node Vec.t;
   (* nodes to check, maybe their new signature is in {!signatures_tbl} *)
@@ -59,11 +59,6 @@ type t = {
    several times.
    See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
 
-module CC_expl_set = CCSet.Make(struct
-    type t = cc_explanation
-    let compare = Solver_types.cmp_cc_expl
-  end)
-
 let[@inline] is_root_ (n:node) : bool = n.n_root == n
 
 let[@inline] size_ (r:repr) =
@@ -78,7 +73,7 @@ let[@inline] mem (cc:t) (t:term): bool =
 (* find representative, recursively, and perform path compression *)
 let rec find_rec cc (n:node) : repr =
   if n==n.n_root then (
-    Equiv_class.unsafe_repr_of_node n
+    n
   ) else (
     let old_root = n.n_root in
     let root = find_rec cc old_root in
@@ -104,19 +99,20 @@ let[@inline] get_ cc (t:term) : node =
 
 (* non-recursive, inlinable function for [find] *)
 let[@inline] find st (n:node) : repr =
-  if n == n.n_root
-  then (Equiv_class.unsafe_repr_of_node n)
-  else find_rec st n
+  if n == n.n_root then n else find_rec st n
 
 let[@inline] find_tn cc (t:term) : repr = get_ cc t |> find cc
-let[@inline] find_tt cc (t:term) : term = find_tn cc t |> Equiv_class.Repr.term
+let[@inline] find_tt cc (t:term) : term = find_tn cc t |> Equiv_class.term
 
 let[@inline] same_class cc (n1:node)(n2:node): bool =
-  Equiv_class.Repr.equal (find cc n1) (find cc n2)
+  Equiv_class.equal (find cc n1) (find cc n2)
+
+let[@inline] same_class_t cc (t1:term)(t2:term): bool =
+  Equiv_class.equal (find_tn cc t1) (find_tn cc t2)
 
 (* compute signature *)
 let signature cc (t:term): node term_cell option =
-  let find = (find_tn cc :> term -> node) in
+  let find = find_tn cc in
   begin match Term.cell t with
     | True | Builtin _
       -> None
@@ -124,6 +120,8 @@ let signature cc (t:term): node term_cell option =
     | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return
     | If (a,b,c) -> If (find a, get_  cc b, get_ cc c) |> CCOpt.return
     | Case (t, m) -> Case (find t, ID.Map.map (get_ cc) m) |> CCOpt.return
+    | Custom {view;tc} ->
+      Custom {tc; view=tc.tc_t_subst find view} |> CCOpt.return
    end
 
 (* find whether the given (parent) term corresponds to some signature
@@ -151,7 +149,7 @@ let add_signature cc (t:term) (r:repr): unit = match signature cc t with
         );
         Sig_tbl.add cc.signatures_tbl s r;
       | Some r' ->
-        assert (Equiv_class.Repr.equal r r');
+        assert (Equiv_class.equal r r');
     end
 
 let is_done (cc:t): bool =
@@ -165,24 +163,24 @@ let push_pending cc t : unit =
 let push_combine cc t u e : unit =
   Log.debugf 5
     (fun k->k "(@[<hv1>push_combine@ %a@ %a@ expl: %a@])"
-      Equiv_class.pp t Equiv_class.pp u pp_cc_explanation e);
+      Equiv_class.pp t Equiv_class.pp u Explanation.pp e);
   Vec.push cc.combine (t,u,e)
 
-let push_split cc (lits:lit list) (expl:cc_explanation list): unit =
+let push_split cc (lits:lit list) (expl:explanation list): unit =
   Log.debugf 5
     (fun k->k "(@[<hv1>push_split@ (@[%a@])@ expl: (@[<hv>%a@])@])"
-      (Util.pp_list Lit.pp) lits (Util.pp_list pp_cc_explanation) expl);
+      (Util.pp_list Lit.pp) lits (Util.pp_list Explanation.pp) expl);
   let l = Split (lits, expl) in
   cc.actions <- l :: cc.actions
 
-let push_propagation cc (lit:lit) (expl:cc_explanation list): unit =
+let push_propagation cc (lit:lit) (expl:explanation list): unit =
   Log.debugf 5
     (fun k->k "(@[<hv1>push_propagate@ %a@ expl: (@[<hv>%a@])@])"
-      Lit.pp lit (Util.pp_list pp_cc_explanation) expl);
+      Lit.pp lit (Util.pp_list Explanation.pp) expl);
   let l = Propagate (lit,expl) in
   cc.actions <- l :: cc.actions
 
-let[@inline] union cc (a:node) (b:node) (e:cc_explanation): unit =
+let[@inline] union cc (a:node) (b:node) (e:explanation): unit =
   if not (same_class cc a b) then (
     push_combine cc a b e; (* start by merging [a=b] *)
   )
@@ -196,11 +194,11 @@ let rec reroot_expl cc (n:node): unit =
     cc.on_backtrack (fun () -> n.n_expl <- old_expl);
   );
   begin match old_expl with
-    | None -> () (* already root *)
-    | Some (u, e_n_u) ->
+    | E_none -> () (* already root *)
+    | E_some {next=u; expl=e_n_u} ->
       reroot_expl cc u;
-      u.n_expl <- Some (n, e_n_u);
-      n.n_expl <- None;
+      u.n_expl <- E_some {next=n; expl=e_n_u};
+      n.n_expl <- E_none;
   end
 
 (* TODO:
@@ -208,19 +206,18 @@ let rec reroot_expl cc (n:node): unit =
    - also, obtain merges of CC via callbacks / [pop_merges] afterwards?
    *)
 
-exception Exn_unsat of cc_explanation list
+exception Exn_unsat of explanation Bag.t
 
-let unsat (e:cc_explanation list): _ = raise (Exn_unsat e)
+let unsat (e:explanation Bag.t): _ = raise (Exn_unsat e)
 
 type result =
   | Sat of actions list
-  | Unsat of cc_explanation list
+  | Unsat of explanation Bag.t
   (* list of direct explanations to the conflict. *)
 
 let[@inline] all_classes cc : repr Sequence.t =
   Term.Tbl.values cc.tbl
   |> Sequence.filter is_root_
-  |> Equiv_class.unsafe_repr_seq_of_seq
 
 (* main CC algo: add terms from [pending] to the signature table,
    check for collisions *)
@@ -236,7 +233,7 @@ let rec update_pending (cc:t): result =
         add_signature cc n.n_term (find cc n)
       | Some u ->
         (* must combine [t] with [r] *)
-        push_combine cc n (u:>node) (CC_congruence (n,(u:>node)))
+        push_combine cc n u(E_congruence (n,u))
     end;
     (* FIXME: when to actually evaluate?
     eval_pending cc;
@@ -257,8 +254,8 @@ and update_combine cc =
     let a, b, e_ab = Vec.pop_last cc.combine in
     let ra = find cc a in
     let rb = find cc b in
-    if not (Equiv_class.Repr.equal ra rb) then (
-      assert (is_root_ (ra:>node));
+    if not (Equiv_class.equal ra rb) then (
+      assert (is_root_ ra);
       assert (is_root_ (rb:>node));
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, unless
@@ -296,11 +293,11 @@ and update_combine cc =
       (* update explanations (a -> b), arbitrarily *)
       begin
         reroot_expl cc a;
-        assert (a.n_expl = None);
+        assert (a.n_expl = E_none);
         if not (cc.at_lvl_0 ()) then (
-          cc.on_backtrack (fun () -> a.n_expl <- None);
+          cc.on_backtrack (fun () -> a.n_expl <- E_none);
         );
-        a.n_expl <- Some (b, e_ab);
+        a.n_expl <- E_some {next=b; expl=e_ab};
       end;
       (* notify listeners of the merge *)
       notify_merge cc r_from ~into:r_into e_ab;
@@ -312,7 +309,7 @@ and update_combine cc =
 (* Checks if [ra] and [~into] have compatible normal forms and can
    be merged w.r.t. the theories.
    Side effect: also pushes sub-tasks *)
-and notify_merge cc (ra:repr) ~into:(rb:repr) (e:cc_explanation): unit =
+and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
   assert (is_root_ (ra:>node));
   assert (is_root_ (rb:>node));
   List.iter
@@ -366,6 +363,7 @@ and add_new_term cc (t:term) : node =
       add_sub_t c
     | Case (u, _) -> add_sub_t u
     | Builtin b -> Term.builtin_to_seq b add_sub_t
+    | Custom {view;tc} -> tc.tc_t_sub view add_sub_t
   end;
   (* remove term when we backtrack *)
   if not (cc.at_lvl_0 ()) then (
@@ -399,7 +397,7 @@ let assert_lit cc lit : unit = match Lit.view lit with
     (* equate t and true/false *)
     let rhs = if sign then true_ cc else false_ cc in
     let n = add cc t in
-    push_combine cc n rhs (CC_lit lit);
+    push_combine cc n rhs (E_lit lit);
     ()
 
 let create ?(size=2048) ~on_backtrack ~at_lvl_0 ~on_merge (tst:Term.state) : t =
@@ -413,7 +411,7 @@ let create ?(size=2048) ~on_backtrack ~at_lvl_0 ~on_merge (tst:Term.state) : t =
     on_backtrack;
     at_lvl_0;
     pending=Vec.make_empty Equiv_class.dummy;
-    combine= Vec.make_empty (nd,nd,CC_reduce_eq(nd,nd));
+    combine= Vec.make_empty (nd,nd,E_reduce_eq(nd,nd));
     actions=[];
     ps_lits=Lit.Set.empty;
     ps_queue=Vec.make_empty (nd,nd);
@@ -426,8 +424,8 @@ let create ?(size=2048) ~on_backtrack ~at_lvl_0 ~on_merge (tst:Term.state) : t =
 
 (* distance from [t] to its root in the proof forest *)
 let[@inline][@unroll 2] rec distance_to_root (n:node): int = match n.n_expl with
-  | None -> 0
-  | Some (t', _) -> 1 + distance_to_root t'
+  | E_none -> 0
+  | E_some {next=t'; _} -> 1 + distance_to_root t'
 
 (* find the closest common ancestor of [a] and [b] in the proof forest *)
 let find_common_ancestor (a:node) (b:node) : node =
@@ -437,8 +435,8 @@ let find_common_ancestor (a:node) (b:node) : node =
   let rec drop_ n t =
     if n=0 then t
     else match t.n_expl with
-      | None -> assert false
-      | Some (t', _) -> drop_ (n-1) t'
+      | E_none -> assert false
+      | E_some {next=t'; _} -> drop_ (n-1) t'
   in
   (* reduce to the problem where [a] and [b] have the same distance to root *)
   let a, b =
@@ -450,18 +448,13 @@ let find_common_ancestor (a:node) (b:node) : node =
   let rec aux_same_dist a b =
     if a==b then a
     else match a.n_expl, b.n_expl with
-      | None, _ | _, None -> assert false
-      | Some (a', _), Some (b', _) -> aux_same_dist a' b'
+      | E_none, _ | _, E_none -> assert false
+      | E_some {next=a'; _}, E_some {next=b'; _} -> aux_same_dist a' b'
   in
   aux_same_dist a b
 
 let[@inline] ps_add_obligation (cc:t) a b = Vec.push cc.ps_queue (a,b)
 let[@inline] ps_add_lit ps l = ps.ps_lits <- Lit.Set.add l ps.ps_lits
-let[@inline] ps_add_expl ps e = match e with
-  | CC_lit lit -> ps_add_lit ps lit
-  | CC_reduce_eq _ | CC_congruence _
-  | CC_injectivity _ | CC_reduction
-    -> ()
 
 and ps_add_obligation_t cc (t1:term) (t2:term) =
   let n1 = get_ cc t1 in
@@ -473,41 +466,38 @@ let ps_clear (cc:t) =
   Vec.clear cc.ps_queue;
   ()
 
-let decompose_explain cc (e:cc_explanation): unit =
-  Log.debugf 5 (fun k->k "(@[decompose_expl@ %a@])" pp_cc_explanation e);
-  ps_add_expl cc e;
+let rec decompose_explain cc (e:explanation): unit =
+  Log.debugf 5 (fun k->k "(@[decompose_expl@ %a@])" Explanation.pp e);
   begin match e with
-    | CC_reduction
-    | CC_lit _ -> ()
-    | CC_reduce_eq (a, b) ->
+    | E_reduction -> ()
+    | E_lit lit -> ps_add_lit cc lit
+    | E_custom {args;_} ->
+      (* decompose sub-expls *)
+      List.iter (decompose_explain cc) args
+    | E_reduce_eq (a, b) ->
       ps_add_obligation cc a b;
-    | CC_injectivity (t1,t2)
-    (* FIXME: should this be different from CC_congruence? just explain why t1==t2? *)
-    | CC_congruence (t1,t2) ->
+    | E_injectivity (t1,t2) ->
+      (* arguments of [t1], [t2] are equal by injectivity, so we
+         just need to explain why [t1=t2] *)
+      ps_add_obligation cc t1 t2
+    | E_congruence (t1,t2) ->
+      (* [t1] and [t2] must be applications of the same symbol to
+         arguments that are pairwise equal *)
       begin match t1.n_term.term_cell, t2.n_term.term_cell with
-        | True, _ -> assert false (* no congruence here *)
         | App_cst (f1, a1), App_cst (f2, a2) ->
           assert (Cst.equal f1 f2);
           assert (IArray.length a1 = IArray.length a2);
           IArray.iter2 (ps_add_obligation_t cc) a1 a2
-        | Case (_t1, _m1), Case (_t2, _m2) ->
-          assert false
-          (* TODO: this should never happen
-          ps_add_obligation ps t1 t2;
-          ID.Map.iter
-            (fun id rhs1 ->
-               let rhs2 = ID.Map.find id m2 in
-               ps_add_obligation ps rhs1 rhs2)
-            m1;
-             *)
-        | If (a1,b1,c1), If (a2,b2,c2) ->
-          ps_add_obligation_t cc a1 a2;
-          ps_add_obligation_t cc b1 b2;
-          ps_add_obligation_t cc c1 c2;
-        | Builtin _, _ -> assert false
+        | Custom r1, Custom r2 ->
+          (* ask the theory to explain why [r1 = r2] *)
+          let l = r1.tc.tc_t_explain (same_class_t cc) r1.view r2.view in
+          List.iter (fun (t,u) -> ps_add_obligation_t cc t u) l
+        | If _, _
+        | Builtin _, _
         | App_cst _, _
         | Case _, _
-        | If _, _
+        | True, _
+        | Custom _, _
           -> assert false
       end
   end
@@ -517,8 +507,8 @@ let decompose_explain cc (e:cc_explanation): unit =
 let rec explain_along_path ps (a:node) (parent_a:node) : unit =
   if a!=parent_a then (
     match a.n_expl with
-      | None -> assert false
-      | Some (next_a, e_a_b) ->
+      | E_none -> assert false
+      | E_some {next=next_a; expl=e_a_b} ->
         decompose_explain ps e_a_b;
         (* now prove [next_a = parent_a] *)
         explain_along_path ps next_a parent_a
@@ -530,17 +520,17 @@ let explain_loop (cc : t) : Lit.Set.t =
     let a, b = Vec.pop_last cc.ps_queue in
     Log.debugf 5
       (fun k->k "(@[explain_loop at@ %a@ %a@])" Equiv_class.pp a Equiv_class.pp b);
-    assert (Equiv_class.Repr.equal (find cc a) (find cc b));
+    assert (Equiv_class.equal (find cc a) (find cc b));
     let c = find_common_ancestor a b in
     explain_along_path cc a c;
     explain_along_path cc b c;
   done;
   cc.ps_lits
 
-let explain_unfold cc (l:cc_explanation list): Lit.Set.t =
+let explain_unfold cc (l:explanation list): Lit.Set.t =
   Log.debugf 5
     (fun k->k "(@[explain_confict@ (@[<hv>%a@])@])"
-        (Util.pp_list pp_cc_explanation) l);
+        (Util.pp_list Explanation.pp) l);
   ps_clear cc;
   List.iter (decompose_explain cc) l;
   explain_loop cc

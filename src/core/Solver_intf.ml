@@ -87,6 +87,7 @@ module type S = sig
   (** Add the list of clauses to the current set of assumptions.
       Modifies the sat solver state in place. *)
 
+  (* TODO: provide a local, backtrackable version *)
   val add_clause : t -> clause -> unit
   (** Lower level addition of clauses *)
 

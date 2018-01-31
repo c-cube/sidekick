@@ -1,9 +1,7 @@
 
-open CDCL
 open Solver_types
 
 type t = cc_node
-type repr = t
 type payload = cc_node_payload
 
 let field_expanded = Node_bits.mk_field ()
@@ -11,6 +9,7 @@ let field_has_expansion_lit = Node_bits.mk_field ()
 let field_is_lit = Node_bits.mk_field ()
 let field_is_split = Node_bits.mk_field ()
 let field_add_level_0 = Node_bits.mk_field()
+let field_is_active = Node_bits.mk_field()
 let () = Node_bits.freeze()
 
 let[@inline] equal (n1:t) n2 = n1==n2
@@ -19,19 +18,6 @@ let[@inline] term n = n.n_term
 let[@inline] payload n = n.n_payload
 let[@inline] pp out n = Term.pp out n.n_term
 
-module Repr = struct
-  type node = t
-  type t = repr
-  let equal = equal
-  let hash = hash
-  let term = term
-  let payload = payload
-  let pp = pp
-
-  let[@inline] parents r = r.n_parents
-  let[@inline] class_ r = r.n_class
-end
-
 let make (t:term) : t =
   let rec n = {
     n_term=t;
@@ -39,7 +25,7 @@ let make (t:term) : t =
     n_class=Bag.empty;
     n_parents=Bag.empty;
     n_root=n;
-    n_expl=None;
+    n_expl=E_none;
     n_payload=[];
   } in
   (* set [class(t) = {t}] *)
@@ -82,5 +68,3 @@ let payload_pred ~f:p n =
 
 
 let dummy = make Term.dummy
-let[@inline] unsafe_repr_of_node n = n
-let[@inline] unsafe_repr_seq_of_seq s = s

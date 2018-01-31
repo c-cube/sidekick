@@ -15,11 +15,12 @@ val cstor_proj : data_cstor -> int -> term -> t
 val case : term -> term ID.Map.t -> t
 val if_ : term -> term -> term -> t
 val builtin : term builtin -> t
-val and_ : term -> term -> t
-val or_ : term -> term -> t
+val and_ : term list -> t
+val or_ : term list -> t
 val not_ : term -> t
-val imply : term -> term -> t
+val imply : term list -> term -> t
 val eq : term -> term -> t
+val custom : tc:term_view_tc -> term term_view_custom -> t
 
 val ty : t -> Ty.t
 (** Compute the type of this term cell. Not totally free *)
