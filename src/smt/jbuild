@@ -4,6 +4,6 @@
   ((name CDCL_smt)
    (public_name cdcl.smt)
    (libraries (containers containers.data sequence cdcl))
-   (flags (:standard -w +a-4-44-58-60@8 -color always -safe-string -short-paths))
+   (flags (:standard -w +a-4-44-48-58-60@8 -color always -safe-string -short-paths))
    (ocamlopt_flags (:standard -O3 -color always
                     -unbox-closures -unbox-closures-factor 20))))

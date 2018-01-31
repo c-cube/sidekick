@@ -51,6 +51,11 @@ val pp : t Fmt.printer
 
 val is_const : t -> bool
 
+val is_custom : t -> bool
+
+val is_semantic : t -> bool
+(** Custom term that is Shostak-ready (ie can be solved) *)
+
 (* return [Some] iff the term is an undefined constant *)
 val as_cst_undef : t -> (cst * Ty.t) option
 

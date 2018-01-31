@@ -61,7 +61,7 @@ and term_view_tc = {
   tc_t_equal : 'a. 'a CCEqual.t -> 'a term_view_custom CCEqual.t;
   tc_t_hash : 'a. 'a Hash.t -> 'a term_view_custom Hash.t;
   tc_t_ty : 'a. ('a -> ty) -> 'a term_view_custom -> ty;
-  tc_t_is_semantic : cc_node term_view_custom -> bool; (* is this a semantic term? semantic terms must be solvable *)
+  tc_t_is_semantic : 'a. 'a term_view_custom -> bool; (* is this a semantic term? semantic terms must be solvable *)
   tc_t_solve: cc_node term_view_custom -> cc_node term_view_custom -> solve_result; (* solve an equation between classes *)
   tc_t_sub : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on immediate subterms *)
   tc_t_relevant : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on relevant immediate subterms *)

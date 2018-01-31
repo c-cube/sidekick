@@ -114,8 +114,16 @@ let fold_map_builtin
       let acc, b = f acc b in
       acc, B_imply (a, b)
 
-let is_const t = match t.term_cell with
+let[@inline] is_const t = match t.term_cell with
   | App_cst (_, a) -> IArray.is_empty a
+  | _ -> false
+
+let[@inline] is_custom t = match t.term_cell with
+  | Custom _ -> true
+  | _ -> false
+
+let[@inline] is_semantic t = match t.term_cell with
+  | Custom {view;tc} -> tc.tc_t_is_semantic view
   | _ -> false
 
 let map_builtin f b =

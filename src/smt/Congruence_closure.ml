@@ -114,14 +114,15 @@ let[@inline] same_class_t cc (t1:term)(t2:term): bool =
 let signature cc (t:term): node term_cell option =
   let find = find_tn cc in
   begin match Term.cell t with
-    | True | Builtin _
-      -> None
     | App_cst (_, a) when IArray.is_empty a -> None
     | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return
-    | If (a,b,c) -> If (find a, get_  cc b, get_ cc c) |> CCOpt.return
-    | Case (t, m) -> Case (find t, ID.Map.map (get_ cc) m) |> CCOpt.return
     | Custom {view;tc} ->
       Custom {tc; view=tc.tc_t_subst find view} |> CCOpt.return
+    | True
+    | Builtin _
+    | If _
+    | Case _
+      -> None (* no congruence for these *)
    end
 
 (* find whether the given (parent) term corresponds to some signature
@@ -139,7 +140,7 @@ let add_signature cc (t:term) (r:repr): unit = match signature cc t with
   | None -> ()
   | Some s ->
     assert (CCOpt.map_or ~default:false (Signature.equal s)
-        (signature cc (r:>node).n_term));
+        (signature cc r.n_term));
     (* add, but only if not present already *)
     begin match Sig_tbl.get cc.signatures_tbl s with
       | None ->
@@ -261,9 +262,37 @@ and update_combine cc =
          we try to ensure that [size ra <= size rb] in general, unless
          it clashes with the invariant that the representative must
          be a normal form if the class contains a normal form *)
-      let r_from, r_into =
-        if size_ ra > size_ rb then rb, ra else ra, rb
+      let must_solve, r_from, r_into =
+        match Term.is_semantic ra.n_term, Term.is_semantic rb.n_term with
+        | true, true ->
+          if size_ ra > size_ rb then true, rb, ra else true, ra, rb
+        | false, false ->
+          if size_ ra > size_ rb then false, rb, ra else false, ra, rb
+        | true, false -> false, rb, ra (* semantic ==> representative *)
+        | false, true -> false, ra, rb
       in
+      (* solve the equation, if both [ra] and [rb] are semantic.
+         The equation is between signatures, so as to canonize w.r.t the
+         current congruence before solving *)
+      if must_solve then (
+        let t_a = ra.n_term and t_b = rb.n_term in
+        match signature cc t_a, signature cc t_b with
+        | Some (Custom t1), Some (Custom t2) ->
+          begin match t1.tc.tc_t_solve t1.view t2.view with
+            | Solve_ok {subst=l} ->
+              Log.debugf 5
+                (fun k->k "(@[solve@ (@[= %a %a@])@ :yields (@[%a@])@])"
+                    Term.pp t_a Term.pp t_b
+                    (Util.pp_list @@ Util.pp_pair Equiv_class.pp Term.pp) l);
+              List.iter (fun (u1,u2) -> push_combine cc u1 (add cc u2) e_ab) l
+            | Solve_fail {expl} -> 
+              Log.debugf 5
+                (fun k->k "(@[solve-fail@ (@[= %a %a@])@ :expl %a@])"
+                    Term.pp t_a Term.pp t_b Explanation.pp expl);
+              raise (Exn_unsat (Bag.return expl))
+          end
+        | _ -> assert false
+      );
       (* remove [ra.parents] from signature, put them into [st.pending] *)
       begin
         Bag.to_seq (r_from:>node).n_parents
@@ -375,7 +404,8 @@ and add_new_term cc (t:term) : node =
   push_pending cc n;
   n
 
-(* add [t=u] to the congruence closure, unconditionally (reduction relation)  *)
+(* TODO? *)
+(* add [t=u] to the congruence closure, unconditionally (reduction relation) *)
 and[@inline] add_eqn (cc:t) (eqn:merge_op): unit =
   let t, u, expl = eqn in
   push_combine cc t u expl
