@@ -3,7 +3,6 @@
 
 module Theory_intf = Theory_intf
 module Solver_types_intf = Solver_types_intf
-module Config = Config
 
 module Res = Res
 
@@ -42,13 +41,14 @@ type 'clause export = 'clause Solver_intf.export = {
 
 type ('form, 'proof) actions = ('form,'proof) Theory_intf.actions = Actions of {
   push : 'form list -> 'proof -> unit;
+  push_local : 'form list -> 'proof -> unit;
   on_backtrack: (unit -> unit) -> unit;
   at_level_0 : unit -> bool;
+  propagate : 'form -> 'form list -> 'proof -> unit;
 }
 
 type ('form, 'proof) slice_actions = ('form, 'proof) Theory_intf.slice_actions = Slice_acts of {
   slice_iter : ('form -> unit) -> unit;
-  slice_propagate : 'form -> 'form list -> 'proof -> unit;
 }
 
 module Make(E : Theory_intf.S) = Solver.Make(Solver_types.Make(E))(E)

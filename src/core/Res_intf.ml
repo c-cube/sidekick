@@ -13,7 +13,7 @@ module type S = sig
 
   (** {3 Type declarations} *)
 
-  exception Insuficient_hyps
+  exception Insufficient_hyps
   (** Raised when a complete resolution derivation cannot be found using the current hypotheses. *)
 
   type formula

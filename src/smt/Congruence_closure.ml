@@ -17,13 +17,26 @@ module Sig_tbl = CCHashtbl.Make(Signature)
 type merge_op = node * node * explanation
 (* a merge operation to perform *)
 
-type actions =
-  | Propagate of Lit.t * explanation list
-  | Split of Lit.t list * explanation list
-  | Merge of node * node (* merge these two classes *)
+type actions = {
+  on_backtrack:(unit -> unit) -> unit;
+  (** Register a callback to be invoked upon backtracking below the current level *)
+
+  at_lvl_0:unit -> bool;
+  (** Are we currently at backtracking level 0? *)
+
+  on_merge:repr -> repr -> explanation -> unit;
+  (** Call this when two classes are merged *)
+
+  raise_conflict: 'a. Explanation.t Bag.t -> 'a;
+  (** Report a conflict *)
+
+  propagate: Lit.t -> Explanation.t Bag.t -> unit;
+  (** Propagate a literal *)
+}
 
 type t = {
   tst: Term.state;
+  acts: actions;
   tbl: node Term.Tbl.t;
   (* internalization [term -> node] *)
   signatures_tbl : repr Sig_tbl.t;
@@ -34,18 +47,10 @@ type t = {
      The critical property is that all members of an equivalence class
      that have the same "shape" (including head symbol)
      have the same signature *)
-  on_backtrack: (unit -> unit) -> unit;
-  (* register a function to be called when we backtrack *)
-  at_lvl_0: unit -> bool;
-  (* currently at level 0? *)
-  on_merge: (repr -> repr -> explanation -> unit) list;
-  (* callbacks to call when we merge classes *)
   pending: node Vec.t;
   (* nodes to check, maybe their new signature is in {!signatures_tbl} *)
   combine: merge_op Vec.t;
   (* pairs of terms to merge *)
-  mutable actions : actions list;
-  (* some boolean propagations/splits to make. *)
   mutable ps_lits: Lit.Set.t;
   (* proof state *)
   ps_queue: (node*node) Vec.t;
@@ -79,8 +84,8 @@ let rec find_rec cc (n:node) : repr =
     let root = find_rec cc old_root in
     (* path compression *)
     if (root :> node) != old_root then (
-      if not (cc.at_lvl_0 ()) then (
-        cc.on_backtrack (fun () -> n.n_root <- old_root);
+      if not (cc.acts.at_lvl_0 ()) then (
+        cc.acts.on_backtrack (fun () -> n.n_root <- old_root);
       );
       n.n_root <- (root :> node);
     );
@@ -144,8 +149,8 @@ let add_signature cc (t:term) (r:repr): unit = match signature cc t with
     (* add, but only if not present already *)
     begin match Sig_tbl.get cc.signatures_tbl s with
       | None ->
-        if not (cc.at_lvl_0 ()) then (
-          cc.on_backtrack
+        if not (cc.acts.at_lvl_0 ()) then (
+          cc.acts.on_backtrack
             (fun () -> Sig_tbl.remove cc.signatures_tbl s);
         );
         Sig_tbl.add cc.signatures_tbl s r;
@@ -167,19 +172,11 @@ let push_combine cc t u e : unit =
       Equiv_class.pp t Equiv_class.pp u Explanation.pp e);
   Vec.push cc.combine (t,u,e)
 
-let push_split cc (lits:lit list) (expl:explanation list): unit =
-  Log.debugf 5
-    (fun k->k "(@[<hv1>push_split@ (@[%a@])@ expl: (@[<hv>%a@])@])"
-      (Util.pp_list Lit.pp) lits (Util.pp_list Explanation.pp) expl);
-  let l = Split (lits, expl) in
-  cc.actions <- l :: cc.actions
-
-let push_propagation cc (lit:lit) (expl:explanation list): unit =
+let push_propagation cc (lit:lit) (expl:explanation Bag.t): unit =
   Log.debugf 5
     (fun k->k "(@[<hv1>push_propagate@ %a@ expl: (@[<hv>%a@])@])"
-      Lit.pp lit (Util.pp_list Explanation.pp) expl);
-  let l = Propagate (lit,expl) in
-  cc.actions <- l :: cc.actions
+      Lit.pp lit (Util.pp_seq Explanation.pp) @@ Bag.to_seq expl);
+  cc.acts.propagate lit expl
 
 let[@inline] union cc (a:node) (b:node) (e:explanation): unit =
   if not (same_class cc a b) then (
@@ -189,10 +186,10 @@ let[@inline] union cc (a:node) (b:node) (e:explanation): unit =
 (* re-root the explanation tree of the equivalence class of [n]
    so that it points to [n].
    postcondition: [n.n_expl = None] *)
-let rec reroot_expl cc (n:node): unit =
+let rec reroot_expl (cc:t) (n:node): unit =
   let old_expl = n.n_expl in
-  if not (cc.at_lvl_0 ()) then (
-    cc.on_backtrack (fun () -> n.n_expl <- old_expl);
+  if not (cc.acts.at_lvl_0 ()) then (
+    cc.acts.on_backtrack (fun () -> n.n_expl <- old_expl);
   );
   begin match old_expl with
     | E_none -> () (* already root *)
@@ -202,19 +199,8 @@ let rec reroot_expl cc (n:node): unit =
       n.n_expl <- E_none;
   end
 
-(* TODO:
-   - move what follows into {!Theory}.
-   - also, obtain merges of CC via callbacks / [pop_merges] afterwards?
-   *)
-
-exception Exn_unsat of explanation Bag.t
-
-let unsat (e:explanation Bag.t): _ = raise (Exn_unsat e)
-
-type result =
-  | Sat of actions list
-  | Unsat of explanation Bag.t
-  (* list of direct explanations to the conflict. *)
+let[@inline] raise_conflict (cc:t) (e:explanation Bag.t): _ =
+  cc.acts.raise_conflict e
 
 let[@inline] all_classes cc : repr Sequence.t =
   Term.Tbl.values cc.tbl
@@ -222,7 +208,7 @@ let[@inline] all_classes cc : repr Sequence.t =
 
 (* main CC algo: add terms from [pending] to the signature table,
    check for collisions *)
-let rec update_pending (cc:t): result =
+let rec update_pending (cc:t): unit =
   (* step 2 deal with pending (parent) terms whose equiv class
      might have changed *)
   while not (Vec.is_empty cc.pending) do
@@ -240,11 +226,7 @@ let rec update_pending (cc:t): result =
     eval_pending cc;
     *)
   done;
-  if is_done cc then (
-    let actions = cc.actions in
-    cc.actions <- [];
-    Sat actions
-  ) else (
+  if not (is_done cc) then (
     update_combine cc (* repeat *)
   )
 
@@ -285,11 +267,12 @@ and update_combine cc =
                     Term.pp t_a Term.pp t_b
                     (Util.pp_list @@ Util.pp_pair Equiv_class.pp Term.pp) l);
               List.iter (fun (u1,u2) -> push_combine cc u1 (add cc u2) e_ab) l
-            | Solve_fail {expl} -> 
+            | Solve_fail {expl} ->
               Log.debugf 5
                 (fun k->k "(@[solve-fail@ (@[= %a %a@])@ :expl %a@])"
                     Term.pp t_a Term.pp t_b Explanation.pp expl);
-              raise (Exn_unsat (Bag.return expl))
+
+              raise_conflict cc (Bag.return expl)
           end
         | _ -> assert false
       );
@@ -310,7 +293,7 @@ and update_combine cc =
         let r_into = (r_into :> node) in
         let rb_old_class = r_into.n_class in
         let rb_old_parents = r_into.n_parents in
-        cc.on_backtrack
+        cc.acts.on_backtrack
           (fun () ->
              r_from.n_root <- r_from;
              r_into.n_class <- rb_old_class;
@@ -323,8 +306,8 @@ and update_combine cc =
       begin
         reroot_expl cc a;
         assert (a.n_expl = E_none);
-        if not (cc.at_lvl_0 ()) then (
-          cc.on_backtrack (fun () -> a.n_expl <- E_none);
+        if not (cc.acts.at_lvl_0 ()) then (
+          cc.acts.on_backtrack (fun () -> a.n_expl <- E_none);
         );
         a.n_expl <- E_some {next=b; expl=e_ab};
       end;
@@ -341,10 +324,7 @@ and update_combine cc =
 and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
   assert (is_root_ (ra:>node));
   assert (is_root_ (rb:>node));
-  List.iter
-    (fun f -> f ra rb e)
-    cc.on_merge;
-  ()
+  cc.acts.on_merge ra rb e
 
 
 (* FIXME: callback?
@@ -371,8 +351,8 @@ and add_new_term cc (t:term) : node =
   (* how to add a subterm *)
   let add_to_parents_of_sub_node (sub:node) : unit =
     let old_parents = sub.n_parents in
-    if not @@ cc.at_lvl_0 () then (
-      cc.on_backtrack (fun () -> sub.n_parents <- old_parents);
+    if not @@ cc.acts.at_lvl_0 () then (
+      cc.acts.on_backtrack (fun () -> sub.n_parents <- old_parents);
     );
     sub.n_parents <- Bag.cons n sub.n_parents;
     push_pending cc sub
@@ -395,8 +375,8 @@ and add_new_term cc (t:term) : node =
     | Custom {view;tc} -> tc.tc_t_sub view add_sub_t
   end;
   (* remove term when we backtrack *)
-  if not (cc.at_lvl_0 ()) then (
-    cc.on_backtrack (fun () -> Term.Tbl.remove cc.tbl t);
+  if not (cc.acts.at_lvl_0 ()) then (
+    cc.acts.on_backtrack (fun () -> Term.Tbl.remove cc.tbl t);
   );
   (* add term to the table *)
   Term.Tbl.add cc.tbl t n;
@@ -430,19 +410,16 @@ let assert_lit cc lit : unit = match Lit.view lit with
     push_combine cc n rhs (E_lit lit);
     ()
 
-let create ?(size=2048) ~on_backtrack ~at_lvl_0 ~on_merge (tst:Term.state) : t =
-  assert (at_lvl_0 ());
+let create ?(size=2048) ~actions (tst:Term.state) : t =
+  assert (actions.at_lvl_0 ());
   let nd = Equiv_class.dummy in
   let rec cc = {
     tst;
+    acts=actions;
     tbl = Term.Tbl.create size;
-    on_merge;
     signatures_tbl = Sig_tbl.create size;
-    on_backtrack;
-    at_lvl_0;
     pending=Vec.make_empty Equiv_class.dummy;
     combine= Vec.make_empty (nd,nd,E_reduce_eq(nd,nd));
-    actions=[];
     ps_lits=Lit.Set.empty;
     ps_queue=Vec.make_empty (nd,nd);
     true_ = lazy (add cc (Term.true_ tst));
@@ -557,24 +534,20 @@ let explain_loop (cc : t) : Lit.Set.t =
   done;
   cc.ps_lits
 
-let explain_unfold cc (l:explanation list): Lit.Set.t =
+let explain_unfold cc (seq:explanation Sequence.t): Lit.Set.t =
   Log.debugf 5
     (fun k->k "(@[explain_confict@ (@[<hv>%a@])@])"
-        (Util.pp_list Explanation.pp) l);
+        (Util.pp_seq Explanation.pp) seq);
   ps_clear cc;
-  List.iter (decompose_explain cc) l;
+  Sequence.iter (decompose_explain cc) seq;
   explain_loop cc
 
-let check_ cc =
-  try update_pending cc
-  with Exn_unsat e ->
-    Unsat e
-
 (* check satisfiability, update congruence closure *)
-let check (cc:t) : result =
+let check (cc:t) : unit =
   Log.debug 5 "(cc.check)";
-  check_ cc
+  update_pending cc
 
-let final_check cc : result =
+let final_check cc : unit =
   Log.debug 5 "(CC.final_check)";
-  check_ cc
+  update_pending cc
+

@@ -1,6 +1,5 @@
 (** {2 Congruence Closure} *)
 
-open CDCL
 open Solver_types
 
 type t
@@ -12,16 +11,30 @@ type node = Equiv_class.t
 type repr = Equiv_class.t
 (** Node that is currently a representative *)
 
+type actions = {
+  on_backtrack:(unit -> unit) -> unit;
+  (** Register a callback to be invoked upon backtracking below the current level *)
+
+  at_lvl_0:unit -> bool;
+  (** Are we currently at backtracking level 0? *)
+
+  on_merge:repr -> repr -> explanation -> unit;
+  (** Call this when two classes are merged *)
+
+  raise_conflict: 'a. Explanation.t Bag.t -> 'a;
+  (** Report a conflict *)
+
+  propagate: Lit.t -> Explanation.t Bag.t -> unit;
+  (** Propagate a literal *)
+}
+
 val create :
   ?size:int ->
-  on_backtrack:((unit -> unit) -> unit) ->
-  at_lvl_0:(unit -> bool) ->
-  on_merge:(repr -> repr -> explanation -> unit) list ->
+  actions:actions ->
   Term.state ->
   t
 (** Create a new congruence closure.
-    @param on_backtrack used to register undo actions
-    @param on_merge callbacks called when two equiv classes are merged
+    @param acts the actions available to the congruence closure
 *)
 
 val find : t -> node -> repr
@@ -47,20 +60,13 @@ val add : t -> term -> node
 val add_seq : t -> term Sequence.t -> unit
 (** Add a sequence of terms to the congruence closure *)
 
-type actions =
-  | Propagate of Lit.t * explanation list
-  | Split of Lit.t list * explanation list
-  | Merge of node * node (* merge these two classes *)
+val all_classes : t -> repr Sequence.t
+(** All current classes *)
 
-type result =
-  | Sat of actions list
-  | Unsat of explanation Bag.t
-  (* list of direct explanations to the conflict. *)
+val check : t -> unit
 
-val check : t -> result
+val final_check : t -> unit
 
-val final_check : t -> result
-
-val explain_unfold: t -> explanation list -> Lit.Set.t
+val explain_unfold: t -> explanation Sequence.t -> Lit.Set.t
 (** Unfold those explanations into a complete set of
     literals implying them *)

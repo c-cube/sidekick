@@ -43,24 +43,28 @@ type ('formula, 'proof) res =
     at any time *)
 type ('form, 'proof) actions = Actions of {
   push : 'form list -> 'proof -> unit;
-  (** Allows to add a clause to the solver. *)
+  (** Allows to add a persistent clause to the solver. *)
+
+  push_local : 'form list -> 'proof -> unit;
+  (** Allows to add a local clause to the solver. The clause
+      will be removed after backtracking. *)
 
   on_backtrack: (unit -> unit) -> unit;
   (** [on_backtrack f] calls [f] when the main solver backtracks *)
 
   at_level_0 : unit -> bool;
   (** Are we at level 0? *)
+
+  propagate : 'form -> 'form list -> 'proof -> unit;
+  (** [propagate lit causes proof] informs the solver to propagate [lit], with the reason
+      that the clause [causes => lit] is a theory tautology. It is faster than pushing
+      the associated clause but the clause will not be remembered by the sat solver,
+      i.e it will not be used by the solver to do boolean propagation. *)
 }
 
 type ('form, 'proof) slice_actions = Slice_acts of {
   slice_iter : ('form -> unit) -> unit;
   (** iterate on the slice of the trail *)
-
-  slice_propagate : 'form -> 'form list -> 'proof -> unit;
-  (** [propagate lit causes proof] informs the solver to propagate [lit], with the reason
-      that the clause [causes => lit] is a theory tautology. It is faster than pushing
-      the associated clause but the clause will not be remembered by the sat solver,
-      i.e it will not be used by the solver to do boolean propagation. *)
 }
 (** The type for a slice. Slices are some kind of view of the current
     propagation queue. They allow to look at the propagated literals,

@@ -16,7 +16,7 @@ module Make(St : Solver_types.S) = struct
   type clause = St.clause
   type atom = St.atom
 
-  exception Insuficient_hyps
+  exception Insufficient_hyps
   exception Resolution_error of string
 
   (* Log levels *)

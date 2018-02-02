@@ -12,6 +12,9 @@ let pp_sep sep out () = Format.fprintf out "%s@," sep
 let pp_list ?(sep=" ") pp out l =
   Fmt.list ~sep:(pp_sep sep) pp out l
 
+let pp_seq ?(sep=" ") pp out l =
+  Fmt.seq ~sep:(pp_sep sep) pp out l
+
 let pp_pair ?(sep=" ") pp1 pp2 out t =
   Fmt.pair ~sep:(pp_sep sep) pp1 pp2 out t
 

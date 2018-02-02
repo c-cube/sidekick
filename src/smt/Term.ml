@@ -114,6 +114,9 @@ let fold_map_builtin
       let acc, b = f acc b in
       acc, B_imply (a, b)
 
+let[@inline] is_true t = match t.term_cell with True -> true | _ -> false
+let is_false t = match t.term_cell with Builtin (B_not u) -> is_true u | _ -> false
+
 let[@inline] is_const t = match t.term_cell with
   | App_cst (_, a) -> IArray.is_empty a
   | _ -> false

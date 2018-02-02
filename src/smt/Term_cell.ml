@@ -1,5 +1,4 @@
 
-open CDCL
 open Solver_types
 
 (* TODO: normalization of {!term_cell} for use in signatures? *)

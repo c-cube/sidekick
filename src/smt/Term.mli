@@ -49,8 +49,9 @@ val pp : t Fmt.printer
 
 (** {6 Views} *)
 
+val is_true : t -> bool
+val is_false : t -> bool
 val is_const : t -> bool
-
 val is_custom : t -> bool
 
 val is_semantic : t -> bool

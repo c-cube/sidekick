@@ -1,5 +1,26 @@
 # Goals
 
+## TODO
+
+- typing and translation Ast -> Term
+- main executable for SMT solver
+- theory of boolean constructs (on the fly Tseitin using local clauses)
+- make CC work on QF_UF
+  * internalize terms on the fly (backtrackable)
+  * basic notion of activity for `ite`?
+- have `CDCL.push_local` work properly
+
+- write Shostak theory of datatypes (without acyclicity) with local case splits
+- design evaluation system (guards + `eval_bool:(term -> bool) option` in custom TC)
+- compilation of rec functions to defined constants
+
+- Shostak theory of eq-ℚ
+- datatype acyclicity check
+
+- abstract domain propagation in CC
+- domain propagation (intervals) for ℚ arith
+- full ℚ theory: shostak + domains + if-sat simplex
+
 ## Main goals
 
 - Add a backend to send proofs to dedukti
@@ -15,3 +36,9 @@
 - max-sat/max-smt
 - coq proofs ?
 
+
+## Done
+
+- base types (Term, Lit, …)
+- theory combination
+- basic design of theories

@@ -1,5 +1,4 @@
 
-open CDCL
 open Solver_types
 
 type t = cst

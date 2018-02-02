@@ -1,6 +1,5 @@
 (** {2 Literals} *)
 
-open CDCL
 open Solver_types
 
 type t = lit

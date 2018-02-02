@@ -848,13 +848,17 @@ module Make
       f a.lit
     done
 
-  let slice_push st (l:formula list) (lemma:proof): unit =
+  let act_push st (l:formula list) (lemma:proof): unit =
     let atoms = List.rev_map (create_atom st) l in
     let c = Clause.make atoms (Lemma lemma) in
-    Log.debugf info (fun k->k "Pushing clause %a" Clause.debug c);
+    Log.debugf info (fun k->k "(@[sat.push_clause@ %a@])" Clause.debug c);
     Stack.push c st.clauses_to_add
 
-  let slice_propagate (st:t) f causes proof : unit =
+  (* TODO: ensure that the clause is removed upon backtracking *)
+  let act_push_local = act_push
+
+  (* TODO: ensure that the clause is removed upon backtracking *)
+  let act_propagate (st:t) f causes proof : unit =
     let l = List.rev_map (mk_atom st) causes in
     if List.for_all (fun a -> a.is_true) l then (
       let p = mk_atom st f in
@@ -879,19 +883,19 @@ module Make
 
   let current_slice st = Theory_intf.Slice_acts {
     slice_iter = slice_iter st;
-    slice_propagate = slice_propagate st;
   }
 
   (* full slice, for [if_sat] final check *)
   let full_slice st = Theory_intf.Slice_acts {
     slice_iter = slice_iter st;
-    slice_propagate = slice_propagate st;
   }
 
   let actions st = Theory_intf.Actions {
-    push = slice_push st;
+    push = act_push st;
+    push_local = act_push_local st;
     on_backtrack = slice_on_backtrack st;
     at_level_0 = slice_at_level_0 st;
+    propagate = act_propagate st;
   }
 
   let create ?(size=`Big) ?st () : t =
