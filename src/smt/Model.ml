@@ -3,8 +3,6 @@
 
 (** {1 Model} *)
 
-open CDCL
-
 module A = Ast
 
 type term = A.term
@@ -104,28 +102,21 @@ let rec as_cstor_app env t = match A.term_view t with
     CCOpt.map (fun (id,ty,l') -> id,ty,l'@l) (as_cstor_app env f)
   | _ -> None
 
-let as_domain_elt env t = match A.term_view t with
-  | A.Const id ->
-    begin match A.env_find_def env id with
-      | Some A.E_uninterpreted_cst -> Some id
-      | _ -> None
-    end
-  | _ -> None
-
 let pp_stack out (l:term list) : unit =
   let ppt out t = Format.fprintf out "(@[%a@ :ty %a@])" A.pp_term t A.Ty.pp t.A.ty in
   CCFormat.(within "[" "]" (hvbox (list ppt))) out l
 
 let apply_subst (subst:subst) t =
   let rec aux subst t = match A.term_view t with
+    | A.Num_z _ | A.Num_q _ -> t
     | A.Var v ->
       begin match VarMap.get v subst with
         | None -> t
         | Some (lazy t') -> t'
       end
     | A.Undefined_value
-    | A.Bool _ | A.Const _ | A.Unknown _ -> t
-    | A.Select (sel, t) -> A.select sel (aux subst t) t.A.ty
+    | A.Bool _ | A.Const _ -> t
+    | A.Select (sel, t) -> A.select ~ty:t.A.ty sel (aux subst t)
     | A.App (f,l) -> A.app (aux subst f) (List.map (aux subst) l)
     | A.If (a,b,c) -> A.if_ (aux subst a) (aux subst b) (aux subst c)
     | A.Match (u,m) ->
@@ -134,38 +125,56 @@ let apply_subst (subst:subst) t =
            (fun (vars,rhs) ->
               let subst, vars = rename_vars subst vars in
               vars, aux subst rhs) m)
-    | A.Switch (u,m) ->
-      A.switch (aux subst u) (ID.Map.map (aux subst) m)
-    | A.Let (x,t,u) ->
-      let subst', x' = rename_var subst x in
-      A.let_ x' (aux subst t) (aux subst' u)
+    | A.Let (vbs,u) ->
+      let subst', vbs' =
+        CCList.fold_map
+          (fun subst' (x,t) ->
+             let t = aux subst t in
+             let subst', x' = rename_var subst' x in
+             subst', (x',t))
+          subst vbs
+      in
+      A.let_l vbs' (aux subst' u)
     | A.Bind (A.Mu, _,_) -> assert false
     | A.Bind (b, x,body) ->
       let subst', x'  = rename_var subst x in
       A.bind ~ty:(A.ty t) b x' (aux subst' body)
     | A.Not f -> A.not_ (aux subst f)
-    | A.Binop (op,a,b) -> A.binop op (aux subst a)(aux subst b)
+    | A.Op (op,l) -> A.op op (List.map (aux subst) l)
     | A.Asserting (t,g) ->
       A.asserting (aux subst t)(aux subst g)
+    | A.Arith (op,l) ->
+      let ty = A.ty t in
+      A.arith ty op (List.map (aux subst) l)
   in
   if VarMap.is_empty subst then t else aux subst t
+
+type partial_eq =
+  | Eq
+  | Neq
+  | Unknown
+
+let equal_as_values (_:A.term) (_:A.term) : partial_eq =
+  Unknown (* TODO *)
 
 (* Weak Head Normal Form.
    @param m the model
    @param st the "stack trace" (terms around currently being evaluated)
    @param t the term to eval *)
 let rec eval_whnf (m:t) (st:term list) (subst:subst) (t:term): term =
-  Log.debugf 5
+  Dagon_sat.Log.debugf 5
     (fun k->k "%s@[<2>eval_whnf `@[%a@]`@ in @[%a@]@]"
         (String.make (List.length st) ' ') (* indent *)
         A.pp_term t pp_subst subst);
   let st = t :: st in
   try
     eval_whnf_rec m st subst t
-  with A.Ill_typed msg ->
+  with Util.Error msg ->
     errorf "@[<2>Model:@ internal type error `%s`@ in %a@]" msg pp_stack st
 and eval_whnf_rec m st subst t = match A.term_view t with
-  | A.Undefined_value | A.Bool _ | A.Unknown _ -> t
+  | A.Num_q _
+  | A.Num_z _ -> t
+  | A.Undefined_value | A.Bool _ -> t
   | A.Var v ->
     begin match VarMap.get v subst with
       | None -> t
@@ -196,10 +205,15 @@ and eval_whnf_rec m st subst t = match A.term_view t with
   | A.Bind (A.Mu,v,body) ->
     let subst' = VarMap.add v (lazy t) subst in
     eval_whnf m st subst' body
-  | A.Let (x,t,u) ->
-    let t = lazy (eval_whnf m st subst t) in
-    let subst' = VarMap.add x t subst in
-    eval_whnf m st subst' u
+  | A.Let (vbs,u) ->
+    let subst =
+      List.fold_left
+        (fun subst (x,t) ->
+             let t = lazy (eval_whnf m st subst t) in
+             VarMap.add x t subst)
+        subst vbs
+    in
+    eval_whnf m st subst u
   | A.Bind (A.Fun,_,_) -> apply_subst subst t
   | A.Bind ((A.Forall | A.Exists) as b,v,body) ->
     let ty = A.Var.ty v in
@@ -227,7 +241,7 @@ and eval_whnf_rec m st subst t = match A.term_view t with
     eval_whnf m st subst t'
   | A.Select (sel, u) ->
     let u = eval_whnf m st subst u in
-    let t' = A.select sel u t.A.ty in
+    let t' = A.select ~ty:t.A.ty sel u in
     begin match as_cstor_app m.env u with
       | None -> t'
       | Some (cstor, _, args) ->
@@ -266,20 +280,6 @@ and eval_whnf_rec m st subst t = match A.term_view t with
             in
             eval_whnf m st subst' rhs
     end
-  | A.Switch (u, map) ->
-    let u = eval_whnf m st subst u in
-    begin match as_domain_elt m.env u with
-      | None ->
-        let map = ID.Map.map (apply_subst subst) map in
-        A.switch u map
-      | Some cst ->
-        begin match ID.Map.get cst map with
-          | Some rhs -> eval_whnf m st subst rhs
-          | None ->
-            let map = ID.Map.map (apply_subst subst) map in
-            A.switch u map
-        end
-    end
   | A.Not f ->
     let f = eval_whnf m st subst f in
     begin match A.term_view f with
@@ -295,59 +295,41 @@ and eval_whnf_rec m st subst t = match A.term_view t with
         A.undefined_value u.A.ty (* assertion failed, uncharted territory! *)
       | _ -> A.asserting u g'
     end
-  | A.Binop (op, a, b) ->
-    let a = eval_whnf m st subst a in
-    let b = eval_whnf m st subst b in
+  | A.Op (op, l) ->
+    let l = List.map (eval_whnf m st subst) l in
     begin match op with
       | A.And ->
-        begin match A.term_view a, A.term_view b with
-          | A.Bool true, A.Bool true -> A.true_
-          | A.Bool false, _
-          | _, A.Bool false -> A.false_
-          | _ -> A.and_ a b
-        end
+        if List.exists A.is_false l then A.false_
+        else if List.for_all A.is_true l then A.true_
+        else A.and_l l
       | A.Or ->
-        begin match A.term_view a, A.term_view b with
-          | A.Bool true, _
-          | _, A.Bool true -> A.true_
-          | A.Bool false, A.Bool false -> A.false_
-          | _ -> A.or_ a b
-        end
+        if List.exists A.is_true l then A.true_
+        else if List.for_all A.is_false l then A.false_
+        else A.or_l l
       | A.Imply ->
-        begin match A.term_view a, A.term_view b with
-          | _, A.Bool true
-          | A.Bool false, _  -> A.true_
-          | A.Bool true, A.Bool false -> A.false_
-          | _ -> A.imply a b
-        end
+        assert false (* TODO *)
       | A.Eq ->
-        begin match A.term_view a, A.term_view b with
-          | A.Bool true, A.Bool true
-          | A.Bool false, A.Bool false -> A.true_
-          | A.Bool true, A.Bool false
-          | A.Bool false, A.Bool true -> A.false_
-          | A.Var v1, A.Var v2 when A.Var.equal v1 v2 -> A.true_
-          | A.Const id1, A.Const id2 when ID.equal id1 id2 -> A.true_
-          | _ ->
-            begin match as_cstor_app m.env a, as_cstor_app m.env b with
-              | Some (c1,_,l1), Some (c2,_,l2) ->
-                if ID.equal c1 c2 then (
-                  assert (List.length l1 = List.length l2);
-                  eval_whnf m st subst (A.and_l (List.map2 A.eq l1 l2))
-                ) else A.false_
-              | _ ->
-                begin match as_domain_elt m.env a, as_domain_elt m.env b with
-                  | Some c1, Some c2 ->
-                    (* domain elements: they are all distinct *)
-                    if ID.equal c1 c2
-                    then A.true_
-                    else A.false_
-                  | _ ->
-                    A.eq a b
-                end
-            end
+        begin match l with
+          | [] -> assert false
+          | x :: tail ->
+            if List.for_all (fun y -> equal_as_values x y = Eq) tail
+            then A.true_
+            else if List.exists (fun y -> equal_as_values x y = Neq) tail
+            then A.false_
+            else A.op A.Eq l
         end
+      | A.Distinct ->
+        if
+          Sequence.diagonal_l l
+          |> Sequence.exists (fun (t,u) -> equal_as_values t u = Eq)
+        then A.false_
+        else if
+          Sequence.diagonal_l l
+          |> Sequence.for_all (fun (t,u) -> equal_as_values t u = Neq)
+        then A.true_
+        else A.op A.Distinct l
     end
+  | A.Arith (_, _) -> assert false (* TODO *)
 (* beta-reduce [f l] while [f] is a function,constant or variable *)
 and eval_whnf_app m st subst_f subst_l f l = match A.term_view f, l with
   | A.Bind (A.Fun,v, body), arg :: tail ->

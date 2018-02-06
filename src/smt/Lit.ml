@@ -47,7 +47,7 @@ let pp = pp_lit
 let print = pp
 
 let norm l =
-  if l.lit_sign then l, CDCL.Same_sign else neg l, CDCL.Negated
+  if l.lit_sign then l, Dagon_sat.Same_sign else neg l, Dagon_sat.Negated
 
 module Set = CCSet.Make(struct type t = lit let compare=compare end)
 module Tbl = CCHashtbl.Make(struct type t = lit let equal=equal let hash=hash end)

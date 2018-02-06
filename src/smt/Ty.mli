@@ -1,8 +1,6 @@
 
 (** {1 Hashconsed Types} *)
 
-open CDCL
-
 type t = Solver_types.ty
 type cell = Solver_types.ty_cell
 type def = Solver_types.ty_def

@@ -1,5 +1,6 @@
 
-open CDCL
+module Vec = Dagon_sat.Vec
+module Log = Dagon_sat.Log
 open Solver_types
 
 type node = Equiv_class.t

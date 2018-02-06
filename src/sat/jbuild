@@ -1,13 +1,12 @@
 ; vim:ft=lisp:
 
 (library
-  ((name CDCL_sat)
-   (public_name cdcl.sat)
-   (libraries (cdcl cdcl.tseitin))
-   (synopsis "sat interface")
-   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open CDCL))
+  ((name Dagon_sat)
+   (public_name dagon.sat)
+   (synopsis "core SAT solver for Dagon")
+   (libraries (dagon.util))
+   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8
+           -color always -safe-string -open Dagon_util))
    (ocamlopt_flags (:standard -O3 -bin-annot
                     -unbox-closures -unbox-closures-factor 20))
   ))
-
-

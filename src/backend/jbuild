@@ -2,11 +2,11 @@
 
 ; main binary
 (library
-  ((name CDCL_backend)
-   (public_name cdcl.backend)
-   (synopsis "proof backends for cdcl")
-   (libraries (cdcl))
-   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open CDCL))
+  ((name Dagon_backend)
+   (public_name dagon.backend)
+   (synopsis "proof backends for Dagon")
+   (libraries (dagon.sat))
+   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open Dagon_sat))
    (ocamlopt_flags (:standard -O3 -bin-annot
                     -unbox-closures -unbox-closures-factor 20))
   ))

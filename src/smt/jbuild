@@ -1,9 +1,10 @@
 ; vim:ft=lisp:
 
 (library
-  ((name CDCL_smt)
-   (public_name cdcl.smt)
-   (libraries (containers containers.data sequence cdcl))
-   (flags (:standard -w +a-4-44-48-58-60@8 -color always -safe-string -short-paths))
+  ((name Dagon_smt)
+   (public_name dagon.smt)
+   (libraries (containers containers.data sequence dagon.util dagon.sat zarith))
+   (flags (:standard -w +a-4-44-48-58-60@8
+           -color always -safe-string -short-paths -open Dagon_util))
    (ocamlopt_flags (:standard -O3 -color always
                     -unbox-closures -unbox-closures-factor 20))))

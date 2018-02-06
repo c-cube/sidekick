@@ -7,9 +7,6 @@ type 'a or_error = ('a, string) CCResult.t
 
 (** {2 Types} *)
 
-exception Error of string
-exception Ill_typed of string
-
 module Var : sig
   type 'ty t = private {
     id: ID.t;
@@ -17,6 +14,7 @@ module Var : sig
   }
 
   val make : ID.t -> 'ty -> 'ty t
+  val makef : ty:'a -> ('b, Format.formatter, unit, 'a t) format4 -> 'b
   val copy : 'a t -> 'a t
   val id : _ t -> ID.t
   val ty : 'a t -> 'a
@@ -29,13 +27,17 @@ end
 module Ty : sig
   type t =
     | Prop
-    | Const of ID.t
+    | App of ID.t * t list
     | Arrow of t * t
 
   val prop : t
   val const : ID.t -> t
+  val app : ID.t -> t list -> t
   val arrow : t -> t -> t
   val arrow_l : t list -> t -> t
+
+  val rat : t
+  val int : t
 
   include Intf.EQ with type t := t
   include Intf.ORD with type t := t
@@ -63,11 +65,22 @@ end
 
 type var = Ty.t Var.t
 
-type binop =
+type op =
   | And
   | Or
   | Imply
   | Eq
+  | Distinct
+
+type arith_op =
+  | Leq
+  | Lt
+  | Geq
+  | Gt
+  | Add
+  | Minus
+  | Mult
+  | Div
 
 type binder =
   | Fun
@@ -82,16 +95,17 @@ type term = private {
 and term_cell =
   | Var of var
   | Const of ID.t
-  | Unknown of var
+  | Num_z of Z.t
+  | Num_q of Q.t
   | App of term * term list
   | If of term * term * term
-  | Select of select * term
   | Match of term * (var list * term) ID.Map.t
-  | Switch of term * term ID.Map.t (* switch on constants *)
+  | Select of select * term
   | Bind of binder * var * term
-  | Let of var * term * term
+  | Arith of arith_op * term list
+  | Let of (var * term) list * term
   | Not of term
-  | Binop of binop * term * term
+  | Op of op * term list
   | Asserting of term * term
   | Undefined_value
   | Bool of bool
@@ -107,12 +121,17 @@ and select = {
 type definition = ID.t * Ty.t * term
 
 type statement =
+  | SetLogic of string
+  | SetOption of string list
+  | SetInfo of string list
   | Data of Ty.data list
-  | TyDecl of ID.t (* new atomic cstor *)
+  | TyDecl of ID.t * int (* new atomic cstor *)
   | Decl of ID.t * Ty.t
   | Define of definition list
   | Assert of term
   | Goal of var list * term
+  | CheckSat
+  | Exit
 
 (** {2 Constructors} *)
 
@@ -121,15 +140,14 @@ val ty : term -> Ty.t
 
 val var : var -> term
 val const : ID.t -> Ty.t -> term
-val unknown : var -> term
 val app : term -> term list -> term
 val app_a : term -> term array -> term
-val select : select -> term -> Ty.t -> term
 val if_ : term -> term -> term -> term
 val match_ : term -> (var list * term) ID.Map.t -> term
-val switch : term -> term ID.Map.t -> term
 val let_ : var -> term -> term -> term
+val let_l : (var * term) list -> term -> term
 val bind : ty:Ty.t -> binder -> var -> term -> term
+val select : ty:Ty.t -> select -> term -> term
 val fun_ : var -> term -> term
 val fun_l : var list -> term -> term
 val fun_a : var array -> term -> term
@@ -140,7 +158,7 @@ val exists_l : var list -> term -> term
 val mu : var -> term -> term
 val eq : term -> term -> term
 val not_ : term -> term
-val binop : binop -> term -> term -> term
+val op : op -> term list -> term
 val and_ : term -> term -> term
 val and_l : term list -> term
 val or_ : term -> term -> term
@@ -150,7 +168,17 @@ val true_ : term
 val false_ : term
 val undefined_value : Ty.t -> term
 val asserting : term -> term -> term
+val num_z : Ty.t -> Z.t -> term
+val num_q : Ty.t -> Q.t -> term
+val num_str : Ty.t -> string -> term (** parses int + {!num} *)
+val arith : Ty.t -> arith_op -> term list -> term
 
+(** {2 helpers} *)
+
+val is_true : term -> bool
+val is_false : term -> bool
+
+val unfold_binder : binder -> term -> var list * term
 val unfold_fun : term -> var list * term
 
 (** {2 Printing} *)

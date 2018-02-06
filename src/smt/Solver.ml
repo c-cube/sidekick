@@ -21,21 +21,23 @@ let get_time : unit -> float = Sys.time
 
 type level = int
 
-module Sat = CDCL.Make(Theory_combine)
+module Sat_solver = Dagon_sat.Make(Theory_combine)
 
 (* main solver state *)
 type t = {
-  solver: Sat.t;
+  solver: Sat_solver.t;
   stat: Stat.t;
   config: Config.t
 }
 
-let th_combine (self:t) : Theory_combine.t =
-  Sat.theory self.solver
+let solver self = self.solver
+let th_combine (self:t) : Theory_combine.t = Sat_solver.theory self.solver
+let add_theory self th = Theory_combine.add_theory (th_combine self) th
+let stats self = self.stat
 
 let create ?size ?(config=Config.empty) ~theories () : t =
   let self = {
-    solver=Sat.create ?size ();
+    solver=Sat_solver.create ?size ();
     stat=Stat.create ();
     config;
   } in
@@ -706,11 +708,11 @@ end
 
 (** {2 Main} *)
 
-let[@inline] clause_of_mclause (c:Sat.clause): Clause.t =
-  Sat.Clause.atoms_l c |> Clause.make
+let[@inline] clause_of_mclause (c:Sat_solver.clause): Clause.t =
+  Sat_solver.Clause.atoms_l c |> Clause.make
 
 (* convert unsat-core *)
-let clauses_of_unsat_core (core:Sat.clause list): Clause.t Sequence.t =
+let clauses_of_unsat_core (core:Sat_solver.clause list): Clause.t Sequence.t =
   Sequence.of_list core
   |> Sequence.map clause_of_mclause
 
@@ -747,20 +749,20 @@ let add_statement_l (_:t) _ = ()
 (* TODO: move this into submodule *)
 let pp_proof out p =
   let pp_step_res out p =
-    let {Sat.Proof.conclusion; _ } = Sat.Proof.expand p in
+    let {Sat_solver.Proof.conclusion; _ } = Sat_solver.Proof.expand p in
     let conclusion = clause_of_mclause conclusion in
     Clause.pp out conclusion
   in
   let pp_step out = function
-    | Sat.Proof.Lemma _ -> Format.fprintf out "(@[<1>lemma@ ()@])"
-    | Sat.Proof.Resolution (p1, p2, _) ->
+    | Sat_solver.Proof.Lemma _ -> Format.fprintf out "(@[<1>lemma@ ()@])"
+    | Sat_solver.Proof.Resolution (p1, p2, _) ->
       Format.fprintf out "(@[<1>resolution@ %a@ %a@])"
         pp_step_res p1 pp_step_res p2
     | _ -> Fmt.string out "<other>"
   in
   Format.fprintf out "(@[<v>";
-  Sat.Proof.fold
-    (fun () {Sat.Proof.conclusion; step } ->
+  Sat_solver.Proof.fold
+    (fun () {Sat_solver.Proof.conclusion; step } ->
        let conclusion = clause_of_mclause conclusion in
        Format.fprintf out "(@[<hv1>step@ %a@ @[<1>from:@ %a@]@])@,"
          Clause.pp conclusion pp_step step)

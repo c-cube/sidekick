@@ -5,18 +5,6 @@
 
     The solving algorithm, based on MCSat *)
 
-open CDCL
-
-type term
-type cst
-type ty = Solver_types.ty (** types *)
-type ty_def = Solver_types.ty_def
-
-type ty_cell = Solver_types.ty_cell =
-  | Prop
-  | Atomic of ID.t * ty_def
-  | Arrow of ty * ty
-
 (** {2 Result} *)
 
 type model = Model.t
@@ -31,6 +19,11 @@ type res =
   | Unsat (* TODO: proof *)
   | Unknown of unknown
 
+module Sat_solver : Dagon_sat.S
+      with type formula = Lit.t
+       and type theory = Theory_combine.t
+       and type Proof.lemma = Theory_combine.proof
+
 (** {2 Main} *)
 
 type t
@@ -41,6 +34,11 @@ val create :
   ?config:Config.t ->
   theories:Theory.t list ->
   unit -> t
+
+val solver : t -> Sat_solver.t
+val th_combine : t -> Theory_combine.t
+val add_theory : t -> Theory.t -> unit
+val stats : t -> Stat.t
 
 val add_statement_l : t -> Ast.statement list -> unit
 

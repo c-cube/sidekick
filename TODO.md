@@ -2,13 +2,15 @@
 
 ## TODO
 
-- typing and translation Ast -> Term
+- typing and translation Ast -> Term (from mc2?)
 - main executable for SMT solver
 - theory of boolean constructs (on the fly Tseitin using local clauses)
 - make CC work on QF_UF
   * internalize terms on the fly (backtrackable)
   * basic notion of activity for `ite`?
 - have `CDCL.push_local` work properly
+
+- remove tseitin lib
 
 - write Shostak theory of datatypes (without acyclicity) with local case splits
 - design evaluation system (guards + `eval_bool:(term -> bool) option` in custom TC)

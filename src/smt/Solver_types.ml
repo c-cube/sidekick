@@ -1,6 +1,4 @@
 
-open CDCL
-
 module Fmt = CCFormat
 module Node_bits = CCBitField.Make(struct end)
 

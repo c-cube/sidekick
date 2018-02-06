@@ -1,6 +1,4 @@
 
-open Solver_types
-
 (** Runtime state of a theory, with all the operations it provides *)
 type state = {
   on_merge: Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit;

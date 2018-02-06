@@ -1,0 +1,25 @@
+opam-version: "1.2"
+name: "dagon"
+license: "Apache"
+version: "dev"
+author: ["Simon Cruanes" "Guillaume Bury" "Sylvain Conchon" "Alain Mebsout" "Stephane Lecuyer"]
+maintainer: ["simon.cruanes.2007@m4x.org"]
+build: ["jbuilder" "build" "@install" "-p" name]
+build-doc: ["jbuilder" "build" "@doc" "-p" name]
+depends: [
+  "ocamlfind" {build}
+  "jbuilder" {build}
+  "containers"
+  "sequence"
+]
+depopts: [
+  "dolmen"
+]
+available: [
+  ocaml-version >= "4.03.0"
+]
+tags: [ "sat" "smt" ]
+homepage: "https://github.com/c-cube/dagon"
+dev-repo: "https://github.com/c-cube/dagon.git"
+bug-reports: "https://github.com/c-cube/dagon/issues/"
+

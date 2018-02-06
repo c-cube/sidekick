@@ -5,5 +5,5 @@ Copyright 2016 Guillaume Bury
 
 module Th = Th_sat
 
-include CDCL.Make(Th)
+include DAgon_sat.Make(Th)
 

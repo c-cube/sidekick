@@ -1,8 +1,6 @@
 
 (** {1 Type Cardinality} *)
 
-open CDCL
-
 type t = Solver_types.ty_card
 
 val (+) : t -> t -> t

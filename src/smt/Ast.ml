@@ -4,21 +4,8 @@
 (** {1 Preprocessing AST} *)
 
 module Fmt = CCFormat
-module S = CCSexp
 
 type 'a or_error = ('a, string) CCResult.t
-
-exception Error of string
-exception Ill_typed of string
-
-let () = Printexc.register_printer
-    (function
-      | Error msg -> Some ("ast error: " ^ msg)
-      | Ill_typed msg -> Some ("ill-typed: " ^ msg)
-      | _ -> None)
-
-let errorf msg =
-  CCFormat.ksprintf ~f:(fun e -> raise (Error e)) msg
 
 (** {2 Types} *)
 
@@ -43,28 +30,33 @@ end
 module Ty = struct
   type t =
     | Prop
-    | Const of ID.t
+    | App of ID.t * t list
     | Arrow of t * t
 
   let prop = Prop
-  let const id = Const id
+  let app id l = App (id,l)
+  let const id = app id []
   let arrow a b = Arrow (a,b)
   let arrow_l = List.fold_right arrow
 
+  let int = const ID.B.int
+  let rat = const ID.B.rat
+
   let to_int_ = function
     | Prop -> 0
-    | Const _ -> 1
+    | App _ -> 1
     | Arrow _ -> 2
 
   let (<?>) = CCOrd.(<?>)
 
   let rec compare a b = match a, b with
     | Prop, Prop -> 0
-    | Const a, Const b -> ID.compare a b
+    | App (a,la), App (b,lb) ->
+      CCOrd.(ID.compare a b <?> (list compare, la, lb))
     | Arrow (a1,a2), Arrow (b1,b2) ->
       compare a1 b1 <?> (compare, a2,b2)
     | Prop, _
-    | Const _, _
+    | App _, _
     | Arrow _, _ -> CCInt.compare (to_int_ a) (to_int_ b)
 
   let equal a b = compare a b = 0
@@ -80,7 +72,8 @@ module Ty = struct
 
   let rec pp out = function
     | Prop -> Fmt.string out "prop"
-    | Const id -> ID.pp out id
+    | App (id,[]) -> ID.pp out id
+    | App (id,l) -> Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp) l
     | Arrow _ as ty ->
       let args, ret = unfold ty in
       Fmt.fprintf out "(@[-> %a@ %a@])"
@@ -93,22 +86,6 @@ module Ty = struct
     data_cstors: t ID.Map.t;
   }
 
-  (* FIXME
-  let data_to_sexp d =
-    let cstors =
-      ID.Map.fold
-        (fun c ty acc ->
-           let ty_args, _ = unfold ty in
-           let c_sexp = match ty_args with
-             | [] -> ID.to_sexp c
-             | _::_ -> S.of_list (ID.to_sexp c :: List.map to_sexp ty_args)
-           in
-           c_sexp :: acc)
-        d.data_cstors []
-    in
-    S.of_list (ID.to_sexp d.data_id :: cstors)
-     *)
-
   module Map = CCMap.Make(struct
       type _t = t
       type t = _t
@@ -116,18 +93,27 @@ module Ty = struct
     end)
 
   let ill_typed fmt =
-    CCFormat.ksprintf
-      ~f:(fun s -> raise (Ill_typed s))
-      fmt
+    Util.errorf ("ill-typed: " ^^ fmt)
 end
 
 type var = Ty.t Var.t
 
-type binop =
+type op =
   | And
   | Or
   | Imply
   | Eq
+  | Distinct
+
+type arith_op =
+  | Leq
+  | Lt
+  | Geq
+  | Gt
+  | Add
+  | Minus
+  | Mult
+  | Div
 
 type binder =
   | Fun
@@ -142,16 +128,17 @@ type term = {
 and term_cell =
   | Var of var
   | Const of ID.t
-  | Unknown of var (* meta var *)
+  | Num_z of Z.t
+  | Num_q of Q.t
   | App of term * term list
   | If of term * term * term
-  | Select of select * term
   | Match of term * (var list * term) ID.Map.t
-  | Switch of term * term ID.Map.t (* switch on constants *)
+  | Select of select * term
   | Bind of binder * var * term
-  | Let of var * term * term
+  | Arith of arith_op * term list
+  | Let of (var * term) list * term
   | Not of term
-  | Binop of binop * term * term
+  | Op of op * term list
   | Asserting of term * term
   | Undefined_value
   | Bool of bool
@@ -162,32 +149,98 @@ and select = {
   select_i: int;
 }
 
+
 type definition = ID.t * Ty.t * term
 
 type statement =
+  | SetLogic of string
+  | SetOption of string list
+  | SetInfo of string list
   | Data of Ty.data list
-  | TyDecl of ID.t (* new atomic cstor *)
+  | TyDecl of ID.t * int (* new atomic cstor *)
   | Decl of ID.t * Ty.t
   | Define of definition list
   | Assert of term
   | Goal of var list * term
+  | CheckSat
+  | Exit
 
-(** {2 Helper} *)
+(** {2 Helpers} *)
 
-let unfold_fun t =
+let is_true = function {term=Bool true;_} -> true | _ -> false
+let is_false = function {term=Bool false;_} -> true | _ -> false
+
+let unfold_binder b t =
   let rec aux acc t = match t.term with
-    | Bind (Fun, v, t') -> aux (v::acc) t'
+    | Bind (b', v, t') when b=b' -> aux (v::acc) t'
     | _ -> List.rev acc, t
   in
   aux [] t
 
-(* TODO *)
+let unfold_fun = unfold_binder Fun
 
-let pp_term out _ = Fmt.string out "todo:term"
+let pp_binder out = function
+  | Forall -> Fmt.string out "forall"
+  | Exists -> Fmt.string out "exists"
+  | Fun -> Fmt.string out "lambda"
+  | Mu -> Fmt.string out "mu"
 
-let pp_ty out _ = Fmt.string out "todo:ty"
+let pp_op out = function
+  | And -> Fmt.string out "and"
+  | Or -> Fmt.string out "or"
+  | Imply -> Fmt.string out "=>"
+  | Eq -> Fmt.string out "="
+  | Distinct -> Fmt.string out "distinct"
 
-let pp_statement out _ = Fmt.string out "todo:stmt"
+let pp_arith out = function
+  | Leq -> Fmt.string out "<="
+  | Lt -> Fmt.string out "<"
+  | Geq -> Fmt.string out ">="
+  | Gt -> Fmt.string out ">"
+  | Add -> Fmt.string out "+"
+  | Minus -> Fmt.string out "-"
+  | Mult -> Fmt.string out "*"
+  | Div -> Fmt.string out "/"
+
+let pp_term =
+  let rec pp out t = match t.term with
+    | Var v -> Var.pp out v
+    | Const id -> ID.pp out id
+    | App (f, l) -> Fmt.fprintf out "(@[<hv1>%a@ %a@])" pp f (Util.pp_list pp) l
+    | If (a,b,c) -> Fmt.fprintf out "(@[<hv>ite@ %a@ %a@ %a@])" pp a pp b pp c
+    | Match (u, m) ->
+      let pp_case out (id,(vars,rhs)) =
+        if vars=[] then Fmt.fprintf out "(@[<2>case %a@ %a@])" ID.pp id pp rhs
+        else Fmt.fprintf out "(@[<2>case (@[%a@ %a@])@ %a@])"
+            ID.pp id (Util.pp_list Var.pp) vars pp rhs
+      in
+      Fmt.fprintf out "(@[<hv2>match %a@ %a@])"
+        pp u (Util.pp_list pp_case) (ID.Map.to_list m)
+    | Select (s, t) ->
+      Fmt.fprintf out "(@[select_%a_%d@ %a@])"
+        ID.pp s.select_cstor s.select_i pp t
+    | Bool b -> Fmt.fprintf out "%B" b
+    | Not t -> Fmt.fprintf out "(@[<1>not@ %a@])" pp t
+    | Op (o,l) -> Fmt.fprintf out "(@[<hv1>%a@ %a@])" pp_op o (Util.pp_list pp) l
+    | Bind (b,v,u) ->
+      Fmt.fprintf out "(@[<1>%a ((@[%a@ %a@]))@ %a@])"
+        pp_binder b Var.pp v Ty.pp (Var.ty v) pp u
+    | Let (vbs,u) ->
+      Fmt.fprintf out "(@[<1>let (@[%a@])@ %a@])" pp_vbs vbs pp u
+    | Num_z z -> Z.pp_print out z
+    | Num_q z -> Q.pp_print out z
+    | Arith (op, l) ->
+      Fmt.fprintf out "(@[<hv>%a@ %a@])" pp_arith op (Util.pp_list pp) l
+    | Undefined_value -> Fmt.string out "<undefined>"
+    | Asserting (t, g) ->
+      Fmt.fprintf out "(@[asserting@ %a@ %a@])" pp t pp g
+
+  and pp_vbs out l =
+    let pp_vb out (v,t) = Fmt.fprintf out "(@[%a@ %a@])" Var.pp v pp t in
+    Util.pp_list pp_vb out l
+  in pp
+
+let pp_ty = Ty.pp
 
 (** {2 Constructors} *)
 
@@ -200,7 +253,7 @@ let rec app_ty_ ty l : Ty.t = match ty, l with
     then app_ty_ ty_rest tail
     else Ty.ill_typed "expected `@[%a@]`,@ got `@[%a : %a@]`"
         Ty.pp ty_a pp_term a Ty.pp a.ty
-  | (Ty.Prop | Ty.Const _), a::_ ->
+  | (Ty.Prop | Ty.App _), a::_ ->
     Ty.ill_typed "cannot apply ty `@[%a@]`@ to `@[%a@]`" Ty.pp ty pp_term a
 
 let mk_ term ty = {term; ty}
@@ -217,11 +270,7 @@ let asserting t g =
   mk_ (Asserting (t,g)) t.ty
 
 let var v = mk_ (Var v) (Var.ty v)
-let unknown v = mk_ (Unknown v) (Var.ty v)
-
 let const id ty = mk_ (Const id) ty
-
-let select (s:select) (t:term) ty = mk_ (Select (s,t)) ty
 
 let app f l = match f.term, l with
   | _, [] -> f
@@ -255,21 +304,24 @@ let match_ t m =
     m;
   mk_ (Match (t,m)) rhs1.ty
 
-let switch u m =
-  try
-    let _, t1 = ID.Map.choose m in
-    mk_ (Switch (u,m)) t1.ty
-  with Not_found ->
-    invalid_arg "Ast.switch: empty list of cases"
+let let_l vbs t = match vbs with
+  | [] -> t
+  | _::_ ->
+    List.iter
+      (fun (v,t) ->
+        if not (Ty.equal (Var.ty v) t.ty) then (
+          Ty.ill_typed
+            "let: variable %a : @[%a@]@ and bounded term : %a@ should have same type"
+            Var.pp v Ty.pp (Var.ty v) Ty.pp t.ty;
+        );)
+      vbs;
+    mk_ (Let (vbs,t)) t.ty
 
-let let_ v t u =
-  if not (Ty.equal (Var.ty v) t.ty)
-  then Ty.ill_typed
-      "let: variable %a : @[%a@]@ and bounded term : %a@ should have same type"
-      Var.pp v Ty.pp (Var.ty v) Ty.pp t.ty;
-  mk_ (Let (v,t,u)) u.ty
+let let_ v t u = let_l [v,t] u
 
 let bind ~ty b v t = mk_ (Bind(b,v,t)) ty
+
+let select ~ty (s:select) (t:term) = mk_ (Select (s,t)) ty
 
 let fun_ v t =
   let ty = Ty.arrow (Var.ty v) t.ty in
@@ -303,16 +355,17 @@ let eq a b =
   if not (Ty.equal a.ty b.ty)
   then Ty.ill_typed "eq: `@[%a@]` and `@[%a@]` do not have the same type"
       pp_term a pp_term b;
-  mk_ (Binop (Eq,a,b)) Ty.prop
+  mk_ (Op (Eq,[a;b])) Ty.prop
 
 let check_prop_ t =
-  if not (Ty.equal t.ty Ty.prop)
-  then Ty.ill_typed "expected prop, got `@[%a : %a@]`" pp_term t Ty.pp t.ty
+  if not (Ty.equal t.ty Ty.prop) then (
+    Ty.ill_typed "expected prop, got `@[%a : %a@]`" pp_term t Ty.pp t.ty
+  )
 
-let binop op a b = mk_ (Binop (op, a, b)) Ty.prop
-let binop_prop op a b =
+let op op l = mk_ (Op (op, l)) Ty.prop
+let binop_prop o a b =
   check_prop_ a; check_prop_ b;
-  binop op a b
+  op o [a;b]
 
 let and_ = binop_prop And
 let or_ = binop_prop Or
@@ -321,16 +374,74 @@ let imply = binop_prop Imply
 let and_l = function
   | [] -> true_
   | [f] -> f
-  | a :: l -> List.fold_left and_ a l
+  | l -> op And l
 
 let or_l = function
   | [] -> false_
   | [f] -> f
-  | a :: l -> List.fold_left or_ a l
+  | l -> op Or l
 
 let not_ t =
   check_prop_ t;
   mk_ (Not t) Ty.prop
+
+let arith ty op l = mk_ (Arith (op,l)) ty
+
+let num_q ty z = mk_ (Num_q z) ty
+let num_z ty z = mk_ (Num_z z) ty
+
+let parse_num ~where (s:string) : [`Q of Q.t | `Z of Z.t] =
+  let fail() =
+    Util.errorf "%sexpected number, got `%s`" (Lazy.force where) s
+  in
+  begin match Z.of_string s with
+    | n -> `Z n
+    | exception _ ->
+      begin match Q.of_string s with
+        | n -> `Q n
+        | exception _ ->
+          if String.contains s '.' then (
+            let p1, p2 = CCString.Split.left_exn ~by:"." s in
+            let n1, n2 =
+              try Z.of_string p1, Z.of_string p2
+              with _ -> fail()
+            in
+            let factor_10 = Z.pow (Z.of_int 10) (String.length p2) in
+            (* [(p1·10^{length p2}+p2) / 10^{length p2}] *)
+            let n =
+              Q.div
+                (Q.of_bigint (Z.add n2 (Z.mul n1 factor_10)))
+                (Q.of_bigint factor_10)
+            in
+            `Q n
+          ) else fail()
+      end
+  end
+
+let num_str ty s =
+  begin match parse_num ~where:(Lazy.from_val "") s with
+    | `Q x -> num_q ty x
+    | `Z x -> num_z ty x
+  end
+
+(** {2 More IO} *)
+
+let pp_statement out = function
+  | SetLogic s -> Fmt.fprintf out "(set-logic %s)" s
+  | SetOption l -> Fmt.fprintf out "(@[set-logic@ %a@])" (Util.pp_list Fmt.string) l
+  | SetInfo l -> Fmt.fprintf out "(@[set-info@ %a@])" (Util.pp_list Fmt.string) l
+  | CheckSat -> Fmt.string out "(check-sat)"
+  | TyDecl (s,n) -> Fmt.fprintf out "(@[declare-sort@ %a %d@])" ID.pp s n
+  | Decl (id,ty) ->
+    let args, ret = Ty.unfold ty in
+    Fmt.fprintf out "(@[<1>declare-fun@ %a (@[%a@])@ %a@])"
+      ID.pp id (Util.pp_list Ty.pp) args Ty.pp ret
+  | Assert t -> Fmt.fprintf out "(@[assert@ %a@])" pp_term t
+  | Goal (vars,g) ->
+    Fmt.fprintf out "(@[assert-not@ %a@])" pp_term (forall_l vars (not_ g))
+  | Exit -> Fmt.string out "(exit)"
+  | Data _ -> assert false (* TODO *)
+  | Define _ -> assert false (* TODO *)
 
 (** {2 Environment} *)
 
@@ -363,14 +474,15 @@ let env_add_statement env st =
              (fun c_id c_ty map -> add_def c_id (E_cstor c_ty) map)
              data_cstors map)
         env l
-    | TyDecl id -> add_def id E_uninterpreted_ty env
+    | TyDecl (id,_) -> add_def id E_uninterpreted_ty env
     | Decl (id,ty) -> add_def id (E_const ty) env
     | Define l ->
       List.fold_left
         (fun map (id,ty,def) -> add_def id (E_defined (ty,def)) map)
         env l
-    | Goal _
-    | Assert _ -> env
+    | Goal _ | Assert _ | CheckSat | Exit
+    | SetLogic _ | SetOption _ | SetInfo _
+      -> env
 
 let env_of_statements seq =
   Sequence.fold env_add_statement env_empty seq

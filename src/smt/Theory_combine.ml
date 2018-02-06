@@ -3,6 +3,7 @@
 
 (** Combine the congruence closure with a number of plugins *)
 
+module Sat_solver = Dagon_sat
 open Solver_types
 
 module Proof = struct
@@ -21,7 +22,7 @@ type conflict = Explanation.t Bag.t
 exception Exn_conflict of conflict
 
 type t = {
-  cdcl_acts: (formula,proof) CDCL.actions;
+  cdcl_acts: (formula,proof) Sat_solver.actions;
   (** actions provided by the SAT solver *)
   tst: Term.state;
   (** state for managing terms *)
@@ -49,7 +50,7 @@ let[@inline] theories (self:t) : Theory.state Sequence.t =
 
 (* handle a literal assumed by the SAT solver *)
 let assume_lit (self:t) (lit:Lit.t) : unit =
-  CDCL.Log.debugf 2
+  Sat_solver.Log.debugf 2
     (fun k->k "(@[<1>@{<green>theory_combine.assume_lit@}@ @[%a@]@])" Lit.pp lit);
   (* check consistency first *)
   begin match Lit.view lit with
@@ -65,26 +66,26 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
 
 (* push clauses from {!lemma_queue} into the slice *)
 let push_new_clauses_into_cdcl (self:t) : unit =
-  let CDCL.Actions r = self.cdcl_acts in
+  let Sat_solver.Actions r = self.cdcl_acts in
   (* persistent lemmas *)
   while not (Queue.is_empty self.lemma_q) do
     let c = Queue.pop self.lemma_q in
-    CDCL.Log.debugf 5 (fun k->k "(@[<2>push_lemma@ %a@])" Clause.pp c);
+    Sat_solver.Log.debugf 5 (fun k->k "(@[<2>push_lemma@ %a@])" Clause.pp c);
     r.push c Proof.default
   done;
   (* local splits *)
   while not (Queue.is_empty self.split_q) do
     let c = Queue.pop self.split_q in
-    CDCL.Log.debugf 5 (fun k->k "(@[<2>split_on@ %a@])" Clause.pp c);
+    Sat_solver.Log.debugf 5 (fun k->k "(@[<2>split_on@ %a@])" Clause.pp c);
     r.push_local c Proof.default
   done
 
 (* return result to the SAT solver *)
-let cdcl_return_res (self:t) : _ CDCL.res =
+let cdcl_return_res (self:t) : _ Sat_solver.res =
   begin match self.conflict with
     | None ->
       push_new_clauses_into_cdcl self;
-      CDCL.Sat
+      Sat_solver.Sat
     | Some c ->
       let lit_set =
         Bag.to_seq c
@@ -95,19 +96,19 @@ let cdcl_return_res (self:t) : _ CDCL.res =
         |> List.map Lit.neg
         |> Clause.make
       in
-      CDCL.Log.debugf 3
+      Sat_solver.Log.debugf 3
         (fun k->k "(@[<1>conflict@ clause: %a@])"
             Clause.pp conflict_clause);
-      CDCL.Unsat (Clause.lits conflict_clause, Proof.default)
+      Sat_solver.Unsat (Clause.lits conflict_clause, Proof.default)
   end
 
 let[@inline] check (self:t) : unit =
   Congruence_closure.check (cc self)
 
 (* propagation from the bool solver *)
-let assume_real (self:t) (slice:_ CDCL.slice_actions) =
+let assume_real (self:t) (slice:_ Sat_solver.slice_actions) =
   (* TODO if Config.progress then print_progress(); *)
-  let CDCL.Slice_acts slice = slice in
+  let Sat_solver.Slice_acts slice = slice in
   begin
     try
       slice.slice_iter (assume_lit self);
@@ -120,7 +121,7 @@ let assume_real (self:t) (slice:_ CDCL.slice_actions) =
   cdcl_return_res self
 
 (* propagation from the bool solver *)
-let assume (self:t) (slice:_ CDCL.slice_actions) =
+let assume (self:t) (slice:_ Sat_solver.slice_actions) =
   match self.conflict with
   | None -> assume_real self slice
   | Some _ ->
@@ -128,11 +129,11 @@ let assume (self:t) (slice:_ CDCL.slice_actions) =
     cdcl_return_res self
 
 (* perform final check of the model *)
-let if_sat (self:t) (slice:_) : _ CDCL.res =
+let if_sat (self:t) (slice:_) : _ Sat_solver.res =
   Congruence_closure.final_check (cc self);
   (* all formulas in the SAT solver's trail *)
   let forms =
-    let CDCL.Slice_acts r = slice in
+    let Sat_solver.Slice_acts r = slice in
     r.slice_iter
   in
   (* final check for each theory *)
@@ -144,13 +145,13 @@ let if_sat (self:t) (slice:_) : _ CDCL.res =
 
 (* forward propagations from CC or theories directly to the SMT core *)
 let act_propagate (self:t) f guard : unit =
-  let CDCL.Actions r = self.cdcl_acts in
+  let Sat_solver.Actions r = self.cdcl_acts in
   let guard =
     Bag.to_seq guard
     |> Congruence_closure.explain_unfold (cc self)
     |> Lit.Set.to_list
   in
-  CDCL.Log.debugf 2
+  Sat_solver.Log.debugf 2
     (fun k->k "(@[@{<green>propagate@}@ %a@ :guard %a@])"
         Lit.pp f Clause.pp guard);
   r.propagate f guard Proof.default
@@ -165,7 +166,7 @@ let on_merge_from_cc (self:t) r1 r2 e : unit =
     (fun th -> th.Theory.on_merge r1 r2 e)
 
 let mk_cc_actions (self:t) : Congruence_closure.actions =
-  let CDCL.Actions r = self.cdcl_acts in
+  let Sat_solver.Actions r = self.cdcl_acts in
   {
     Congruence_closure.
     on_backtrack = r.on_backtrack;
@@ -178,8 +179,8 @@ let mk_cc_actions (self:t) : Congruence_closure.actions =
 (** {2 Main} *)
 
 (* create a new theory combination *)
-let create (cdcl_acts:_ CDCL.actions) : t =
-  CDCL.Log.debug 5 "theory_combine.create";
+let create (cdcl_acts:_ Sat_solver.actions) : t =
+  Sat_solver.Log.debug 5 "theory_combine.create";
   let rec self = {
     cdcl_acts;
     tst=Term.create ~size:1024 ();
@@ -210,18 +211,18 @@ let act_find self t =
   |> Congruence_closure.find (cc self)
 
 let act_case_split self (c:Clause.t) =
-  CDCL.Log.debugf 2 (fun k->k "(@[<1>add_split@ @[%a@]@])" Clause.pp c);
+  Sat_solver.Log.debugf 2 (fun k->k "(@[<1>add_split@ @[%a@]@])" Clause.pp c);
   Queue.push c self.split_q
 
 (* push one clause into [M], in the current level (not a lemma but
    an axiom) *)
 let act_add_axiom self (c:Clause.t): unit =
-  CDCL.Log.debugf 2 (fun k->k "(@[<1>add_axiom@ @[%a@]@])" Clause.pp c);
+  Sat_solver.Log.debugf 2 (fun k->k "(@[<1>add_axiom@ @[%a@]@])" Clause.pp c);
   (* TODO incr stat_num_clause_push; *)
   Queue.push c self.lemma_q
 
 let mk_theory_actions (self:t) : Theory.actions =
-  let CDCL.Actions r = self.cdcl_acts in
+  let Sat_solver.Actions r = self.cdcl_acts in
   {
     Theory.
     on_backtrack = r.on_backtrack;
@@ -236,7 +237,7 @@ let mk_theory_actions (self:t) : Theory.actions =
   }
 
 let add_theory (self:t) (th:Theory.t) : unit =
-  CDCL.Log.debugf 2
+  Sat_solver.Log.debugf 2
     (fun k->k "(@[theory_combine.add_th@ :name %S@])" th.Theory.name);
   let th_s = th.Theory.make self.tst (mk_theory_actions self) in
   self.theories <- th_s :: self.theories
