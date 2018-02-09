@@ -72,10 +72,15 @@ let or_l st = function
   | l -> make st (Term_cell.or_ l)
 
 let and_ st a b = and_l st [a;b]
-let or_ st a b = and_l st [a;b]
-let imply st a b = match a with [] -> b | _ -> make st (Term_cell.imply a b)
+let or_ st a b = or_l st [a;b]
+let imply st a b = match a, b.term_cell with
+  | [], _ -> b
+  | _::_, Builtin (B_imply (a',b')) ->
+    make st (Term_cell.imply (CCList.append a a') b')
+  | _ -> make st (Term_cell.imply a b)
 let eq st a b = make st (Term_cell.eq a b)
-let neq st a b = not_ st (eq st a b)
+let distinct st l = make st (Term_cell.distinct l)
+let neq st a b = make st (Term_cell.neq a b)
 let builtin st b = make st (Term_cell.builtin b)
 
 (* "eager" and, evaluating [a] first *)
@@ -109,6 +114,9 @@ let fold_map_builtin
     | B_eq (a,b) ->
       let acc, a, b = fold_binary acc a b in
       acc, B_eq (a, b)
+    | B_distinct l ->
+      let acc, l = CCList.fold_map f acc l in
+      acc, B_distinct l
     | B_imply (a,b) ->
       let acc, a = CCList.fold_map f acc a in
       let acc, b = f acc b in
@@ -135,7 +143,7 @@ let map_builtin f b =
 
 let builtin_to_seq b yield = match b with
   | B_not t -> yield t
-  | B_or l | B_and l -> List.iter yield l
+  | B_or l | B_and l | B_distinct l -> List.iter yield l
   | B_imply (a,b) -> List.iter yield a; yield b
   | B_eq (a,b) -> yield a; yield b
 

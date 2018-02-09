@@ -87,7 +87,7 @@ module Make
 
   let[@inline] add_clause st c : unit =
     cleanup_ st;
-    S.add_clause st c
+    S.assume st [c]
 
   let solve (st:t) ?(assumptions=[]) () =
     cleanup_ st;

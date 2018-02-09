@@ -10,6 +10,7 @@ module E = CCResult
 module Fmt = CCFormat
 module Term = Dagon_smt.Term
 module Ast = Dagon_smt.Ast
+module Solver = Dagon_smt.Solver
 
 type 'a or_error = ('a, string) E.t
 
@@ -30,11 +31,9 @@ let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
 
-(* FIXME
-module Dot = CDCL_backend.Dot.Make(CDCL_backend.Dot.Default(Sat))
-   *)
-
 let hyps : Ast.term list ref = ref []
+
+module Dot = Dagon_backend.Dot.Make(Solver.Sat_solver.Proof)(Dagon_backend.Dot.Default(Solver.Sat_solver.Proof))
 
 let check_model _state =
   let check_clause _c =
@@ -138,7 +137,7 @@ let main () =
         try
           E.fold_l
             (fun () ->
-               Dagon_smtlib.process_stmt
+               Dagon_smt.Process.process_stmt
                  ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
                  ~time:!time_limit ~memory:!size_limit
                  ?dot_proof ~pp_model:!p_model ~check:!check ~progress:!p_progress

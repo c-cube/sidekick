@@ -56,3 +56,11 @@ type t = {
   make: Term.state -> actions -> state;
 }
 
+let make ~name ~make () : t = {name;make}
+
+let make_st
+    ?(on_merge=fun _ _ _ -> ())
+    ?(on_assert=fun _ -> ())
+    ~final_check
+    () : state =
+  { on_merge; on_assert; final_check }

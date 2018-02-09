@@ -19,6 +19,8 @@ val or_ : term list -> t
 val not_ : term -> t
 val imply : term list -> term -> t
 val eq : term -> term -> t
+val neq : term -> term -> t
+val distinct : term list -> t
 val custom : tc:term_view_tc -> term term_view_custom -> t
 
 val ty : t -> Ty.t

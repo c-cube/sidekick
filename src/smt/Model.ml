@@ -141,8 +141,8 @@ let apply_subst (subst:subst) t =
       A.bind ~ty:(A.ty t) b x' (aux subst' body)
     | A.Not f -> A.not_ (aux subst f)
     | A.Op (op,l) -> A.op op (List.map (aux subst) l)
-    | A.Asserting (t,g) ->
-      A.asserting (aux subst t)(aux subst g)
+    | A.Asserting {t;guard} ->
+      A.asserting (aux subst t) (aux subst guard)
     | A.Arith (op,l) ->
       let ty = A.ty t in
       A.arith ty op (List.map (aux subst) l)
@@ -287,7 +287,7 @@ and eval_whnf_rec m st subst t = match A.term_view t with
       | A.Bool false -> A.true_
       | _ -> A.not_ f
     end
-  | A.Asserting (u, g) ->
+  | A.Asserting {t=u; guard=g} ->
     let g' = eval_whnf m st subst g in
     begin match A.term_view g' with
       | A.Bool true -> eval_whnf m st subst u

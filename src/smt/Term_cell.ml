@@ -30,6 +30,7 @@ module Make_eq(A : ARG) = struct
     | Builtin (B_or l) -> Hash.combine2 22 (Hash.list sub_hash l)
     | Builtin (B_imply (l1,t2)) -> Hash.combine3 23 (Hash.list sub_hash l1) (sub_hash t2)
     | Builtin (B_eq (t1,t2)) -> Hash.combine3 24 (sub_hash t1) (sub_hash t2)
+    | Builtin (B_distinct l) -> Hash.combine2 26 (Hash.list sub_hash l)
     | Custom {view;tc} -> tc.tc_t_hash sub_hash view
 
   (* equality that relies on physical equality of subterms *)
@@ -53,10 +54,12 @@ module Make_eq(A : ARG) = struct
         | B_not a1, B_not a2 -> sub_eq a1 a2
         | B_and l1, B_and l2
         | B_or l1, B_or l2 -> CCEqual.list sub_eq l1 l2
+        | B_distinct l1, B_distinct l2 -> CCEqual.list sub_eq l1 l2
         | B_eq (a1,b1), B_eq (a2,b2) -> sub_eq a1 a2 && sub_eq b1 b2
         | B_imply (a1,b1), B_imply (a2,b2) -> CCEqual.list sub_eq a1 a2 && sub_eq b1 b2
         | B_not _, _ | B_and _, _ | B_eq _, _
-        | B_or _, _ | B_imply _, _ -> false
+        | B_or _, _ | B_imply _, _ | B_distinct _, _
+          -> false
       end
     | Custom r1, Custom r2 ->
       r1.tc.tc_t_equal sub_eq r1.view r2.view
@@ -110,6 +113,10 @@ let and_ l = builtin (B_and l)
 let or_ l = builtin (B_or l)
 let imply a b = builtin (B_imply (a,b))
 let eq a b = builtin (B_eq (a,b))
+let distinct = function
+  | [] | [_] -> true_
+  | l -> builtin (B_distinct l)
+let neq a b = distinct [a;b]
 
 let custom ~tc view = Custom {view;tc}
 

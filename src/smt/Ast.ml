@@ -139,7 +139,7 @@ and term_cell =
   | Let of (var * term) list * term
   | Not of term
   | Op of op * term list
-  | Asserting of term * term
+  | Asserting of {t: term; guard: term}
   | Undefined_value
   | Bool of bool
 
@@ -232,8 +232,8 @@ let pp_term =
     | Arith (op, l) ->
       Fmt.fprintf out "(@[<hv>%a@ %a@])" pp_arith op (Util.pp_list pp) l
     | Undefined_value -> Fmt.string out "<undefined>"
-    | Asserting (t, g) ->
-      Fmt.fprintf out "(@[asserting@ %a@ %a@])" pp t pp g
+    | Asserting {t;guard} ->
+      Fmt.fprintf out "(@[asserting@ %a@ %a@])" pp t pp guard
 
   and pp_vbs out l =
     let pp_vb out (v,t) = Fmt.fprintf out "(@[%a@ %a@])" Var.pp v pp t in
@@ -267,7 +267,7 @@ let asserting t g =
   if not (Ty.equal Ty.prop g.ty) then (
     Ty.ill_typed "asserting: test  must have type prop, not `@[%a@]`" Ty.pp g.ty;
   );
-  mk_ (Asserting (t,g)) t.ty
+  mk_ (Asserting {t;guard=g}) t.ty
 
 let var v = mk_ (Var v) (Var.ty v)
 let const id ty = mk_ (Const id) ty

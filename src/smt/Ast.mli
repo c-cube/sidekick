@@ -106,7 +106,7 @@ and term_cell =
   | Let of (var * term) list * term
   | Not of term
   | Op of op * term list
-  | Asserting of term * term
+  | Asserting of {t: term; guard: term}
   | Undefined_value
   | Bool of bool
 

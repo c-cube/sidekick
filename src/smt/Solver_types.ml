@@ -32,6 +32,7 @@ and 'a builtin =
   | B_and of 'a list
   | B_or of 'a list
   | B_imply of 'a list * 'a
+  | B_distinct of 'a list
 
 (** Methods on the custom term view whose leaves are ['a].
     Terms must be comparable, hashable, printable, and provide
@@ -310,6 +311,8 @@ let pp_term_top ~ids out t =
       Fmt.fprintf out "(@[<hv1>=>@ %a@ %a@])" (Util.pp_list pp) a pp b
     | Builtin (B_eq (a,b)) ->
       Fmt.fprintf out "(@[<hv1>=@ %a@ %a@])" pp a pp b
+    | Builtin (B_distinct l) ->
+      Fmt.fprintf out "(@[<hv1>distinct@ %a@])" (Util.pp_list pp) l
     | Custom {view; tc} -> tc.tc_t_pp pp out view
   and pp_id =
     if ids then ID.pp else ID.pp_name

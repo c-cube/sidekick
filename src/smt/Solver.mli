@@ -5,9 +5,20 @@
 
     The solving algorithm, based on MCSat *)
 
+module Sat_solver : Dagon_sat.S
+      with type formula = Lit.t
+       and type theory = Theory_combine.t
+       and type Proof.lemma = Theory_combine.proof
+
 (** {2 Result} *)
 
 type model = Model.t
+
+module Proof : sig
+  type t = Sat_solver.Proof.proof
+
+  val pp : t CCFormat.printer
+end
 
 type unknown =
   | U_timeout
@@ -16,13 +27,8 @@ type unknown =
 
 type res =
   | Sat of Model.t
-  | Unsat (* TODO: proof *)
+  | Unsat of Proof.t
   | Unknown of unknown
-
-module Sat_solver : Dagon_sat.S
-      with type formula = Lit.t
-       and type theory = Theory_combine.t
-       and type Proof.lemma = Theory_combine.proof
 
 (** {2 Main} *)
 
@@ -39,12 +45,14 @@ val solver : t -> Sat_solver.t
 val th_combine : t -> Theory_combine.t
 val add_theory : t -> Theory.t -> unit
 val stats : t -> Stat.t
+val tst : t -> Term.state
 
-val add_statement_l : t -> Ast.statement list -> unit
+val assume : t -> Clause.t -> unit
 
 val solve :
   ?on_exit:(unit -> unit) list ->
   ?check:bool ->
+  assumptions:Lit.t list ->
   t ->
   res
 (** [solve s] checks the satisfiability of the statement added so far to [s]
@@ -53,3 +61,4 @@ val solve :
 
 val pp_term_graph: t CCFormat.printer
 val pp_stats : t CCFormat.printer
+val pp_unknown : unknown CCFormat.printer

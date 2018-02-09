@@ -2,8 +2,28 @@
 open Solver_types
 
 type t = ty
-type cell = ty_cell
-type def = ty_def
+
+and cell = Solver_types.ty_cell =
+  | Prop
+  | Atomic of ID.t * ty_def
+  | Arrow of ty * ty
+
+type def = Solver_types.ty_def =
+  | Uninterpreted
+  | Data of datatype
+and datatype = Solver_types.datatype = {
+  data_cstors: data_cstor ID.Map.t lazy_t;
+}
+(* a constructor *)
+and data_cstor = Solver_types.data_cstor = {
+  cstor_ty: ty;
+  cstor_args: ty IArray.t; (* argument types *)
+  cstor_proj: cst IArray.t lazy_t; (* projectors *)
+  cstor_test: cst lazy_t; (* tester *)
+  cstor_cst: cst; (* the cstor itself *)
+  cstor_card: ty_card; (* cardinality of the constructor('s args) *)
+}
+
 
 let view t = t.ty_cell
 

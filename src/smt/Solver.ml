@@ -5,16 +5,6 @@
 
 open Solver_types
 
-type term = Term.t
-type cst = Cst.t
-type ty = Ty.t
-type ty_def = Solver_types.ty_def
-
-type ty_cell = Solver_types.ty_cell =
-  | Prop
-  | Atomic of ID.t * ty_def
-  | Arrow of ty * ty
-
 let get_time : unit -> float = Sys.time
 
 (** {2 The Main Solver} *)
@@ -22,6 +12,37 @@ let get_time : unit -> float = Sys.time
 type level = int
 
 module Sat_solver = Dagon_sat.Make(Theory_combine)
+
+let[@inline] clause_of_mclause (c:Sat_solver.clause): Clause.t =
+  Sat_solver.Clause.atoms_l c |> Clause.make
+
+module Proof = struct
+  type t = Sat_solver.Proof.proof
+
+  let pp out (p:t) : unit =
+    let pp_step_res out p =
+      let {Sat_solver.Proof.conclusion; _ } = Sat_solver.Proof.expand p in
+      let conclusion = clause_of_mclause conclusion in
+      Clause.pp out conclusion
+    in
+    let pp_step out = function
+      | Sat_solver.Proof.Lemma _ -> Format.fprintf out "(@[<1>lemma@ ()@])"
+      | Sat_solver.Proof.Resolution (p1, p2, _) ->
+        Format.fprintf out "(@[<1>resolution@ %a@ %a@])"
+          pp_step_res p1 pp_step_res p2
+      | _ -> Fmt.string out "<other>"
+    in
+    Format.fprintf out "(@[<v>";
+    Sat_solver.Proof.fold
+      (fun () {Sat_solver.Proof.conclusion; step } ->
+         let conclusion = clause_of_mclause conclusion in
+         Format.fprintf out "(@[<hv1>step@ %a@ @[<1>from:@ %a@]@])@,"
+           Clause.pp conclusion pp_step step)
+      () p;
+    Format.fprintf out "@])";
+    ()
+
+end
 
 (* main solver state *)
 type t = {
@@ -34,6 +55,7 @@ let solver self = self.solver
 let th_combine (self:t) : Theory_combine.t = Sat_solver.theory self.solver
 let add_theory self th = Theory_combine.add_theory (th_combine self) th
 let stats self = self.stat
+let tst self = Theory_combine.tst (th_combine self)
 
 let create ?size ?(config=Config.empty) ~theories () : t =
   let self = {
@@ -116,383 +138,6 @@ let add_cst_support_ (c:cst): unit =
 
 let add_ty_support_ (_ty:Ty.t): unit = ()
 
-(* FIXME: do this in another module, perhaps?
-module Conv : sig
-  val add_statement : Ast.statement -> unit
-  val add_statement_l : Ast.statement list -> unit
-  val ty_to_ast: Ty.t -> Ast.Ty.t
-  val term_to_ast: term -> Ast.term
-end = struct
-  (* for converting Ast.Ty into Ty *)
-  let ty_tbl_ : Ty.t lazy_t ID.Tbl.t = ID.Tbl.create 16
-
-  (* for converting constants *)
-  let decl_ty_ : cst lazy_t ID.Tbl.t = ID.Tbl.create 16
-
-  (* environment for variables *)
-  type conv_env = {
-    let_bound: (term * int) ID.Map.t;
-    (* let-bound variables, to be replaced. int=depth at binding position *)
-    bound: (int * Ty.t) ID.Map.t;
-    (* set of bound variables. int=depth at binding position *)
-    depth: int;
-  }
-
-  let empty_env : conv_env =
-    {let_bound=ID.Map.empty; bound=ID.Map.empty; depth=0}
-
-  let rec conv_ty (ty:Ast.Ty.t): Ty.t = match ty with
-    | Ast.Ty.Prop -> Ty.prop
-    | Ast.Ty.Const id ->
-      begin try ID.Tbl.find ty_tbl_ id |> Lazy.force
-        with Not_found -> Util.errorf "type %a not in ty_tbl" ID.pp id
-      end
-    | Ast.Ty.Arrow (a,b) -> Ty.arrow (conv_ty a) (conv_ty b)
-
-  let add_bound env v =
-    let ty = Ast.Var.ty v |> conv_ty in
-    { env with
-        depth=env.depth+1;
-        bound=ID.Map.add (Ast.Var.id v) (env.depth,ty) env.bound; }
-
-  (* add [v := t] to bindings. Depth is not incremented
-     (there will be no binders) *)
-  let add_let_bound env v t =
-    { env with
-        let_bound=ID.Map.add (Ast.Var.id v) (t,env.depth) env.let_bound }
-
-  let find_env env v =
-    let id = Ast.Var.id v in
-    ID.Map.get id env.let_bound, ID.Map.get id env.bound
-
-  let rec conv_term_rec
-      (env: conv_env)
-      (t:Ast.term): term = match Ast.term_view t with
-    | Ast.Bool true -> Term.true_
-    | Ast.Bool false -> Term.false_
-    | Ast.Unknown _ -> assert false
-    | Ast.Const id ->
-      begin
-        try ID.Tbl.find decl_ty_ id |> Lazy.force |> Term.const
-        with Not_found ->
-          errorf "could not find constant `%a`" ID.pp id
-      end
-    | Ast.App (f, l) ->
-      begin match Ast.term_view f with
-        | Ast.Const id ->
-          let f =
-            try ID.Tbl.find decl_ty_ id |> Lazy.force
-            with Not_found ->
-              errorf "could not find constant `%a`" ID.pp id
-          in
-          let l = List.map (conv_term_rec env) l in
-          if List.length l = fst (Ty.unfold_n (Cst.ty f))
-          then Term.app_cst f (IArray.of_list l) (* fully applied *)
-          else Term.app (Term.const f) l
-        | _ ->
-          let f = conv_term_rec env f in
-          let l = List.map (conv_term_rec env) l in
-          Term.app f l
-      end
-    | Ast.Var v ->
-      (* look whether [v] must be replaced by some term *)
-      begin match AstVarMap.get v env.subst with
-        | Some t -> t
-        | None ->
-          (* lookup as bound variable *)
-          begin match CCList.find_idx (Ast.Var.equal v) env.bound with
-            | None -> errorf "could not find var `%a`" Ast.Var.pp v
-            | Some (i,_) ->
-              let ty = Ast.Var.ty v |> conv_ty in
-              Term.db (DB.make i ty)
-          end
-      end
-    | Ast.Bind (Ast.Fun,v,body) ->
-      let body = conv_term_rec {env with bound=v::env.bound} body in
-      let ty = Ast.Var.ty v |> conv_ty in
-      Term.fun_ ty body
-    | Ast.Bind ((Ast.Forall | Ast.Exists),_, _) ->
-      errorf "quantifiers not supported"
-    | Ast.Bind (Ast.Mu,v,body) ->
-      let env' = add_bound env v in
-      let body = conv_term_rec env' body in
-      Term.mu body
-    | Ast.Select _ -> assert false (* TODO *)
-    | Ast.Match (u,m) ->
-      let any_rhs_depends_vars = ref false in (* some RHS depends on matched arg? *)
-      let m =
-        ID.Map.map
-          (fun (vars,rhs) ->
-             let n_vars = List.length vars in
-             let env', tys =
-               CCList.fold_map
-                 (fun env v -> add_bound env v, Ast.Var.ty v |> conv_ty)
-                 env vars
-             in
-             let rhs = conv_term_rec env' rhs in
-             let depends_on_vars =
-               Term.to_seq_depth rhs
-               |> Sequence.exists
-                 (fun (t,k) -> match t.term_cell with
-                    | DB db ->
-                      DB.level db < n_vars + k (* [k]: number of intermediate binders *)
-                    | _ -> false)
-             in
-             if depends_on_vars then any_rhs_depends_vars := true;
-             tys, rhs)
-          m
-      in
-      (* optim: check whether all branches return the same term, that
-         does not depend on matched variables *)
-      (* TODO: do the closedness check during conversion, above *)
-      let rhs_l =
-        ID.Map.values m
-        |> Sequence.map snd
-        |> Sequence.sort_uniq ~cmp:Term.compare
-        |> Sequence.to_rev_list
-      in
-      begin match rhs_l with
-        | [x] when not (!any_rhs_depends_vars) ->
-          (* every branch yields the same [x], which does not depend
-             on the argument: remove the match and return [x] instead *)
-          x
-        | _ ->
-          let u = conv_term_rec env u in
-          Term.match_ u m
-      end
-    | Ast.Switch _ ->
-      errorf "cannot convert switch %a" Ast.pp_term t
-    | Ast.Let (v,t,u) ->
-      (* substitute on the fly *)
-      let t = conv_term_rec env t in
-      let env' = add_let_bound env v t in
-      conv_term_rec env' u
-    | Ast.If (a,b,c) ->
-      let b = conv_term_rec env b in
-      let c = conv_term_rec env c in
-      (* optim: [if _ b b --> b] *)
-      if Term.equal b c
-      then b
-      else Term.if_ (conv_term_rec env a) b c
-    | Ast.Not t -> Term.not_ (conv_term_rec env t)
-    | Ast.Binop (op,a,b) ->
-      let a = conv_term_rec env a in
-      let b = conv_term_rec env b in
-      begin match op with
-        | Ast.And -> Term.and_ a b
-        | Ast.Or -> Term.or_ a b
-        | Ast.Imply -> Term.imply a b
-        | Ast.Eq -> Term.eq a b
-      end
-    | Ast.Undefined_value ->
-      Term.undefined_value (conv_ty t.Ast.ty) Undef_absolute
-    | Ast.Asserting (t, g) ->
-      (* [t asserting g] becomes [if g t fail] *)
-      let t = conv_term_rec env t in
-      let g = conv_term_rec env g in
-      Term.if_ g t (Term.undefined_value t.term_ty Undef_absolute)
-
-  let add_statement st =
-    Log.debugf 2
-      (fun k->k "(@[add_statement@ @[%a@]@])" Ast.pp_statement st);
-    model_env_ := Ast.env_add_statement !model_env_ st;
-    begin match st with
-      | Ast.Assert t ->
-        let t = conv_term_rec empty_env t in
-        Top_goals.push t;
-        push_clause (Clause.make [Lit.atom t])
-      | Ast.Goal (vars, t) ->
-        (* skolemize *)
-        let env, consts =
-          CCList.fold_map
-            (fun env v ->
-               let ty = Ast.Var.ty v |> conv_ty in
-               let c = Cst.make_undef (Ast.Var.id v) ty in
-               {env with subst=AstVarMap.add v (Term.const c) env.subst}, c)
-            empty_env
-            vars
-        in
-        (* model should contain values of [consts] *)
-        List.iter add_cst_support_ consts;
-        let t = conv_term_rec env t in
-        Top_goals.push t;
-        push_clause (Clause.make [Lit.atom t])
-      | Ast.TyDecl id ->
-        let ty = Ty.atomic id Uninterpreted ~card:(Lazy.from_val Infinite) in
-        add_ty_support_ ty;
-        ID.Tbl.add ty_tbl_ id (Lazy.from_val ty)
-      | Ast.Decl (id, ty) ->
-        assert (not (ID.Tbl.mem decl_ty_ id));
-        let ty = conv_ty ty in
-        let cst = Cst.make_undef id ty in
-        add_cst_support_ cst; (* need it in model *)
-        ID.Tbl.add decl_ty_ id (Lazy.from_val cst)
-      | Ast.Data l ->
-        (* the datatypes in [l]. Used for computing cardinalities *)
-        let in_same_block : ID.Set.t =
-          List.map (fun {Ast.Ty.data_id; _} -> data_id) l |> ID.Set.of_list
-        in
-        (* declare the type, and all the constructors *)
-        List.iter
-          (fun {Ast.Ty.data_id; data_cstors} ->
-             let ty = lazy (
-               let card_ : ty_card ref = ref Finite in
-               let cstors = lazy (
-                 data_cstors
-                 |> ID.Map.map
-                   (fun c ->
-                      let c_id = c.Ast.Ty.cstor_id in
-                      let ty_c = conv_ty c.Ast.Ty.cstor_ty in
-                      let ty_args, ty_ret = Ty.unfold ty_c in
-                      (* add cardinality of [c] to the cardinality of [data_id].
-                         (product of cardinalities of args) *)
-                      let cstor_card =
-                        ty_args
-                        |> List.map
-                          (fun ty_arg -> match ty_arg.ty_cell with
-                             | Atomic (id, _) when ID.Set.mem id in_same_block ->
-                               Infinite
-                             | _ -> Lazy.force ty_arg.ty_card)
-                        |> Ty_card.product
-                      in
-                      card_ := Ty_card.( !card_ + cstor_card );
-                      let rec cst = lazy (
-                        Cst.make_cstor c_id ty_c cstor
-                      ) and cstor = lazy (
-                        let cstor_proj = lazy (
-                          let n = ref 0 in
-                          List.map2
-                            (fun id ty_arg ->
-                               let ty_proj = Ty.arrow ty_ret ty_arg in
-                               let i = !n in
-                               incr n;
-                               Cst.make_proj id ty_proj cstor i)
-                            c.Ast.Ty.cstor_proj ty_args
-                          |> IArray.of_list
-                        ) in
-                        let cstor_test = lazy (
-                          let ty_test = Ty.arrow ty_ret Ty.prop in
-                          Cst.make_tester c.Ast.Ty.cstor_test ty_test cstor
-                        ) in
-                        { cstor_ty=ty_c; cstor_cst=Lazy.force cst;
-                          cstor_args=IArray.of_list ty_args;
-                          cstor_proj; cstor_test; cstor_card; }
-                      ) in
-                      ID.Tbl.add decl_ty_ c_id cst; (* declare *)
-                      Lazy.force cstor)
-               )
-               in
-               let data = { data_cstors=cstors; } in
-               let card = lazy (
-                 ignore (Lazy.force cstors);
-                 let r = !card_ in
-                 Log.debugf 5
-                   (fun k->k "(@[card_of@ %a@ %a@])" ID.pp data_id Ty_card.pp r);
-                 r
-               ) in
-               Ty.atomic data_id (Data data) ~card
-             ) in
-             ID.Tbl.add ty_tbl_ data_id ty;
-          )
-          l;
-        (* force evaluation *)
-        List.iter
-          (fun {Ast.Ty.data_id; _} ->
-             let lazy ty = ID.Tbl.find ty_tbl_ data_id in
-             ignore (Lazy.force ty.ty_card);
-             begin match ty.ty_cell with
-               | Atomic (_, Data {data_cstors=lazy _; _}) -> ()
-               | _ -> assert false
-             end)
-          l
-      | Ast.Define (k,l) ->
-        (* declare the mutually recursive functions *)
-        List.iter
-          (fun (id,ty,rhs) ->
-             let ty = conv_ty ty in
-             let rhs = lazy (conv_term_rec empty_env rhs) in
-             let k = match k with
-               | Ast.Recursive -> Cst_recursive
-               | Ast.Non_recursive -> Cst_non_recursive
-             in
-             let cst = lazy (
-               Cst.make_defined id ty rhs k
-             ) in
-             ID.Tbl.add decl_ty_ id cst)
-          l;
-        (* force thunks *)
-        List.iter
-          (fun (id,_,_) -> ignore (ID.Tbl.find decl_ty_ id |> Lazy.force))
-          l
-    end
-
-  let add_statement_l = List.iter add_statement
-
-  module A = Ast
-
-  let rec ty_to_ast (t:Ty.t): A.Ty.t = match t.ty_cell with
-    | Prop -> A.Ty.Prop
-    | Atomic (id,_) -> A.Ty.const id
-    | Arrow (a,b) -> A.Ty.arrow (ty_to_ast a) (ty_to_ast b)
-
-  let fresh_var =
-    let n = ref 0 in
-    fun ty ->
-      let id = ID.makef "x%d" !n in
-      incr n;
-      A.Var.make id (ty_to_ast ty)
-
-  let with_var ty env ~f =
-    let v = fresh_var ty in
-    let env = DB_env.push (A.var v) env in
-    f v env
-
-  let term_to_ast (t:term): Ast.term =
-    let rec aux env t = match t.term_cell with
-      | True -> A.true_
-      | False -> A.false_
-      | DB d ->
-        begin match DB_env.get d env with
-          | Some t' -> t'
-          | None -> errorf "cannot find DB %a in env" Term.pp t
-        end
-      | App_cst (f, args) when IArray.is_empty args ->
-        A.const f.cst_id (ty_to_ast t.term_ty)
-      | App_cst (f, args) ->
-        let f = A.const f.cst_id (ty_to_ast (Cst.ty f)) in
-        let args = IArray.map (aux env) args in
-        A.app f (IArray.to_list args)
-      | App_ho (f,l) -> A.app (aux env f) (List.map (aux env) l)
-      | Fun (ty,bod) ->
-        with_var ty env
-          ~f:(fun v env -> A.fun_ v (aux env bod))
-      | Mu _ -> assert false
-      | If (a,b,c) -> A.if_ (aux env a)(aux env b) (aux env c)
-      | Case (u,m) ->
-        let u = aux env u in
-        let m =
-          ID.Map.mapi
-            (fun _c_id _rhs ->
-               assert false  (* TODO: fetch cstor; bind variables; convert rhs *)
-                 (*
-               with_vars tys env ~f:(fun vars env -> vars, aux env rhs)
-                    *)
-            )
-            m
-        in
-        A.match_ u m
-      | Builtin b ->
-        begin match b with
-          | B_not t -> A.not_ (aux env t)
-          | B_and (a,b) -> A.and_ (aux env a) (aux env b)
-          | B_or (a,b) -> A.or_ (aux env a) (aux env b)
-          | B_eq (a,b) -> A.eq (aux env a) (aux env b)
-          | B_imply (a,b) -> A.imply (aux env a) (aux env b)
-        end
-    in aux DB_env.empty t
-end
-   *)
-
 (** {2 Result} *)
 
 type unknown =
@@ -500,12 +145,17 @@ type unknown =
   | U_max_depth
   | U_incomplete
 
+let pp_unknown out = function
+  | U_timeout -> Fmt.string out "timeout"
+  | U_max_depth -> Fmt.string out "max depth reached"
+  | U_incomplete -> Fmt.string out "incomplete fragment"
+
 type model = Model.t
 let pp_model = Model.pp
 
 type res =
   | Sat of model
-  | Unsat (* TODO: proof *)
+  | Unsat of Proof.t
   | Unknown of unknown
 
 (* FIXME: repair this and output a nice model.
@@ -708,9 +358,6 @@ end
 
 (** {2 Main} *)
 
-let[@inline] clause_of_mclause (c:Sat_solver.clause): Clause.t =
-  Sat_solver.Clause.atoms_l c |> Clause.make
-
 (* convert unsat-core *)
 let clauses_of_unsat_core (core:Sat_solver.clause list): Clause.t Sequence.t =
   Sequence.of_list core
@@ -741,34 +388,8 @@ let do_on_exit ~on_exit =
   List.iter (fun f->f()) on_exit;
   ()
 
-let add_statement_l (_:t) _ = ()
-(* FIXME
-   Conv.add_statement_l
-   *)
-
-(* TODO: move this into submodule *)
-let pp_proof out p =
-  let pp_step_res out p =
-    let {Sat_solver.Proof.conclusion; _ } = Sat_solver.Proof.expand p in
-    let conclusion = clause_of_mclause conclusion in
-    Clause.pp out conclusion
-  in
-  let pp_step out = function
-    | Sat_solver.Proof.Lemma _ -> Format.fprintf out "(@[<1>lemma@ ()@])"
-    | Sat_solver.Proof.Resolution (p1, p2, _) ->
-      Format.fprintf out "(@[<1>resolution@ %a@ %a@])"
-        pp_step_res p1 pp_step_res p2
-    | _ -> Fmt.string out "<other>"
-  in
-  Format.fprintf out "(@[<v>";
-  Sat_solver.Proof.fold
-    (fun () {Sat_solver.Proof.conclusion; step } ->
-       let conclusion = clause_of_mclause conclusion in
-       Format.fprintf out "(@[<hv1>step@ %a@ @[<1>from:@ %a@]@])@,"
-         Clause.pp conclusion pp_step step)
-    () p;
-  Format.fprintf out "@])";
-  ()
+let assume (self:t) (c:Clause.t) : unit =
+  Sat_solver.add_clause (solver self) (Clause.lits c)
 
 (*
 type unsat_core = Sat.clause list
@@ -776,10 +397,21 @@ type unsat_core = Sat.clause list
 
 (* TODO: main loop with iterative deepening of the unrolling  limit
    (not the value depth limit) *)
-let solve ?on_exit:(_=[]) ?check:(_=true) (_self:t) : res =
-  Unknown U_incomplete
+let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
+  let r = Sat_solver.solve ~assumptions (solver self) () in
+  match r with
+  | Sat_solver.Sat (Dagon_sat.Sat_state _st) ->
+    Log.debugf 0 (fun k->k "SAT");
+    Unknown U_incomplete (* TODO *)
+    (*
+    let env = Ast.env_empty in
+    let m = Model.make ~env
+    Sat m *)
+  | Sat_solver.Unsat (Dagon_sat.Unsat_state us) ->
+    let pr = us.get_proof () in
+    Unsat pr
 
-(* FIXME
+(* FIXME:
 (* TODO: max_depth should actually correspond to the maximum depth
    of un-expanded terms (expand in body of t --> depth = depth(t)+1),
    so it corresponds to unfolding call graph to some depth *)

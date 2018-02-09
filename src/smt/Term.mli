@@ -27,6 +27,7 @@ val not_ : state -> t -> t
 val imply : state -> t list -> t -> t
 val eq : state -> t -> t -> t
 val neq : state -> t -> t -> t
+val distinct : state -> t list -> t
 val and_eager : state -> t -> t -> t (* evaluate left argument first *)
 
 val cstor_test : state -> data_cstor -> term -> t

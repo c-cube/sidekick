@@ -88,7 +88,7 @@ module type S = sig
       Modifies the sat solver state in place. *)
 
   (* TODO: provide a local, backtrackable version *)
-  val add_clause : t -> clause -> unit
+  val add_clause : t -> atom list -> unit
   (** Lower level addition of clauses *)
 
   val solve : t -> ?assumptions:atom list -> unit -> res
