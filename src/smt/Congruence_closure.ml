@@ -124,8 +124,7 @@ let signature cc (t:term): node term_cell option =
     | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return
     | Custom {view;tc} ->
       Custom {tc; view=tc.tc_t_subst find view} |> CCOpt.return
-    | True
-    | Builtin _
+    | Bool _
     | If _
     | Case _
       -> None (* no congruence for these *)
@@ -365,15 +364,16 @@ and add_new_term cc (t:term) : node =
   in
   (* register sub-terms, add [t] to their parent list *)
   begin match t.term_cell with
-    | True -> ()
+    | Bool _-> ()
     | App_cst (_, a) -> IArray.iter add_sub_t a
     | If (a,b,c) ->
       add_sub_t a;
       add_sub_t b;
       add_sub_t c
     | Case (u, _) -> add_sub_t u
-    | Builtin b -> Term.builtin_to_seq b add_sub_t
-    | Custom {view;tc} -> tc.tc_t_sub view add_sub_t
+    | Custom {view;tc} ->
+      (* add relevant subterms to the CC *)
+      tc.tc_t_relevant view add_sub_t
   end;
   (* remove term when we backtrack *)
   if not (cc.acts.at_lvl_0 ()) then (
@@ -501,10 +501,9 @@ let rec decompose_explain cc (e:explanation): unit =
           let l = r1.tc.tc_t_explain (same_class_t cc) r1.view r2.view in
           List.iter (fun (t,u) -> ps_add_obligation_t cc t u) l
         | If _, _
-        | Builtin _, _
         | App_cst _, _
         | Case _, _
-        | True, _
+        | Bool _, _
         | Custom _, _
           -> assert false
       end

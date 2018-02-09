@@ -12,8 +12,6 @@ val fresh_with : ID.t -> t
 val fresh : unit -> t
 val dummy : t
 val atom : ?sign:bool -> term -> t
-val eq : Term.state -> term -> term -> t
-val neq : Term.state -> term -> term -> t
 val cstor_test : Term.state -> data_cstor -> term -> t
 val expanded : term -> t
 val hash : t -> int

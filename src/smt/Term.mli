@@ -3,6 +3,22 @@ open Solver_types
 
 type t = term
 
+type 'a custom = 'a Solver_types.term_view_custom = ..
+
+type tc = Solver_types.term_view_tc = {
+  tc_t_pp : 'a. 'a Fmt.printer -> 'a custom Fmt.printer;
+  tc_t_equal : 'a. 'a CCEqual.t -> 'a custom CCEqual.t;
+  tc_t_hash : 'a. 'a Hash.t -> 'a custom Hash.t;
+  tc_t_ty : 'a. ('a -> ty) -> 'a custom -> ty;
+  tc_t_is_semantic : 'a. 'a custom -> bool;
+  tc_t_solve : cc_node custom -> cc_node custom -> solve_result;
+  tc_t_sub : 'a. 'a custom -> 'a Sequence.t;
+  tc_t_abs : 'a. self:'a -> 'a custom -> 'a * bool;
+  tc_t_relevant : 'a. 'a custom -> 'a Sequence.t;
+  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a custom -> 'b custom;
+  tc_t_explain : 'a. 'a CCEqual.t -> 'a custom -> 'a custom -> ('a * 'a) list;
+}
+
 val id : t -> int
 val cell : t -> term term_cell
 val ty : t -> Ty.t
@@ -14,32 +30,21 @@ type state
 
 val create : ?size:int -> unit -> state
 
+val make : state -> t term_cell -> t
 val true_ : state -> t
 val false_ : state -> t
 val const : state -> cst -> t
 val app_cst : state -> cst -> t IArray.t -> t
 val if_: state -> t -> t -> t -> t
 val case : state -> t -> t ID.Map.t -> t
-val builtin : state -> t builtin -> t
-val and_ : state -> t -> t -> t
-val or_ : state -> t -> t -> t
-val not_ : state -> t -> t
-val imply : state -> t list -> t -> t
-val eq : state -> t -> t -> t
-val neq : state -> t -> t -> t
-val distinct : state -> t list -> t
 val and_eager : state -> t -> t -> t (* evaluate left argument first *)
+val custom : state -> tc:tc -> t custom -> t
 
 val cstor_test : state -> data_cstor -> term -> t
 val cstor_proj : state -> data_cstor -> int -> term -> t
 
-val and_l : state -> t list -> t
-val or_l : state -> t list -> t
-
+(* TODO: remove *)
 val abs : t -> t * bool
-
-val map_builtin : (t -> t) -> t builtin -> t builtin
-val builtin_to_seq : t builtin -> t Sequence.t
 
 val to_seq : t -> t Sequence.t
 

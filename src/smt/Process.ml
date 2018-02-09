@@ -38,7 +38,7 @@ module Conv = struct
 
   let conv_term (tst:Term.state) (t:A.term): Term.t =
     (* polymorphic equality *)
-    let mk_eq t u = Term.eq tst t u in
+    let mk_eq t u = Term.eq tst t u in (* TODO: use theory of booleans *)
     let mk_app f l = Term.app_cst tst f (IArray.of_list l) in
     let mk_const = Term.const tst in
     (*

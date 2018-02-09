@@ -56,12 +56,12 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
   begin match Lit.view lit with
     | Lit_fresh _ -> ()
     | Lit_expanded _
-    | Lit_atom {term_cell=True; _} -> ()
-    | Lit_atom t when Term.is_false t -> assert false
+    | Lit_atom {term_cell=Bool true; _} -> ()
+    | Lit_atom {term_cell=Bool false; _} -> ()
     | Lit_atom _ ->
       (* transmit to CC and theories *)
       Congruence_closure.assert_lit (cc self) lit;
-      theories self (fun th -> th.Theory.on_assert lit);
+      theories self (fun (Theory.State th) -> th.on_assert th.st lit);
   end
 
 (* push clauses from {!lemma_queue} into the slice *)
@@ -138,7 +138,7 @@ let if_sat (self:t) (slice:_) : _ Sat_solver.res =
   in
   (* final check for each theory *)
   theories self
-    (fun th -> th.Theory.final_check forms);
+    (fun (Theory.State th) -> th.final_check th.st forms);
   cdcl_return_res self
 
 (** {2 Various helpers} *)
@@ -163,7 +163,7 @@ let act_raise_conflict e = raise (Exn_conflict e)
 (* when CC decided to merge [r1] and [r2], notify theories *)
 let on_merge_from_cc (self:t) r1 r2 e : unit =
   theories self
-    (fun th -> th.Theory.on_merge r1 r2 e)
+    (fun (Theory.State th) -> th.on_merge th.st r1 r2 e)
 
 let mk_cc_actions (self:t) : Congruence_closure.actions =
   let Sat_solver.Actions r = self.cdcl_acts in

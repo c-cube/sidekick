@@ -1,16 +1,18 @@
 
-(** Runtime state of a theory, with all the operations it provides *)
-type state = {
-  on_merge: Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit;
+(** Runtime state of a theory, with all the operations it provides.
+    ['a] is the internal state *)
+type state = State : {
+  mutable st: 'a;
+  on_merge: 'a -> Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit;
   (** Called when two classes are merged *)
 
-  on_assert: Lit.t -> unit;
+  on_assert: 'a -> Lit.t -> unit;
   (** Called when a literal becomes true *)
 
-  final_check: Lit.t Sequence.t -> unit;
+  final_check: 'a -> Lit.t Sequence.t -> unit;
   (** Final check, must be complete (i.e. must raise a conflict
       if the set of literals is not satisfiable) *)
-}
+} -> state
 
 (** Unsatisfiable conjunction.
     Will be turned into a set of literals, whose negation becomes a
@@ -59,8 +61,9 @@ type t = {
 let make ~name ~make () : t = {name;make}
 
 let make_st
-    ?(on_merge=fun _ _ _ -> ())
-    ?(on_assert=fun _ -> ())
+    ?(on_merge=fun _ _ _ _ -> ())
+    ?(on_assert=fun _ _ -> ())
     ~final_check
+    ~st
     () : state =
-  { on_merge; on_assert; final_check }
+  State { st; on_merge; on_assert; final_check }

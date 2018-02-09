@@ -3,6 +3,23 @@ open Solver_types
 
 type t = term
 
+type 'a custom = 'a Solver_types.term_view_custom = ..
+
+type tc = Solver_types.term_view_tc = {
+  tc_t_pp : 'a. 'a Fmt.printer -> 'a custom Fmt.printer;
+  tc_t_equal : 'a. 'a CCEqual.t -> 'a custom CCEqual.t;
+  tc_t_hash : 'a. 'a Hash.t -> 'a custom Hash.t;
+  tc_t_ty : 'a. ('a -> ty) -> 'a custom -> ty;
+  tc_t_is_semantic : 'a. 'a custom -> bool;
+  tc_t_solve : cc_node custom -> cc_node custom -> solve_result;
+  tc_t_sub : 'a. 'a custom -> 'a Sequence.t;
+  tc_t_abs : 'a. self:'a -> 'a custom -> 'a * bool;
+  tc_t_relevant : 'a. 'a custom -> 'a Sequence.t;
+  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a custom -> 'b custom;
+  tc_t_explain : 'a. 'a CCEqual.t -> 'a custom -> 'a custom -> ('a * 'a) list;
+}
+
+
 let[@inline] id t = t.term_id
 let[@inline] ty t = t.term_ty
 let[@inline] cell t = t.term_cell
@@ -41,7 +58,7 @@ let create ?(size=1024) () : state =
     n=2;
     tbl=Term_cell.Tbl.create size;
     true_ = lazy (make st Term_cell.true_);
-    false_ = lazy (make st (Term_cell.not_ (true_ st)));
+    false_ = lazy (make st Term_cell.false_);
   } in
   ignore (Lazy.force st.true_);
   ignore (Lazy.force st.false_); (* not true *)
@@ -59,71 +76,21 @@ let case st u m = make st (Term_cell.case u m)
 
 let if_ st a b c = make st (Term_cell.if_ a b c)
 
-let not_ st t = make st (Term_cell.not_ t)
-
-let and_l st = function
-  | [] -> true_ st
-  | [t] -> t
-  | l -> make st (Term_cell.and_ l)
-
-let or_l st = function
-  | [] -> false_ st
-  | [t] -> t
-  | l -> make st (Term_cell.or_ l)
-
-let and_ st a b = and_l st [a;b]
-let or_ st a b = or_l st [a;b]
-let imply st a b = match a, b.term_cell with
-  | [], _ -> b
-  | _::_, Builtin (B_imply (a',b')) ->
-    make st (Term_cell.imply (CCList.append a a') b')
-  | _ -> make st (Term_cell.imply a b)
-let eq st a b = make st (Term_cell.eq a b)
-let distinct st l = make st (Term_cell.distinct l)
-let neq st a b = make st (Term_cell.neq a b)
-let builtin st b = make st (Term_cell.builtin b)
-
 (* "eager" and, evaluating [a] first *)
 let and_eager st a b = if_ st a b (false_ st)
+
+let custom st ~tc view = make st (Term_cell.custom ~tc view)
 
 let cstor_test st cstor t = make st (Term_cell.cstor_test cstor t)
 let cstor_proj st cstor i t = make st (Term_cell.cstor_proj cstor i t)
 
 (* might need to tranfer the negation from [t] to [sign] *)
 let abs t : t * bool = match t.term_cell with
-  | Builtin (B_not t) -> t, false
+  | Custom {view;tc} -> tc.tc_t_abs ~self:t view
   | _ -> t, true
 
-let fold_map_builtin
-    (f:'a -> term -> 'a * term) (acc:'a) (b:t builtin): 'a * t builtin =
-  let fold_binary acc a b =
-    let acc, a = f acc a in
-    let acc, b = f acc b in
-    acc, a, b
-  in
-  match b with
-    | B_not t ->
-      let acc, t' = f acc t in
-      acc, B_not t'
-    | B_and l ->
-      let acc, l = CCList.fold_map f acc l in
-      acc, B_and l
-    | B_or l ->
-      let acc, l = CCList.fold_map f acc l in
-      acc, B_or l
-    | B_eq (a,b) ->
-      let acc, a, b = fold_binary acc a b in
-      acc, B_eq (a, b)
-    | B_distinct l ->
-      let acc, l = CCList.fold_map f acc l in
-      acc, B_distinct l
-    | B_imply (a,b) ->
-      let acc, a = CCList.fold_map f acc a in
-      let acc, b = f acc b in
-      acc, B_imply (a, b)
-
-let[@inline] is_true t = match t.term_cell with True -> true | _ -> false
-let is_false t = match t.term_cell with Builtin (B_not u) -> is_true u | _ -> false
+let[@inline] is_true t = match t.term_cell with Bool true -> true | _ -> false
+let[@inline]  is_false t = match t.term_cell with Bool false -> true | _ -> false
 
 let[@inline] is_const t = match t.term_cell with
   | App_cst (_, a) -> IArray.is_empty a
@@ -136,16 +103,6 @@ let[@inline] is_custom t = match t.term_cell with
 let[@inline] is_semantic t = match t.term_cell with
   | Custom {view;tc} -> tc.tc_t_is_semantic view
   | _ -> false
-
-let map_builtin f b =
-  let (), b = fold_map_builtin (fun () t -> (), f t) () b in
-  b
-
-let builtin_to_seq b yield = match b with
-  | B_not t -> yield t
-  | B_or l | B_and l | B_distinct l -> List.iter yield l
-  | B_imply (a,b) -> List.iter yield a; yield b
-  | B_eq (a,b) -> yield a; yield b
 
 module As_key = struct
     type t = term
@@ -161,13 +118,12 @@ let to_seq t yield =
   let rec aux t =
     yield t;
     match t.term_cell with
-      | True -> ()
+      | Bool _ -> ()
       | App_cst (_,a) -> IArray.iter aux a
       | If (a,b,c) -> aux a; aux b; aux c
       | Case (t, m) ->
         aux t;
         ID.Map.iter (fun _ rhs -> aux rhs) m
-      | Builtin b -> builtin_to_seq b aux
       | Custom {view;tc} -> tc.tc_t_sub view aux
   in
   aux t
@@ -205,5 +161,5 @@ let pp = Solver_types.pp_term
 let dummy : t = {
   term_id= -1;
   term_ty=Ty.prop;
-  term_cell=True;
+  term_cell=Term_cell.true_;
 }

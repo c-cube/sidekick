@@ -30,8 +30,6 @@ let atom ?(sign=true) (t:term) : t =
   let sign = if not sign' then not sign else sign in
   make ~sign (Lit_atom t)
 
-let eq tst a b = atom ~sign:true (Term.eq tst a b)
-let neq tst a b = atom ~sign:false (Term.eq tst a b)
 let expanded t = make ~sign:true (Lit_expanded t)
 
 let cstor_test tst cstor t = atom ~sign:true (Term.cstor_test tst cstor t)

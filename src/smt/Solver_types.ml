@@ -16,23 +16,14 @@ and term = {
 
 (* term shallow structure *)
 and 'a term_cell =
-  | True
+  | Bool of bool
   | App_cst of cst * 'a IArray.t (* full, first-order application *)
   | If of 'a * 'a * 'a
   | Case of 'a * 'a ID.Map.t (* check head constructor *)
-  | Builtin of 'a builtin
   | Custom of {
       view: 'a term_view_custom;
       tc: term_view_tc;
     }
-
-and 'a builtin =
-  | B_not of 'a
-  | B_eq of 'a * 'a
-  | B_and of 'a list
-  | B_or of 'a list
-  | B_imply of 'a list * 'a
-  | B_distinct of 'a list
 
 (** Methods on the custom term view whose leaves are ['a].
     Terms must be comparable, hashable, printable, and provide
@@ -63,6 +54,7 @@ and term_view_tc = {
   tc_t_is_semantic : 'a. 'a term_view_custom -> bool; (* is this a semantic term? semantic terms must be solvable *)
   tc_t_solve: cc_node term_view_custom -> cc_node term_view_custom -> solve_result; (* solve an equation between classes *)
   tc_t_sub : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on immediate subterms *)
+  tc_t_abs : 'a. self:'a -> 'a term_view_custom -> 'a * bool; (* remove the sign? *)
   tc_t_relevant : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on relevant immediate subterms *)
   tc_t_subst : 'a 'b. ('a -> 'b) -> 'a term_view_custom -> 'b term_view_custom; (* substitute immediate subterms and canonize *)
   tc_t_explain : 'a. 'a CCEqual.t -> 'a term_view_custom -> 'a term_view_custom -> ('a * 'a) list;
@@ -286,7 +278,8 @@ let pp_term_top ~ids out t =
     ()
 
   and pp_rec out t = match t.term_cell with
-    | True -> Fmt.string out "true"
+    | Bool true -> Fmt.string out "true"
+    | Bool false -> Fmt.string out "false"
     | App_cst (c, a) when IArray.is_empty a ->
       pp_id out (id_of_cst c)
     | App_cst (f,l) ->
@@ -302,17 +295,6 @@ let pp_term_top ~ids out t =
       in
       Fmt.fprintf out "(@[match %a@ (@[<hv>%a@])@])"
         pp t print_map (ID.Map.to_seq m)
-    | Builtin (B_not t) -> Fmt.fprintf out "(@[<hv1>not@ %a@])" pp t
-    | Builtin (B_and l) ->
-      Fmt.fprintf out "(@[<hv1>and@ %a])" (Util.pp_list pp) l
-    | Builtin (B_or l) ->
-      Fmt.fprintf out "(@[<hv1>or@ %a@])" (Util.pp_list pp) l
-    | Builtin (B_imply (a,b)) ->
-      Fmt.fprintf out "(@[<hv1>=>@ %a@ %a@])" (Util.pp_list pp) a pp b
-    | Builtin (B_eq (a,b)) ->
-      Fmt.fprintf out "(@[<hv1>=@ %a@ %a@])" pp a pp b
-    | Builtin (B_distinct l) ->
-      Fmt.fprintf out "(@[<hv1>distinct@ %a@])" (Util.pp_list pp) l
     | Custom {view; tc} -> tc.tc_t_pp pp out view
   and pp_id =
     if ids then ID.pp else ID.pp_name
