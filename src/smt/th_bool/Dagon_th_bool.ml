@@ -103,11 +103,11 @@ module TC = struct
   let pp sub_pp out = function
     | Builtin {view=b;_} ->
       begin match b with
-        | B_not t -> Fmt.fprintf out "(@[<hv1>not@ %a@])" sub_pp t
+        | B_not t -> Fmt.fprintf out "(@[<hv>not@ %a@])" sub_pp t
         | B_and l ->
-          Fmt.fprintf out "(@[<hv1>and@ %a])" (Util.pp_list sub_pp) l
+          Fmt.fprintf out "(@[<hv>and@ %a])" (Util.pp_list sub_pp) l
         | B_or l ->
-          Fmt.fprintf out "(@[<hv1>or@ %a@])" (Util.pp_list sub_pp) l
+          Fmt.fprintf out "(@[<hv>or@ %a@])" (Util.pp_list sub_pp) l
         | B_imply (a,b) ->
           Fmt.fprintf out "(@[<hv1>=>@ %a@ %a@])" (Util.pp_list sub_pp) a sub_pp b
         | B_eq (a,b) ->
@@ -190,38 +190,36 @@ module T_cell = struct
   let neq a b = distinct [a;b]
 end
 
-module T = struct
-  let make = Term.make
+let make = Term.make
 
-  let not_ st t = make st (T_cell.not_ t)
+let not_ st t = make st (T_cell.not_ t)
 
-  let and_l st = function
-    | [] -> Term.true_ st
-    | [t] -> t
-    | l -> make st (T_cell.and_ l)
+let and_l st = function
+  | [] -> Term.true_ st
+  | [t] -> t
+  | l -> make st (T_cell.and_ l)
 
-  let or_l st = function
-    | [] -> Term.false_ st
-    | [t] -> t
-    | l -> make st (T_cell.or_ l)
+let or_l st = function
+  | [] -> Term.false_ st
+  | [t] -> t
+  | l -> make st (T_cell.or_ l)
 
-  let and_ st a b = and_l st [a;b]
-  let or_ st a b = or_l st [a;b]
-  let imply st a b = match a, Term.cell b with
-    | [], _ -> b
-    | _::_, Term_cell.Custom {view=Builtin {view=B_imply (a',b')}; _} ->
-      make st (T_cell.imply (CCList.append a a') b')
-    | _ -> make st (T_cell.imply a b)
-  let eq st a b = make st (T_cell.eq a b)
-  let distinct st l = make st (T_cell.distinct l)
-  let neq st a b = make st (T_cell.neq a b)
-  let builtin st b = make st (T_cell.builtin b)
-end
+let and_ st a b = and_l st [a;b]
+let or_ st a b = or_l st [a;b]
+let imply st a b = match a, Term.cell b with
+  | [], _ -> b
+  | _::_, Term_cell.Custom {view=Builtin {view=B_imply (a',b')}; _} ->
+    make st (T_cell.imply (CCList.append a a') b')
+  | _ -> make st (T_cell.imply a b)
+let eq st a b = make st (T_cell.eq a b)
+let distinct st l = make st (T_cell.distinct l)
+let neq st a b = make st (T_cell.neq a b)
+let builtin st b = make st (T_cell.builtin b)
 
 module Lit = struct
   type t = Lit.t
-  let eq tst a b = Lit.atom ~sign:true (T.eq tst a b)
-  let neq tst a b = Lit.atom ~sign:false (T.eq tst a b)
+  let eq tst a b = Lit.atom ~sign:true (eq tst a b)
+  let neq tst a b = Lit.atom ~sign:false (neq tst a b)
 end
 
 type t = {

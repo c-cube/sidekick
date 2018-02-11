@@ -1,6 +1,8 @@
 
 (** {1 Process Statements} *)
 
+open Dagon_smt
+
 type 'a or_error = ('a, string) CCResult.t
 
 (* TODO: record type for config *)

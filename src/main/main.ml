@@ -11,6 +11,7 @@ module Fmt = CCFormat
 module Term = Dagon_smt.Term
 module Ast = Dagon_smt.Ast
 module Solver = Dagon_smt.Solver
+module Process = Dagon_smtlib.Process
 
 type 'a or_error = ('a, string) E.t
 
@@ -137,7 +138,7 @@ let main () =
         try
           E.fold_l
             (fun () ->
-               Dagon_smt.Process.process_stmt
+               Process.process_stmt
                  ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
                  ~time:!time_limit ~memory:!size_limit
                  ?dot_proof ~pp_model:!p_model ~check:!check ~progress:!p_progress

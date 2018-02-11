@@ -5,6 +5,7 @@ module Fmt = CCFormat
 module Ast = Dagon_smt.Ast
 module E = CCResult
 module Loc = Locations
+module Process = Process
 
 type 'a or_error = ('a, string) CCResult.t
 

@@ -1,10 +1,13 @@
 
 (** {2 Conversion into {!Term.t}} *)
 
+open Dagon_smt
+
 type 'a or_error = ('a, string) CCResult.t
 
 module E = CCResult
 module A = Ast
+module Form = Dagon_th_bool
 module Fmt = CCFormat
 
 module Subst = struct
@@ -25,7 +28,7 @@ module Conv = struct
   let conv_ty (ty:A.Ty.t) : Ty.t =
     let mk_ty id = Ty.atomic id Ty.Uninterpreted ~card:(lazy Ty_card.infinite) in
     (* convert a type *)
-    let rec aux_ty (ty:A.Ty.t) : Ty.t = match ty with
+    let aux_ty (ty:A.Ty.t) : Ty.t = match ty with
       | A.Ty.Prop -> Ty.prop
   (*     | A.Ty.Rat -> Reg.find_exn reg Mc2_lra.k_rat *)
       | A.Ty.App (id, []) -> mk_ty id
@@ -38,7 +41,7 @@ module Conv = struct
 
   let conv_term (tst:Term.state) (t:A.term): Term.t =
     (* polymorphic equality *)
-    let mk_eq t u = Term.eq tst t u in (* TODO: use theory of booleans *)
+    let mk_eq t u = Form.eq tst t u in (* TODO: use theory of booleans *)
     let mk_app f l = Term.app_cst tst f (IArray.of_list l) in
     let mk_const = Term.const tst in
     (*
@@ -105,14 +108,14 @@ module Conv = struct
               subst vbs
           in
           aux subst u
-        | A.Op (A.And, l) -> Term.and_l tst (List.map (aux subst) l)
-        | A.Op (A.Or, l) -> Term.or_l tst (List.map (aux subst) l)
+        | A.Op (A.And, l) -> Form.and_l tst (List.map (aux subst) l)
+        | A.Op (A.Or, l) -> Form.or_l tst (List.map (aux subst) l)
         | A.Op (A.Imply, l) ->
           let l = List.map (aux subst) l in
           begin match List.rev l with
             | [] -> Term.true_ tst
             | ret :: hyps ->
-              Term.imply tst hyps ret
+              Form.imply tst hyps ret
           end
         | A.Op (A.Eq, l) ->
           let l = List.map (aux subst) l in
@@ -122,10 +125,10 @@ module Conv = struct
             | a :: b :: tail ->
               mk_eq a b :: curry_eq (b::tail)
           in
-          Term.and_l tst (curry_eq l)
+          Form.and_l tst (curry_eq l)
         | A.Op (A.Distinct, l) ->
-          Term.distinct tst @@ List.map (aux subst) l
-        | A.Not f -> Term.not_ tst (aux subst f)
+          Form.distinct tst @@ List.map (aux subst) l
+        | A.Not f -> Form.not_ tst (aux subst f)
         | A.Bool true -> Term.true_ tst
         | A.Bool false -> Term.false_ tst
         | A.Num_q _n -> assert false (* TODO Mc2_lra.LE.const n |> ret_rat *)
@@ -264,8 +267,16 @@ let process_stmt
   Log.debugf 5
     (fun k->k "(@[<2>process statement@ %a@])" A.pp_statement stmt);
   let tst = Solver.tst solver in
-  let decl_sort _ _ : unit = assert false in (* TODO *)
-  let decl _id _args _ret : unit = assert false in (* TODO *)
+  let decl_sort c n : unit =
+    Log.debugf 1 (fun k->k "(@[declare-sort %a@ :arity %d@])" ID.pp c n);
+    (* TODO: more? *)
+  in
+  let decl_fun id args ret : unit =
+    Log.debugf 1
+      (fun k->k "(@[declare-fun %a@ :args (@[%a@])@ :ret %a@])"
+          ID.pp id (Util.pp_list Ty.pp) args Ty.pp ret);
+    (* TODO: more? *)
+  in
   begin match stmt with
     | A.SetLogic ("QF_UF"|"QF_LRA"|"QF_UFLRA") -> E.return ()
     | A.SetLogic s ->
@@ -289,7 +300,7 @@ let process_stmt
       let ty_args, ty_ret = A.Ty.unfold ty in
       let ty_args = List.map conv_ty ty_args in
       let ty_ret = conv_ty ty_ret in
-      decl f ty_args ty_ret;
+      decl_fun f ty_args ty_ret;
       E.return ()
     | A.Assert t ->
       let t = conv_term tst t in

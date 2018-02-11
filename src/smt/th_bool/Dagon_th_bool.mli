@@ -28,18 +28,16 @@ module T_cell : sig
   val distinct : term list -> t
 end
 
-module T : sig
-  val builtin : Term.state -> term builtin -> term
-  val and_ : Term.state -> term -> term -> term
-  val or_ : Term.state -> term -> term -> term
-  val not_ : Term.state -> term -> term
-  val imply : Term.state -> term list -> term -> term
-  val eq : Term.state -> term -> term -> term
-  val neq : Term.state -> term -> term -> term
-  val distinct : Term.state -> term list -> term
-  val and_l : Term.state -> term list -> term
-  val or_l : Term.state -> term list -> term
-end
+val builtin : Term.state -> term builtin -> term
+val and_ : Term.state -> term -> term -> term
+val or_ : Term.state -> term -> term -> term
+val not_ : Term.state -> term -> term
+val imply : Term.state -> term list -> term -> term
+val eq : Term.state -> term -> term -> term
+val neq : Term.state -> term -> term -> term
+val distinct : Term.state -> term list -> term
+val and_l : Term.state -> term list -> term
+val or_l : Term.state -> term list -> term
 
 module Lit : sig
   type t = Lit.t

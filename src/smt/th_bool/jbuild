@@ -1,7 +1,7 @@
 ; vim:ft=lisp:
 (library
   ((name Dagon_th_bool)
-   (public_name dagon.th_bool)
+   (public_name dagon.smt.th_bool)
    (libraries (containers dagon.smt))
    (flags (:standard -w +a-4-44-48-58-60@8
            -color always -safe-string -short-paths -open Dagon_util))

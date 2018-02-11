@@ -7,7 +7,7 @@
   ((name dagon_smtlib)
    (public_name dagon.smtlib)
    (optional) ; only if deps present
-   (libraries (containers dagon.smt dagon.util zarith))
+   (libraries (containers dagon.smt dagon.util dagon.smt.th_bool zarith))
    (flags (:standard -w +a-4-42-44-48-50-58-32-60@8
            -safe-string -color always -open Dagon_util))
    (ocamlopt_flags (:standard -O3 -color always -bin-annot
