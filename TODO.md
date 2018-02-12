@@ -2,19 +2,19 @@
 
 ## TODO
 
-- typing and translation Ast -> Term (from mc2?)
-- main executable for SMT solver
 - theory of boolean constructs (on the fly Tseitin using local clauses)
 - make CC work on QF_UF
   * internalize terms on the fly (backtrackable)
-  * basic notion of activity for `ite`?
-- have `CDCL.push_local` work properly
-
-- remove tseitin lib
+  * basic notion of activity (of subterms) for `ite`?
+- have `Sat_solver.push_local` work properly
 
 - write Shostak theory of datatypes (without acyclicity) with local case splits
 - design evaluation system (guards + `eval_bool:(term -> bool) option` in custom TC)
 - compilation of rec functions to defined constants
+- add `CC.add_rw_step t u` work, where `t-->u`
+  (remove `t` from sig table, should have almost 0 overhead after that)
+- theory of defined constants relying on congruence closure + evaluation
+  of guards of each case
 
 - Shostak theory of eq-ℚ
 - datatype acyclicity check
@@ -41,6 +41,9 @@
 
 ## Done
 
+- remove tseitin lib
+- typing and translation Ast -> Term (from mc2?)
+- main executable for SMT solver
 - base types (Term, Lit, …)
 - theory combination
 - basic design of theories
