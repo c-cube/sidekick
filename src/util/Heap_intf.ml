@@ -19,7 +19,8 @@ module type S = sig
   (** Create a heap *)
 
   val decrease : t -> elt -> unit
-  (** [decrease h x] decreases the value associated to [x] within [h] *)
+  (** [decrease h x] decreases the value associated to [x] within [h],
+      making it closer to the root (so, more prioritary) *)
 
   val in_heap : elt -> bool
 
@@ -45,6 +46,10 @@ module type S = sig
   val remove_min : t -> elt
   (** Remove and return the integer that has the lowest value from the heap
       @raise Not_found if the heap is empty *)
+
+  val remove : t -> elt -> unit
+  (** Remove element from the heap.
+      precond: [in_heap elt] *)
 
   val filter : t -> (elt -> bool) -> unit
   (** Filter out values that don't satisfy the predicate *)

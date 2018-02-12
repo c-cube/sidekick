@@ -29,7 +29,7 @@ module Make(Elt : RANKED) = struct
   *)
 
   (* [elt] is above or at its expected position. Move it up the heap
-     (towards high indices) to restore the heap property *)
+     (towards the root) to restore the heap property *)
   let percolate_up {heap} (elt:Elt.t) : unit =
     let pi = ref (parent (Elt.idx elt)) in
     let i = ref (Elt.idx elt) in
@@ -42,6 +42,8 @@ module Make(Elt : RANKED) = struct
     Vec.set heap !i elt;
     Elt.set_idx elt !i
 
+  (* move [elt] towards the leaves of the heap to restore the heap
+     property *)
   let percolate_down {heap} (elt:Elt.t): unit =
     let sz = Vec.size heap in
     let li = ref (left (Elt.idx elt)) in
@@ -69,7 +71,9 @@ module Make(Elt : RANKED) = struct
 
   let[@inline] in_heap x = Elt.idx x >= 0
 
-  let[@inline] decrease s x = assert (in_heap x); percolate_up s x
+  let[@inline] decrease s x =
+    assert (in_heap x);
+    percolate_up s x
 
   (*
   let increase cmp s n =
@@ -112,20 +116,6 @@ module Make(Elt : RANKED) = struct
   let[@inline] grow_to_at_least s sz =
     Vec.grow_to_at_least s.heap sz
 
-  (*
-  let update cmp s n =
-    assert (heap_property cmp s);
-    begin
-      if in_heap s n then
-        begin
-          percolate_up cmp s (Vec.get s.indices n);
-          percolate_down cmp s (Vec.get s.indices n)
-        end
-      else insert cmp s n
-    end;
-    assert (heap_property cmp s)
-  *)
-
   let remove_min ({heap} as s) =
     if Vec.size heap=0 then raise Not_found;
     let x = Vec.get heap 0 in
@@ -139,5 +129,17 @@ module Make(Elt : RANKED) = struct
       percolate_down s new_hd;
     );
     x
+
+  let remove ({heap} as s) (elt:elt) : unit =
+    assert (in_heap elt);
+    let i = Elt.idx elt in
+    Vec.fast_remove heap i;
+    Elt.set_idx elt ~-1;
+    assert (not (in_heap elt));
+    (* element put in place of [x] might be too high *)
+    if Vec.size heap > i then (
+      percolate_down s (Vec.get heap i);
+    );
+    ()
 
 end
