@@ -89,9 +89,6 @@ val copy : 'a t -> 'a t
 val move_to : 'a t -> 'a t -> unit
 (** [move_to a b] copies the content of [a] to [b], discarding [b]'s old content *)
 
-val remove : 'a t -> 'a -> unit
-(** Uses [(==)] for comparison *)
-
 val fast_remove : 'a t -> int -> unit
 (** Remove element at index [i] without preserving order
     (swap with last element) *)
