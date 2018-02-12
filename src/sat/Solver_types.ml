@@ -6,6 +6,11 @@ let v_field_seen_neg = Var_fields.mk_field()
 let v_field_seen_pos = Var_fields.mk_field()
 let () = Var_fields.freeze()
 
+module C_fields = Solver_types_intf.C_fields
+
+let c_field_attached = C_fields.mk_field () (* watching literals? *)
+let c_field_visited = C_fields.mk_field () (* used during propagation and proof generation. *)
+
 (* Solver types for McSat Solving *)
 (* ************************************************************************ *)
 
@@ -13,12 +18,6 @@ module Make (E : Theory_intf.S) = struct
 
   type formula = E.Form.t
   type proof = E.proof
-
-  type seen =
-    | Nope
-    | Both
-    | Positive
-    | Negative
 
   type var = {
     vid : int;
@@ -46,8 +45,7 @@ module Make (E : Theory_intf.S) = struct
     atoms : atom array;
     mutable cpremise : premise;
     mutable activity : float;
-    mutable attached : bool;
-    mutable visited : bool;
+    mutable c_flags : C_fields.t
   }
 
   and reason =
@@ -79,15 +77,16 @@ module Make (E : Theory_intf.S) = struct
          but we have to break the cycle *)
       neg = dummy_atom;
       is_true = false;
-      aid = -102 }
+      aid = -102;
+    }
   let dummy_clause =
     { name = -1;
       tag = None;
       atoms = [| |];
       activity = -1.;
-      attached = false;
-      visited = false;
-      cpremise = History [] }
+      c_flags = C_fields.empty;
+      cpremise = History [];
+    }
 
   let () = dummy_atom.watched <- Vec.make_empty dummy_clause
 
@@ -144,6 +143,8 @@ module Make (E : Theory_intf.S) = struct
     let[@inline] set_level v lvl = v.v_level <- lvl
     let[@inline] set_idx v i = v.v_idx <- i
     let[@inline] set_weight v w = v.v_weight <- w
+
+    let[@inline] in_heap v = v.v_idx >= 0
 
     let make (st:state) (t:formula) : var * Theory_intf.negated =
       let lit, negated = E.Form.norm t in
@@ -264,7 +265,7 @@ module Make (E : Theory_intf.S) = struct
         Format.fprintf fmt ""
 
     let debug out a =
-      Format.fprintf out "%s%d[%a][atom:@[<hov>%a@]]"
+      Format.fprintf out "%s%d[%a][@[%a@]]"
         (sign a) (a.var.vid+1) debug_value a E.Form.print a.lit
 
     let debug_a out vec =
@@ -284,10 +285,10 @@ module Make (E : Theory_intf.S) = struct
         { name;
           tag = tag;
           atoms = atoms;
-          visited = false;
-          attached = false;
+          c_flags = C_fields.empty;
           activity = 0.;
-          cpremise = premise}
+          cpremise = premise;
+        }
 
     let empty = make [] (History [])
     let name = name_of_clause
@@ -300,11 +301,11 @@ module Make (E : Theory_intf.S) = struct
     let[@inline] premise c = c.cpremise
     let[@inline] set_premise c p = c.cpremise <- p
 
-    let[@inline] visited c = c.visited
-    let[@inline] set_visited c b = c.visited <- b
+    let[@inline] visited c = C_fields.get c_field_visited c.c_flags
+    let[@inline] set_visited c b = c.c_flags <- C_fields.set c_field_visited b c.c_flags
 
-    let[@inline] attached c = c.attached
-    let[@inline] set_attached c b = c.attached <- b
+    let[@inline] attached c = C_fields.get c_field_attached c.c_flags
+    let[@inline] set_attached c b = c.c_flags <- C_fields.set c_field_attached b c.c_flags
 
     let[@inline] activity c = c.activity
     let[@inline] set_activity c w = c.activity <- w

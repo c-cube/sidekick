@@ -389,7 +389,9 @@ let do_on_exit ~on_exit =
   ()
 
 let assume (self:t) (c:Clause.t) : unit =
-  Sat_solver.add_clause (solver self) (Clause.lits c)
+  let sat = solver self in
+  let c = Sat_solver.Clause.make sat (Clause.lits c) in
+  Sat_solver.add_clause ~permanent:false sat c
 
 (*
 type unsat_core = Sat.clause list

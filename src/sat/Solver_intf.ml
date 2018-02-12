@@ -83,13 +83,14 @@ module type S = sig
 
   val theory : t -> theory
 
-  val assume : t -> ?tag:int -> atom list list -> unit
+  val assume : ?permanent:bool -> t -> ?tag:int -> atom list list -> unit
   (** Add the list of clauses to the current set of assumptions.
-      Modifies the sat solver state in place. *)
+      Modifies the sat solver state in place.
+      @param permanent if true, kept after backtracking (default true) *)
 
-  (* TODO: provide a local, backtrackable version *)
-  val add_clause : t -> atom list -> unit
-  (** Lower level addition of clauses *)
+  val add_clause : permanent:bool -> t -> clause -> unit
+  (** Lower level addition of clauses. See {!Clause} to create clauses.
+      @param permanent if true, kept after backtracking *)
 
   val solve : t -> ?assumptions:atom list -> unit -> res
   (** Try and solves the current set of clauses.
@@ -97,10 +98,11 @@ module type S = sig
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state. *)
 
-  val new_atom : t -> atom -> unit
+  val new_atom : permanent:bool -> t -> atom -> unit
   (** Add a new atom (i.e propositional formula) to the solver.
       This formula will be decided on at some point during solving,
-      wether it appears in clauses or not. *)
+      whether it appears in clauses or not.
+      @param permanent if true, kept after backtracking *)
 
   val unsat_core : Proof.proof -> clause list
   (** Returns the unsat core of a given proof, ie a subset of all the added

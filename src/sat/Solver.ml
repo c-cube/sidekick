@@ -81,13 +81,13 @@ module Make
   let theory = S.theory
 
   (* Wrappers around internal functions*)
-  let[@inline] assume st ?tag cls : unit =
+  let[@inline] assume ?(permanent=true) st ?tag cls : unit =
     cleanup_ st;
-    S.assume st ?tag cls
+    S.assume ~permanent st ?tag cls
 
-  let[@inline] add_clause st c : unit =
+  let[@inline] add_clause ~permanent st c : unit =
     cleanup_ st;
-    S.assume st [c]
+    S.add_clause ~permanent st c
 
   let solve (st:t) ?(assumptions=[]) () =
     cleanup_ st;
@@ -118,9 +118,9 @@ module Make
 
   let get_tag cl = St.(cl.tag)
 
-  let[@inline] new_atom st a =
+  let[@inline] new_atom ~permanent st a =
     cleanup_ st;
-    S.new_atom st a
+    S.new_atom ~permanent st a
 
   let actions = S.actions
 

@@ -5,6 +5,7 @@
 *)
 
 module Var_fields = BitField.Make()
+module C_fields = BitField.Make()
 
 type 'a printer = Format.formatter -> 'a -> unit
 
@@ -21,12 +22,6 @@ module type S = sig
   type formula
   type proof
   (** The types of formulas and proofs. All of these are user-provided. *)
-
-  type seen =
-    | Nope
-    | Both
-    | Positive
-    | Negative
 
   (* TODO: hide these types (from the outside of [Msat]);
      instead, provide well defined modules [module Lit : sig type t val …]
@@ -65,8 +60,7 @@ module type S = sig
     mutable cpremise : premise; (** The premise of the clause, i.e. the justification
                                     of why the clause must be satisfied. *)
     mutable activity : float;   (** Clause activity, used for the heap heuristics. *)
-    mutable attached : bool;    (** Is the clause attached, i.e. does it watch literals. *)
-    mutable visited : bool;     (** Boolean used during propagation and proof generation. *)
+    mutable c_flags: C_fields.t; (** Boolean flags for the clause *)
   }
   (** The type of clauses. Each clause generated should be true, i.e. enforced
       by the current problem (for more information, see the cpremise field). *)
@@ -125,6 +119,8 @@ module type S = sig
     val set_idx : t -> int -> unit
     val set_weight : t -> float -> unit
 
+    val in_heap : t -> bool
+
     val make : state -> formula -> t * Theory_intf.negated
     (** Returns the variable linked with the given formula,
         and whether the atom associated with the formula
@@ -179,6 +175,11 @@ module type S = sig
     val atoms_l : t -> Atom.t list
     val tag : t -> int option
     val premise : t -> premise
+
+    val attached : t -> bool
+    val set_attached : t -> bool -> unit
+    val visited : t -> bool
+    val set_visited : t -> bool -> unit
 
     val empty : t
     (** The empty clause *)

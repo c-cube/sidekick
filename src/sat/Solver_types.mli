@@ -11,8 +11,6 @@
 module type S = Solver_types_intf.S
 (** Interface for the internal types. *)
 
-module Var_fields = Solver_types_intf.Var_fields
-
 module Make (E : Theory_intf.S):
   S with type formula = E.formula
      and type proof = E.proof

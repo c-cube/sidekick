@@ -244,21 +244,21 @@ module Make(St : Solver_types.S) = struct
     let rec aux res acc = function
       | [] -> res, acc
       | c :: r ->
-        if not c.St.visited then (
-          c.St.visited <- true;
+        if not (Clause.visited c) then (
+          Clause.set_visited c true;
           match c.St.cpremise with
           | St.Hyp | St.Local | St.Lemma _ -> aux (c :: res) acc r
           | St.History h ->
             let l = List.fold_left (fun acc c ->
-                if not c.St.visited then c :: acc else acc) r h in
+                if not (Clause.visited c) then c :: acc else acc) r h in
             aux res (c :: acc) l
         ) else (
           aux res acc r
         )
     in
     let res, tmp = aux [] [] [proof] in
-    List.iter (fun c -> c.St.visited <- false) res;
-    List.iter (fun c -> c.St.visited <- false) tmp;
+    List.iter (fun c -> Clause.set_visited c false) res;
+    List.iter (fun c -> Clause.set_visited c false) tmp;
     res
 
   module Tbl = Clause.Tbl

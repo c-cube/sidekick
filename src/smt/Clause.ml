@@ -10,7 +10,7 @@ let pp out c = match lits c with
   | [lit] -> Lit.pp out lit
   | l ->
     Format.fprintf out "[@[<hv>%a@]]"
-      (Util.pp_list ~sep:"; " Lit.pp) l
+      (Util.pp_list ~sep:" ∨ " Lit.pp) l
 
 (* canonical form: sorted list *)
 let make =
