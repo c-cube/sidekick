@@ -1,7 +1,18 @@
 
 open Solver_types
 
-type t = term
+type t = term = {
+  mutable term_id : int;
+  mutable term_ty : ty;
+  term_cell : t term_cell;
+}
+
+type 'a cell = 'a term_cell =
+  | Bool of bool
+  | App_cst of cst * 'a IArray.t
+  | If of 'a * 'a * 'a
+  | Case of 'a * 'a ID.Map.t
+  | Custom of { view : 'a term_view_custom; tc : term_view_tc; }
 
 type 'a custom = 'a Solver_types.term_view_custom = ..
 
