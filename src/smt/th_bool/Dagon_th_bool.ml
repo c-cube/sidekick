@@ -105,7 +105,7 @@ module TC = struct
       begin match b with
         | B_not t -> Fmt.fprintf out "(@[<hv>not@ %a@])" sub_pp t
         | B_and l ->
-          Fmt.fprintf out "(@[<hv>and@ %a])" (Util.pp_list sub_pp) l
+          Fmt.fprintf out "(@[<hv>and@ %a@])" (Util.pp_list sub_pp) l
         | B_or l ->
           Fmt.fprintf out "(@[<hv>or@ %a@])" (Util.pp_list sub_pp) l
         | B_imply (a,b) ->
@@ -173,6 +173,30 @@ module T_cell = struct
       | B_imply ([], x) -> Term.cell x
       | B_eq (a,b) when Term.equal a b -> Term_cell.true_
       | B_eq (a,b) when Term.id a > Term.id b -> mk_ @@ B_eq (b,a)
+      | B_and l ->
+        begin try
+            let l = CCList.flat_map
+                (function
+                  | {Term.term_cell=Term.Custom {view=Builtin {view=B_and l';_};_};_} -> l'
+                  | {Term.term_cell=Term.Bool false;_} -> raise Exit
+                  | x->[x])
+                l
+            in
+            mk_ @@ B_and l
+          with Exit -> Term_cell.false_
+        end
+      | B_or l ->
+        begin try
+            let l = CCList.flat_map
+                (function
+                  | {Term.term_cell=Term.Custom {view=Builtin {view=B_or l';_};_};_} -> l'
+                  | {Term.term_cell=Term.Bool true;_} -> raise Exit
+                  | x->[x])
+                l
+            in
+            mk_ @@ B_or l
+          with Exit -> Term_cell.true_
+        end
       | _ -> mk_ b
     end
 
