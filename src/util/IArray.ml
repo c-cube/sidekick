@@ -73,6 +73,20 @@ let of_list = Array.of_list
 
 let to_list = Array.to_list
 
+let of_list_map f l =
+  match l with
+  | [] -> empty
+  | x :: _ ->
+    let arr = make (List.length l) (f x) in
+    List.iteri (fun i x -> Array.unsafe_set arr i (f x)) l;
+    arr
+
+let to_list_map f a =
+  CCArray.fold_right (fun x acc -> f x :: acc) a []
+
+let of_array_map = Array.map
+let to_array_map = Array.map
+
 let of_array_unsafe a = a (* careful with that axe, Eugene *)
 
 let to_seq a k = iter k a
