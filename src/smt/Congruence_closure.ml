@@ -123,7 +123,10 @@ let signature cc (t:term): node term_cell option =
     | App_cst (_, a) when IArray.is_empty a -> None
     | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return
     | Custom {view;tc} ->
-      Custom {tc; view=tc.tc_t_subst find view} |> CCOpt.return
+      begin match tc.tc_t_subst find view with
+        | None -> None
+        | Some u' -> Some (Custom{tc; view=u'})
+      end
     | Bool _
     | If _
     | Case _
@@ -322,8 +325,7 @@ and update_combine cc =
    be merged w.r.t. the theories.
    Side effect: also pushes sub-tasks *)
 and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
-  assert (is_root_ (ra:>node));
-  assert (is_root_ (rb:>node));
+  assert (is_root_ rb);
   cc.acts.on_merge ra rb e
 
 
@@ -546,17 +548,11 @@ let explain_loop (cc : t) : Lit.Set.t =
   cc.ps_lits
 
 let explain_unfold_seq cc (seq:explanation Sequence.t): Lit.Set.t =
-  Log.debugf 5
-    (fun k->k "(@[explain_confict@ (@[<hv>%a@])@])"
-        (Util.pp_seq Explanation.pp) seq);
   ps_clear cc;
   Sequence.iter (decompose_explain cc) seq;
   explain_loop cc
 
 let explain_unfold_bag cc (b:explanation Bag.t) : Lit.Set.t =
-  Log.debugf 5
-    (fun k->k "(@[explain_confict@ (@[<hv>%a@])@])"
-        (Util.pp_seq Explanation.pp) (Bag.to_seq b));
   match b with
   | Bag.E -> Lit.Set.empty
   | Bag.L (E_lit lit) -> Lit.Set.singleton lit

@@ -121,7 +121,7 @@ module Make
 
   let[@inline] new_atom ~permanent st a =
     cleanup_ st;
-    S.new_atom ~permanent st a
+    ignore (S.new_atom ~permanent st a)
 
   let actions = S.actions
 
@@ -135,7 +135,7 @@ module Make
     type t = lit
 
     let pp = St.Atom.pp
-    let make = S.mk_atom
+    let make = S.new_atom ~permanent:false
   end
 
   module Clause = struct
@@ -148,7 +148,7 @@ module Make
     let[@inline] make_l ?tag l : t = St.Clause.make_l ?tag l St.Hyp
 
     let of_atoms st ?tag l =
-      let l = List.map (S.mk_atom st) l in
+      let l = List.map (S.new_atom ~permanent:false st) l in
       make_l ?tag l
   end
 

@@ -160,7 +160,6 @@ module Make
   let[@inline] nb_clauses st = Vec.size st.clauses_hyps
   let[@inline] decision_level st = Vec.size st.elt_levels
   let[@inline] base_level st = Vec.size st.user_levels
-  let[@inline] mk_atom st (f:St.formula) : atom = Atom.make st.st f
 
   (* [redo_down_to_level_0 f ~undo] performs [f] now. Upon backtracking
      before current level, some undo actions scheduled by [f]
@@ -194,21 +193,22 @@ module Make
      is done. Uses a heap (implemented in {!Heap}), to keep track of variable activity.
   *)
   let insert_var_order st (v:var) : unit =
-    if not (Var.in_heap v) then (
-      (* remove variable when we backtrack *)
+    if not (Var.in_heap v) && Var.level v < 0 then (
+      (* new variable that is not assigned, add to heap.
+         remember to remove variable when we backtrack *)
       on_backtrack_if_not_at_0 st (fun () -> H.remove st.order v);
       H.insert st.order v;
     )
 
-  let new_atom ~permanent st (p:formula) : unit =
-    let a = mk_atom st p in
+  let new_atom ~permanent st (p:formula) : St.atom =
+    let a = Atom.make st.st p in
     if permanent then (
-      (* TODO: also internalize term… *)
       redo_down_to_level_0 st
         (fun () -> insert_var_order st a.var)
     ) else (
       insert_var_order st a.var
-    )
+    );
+    a
 
   (* Rather than iterate over all the heap when we want to decrease all the
      variables/literals activity, we instead increase the value by which
@@ -458,7 +458,8 @@ module Make
                rebuild the whole resolution tree when we want to prove [a]. *)
             let c' = Clause.make_l l (History (cl :: history)) in
             Log.debugf 5
-              (fun k -> k "Simplified reason: @[<v>%a@,%a@]" Clause.debug cl Clause.debug c');
+              (fun k -> k "(@[sat.simplified-reason@ :old %a@ :new %a@])"
+                  Clause.debug cl Clause.debug c');
             Bcp c'
           )
         | _ ->
@@ -768,6 +769,9 @@ module Make
           permanent Clause.debug init);
     let vec_for_clause = clause_vector st init in
     match eliminate_duplicates init with
+    | exception Trivial ->
+      Vec.push vec_for_clause init;
+      Log.debugf 3 (fun k->k "(@[sat.add_clause.ignore-trivial@ %a@])" Clause.debug init)
     | c ->
       Log.debugf 5 (fun k -> k "(@[sat.add_clause.after_eliminate_dups@ %a@])" Clause.debug c);
       let atoms, history = partition c.atoms in
@@ -806,7 +810,7 @@ module Make
           assert (0 < a.var.v_level && a.var.v_level <= base_level st);
         ) else (
           Log.debugf 5
-            (fun k->k "(@[sat.add_clause.unit-clause@ :propagating %a@])" Atom.debug a);
+            (fun k->k "(@[sat.add_clause.unit_clause@ :propagating %a@])" Atom.debug a);
           (* propagate but without adding the clause. May need to
              re-propagate after backtracking *)
           redo_down_to_level_0 st
@@ -815,10 +819,11 @@ module Make
       | a::b::_ ->
         on_backtrack_if_not_at_0 st (fun () -> Vec.pop vec_for_clause);
         Vec.push vec_for_clause clause;
+        (* Atoms need to be sorted in decreasing order of decision level,
+           or we might watch the wrong literals. *)
+        put_high_level_atoms_first clause.atoms;
         if a.neg.is_true then (
-          (* Atoms need to be sorted in decreasing order of decision level,
-             or we might watch the wrong literals. *)
-          put_high_level_atoms_first clause.atoms;
+          (* conflict, even the last literal is false *)
           attach_clause st clause;
           add_boolean_conflict st clause
         ) else (
@@ -829,9 +834,6 @@ module Make
             enqueue_bool st a (Bcp clause)
           )
         )
-    | exception Trivial ->
-      Vec.push vec_for_clause init;
-      Log.debugf 3 (fun k->k "(@[sat.add_clause.ignore-trivial@ %a@])" Clause.debug init)
 
   type watch_res =
     | Watch_kept
@@ -905,15 +907,14 @@ module Make
       )
     done
 
-  let slice_iter st (hd:int) (f:_ -> unit) : unit =
-    let n = Vec.size st.trail in
-    for i = hd to n-1 do
+  let slice_iter st (hd:int) (last:int) (f:_ -> unit) : unit =
+    for i = hd to last-1 do
       let a = Vec.get st.trail i in
       f a.lit
     done
 
   let act_push_ ~permanent st (l:formula IArray.t) (lemma:proof): unit =
-    let atoms = IArray.to_array_map (mk_atom st) l in
+    let atoms = IArray.to_array_map (new_atom ~permanent st) l in
     let c = Clause.make atoms (Lemma lemma) in
     Log.debugf 3 (fun k->k "(@[sat.push_clause@ %a@])" Clause.debug c);
     add_clause ~permanent st c
@@ -924,9 +925,9 @@ module Make
 
   (* TODO: ensure that the clause is removed upon backtracking *)
   let act_propagate (st:t) f causes proof : unit =
-    let l = List.rev_map (mk_atom st) causes in
+    let l = List.rev_map (new_atom ~permanent:false st) causes in
     if List.for_all (fun a -> a.is_true) l then (
-      let p = mk_atom st f in
+      let p = new_atom ~permanent:false st f in
       let c = Clause.make_l (p :: List.map Atom.neg l) (Lemma proof) in
       if p.is_true then (
       ) else if p.neg.is_true then (
@@ -942,12 +943,12 @@ module Make
     )
 
   let current_slice st head = Theory_intf.Slice_acts {
-    slice_iter = slice_iter st head;
+    slice_iter = slice_iter st head (Vec.size st.trail);
   }
 
   (* full slice, for [if_sat] final check *)
   let full_slice st = Theory_intf.Slice_acts {
-    slice_iter = slice_iter st 0;
+    slice_iter = slice_iter st 0 (Vec.size st.trail);
   }
 
   let act_at_level_0 st () = at_level_0 st
@@ -994,7 +995,7 @@ module Make
         propagate st
       | Theory_intf.Unsat (l, p) ->
         (* conflict *)
-        let l = List.rev_map (mk_atom st) l in
+        let l = List.rev_map (new_atom ~permanent:false st) l in
         List.iter (fun a -> insert_var_order st a.var) l;
         let c = St.Clause.make_l l (Lemma p) in
         Some c
@@ -1013,6 +1014,7 @@ module Make
       while st.elt_head < Vec.size st.trail do
         let a = Vec.get st.trail st.elt_head in
         incr num_props;
+        Log.debugf 5 (fun k->k "(@sat.propagate_atom@ %a@])" Atom.pp a);
         propagate_atom st a;
         st.elt_head <- st.elt_head + 1;
       done;
@@ -1089,9 +1091,13 @@ module Make
     in
     value, var.v_level
 
-  let eval st lit = fst (eval_level st lit)
-
+  let[@inline] eval st lit = fst (eval_level st lit)
   let[@inline] unsat_conflict st = st.unsat_conflict
+
+  let pp_trail st =
+    Log.debugf 5
+      (fun k -> k "(@[<v>sat.current_trail:@ %a@])"
+          (Vec.print ~sep:"" Atom.debug) st.trail)
 
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
@@ -1111,6 +1117,7 @@ module Make
             n_of_learnts   := !n_of_learnts *. learntsize_inc
           | Sat ->
             assert (st.elt_head = Vec.size st.trail);
+            pp_trail st;
             begin match Th.if_sat (theory st) (full_slice st) with
               | Theory_intf.Sat ->
                 (* if no propagation is to be done, exit;
@@ -1119,7 +1126,7 @@ module Make
                   raise Sat
                 )
               | Theory_intf.Unsat (l, p) ->
-                let atoms = List.rev_map (mk_atom st) l in
+                let atoms = List.rev_map (new_atom ~permanent:false st) l in
                 let c = Clause.make_l atoms (Lemma p) in
                 Log.debugf 3
                   (fun k -> k "(@[@{<Yellow>sat.theory_conflict_clause@}@ %a@])" Clause.debug c);
@@ -1135,7 +1142,7 @@ module Make
   let assume ~permanent st ?tag cnf =
     let cs = List.rev_map
       (fun atoms ->
-         let atoms = List.rev_map (mk_atom st) atoms in
+         let atoms = List.rev_map (new_atom ~permanent st) atoms in
          Clause.make_l ?tag atoms Hyp)
       cnf
     in
@@ -1146,7 +1153,7 @@ module Make
            add_clause ~permanent:false st c)
         cs
     in
-  if permanent
+    if permanent
     then redo_down_to_level_0 st add_clauses
     else add_clauses()
 
@@ -1161,9 +1168,7 @@ module Make
       | Some confl ->
         report_unsat st confl
       | None ->
-        Log.debugf 5
-          (fun k -> k "@[<v>Current trail:@,@[<hov>%a@]@]"
-              (Vec.print ~sep:"" Atom.debug) st.trail);
+        pp_trail st;
         Log.debug 3 "Creating new user level";
         new_decision_level st;
         Vec.push st.user_levels (Vec.size st.clauses_temp);
@@ -1190,7 +1195,7 @@ module Make
   (* Add local hyps to the current decision level *)
   let local (st:t) (assumptions:formula list) : unit =
     let add_lit lit : unit =
-      let a = mk_atom st lit in
+      let a = new_atom ~permanent:false st lit in
       Log.debugf 3 (fun k-> k "(@[sat.local_assumption@ %a@])" Atom.debug a);
       assert (decision_level st = base_level st);
       if not a.is_true then (

@@ -56,7 +56,7 @@ and term_view_tc = {
   tc_t_sub : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on immediate subterms *)
   tc_t_abs : 'a. self:'a -> 'a term_view_custom -> 'a * bool; (* remove the sign? *)
   tc_t_relevant : 'a. 'a term_view_custom -> 'a Sequence.t; (* iter on relevant immediate subterms *)
-  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a term_view_custom -> 'b term_view_custom; (* substitute immediate subterms and canonize *)
+  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a term_view_custom -> 'b term_view_custom option; (* substitute immediate subterms and canonize *)
   tc_t_explain : 'a. 'a CCEqual.t -> 'a term_view_custom -> 'a term_view_custom -> ('a * 'a) list;
   (* explain why the two views are equal *)
 }

@@ -26,7 +26,7 @@ type tc = Solver_types.term_view_tc = {
   tc_t_sub : 'a. 'a custom -> 'a Sequence.t;
   tc_t_abs : 'a. self:'a -> 'a custom -> 'a * bool;
   tc_t_relevant : 'a. 'a custom -> 'a Sequence.t;
-  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a custom -> 'b custom;
+  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a custom -> 'b custom option;
   tc_t_explain : 'a. 'a CCEqual.t -> 'a custom -> 'a custom -> ('a * 'a) list;
 }
 
@@ -112,6 +112,7 @@ let[@inline] is_custom t = match t.term_cell with
   | _ -> false
 
 let[@inline] is_semantic t = match t.term_cell with
+  | Bool _ -> true
   | Custom {view;tc} -> tc.tc_t_is_semantic view
   | _ -> false
 

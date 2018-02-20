@@ -136,8 +136,8 @@ module Make (E : Theory_intf.S) = struct
     let[@inline] reason v = v.reason
     let[@inline] weight v = v.v_weight
 
-    let[@inline] id v =v.vid
-    let[@inline] level v =v.v_level
+    let[@inline] id v = v.vid
+    let[@inline] level v = v.v_level
     let[@inline] idx v = v.v_idx
 
     let[@inline] set_level v lvl = v.v_level <- lvl
@@ -324,8 +324,7 @@ module Make (E : Theory_intf.S) = struct
       | Hyp -> Format.fprintf out "hyp"
       | Local -> Format.fprintf out "local"
       | Lemma _ -> Format.fprintf out "th_lemma"
-      | History v ->
-        List.iter (fun c -> Format.fprintf out "%s,@ " (name_of_clause c)) v
+      | History v -> Util.pp_list (CCFormat.of_to_string name_of_clause) out v
 
     let debug out ({atoms=arr; cpremise=cp;_}as c) =
       Format.fprintf out "%s@[<hov>{@[<hov>%a@]}@ cpremise={@[<hov>%a@]}@]"
