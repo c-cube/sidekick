@@ -139,7 +139,7 @@ module TC = struct
     | Builtin {view=B_not b; _} -> b, false
     | _ -> self, true
 
-  let subst _ _ = assert false (* no congruence *)
+  let subst _ _ = None (* no congruence *)
 
   let explain _eq _ _ = assert false (* no congruence *)
 
@@ -274,7 +274,7 @@ let tseitin (self:t) (lit:Lit.t) (b:term builtin) : unit =
   | B_or subs ->
     if Lit.sign lit then (
       (* propagate [lit => ∨_i subs_i] *)
-      let c = lit :: List.map (Lit.atom ~sign:true) subs in
+      let c = Lit.neg lit :: List.map (Lit.atom ~sign:true) subs in
       self.acts.Theory.add_local_axiom (IArray.of_list c)
     ) else (
       (* propagate [¬lit => ¬subs_i] *)
@@ -288,7 +288,7 @@ let tseitin (self:t) (lit:Lit.t) (b:term builtin) : unit =
   | B_imply (guard,concl) ->
     if Lit.sign lit then (
       (* propagate [lit => ∨_i ¬guard_i ∨ concl] *)
-      let c = lit :: Lit.atom concl :: List.map (Lit.atom ~sign:false) guard in
+      let c = Lit.atom concl :: Lit.neg lit :: List.map (Lit.atom ~sign:false) guard in
       self.acts.Theory.add_local_axiom (IArray.of_list c)
     ) else (
       let expl = Bag.return (Explanation.lit lit) in
@@ -303,14 +303,12 @@ let tseitin (self:t) (lit:Lit.t) (b:term builtin) : unit =
     )
 
 let on_assert (self:t) (lit:Lit.t) =
-  Log.debugf 5 (fun k->k "(@[th_bool.on_assert@ %a@])" Lit.pp lit);
   match Lit.view lit with
   | Lit.Lit_atom { Term.term_cell=Term.Custom{view=Builtin {view=b};_}; _ } ->
     tseitin self lit b
   | _ -> ()
 
-let final_check _ _ : unit =
-  Log.debug 5 "(th_bool.final_check)"
+let final_check _ _ : unit = ()
 
 let th =
   let make tst acts =
