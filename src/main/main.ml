@@ -121,9 +121,10 @@ let main () =
   Util.setup_gc();
   let solver =
     let theories = match syn with
-      | Dimacs -> []
+      | Dimacs ->
+        [Dagon_th_bool.th]
       | Smtlib ->
-        [] (* TODO: more theories *)
+        [Dagon_th_bool.th] (* TODO: more theories *)
     in
     Dagon_smt.Solver.create ~theories ()
   in

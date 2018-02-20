@@ -71,6 +71,8 @@ val check : t -> unit
 
 val final_check : t -> unit
 
-val explain_unfold: t -> explanation Sequence.t -> Lit.Set.t
+val explain_unfold_bag : t -> explanation Bag.t -> Lit.Set.t
+
+val explain_unfold_seq : t -> explanation Sequence.t -> Lit.Set.t
 (** Unfold those explanations into a complete set of
     literals implying them *)

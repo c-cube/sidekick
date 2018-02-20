@@ -905,9 +905,9 @@ module Make
       )
     done
 
-  let slice_iter st (f:_ -> unit) : unit =
+  let slice_iter st (hd:int) (f:_ -> unit) : unit =
     let n = Vec.size st.trail in
-    for i = st.th_head to n-1 do
+    for i = hd to n-1 do
       let a = Vec.get st.trail i in
       f a.lit
     done
@@ -941,13 +941,13 @@ module Make
         (Util.pp_list Atom.debug) l
     )
 
-  let current_slice st = Theory_intf.Slice_acts {
-    slice_iter = slice_iter st;
+  let current_slice st head = Theory_intf.Slice_acts {
+    slice_iter = slice_iter st head;
   }
 
   (* full slice, for [if_sat] final check *)
   let full_slice st = Theory_intf.Slice_acts {
-    slice_iter = slice_iter st;
+    slice_iter = slice_iter st 0;
   }
 
   let act_at_level_0 st () = at_level_0 st
@@ -987,7 +987,7 @@ module Make
     if st.th_head = st.elt_head then (
       None (* fixpoint/no propagation *)
     ) else (
-      let slice = current_slice st in
+      let slice = current_slice st st.th_head in
       st.th_head <- st.elt_head; (* catch up *)
       match Th.assume (theory st) slice with
       | Theory_intf.Sat ->

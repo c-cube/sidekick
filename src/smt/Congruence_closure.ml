@@ -545,13 +545,25 @@ let explain_loop (cc : t) : Lit.Set.t =
   done;
   cc.ps_lits
 
-let explain_unfold cc (seq:explanation Sequence.t): Lit.Set.t =
+let explain_unfold_seq cc (seq:explanation Sequence.t): Lit.Set.t =
   Log.debugf 5
     (fun k->k "(@[explain_confict@ (@[<hv>%a@])@])"
         (Util.pp_seq Explanation.pp) seq);
   ps_clear cc;
   Sequence.iter (decompose_explain cc) seq;
   explain_loop cc
+
+let explain_unfold_bag cc (b:explanation Bag.t) : Lit.Set.t =
+  Log.debugf 5
+    (fun k->k "(@[explain_confict@ (@[<hv>%a@])@])"
+        (Util.pp_seq Explanation.pp) (Bag.to_seq b));
+  match b with
+  | Bag.E -> Lit.Set.empty
+  | Bag.L (E_lit lit) -> Lit.Set.singleton lit
+  | _ ->
+    ps_clear cc;
+    Sequence.iter (decompose_explain cc) (Bag.to_seq b);
+    explain_loop cc
 
 (* check satisfiability, update congruence closure *)
 let check (cc:t) : unit =

@@ -6,7 +6,10 @@
     A data structure where we can have duplicate elements, optimized for
     fast concatenation and size. *)
 
-type +'a t
+type +'a t = private
+  | E
+  | L of 'a
+  | N of 'a t * 'a t * int (* size *)
 
 val empty : 'a t
 

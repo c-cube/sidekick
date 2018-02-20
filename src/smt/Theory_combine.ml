@@ -64,8 +64,7 @@ let cdcl_return_res (self:t) : _ Sat_solver.res =
       Sat_solver.Sat
     | Some c ->
       let lit_set =
-        Bag.to_seq c
-        |> Congruence_closure.explain_unfold (cc self)
+        Congruence_closure.explain_unfold_bag (cc self) c
       in
       let conflict_clause =
         Lit.Set.to_list lit_set
@@ -74,26 +73,34 @@ let cdcl_return_res (self:t) : _ Sat_solver.res =
       Sat_solver.Log.debugf 3
         (fun k->k "(@[<1>conflict@ clause: %a@])"
             Theory.Clause.pp conflict_clause);
+      self.conflict <- None;
       Sat_solver.Unsat (IArray.to_list conflict_clause, Proof.default)
   end
 
 let[@inline] check (self:t) : unit =
   Congruence_closure.check (cc self)
 
-(* propagation from the bool solver *)
-let assume_real (self:t) (slice:_ Sat_solver.slice_actions) =
-  (* TODO if Config.progress then print_progress(); *)
-  let Sat_solver.Slice_acts slice = slice in
+let with_conflict_catch self f =
   begin
     try
-      slice.slice_iter (assume_lit self);
-      (* now check satisfiability *)
-      check self;
+      f ()
     with Exn_conflict c ->
       assert (CCOpt.is_none self.conflict);
       self.conflict <- Some c;
   end;
   cdcl_return_res self
+
+(* propagation from the bool solver *)
+let assume_real (self:t) (slice:_ Sat_solver.slice_actions) =
+  (* TODO if Config.progress then print_progress(); *)
+  let Sat_solver.Slice_acts slice = slice in
+  Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Sequence.length slice.slice_iter));
+  with_conflict_catch self
+    (fun () ->
+       slice.slice_iter (assume_lit self);
+       (* now check satisfiability *)
+       check self
+    )
 
 (* propagation from the bool solver *)
 let assume (self:t) (slice:_ Sat_solver.slice_actions) =
@@ -112,9 +119,10 @@ let if_sat (self:t) (slice:_) : _ Sat_solver.res =
     r.slice_iter
   in
   (* final check for each theory *)
-  theories self
-    (fun (Theory.State th) -> th.final_check th.st forms);
-  cdcl_return_res self
+  with_conflict_catch self
+    (fun () ->
+       theories self
+         (fun (Theory.State th) -> th.final_check th.st forms))
 
 (** {2 Various helpers} *)
 
@@ -122,8 +130,7 @@ let if_sat (self:t) (slice:_) : _ Sat_solver.res =
 let act_propagate (self:t) f guard : unit =
   let Sat_solver.Actions r = self.cdcl_acts in
   let guard =
-    Bag.to_seq guard
-    |> Congruence_closure.explain_unfold (cc self)
+    Congruence_closure.explain_unfold_bag (cc self) guard
     |> Lit.Set.to_list
   in
   Sat_solver.Log.debugf 2
@@ -142,8 +149,7 @@ let on_merge_from_cc (self:t) r1 r2 e : unit =
 
 let mk_cc_actions (self:t) : Congruence_closure.actions =
   let Sat_solver.Actions r = self.cdcl_acts in
-  {
-    Congruence_closure.
+  { Congruence_closure.
     on_backtrack = r.on_backtrack;
     at_lvl_0 = r.at_level_0;
     on_merge = on_merge_from_cc self;
