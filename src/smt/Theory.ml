@@ -1,4 +1,19 @@
 
+module Clause : sig
+  type t = Lit.t IArray.t
+  val pp : t CCFormat.printer
+end = struct
+  type t = Lit.t IArray.t
+
+  let pp out c =
+    if IArray.length c = 0 then CCFormat.string out "false"
+    else if IArray.length c = 1 then Lit.pp out (IArray.get c 0)
+    else (
+      Format.fprintf out "[@[<hv>%a@]]"
+        (Util.pp_iarray ~sep:" ∨ " Lit.pp) c
+    )
+end
+
 (** Runtime state of a theory, with all the operations it provides.
     ['a] is the internal state *)
 type state = State : {
@@ -37,13 +52,13 @@ type actions = {
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  case_split: Clause.t -> unit;
-  (** Force the solver to case split on this clause.
-      The clause will be removed upon backtracking. *)
+  add_local_axiom: Lit.t IArray.t -> unit;
+  (** Add local clause to the SAT solver. This clause will be
+      removed when the solver backtracks. *)
 
-  add_axiom: Clause.t -> unit;
-  (** Add a persistent axiom to the SAT solver. This will not
-      be backtracked *)
+  add_persistent_axiom: Lit.t IArray.t -> unit;
+  (** Add toplevel clause to the SAT solver. This clause will
+      not be backtracked. *)
 
   find: Term.t -> Equiv_class.t;
   (** Find representative of this term *)

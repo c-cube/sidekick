@@ -103,7 +103,7 @@ module Make(St : Solver_types_intf.S) = struct
              | _ -> assert false)
         (Vec.to_list local)
     in
-    let local = St.Clause.make l St.Local in
+    let local = St.Clause.make_l l St.Local in
     (* Number of atoms and clauses *)
     Format.fprintf fmt
       "@[<v>%s@,%a%a%a@]@."

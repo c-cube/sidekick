@@ -1,7 +1,15 @@
 
 open Solver_types
 
-type t = lit
+type t = lit = {
+  lit_view : lit_view;
+  lit_sign : bool
+}
+
+and view = lit_view =
+  | Lit_fresh of ID.t
+  | Lit_atom of term
+  | Lit_expanded of term
 
 let neg l = {l with lit_sign=not l.lit_sign}
 

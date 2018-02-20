@@ -126,7 +126,7 @@ module Make(St : Solver_types.S) = struct
       ) else (
         assert (a.St.neg.St.is_true);
         let r = St.History (c :: (Array.fold_left aux [] c.St.atoms)) in
-        let c' = St.Clause.make [a.St.neg] r in
+        let c' = St.Clause.make [| a.St.neg |] r in
         a.St.var.St.reason <- Some St.(Bcp c');
         Log.debugf debug
           (fun k -> k "New reason: @[%a@ %a@]" St.Atom.debug a St.Clause.debug c');
@@ -141,7 +141,7 @@ module Make(St : Solver_types.S) = struct
     else (
       Log.debugf info (fun k -> k "Proving unsat from: @[%a@]" St.Clause.debug conflict);
       let l = Array.fold_left (fun acc a -> set_atom_proof a :: acc) [] conflict.St.atoms in
-      let res = St.Clause.make [] (St.History (conflict :: l)) in
+      let res = St.Clause.make [| |] (St.History (conflict :: l)) in
       Log.debugf info (fun k -> k "Proof found: @[%a@]" St.Clause.debug res);
       res
     )
@@ -175,7 +175,7 @@ module Make(St : Solver_types.S) = struct
           begin match r with
             | [] -> (l, c, d, a)
             | _ ->
-              let new_clause = St.Clause.make l (St.History [c; d]) in
+              let new_clause = St.Clause.make_l l (St.History [c; d]) in
               chain_res (new_clause, l) r
           end
         | _ ->

@@ -48,7 +48,9 @@ module type S = sig
 
   type formula (** user formulas *)
 
-  type clause
+  type lit (** SAT solver literals *)
+
+  type clause (** SAT solver clauses *)
 
   type theory (** user theory *)
 
@@ -133,15 +135,28 @@ module type S = sig
 
   type solver = t
 
+  module Lit : sig
+    type t = lit
+
+    val make : solver -> atom -> t
+    val pp : t CCFormat.printer
+  end
+
   module Clause : sig
     type t = clause
 
-    val atoms : t -> atom array
+    val atoms : t -> atom IArray.t
     val atoms_l : t -> atom list
     val tag : t -> int option
     val equal : t -> t -> bool
 
-    val make : solver -> ?tag:int -> atom list -> t
+    val make : ?tag:int -> lit array -> t
+    (** Make a clause from this array of SAT literals.
+        The array's ownership is transferred to the clause, do not mutate it *)
+
+    val make_l : ?tag:int -> lit list -> t
+
+    val of_atoms : solver -> ?tag:int -> atom list -> t
 
     val pp : t printer
   end

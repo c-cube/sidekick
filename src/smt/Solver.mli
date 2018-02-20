@@ -44,10 +44,14 @@ val create :
 val solver : t -> Sat_solver.t
 val th_combine : t -> Theory_combine.t
 val add_theory : t -> Theory.t -> unit
+val cc : t -> Congruence_closure.t
 val stats : t -> Stat.t
 val tst : t -> Term.state
 
-val assume : t -> Clause.t -> unit
+val assume : t -> Lit.t IArray.t -> unit
+
+val assume_eq : t -> Term.t -> Term.t -> Lit.t -> unit
+val assume_distinct : t -> Term.t list -> Lit.t -> unit
 
 val solve :
   ?on_exit:(unit -> unit) list ->

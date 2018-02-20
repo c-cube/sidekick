@@ -284,7 +284,7 @@ module Make
     ) else if !duplicates = [] then (
       clause
     ) else (
-      Clause.make !res (History [clause])
+      Clause.make_l !res (History [clause])
     )
 
   (* Partition literals for new clauses, into:
@@ -456,7 +456,7 @@ module Make
                with only one formula (which is [a]). So we explicitly create that clause
                and set it as the cause for the propagation of [a], that way we can
                rebuild the whole resolution tree when we want to prove [a]. *)
-            let c' = Clause.make l (History (cl :: history)) in
+            let c' = Clause.make_l l (History (cl :: history)) in
             Log.debugf 5
               (fun k -> k "Simplified reason: @[<v>%a@,%a@]" Clause.debug cl Clause.debug c');
             Bcp c'
@@ -658,13 +658,13 @@ module Make
         if fuip.neg.is_true then (
           report_unsat st confl
         ) else (
-          let uclause = Clause.make cr.cr_learnt (History cr.cr_history) in
+          let uclause = Clause.make_l cr.cr_learnt (History cr.cr_history) in
           Vec.push st.clauses_learnt uclause;
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool st fuip (Bcp uclause)
         )
       | fuip :: _ ->
-        let lclause = Clause.make cr.cr_learnt (History cr.cr_history) in
+        let lclause = Clause.make_l cr.cr_learnt (History cr.cr_history) in
         Vec.push st.clauses_learnt lclause;
         attach_clause st lclause;
         clause_bump_activity st lclause;
@@ -778,7 +778,7 @@ module Make
           List.iteri (fun i a -> c.atoms.(i) <- a) atoms;
           c
         ) else (
-          Clause.make atoms (History (c :: history))
+          Clause.make_l atoms (History (c :: history))
         )
       in
       Log.debugf 3 (fun k->k "(@[sat.add_clause.new_clause@ %a@])" Clause.debug clause);
@@ -912,22 +912,22 @@ module Make
       f a.lit
     done
 
-  let act_push_ ~permanent st (l:formula list) (lemma:proof): unit =
-    let atoms = List.rev_map (mk_atom st) l in
+  let act_push_ ~permanent st (l:formula IArray.t) (lemma:proof): unit =
+    let atoms = IArray.to_array_map (mk_atom st) l in
     let c = Clause.make atoms (Lemma lemma) in
     Log.debugf 3 (fun k->k "(@[sat.push_clause@ %a@])" Clause.debug c);
     add_clause ~permanent st c
 
   (* TODO: ensure that the clause is removed upon backtracking *)
   let act_push_local = act_push_ ~permanent:false
-  let act_push = act_push_ ~permanent:true
+  let act_push_persistent = act_push_ ~permanent:true
 
   (* TODO: ensure that the clause is removed upon backtracking *)
   let act_propagate (st:t) f causes proof : unit =
     let l = List.rev_map (mk_atom st) causes in
     if List.for_all (fun a -> a.is_true) l then (
       let p = mk_atom st f in
-      let c = Clause.make (p :: List.map Atom.neg l) (Lemma proof) in
+      let c = Clause.make_l (p :: List.map Atom.neg l) (Lemma proof) in
       if p.is_true then (
       ) else if p.neg.is_true then (
         add_clause ~permanent:false st c
@@ -953,7 +953,7 @@ module Make
   let act_at_level_0 st () = at_level_0 st
 
   let actions st = Theory_intf.Actions {
-    push = act_push st;
+    push_persistent = act_push_persistent st;
     push_local = act_push_local st;
     on_backtrack = on_backtrack st;
     at_level_0 = act_at_level_0 st;
@@ -996,7 +996,7 @@ module Make
         (* conflict *)
         let l = List.rev_map (mk_atom st) l in
         List.iter (fun a -> insert_var_order st a.var) l;
-        let c = St.Clause.make l (Lemma p) in
+        let c = St.Clause.make_l l (Lemma p) in
         Some c
     )
 
@@ -1120,7 +1120,7 @@ module Make
                 )
               | Theory_intf.Unsat (l, p) ->
                 let atoms = List.rev_map (mk_atom st) l in
-                let c = Clause.make atoms (Lemma p) in
+                let c = Clause.make_l atoms (Lemma p) in
                 Log.debugf 3
                   (fun k -> k "(@[@{<Yellow>sat.theory_conflict_clause@}@ %a@])" Clause.debug c);
                 (* must backtrack *)
@@ -1136,7 +1136,7 @@ module Make
     let cs = List.rev_map
       (fun atoms ->
          let atoms = List.rev_map (mk_atom st) atoms in
-         Clause.make ?tag atoms Hyp)
+         Clause.make_l ?tag atoms Hyp)
       cnf
     in
     let add_clauses () =
@@ -1194,7 +1194,7 @@ module Make
       Log.debugf 3 (fun k-> k "(@[sat.local_assumption@ %a@])" Atom.debug a);
       assert (decision_level st = base_level st);
       if not a.is_true then (
-        let c = Clause.make [a] Local in
+        let c = Clause.make [|a|] Local in
         Log.debugf 5 (fun k -> k "(@[sat.add_temp_clause@ %a@])" Clause.debug c);
         Vec.push st.clauses_temp c;
         if a.neg.is_true then (

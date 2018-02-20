@@ -269,7 +269,7 @@ module Make (E : Theory_intf.S) = struct
         (sign a) (a.var.vid+1) debug_value a E.Form.print a.lit
 
     let debug_a out vec =
-      Array.iter (fun a -> Format.fprintf out "%a@ " debug a) vec
+      Array.iteri (fun i a -> if i>0 then Format.fprintf out "@ "; debug out a) vec
   end
 
   module Clause = struct
@@ -278,8 +278,7 @@ module Make (E : Theory_intf.S) = struct
 
     let make =
       let n = ref 0 in
-      fun ?tag ali premise ->
-        let atoms = Array.of_list ali in
+      fun ?tag atoms premise ->
         let name = !n in
         incr n;
         { name;
@@ -290,7 +289,9 @@ module Make (E : Theory_intf.S) = struct
           cpremise = premise;
         }
 
-    let empty = make [] (History [])
+    let make_l ?tag l pr = make ?tag (Array.of_list l) pr
+
+    let empty = make [| |] (History [])
     let name = name_of_clause
     let[@inline] equal c1 c2 = c1==c2
     let[@inline] atoms c = c.atoms

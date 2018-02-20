@@ -46,10 +46,6 @@ val same_class : t -> node -> node -> bool
 val union : t -> node -> node -> explanation -> unit
 (** Merge the two equivalence classes. Will be undone on backtracking. *)
 
-val assert_lit : t -> Lit.t -> unit
-(** Given a literal, assume it in the congruence closure and propagate
-    its consequences. Will be backtracked. *)
-
 val mem : t -> term -> bool
 (** Is the term properly added to the congruence closure? *)
 
@@ -62,6 +58,14 @@ val add_seq : t -> term Sequence.t -> unit
 
 val all_classes : t -> repr Sequence.t
 (** All current classes *)
+
+val assert_lit : t -> Lit.t -> unit
+(** Given a literal, assume it in the congruence closure and propagate
+    its consequences. Will be backtracked. *)
+
+val assert_eq : t -> term -> term -> explanation -> unit
+
+val assert_distinct : t -> term list -> explanation -> unit
 
 val check : t -> unit
 

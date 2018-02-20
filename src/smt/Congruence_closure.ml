@@ -411,6 +411,17 @@ let assert_lit cc lit : unit = match Lit.view lit with
     push_combine cc n rhs (E_lit lit);
     ()
 
+let assert_eq cc (t:term) (u:term) expl : unit =
+  let n1 = add cc t in
+  let n2 = add cc u in
+  if not (same_class cc n1 n2) then (
+    union cc n1 n2 expl
+  )
+
+let assert_distinct _cc (l:term list) _expl : unit =
+  assert (match l with[] | [_] -> false | _ -> true);
+  Util.errorf "unimplemented: CC.distinct"
+
 let create ?(size=2048) ~actions (tst:Term.state) : t =
   assert (actions.at_lvl_0 ());
   let nd = Equiv_class.dummy in

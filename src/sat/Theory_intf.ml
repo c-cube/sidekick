@@ -42,10 +42,10 @@ type ('formula, 'proof) res =
 (** Actions given to the theory during initialization, to be used
     at any time *)
 type ('form, 'proof) actions = Actions of {
-  push : 'form list -> 'proof -> unit;
+  push_persistent : 'form IArray.t -> 'proof -> unit;
   (** Allows to add a persistent clause to the solver. *)
 
-  push_local : 'form list -> 'proof -> unit;
+  push_local : 'form IArray.t -> 'proof -> unit;
   (** Allows to add a local clause to the solver. The clause
       will be removed after backtracking. *)
 

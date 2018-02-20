@@ -40,8 +40,8 @@ type 'clause export = 'clause Solver_intf.export = {
 }
 
 type ('form, 'proof) actions = ('form,'proof) Theory_intf.actions = Actions of {
-  push : 'form list -> 'proof -> unit;
-  push_local : 'form list -> 'proof -> unit;
+  push_persistent : 'form IArray.t -> 'proof -> unit;
+  push_local : 'form IArray.t -> 'proof -> unit;
   on_backtrack: (unit -> unit) -> unit;
   at_level_0 : unit -> bool;
   propagate : 'form -> 'form list -> 'proof -> unit;

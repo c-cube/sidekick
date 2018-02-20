@@ -310,7 +310,7 @@ let process_stmt
       (* TODO
       hyps := clauses @ !hyps;
          *)
-      Solver.assume solver (Clause.make [Lit.atom t]);
+      Solver.assume solver (IArray.singleton (Lit.atom t));
       E.return()
     | A.Goal (_, _) ->
       Util.errorf "cannot deal with goals yet"

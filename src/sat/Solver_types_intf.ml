@@ -184,8 +184,13 @@ module type S = sig
     val empty : t
     (** The empty clause *)
 
-    val make : ?tag:int -> Atom.t list -> premise -> clause
-    (** [make_clause name atoms size premise] creates a clause with the given attributes. *)
+    val make : ?tag:int -> Atom.t array -> premise -> t
+    (** [make_clause name atoms size premise] creates a clause with
+        the given attributes.
+        The array's ownership is transferred to the clause, do not
+        mutate it after that. *)
+
+    val make_l : ?tag:int -> Atom.t list -> premise -> t
 
     val pp : t printer
     val pp_dimacs : t printer

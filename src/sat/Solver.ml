@@ -24,6 +24,7 @@ module Make
 
   type formula = St.formula
   type atom = St.formula
+  type lit = St.atom
   type clause = St.clause
   type theory = Th.t
 
@@ -130,15 +131,25 @@ module Make
     let local = S.temp st in
     {hyps; history; local}
 
+  module Lit = struct
+    type t = lit
+
+    let pp = St.Atom.pp
+    let make = S.mk_atom
+  end
+
   module Clause = struct
     include St.Clause
 
-    let atoms c = St.Clause.atoms c |> Array.map (fun a -> a.St.lit)
+    let atoms c = St.Clause.atoms c |> IArray.of_array_map (fun a -> a.St.lit)
     let atoms_l c = St.Clause.atoms_l c |> List.map (fun a -> a.St.lit)
 
-    let make st ?tag l =
+    let[@inline] make ?tag (a:lit array) : t = St.Clause.make ?tag a St.Hyp
+    let[@inline] make_l ?tag l : t = St.Clause.make_l ?tag l St.Hyp
+
+    let of_atoms st ?tag l =
       let l = List.map (S.mk_atom st) l in
-      St.Clause.make ?tag l St.Hyp
+      make_l ?tag l
   end
 
   module Formula = St.Formula

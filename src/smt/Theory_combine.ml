@@ -30,13 +30,6 @@ type t = {
   (** congruence closure *)
   mutable theories : Theory.state list;
   (** Set of theories *)
-  lemma_q : Clause.t Queue.t;
-  (** list of clauses that have been newly generated, waiting
-      to be propagated to the core solver.
-      invariant: those clauses must be tautologies *)
-  split_q : Clause.t Queue.t;
-  (** Local clauses to be added to the core solver, that will
-      be removed on backtrack *)
   mutable conflict: conflict option;
   (** current conflict, if any *)
 }
@@ -64,27 +57,10 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
       theories self (fun (Theory.State th) -> th.on_assert th.st lit);
   end
 
-(* push clauses from {!lemma_queue} into the slice *)
-let push_new_clauses_into_cdcl (self:t) : unit =
-  let Sat_solver.Actions r = self.cdcl_acts in
-  (* persistent lemmas *)
-  while not (Queue.is_empty self.lemma_q) do
-    let c = Queue.pop self.lemma_q in
-    Sat_solver.Log.debugf 5 (fun k->k "(@[<2>push_lemma@ %a@])" Clause.pp c);
-    r.push c Proof.default
-  done;
-  (* local splits *)
-  while not (Queue.is_empty self.split_q) do
-    let c = Queue.pop self.split_q in
-    Sat_solver.Log.debugf 5 (fun k->k "(@[<2>split_on@ %a@])" Clause.pp c);
-    r.push_local c Proof.default
-  done
-
 (* return result to the SAT solver *)
 let cdcl_return_res (self:t) : _ Sat_solver.res =
   begin match self.conflict with
     | None ->
-      push_new_clauses_into_cdcl self;
       Sat_solver.Sat
     | Some c ->
       let lit_set =
@@ -93,13 +69,12 @@ let cdcl_return_res (self:t) : _ Sat_solver.res =
       in
       let conflict_clause =
         Lit.Set.to_list lit_set
-        |> List.map Lit.neg
-        |> Clause.make
+        |> IArray.of_list_map Lit.neg
       in
       Sat_solver.Log.debugf 3
         (fun k->k "(@[<1>conflict@ clause: %a@])"
-            Clause.pp conflict_clause);
-      Sat_solver.Unsat (Clause.lits conflict_clause, Proof.default)
+            Theory.Clause.pp conflict_clause);
+      Sat_solver.Unsat (IArray.to_list conflict_clause, Proof.default)
   end
 
 let[@inline] check (self:t) : unit =
@@ -153,7 +128,7 @@ let act_propagate (self:t) f guard : unit =
   in
   Sat_solver.Log.debugf 2
     (fun k->k "(@[@{<green>propagate@}@ %a@ :guard %a@])"
-        Lit.pp f Clause.pp guard);
+        Lit.pp f (Util.pp_list Lit.pp) guard);
   r.propagate f guard Proof.default
 
 (** {2 Interface to Congruence Closure} *)
@@ -190,8 +165,6 @@ let create (cdcl_acts:_ Sat_solver.actions) : t =
       Congruence_closure.create ~size:1024 ~actions self.tst;
     );
     theories = [];
-    lemma_q = Queue.create();
-    split_q = Queue.create();
     conflict = None;
   } in
   ignore @@ Lazy.force @@ self.cc;
@@ -202,37 +175,35 @@ let create (cdcl_acts:_ Sat_solver.actions) : t =
 let act_all_classes self = Congruence_closure.all_classes (cc self)
 
 let act_propagate_eq self t u guard =
-  let r_t = Congruence_closure.add (cc self) t in
-  let r_u = Congruence_closure.add (cc self) u in
-  Congruence_closure.union (cc self) r_t r_u guard
+  Congruence_closure.assert_eq (cc self) t u guard
 
 let act_find self t =
   Congruence_closure.add (cc self) t
   |> Congruence_closure.find (cc self)
 
-let act_case_split self (c:Clause.t) =
-  Sat_solver.Log.debugf 2 (fun k->k "(@[<1>add_split@ @[%a@]@])" Clause.pp c);
-  Queue.push c self.split_q
+let act_add_local_axiom self c : unit =
+  Sat_solver.Log.debugf 5 (fun k->k "(@[<2>th_combine.push_local_lemma@ %a@])" Theory.Clause.pp c);
+  let Sat_solver.Actions r = self.cdcl_acts in
+  r.push_local c Proof.default
 
 (* push one clause into [M], in the current level (not a lemma but
    an axiom) *)
-let act_add_axiom self (c:Clause.t): unit =
-  Sat_solver.Log.debugf 2 (fun k->k "(@[<1>add_axiom@ @[%a@]@])" Clause.pp c);
-  (* TODO incr stat_num_clause_push; *)
-  Queue.push c self.lemma_q
+let act_add_persistent_axiom self c : unit =
+  Sat_solver.Log.debugf 5 (fun k->k "(@[<2>th_combine.push_persistent_lemma@ %a@])" Theory.Clause.pp c);
+  let Sat_solver.Actions r = self.cdcl_acts in
+  r.push_persistent c Proof.default
 
 let mk_theory_actions (self:t) : Theory.actions =
   let Sat_solver.Actions r = self.cdcl_acts in
-  {
-    Theory.
+  { Theory.
     on_backtrack = r.on_backtrack;
     at_lvl_0 = r.at_level_0;
     raise_conflict = act_raise_conflict;
     propagate = act_propagate self;
     all_classes = act_all_classes self;
     propagate_eq = act_propagate_eq self;
-    case_split = act_case_split self;
-    add_axiom = act_add_axiom self;
+    add_local_axiom = act_add_local_axiom self;
+    add_persistent_axiom = act_add_persistent_axiom self;
     find = act_find self;
   }
 
