@@ -9,8 +9,6 @@ type term = Term.t
 
 (* TODO (long term): relevancy propagation *)
 
-
-(* TODO: migrate the boolean terms in there? *)
 (* TODO: Tseitin on the fly when a composite boolean term is asserted.
   --> maybe, cache the clause inside the literal *)
 
@@ -241,7 +239,7 @@ let neq st a b = make st (T_cell.neq a b)
 let builtin st b = make st (T_cell.builtin b)
 
 module Lit = struct
-  type t = Lit.t
+  include Lit
   let eq tst a b = Lit.atom ~sign:true (eq tst a b)
   let neq tst a b = Lit.atom ~sign:false (neq tst a b)
 end
@@ -251,15 +249,75 @@ type t = {
   acts: Theory.actions;
 }
 
+let tseitin (self:t) (lit:Lit.t) (b:term builtin) : unit =
+  Log.debugf 5 (fun k->k "(@[th_bool.tseitin@ %a@])" Lit.pp lit);
+  match b with
+  | B_not _ -> assert false (* normalized *)
+  | B_eq (t,u) ->
+    self.acts.Theory.propagate_eq t u (Explanation.lit lit)
+  | B_distinct _ ->
+    assert false (* TODO: go to CC, or custom ineq? *)
+  | B_and subs ->
+    if Lit.sign lit then (
+      (* propagate [lit => subs_i] *)
+      let expl = Bag.return (Explanation.lit lit) in
+      List.iter
+        (fun sub ->
+           let sublit = Lit.atom sub in
+           self.acts.Theory.propagate sublit expl)
+        subs
+    ) else (
+      (* propagate [¬lit => ∨_i ¬ subs_i] *)
+      let c = lit :: List.map (Lit.atom ~sign:false) subs in
+      self.acts.Theory.add_local_axiom (IArray.of_list c)
+    )
+  | B_or subs ->
+    if Lit.sign lit then (
+      (* propagate [lit => ∨_i subs_i] *)
+      let c = lit :: List.map (Lit.atom ~sign:true) subs in
+      self.acts.Theory.add_local_axiom (IArray.of_list c)
+    ) else (
+      (* propagate [¬lit => ¬subs_i] *)
+      let expl = Bag.return (Explanation.lit lit) in
+      List.iter
+        (fun sub ->
+           let sublit = Lit.atom ~sign:false sub in
+           self.acts.Theory.propagate sublit expl)
+        subs
+    )
+  | B_imply (guard,concl) ->
+    if Lit.sign lit then (
+      (* propagate [lit => ∨_i ¬guard_i ∨ concl] *)
+      let c = lit :: Lit.atom concl :: List.map (Lit.atom ~sign:false) guard in
+      self.acts.Theory.add_local_axiom (IArray.of_list c)
+    ) else (
+      let expl = Bag.return (Explanation.lit lit) in
+      (* propagate [¬lit => ¬concl] *)
+      self.acts.Theory.propagate (Lit.atom ~sign:false concl) expl;
+      (* propagate [¬lit => ∧_i guard_i] *)
+      List.iter
+        (fun sub ->
+           let sublit = Lit.atom ~sign:true sub in
+           self.acts.Theory.propagate sublit expl)
+        guard
+    )
+
 let on_assert (self:t) (lit:Lit.t) =
-  assert false (* TODO: see if Lit is a bool term, in which case Tseitin it *)
+  Log.debugf 5 (fun k->k "(@[th_bool.on_assert@ %a@])" Lit.pp lit);
+  match Lit.view lit with
+  | Lit.Lit_atom { Term.term_cell=Term.Custom{view=Builtin {view=b};_}; _ } ->
+    tseitin self lit b
+  | _ -> ()
+
+let final_check _ _ : unit =
+  Log.debug 5 "(th_bool.final_check)"
 
 let th =
   let make tst acts =
     let st = {tst;acts} in
     Theory.make_st
       ~on_assert
-      ~final_check:(fun _ _ -> ())
+      ~final_check
       ~st
       ()
   in
