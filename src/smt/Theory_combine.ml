@@ -16,7 +16,7 @@ module Form = Lit
 type formula = Lit.t
 type proof = Proof.t
 
-type conflict = Explanation.t Bag.t
+type conflict = Lit.Set.t
 
 (* raise upon conflict *)
 exception Exn_conflict of conflict
@@ -62,10 +62,7 @@ let cdcl_return_res (self:t) : _ Sat_solver.res =
   begin match self.conflict with
     | None ->
       Sat_solver.Sat
-    | Some c ->
-      let lit_set =
-        Congruence_closure.explain_unfold_bag (cc self) c
-      in
+    | Some lit_set ->
       let conflict_clause =
         Lit.Set.to_list lit_set
         |> IArray.of_list_map Lit.neg
@@ -183,6 +180,9 @@ let act_all_classes self = Congruence_closure.all_classes (cc self)
 let act_propagate_eq self t u guard =
   Congruence_closure.assert_eq (cc self) t u guard
 
+let act_propagate_distinct self l ~neq guard =
+  Congruence_closure.assert_distinct (cc self) l ~neq guard
+
 let act_find self t =
   Congruence_closure.add (cc self) t
   |> Congruence_closure.find (cc self)
@@ -208,6 +208,7 @@ let mk_theory_actions (self:t) : Theory.actions =
     propagate = act_propagate self;
     all_classes = act_all_classes self;
     propagate_eq = act_propagate_eq self;
+    propagate_distinct = act_propagate_distinct self;
     add_local_axiom = act_add_local_axiom self;
     add_persistent_axiom = act_add_persistent_axiom self;
     find = act_find self;

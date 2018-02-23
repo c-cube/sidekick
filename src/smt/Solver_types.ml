@@ -88,6 +88,7 @@ and cc_node = {
   mutable n_root: cc_node; (* representative of congruence class (itself if a representative) *)
   mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
   mutable n_payload: cc_node_payload list; (* list of theory payloads *)
+  mutable n_tags: explanation Util.Int_map.t; (* "distinct" tags (i.e. set of `(distinct t1…tn)` terms this belongs to *)
 }
 
 (** Theory-extensible payloads *)

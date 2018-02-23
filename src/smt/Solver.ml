@@ -395,9 +395,8 @@ let assume (self:t) (c:Lit.t IArray.t) : unit =
 let[@inline] assume_eq self t u expl : unit =
   Congruence_closure.assert_eq (cc self) t u (E_lit expl)
 
-let[@inline] assume_distinct self l expl : unit =
-  (* FIXME: custom evaluation instead (register to subterms) *)
-  Congruence_closure.assert_distinct (cc self) l (E_lit expl)
+let[@inline] assume_distinct self l ~neq expl : unit =
+  Congruence_closure.assert_distinct (cc self) l (E_lit expl) ~neq
 
 (*
 type unsat_core = Sat.clause list

@@ -30,9 +30,8 @@ type state = State : {
 } -> state
 
 (** Unsatisfiable conjunction.
-    Will be turned into a set of literals, whose negation becomes a
-    conflict clause *)
-type conflict = Explanation.t Bag.t
+    Its negation will become a conflict clause *)
+type conflict = Lit.Set.t
 
 (** Actions available to a theory during its lifetime *)
 type actions = {
@@ -47,6 +46,9 @@ type actions = {
 
   propagate_eq: Term.t -> Term.t -> Explanation.t -> unit;
   (** Propagate an equality [t = u] because [e] *)
+
+  propagate_distinct: Term.t list -> neq:Term.t -> Explanation.t -> unit;
+  (** Propagate a [distinct l] because [e] (where [e = atom neq] *)
 
   propagate: Lit.t -> Explanation.t Bag.t -> unit;
   (** Propagate a boolean using a unit clause.

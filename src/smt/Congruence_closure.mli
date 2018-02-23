@@ -21,9 +21,10 @@ type actions = {
   on_merge:repr -> repr -> explanation -> unit;
   (** Call this when two classes are merged *)
 
-  raise_conflict: 'a. Explanation.t Bag.t -> 'a;
+  raise_conflict: 'a. Lit.Set.t -> 'a;
   (** Report a conflict *)
 
+  (* FIXME: take a delayed Lit.Set.t? *)
   propagate: Lit.t -> Explanation.t Bag.t -> unit;
   (** Propagate a literal *)
 }
@@ -65,14 +66,23 @@ val assert_lit : t -> Lit.t -> unit
 
 val assert_eq : t -> term -> term -> explanation -> unit
 
-val assert_distinct : t -> term list -> explanation -> unit
+val assert_distinct : t -> term list -> neq:term -> explanation -> unit
+(** [assert_distinct l ~expl:u e] asserts all elements of [l] are distinct
+    with explanation [e]
+    precond: [u = distinct l] *)
 
 val check : t -> unit
 
 val final_check : t -> unit
 
-val explain_unfold_bag : t -> explanation Bag.t -> Lit.Set.t
+val explain_eq_n : ?init:Lit.Set.t -> t -> node -> node -> Lit.Set.t
+(** explain why the two nodes are equal *)
 
-val explain_unfold_seq : t -> explanation Sequence.t -> Lit.Set.t
+val explain_eq_t : ?init:Lit.Set.t -> t -> term -> term -> Lit.Set.t
+(** explain why the two terms are equal *)
+
+val explain_unfold_bag : ?init:Lit.Set.t -> t -> explanation Bag.t -> Lit.Set.t
+
+val explain_unfold_seq : ?init:Lit.Set.t -> t -> explanation Sequence.t -> Lit.Set.t
 (** Unfold those explanations into a complete set of
     literals implying them *)

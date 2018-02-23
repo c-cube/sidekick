@@ -21,7 +21,7 @@ open Solver_types
 *)
 
 type t = cc_node
-type payload = cc_node_payload
+type payload = cc_node_payload = ..
 
 val field_expanded : Node_bits.field
 (** Term is expanded? *)

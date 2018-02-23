@@ -249,14 +249,23 @@ type t = {
   acts: Theory.actions;
 }
 
-let tseitin (self:t) (lit:Lit.t) (b:term builtin) : unit =
+let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
   Log.debugf 5 (fun k->k "(@[th_bool.tseitin@ %a@])" Lit.pp lit);
   match b with
   | B_not _ -> assert false (* normalized *)
   | B_eq (t,u) ->
-    self.acts.Theory.propagate_eq t u (Explanation.lit lit)
-  | B_distinct _ ->
-    assert false (* TODO: go to CC, or custom ineq? *)
+    if Lit.sign lit then (
+      self.acts.Theory.propagate_eq t u (Explanation.lit lit)
+    ) else (
+      self.acts.Theory.propagate_distinct [t;u] ~neq:lit_t (Explanation.lit lit)
+    )
+  | B_distinct l ->
+    if Lit.sign lit then (
+      self.acts.Theory.propagate_distinct l ~neq:lit_t (Explanation.lit lit)
+    ) else (
+      (* TODO: propagate pairwise equalities? *)
+      Util.errorf "cannot process negative distinct lit %a" Lit.pp lit;
+    )
   | B_and subs ->
     if Lit.sign lit then (
       (* propagate [lit => subs_i] *)
@@ -304,8 +313,8 @@ let tseitin (self:t) (lit:Lit.t) (b:term builtin) : unit =
 
 let on_assert (self:t) (lit:Lit.t) =
   match Lit.view lit with
-  | Lit.Lit_atom { Term.term_cell=Term.Custom{view=Builtin {view=b};_}; _ } ->
-    tseitin self lit b
+  | Lit.Lit_atom ({ Term.term_cell=Term.Custom{view=Builtin {view=b};_}; _ } as t) ->
+    tseitin self lit t b
   | _ -> ()
 
 let final_check _ _ : unit = ()

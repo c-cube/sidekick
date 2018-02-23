@@ -51,7 +51,7 @@ val tst : t -> Term.state
 val assume : t -> Lit.t IArray.t -> unit
 
 val assume_eq : t -> Term.t -> Term.t -> Lit.t -> unit
-val assume_distinct : t -> Term.t list -> Lit.t -> unit
+val assume_distinct : t -> Term.t list -> neq:Term.t -> Lit.t -> unit
 
 val solve :
   ?on_exit:(unit -> unit) list ->

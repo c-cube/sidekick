@@ -2,7 +2,7 @@
 open Solver_types
 
 type t = cc_node
-type payload = cc_node_payload
+type payload = cc_node_payload = ..
 
 let field_expanded = Node_bits.mk_field ()
 let field_has_expansion_lit = Node_bits.mk_field ()
@@ -26,6 +26,7 @@ let make (t:term) : t =
     n_root=n;
     n_expl=E_none;
     n_payload=[];
+    n_tags=Util.Int_map.empty;
   } in
   n
 
