@@ -39,3 +39,6 @@ let setup_gc () =
   g.Gc.max_overhead <- 10_000; (* compaction *)
   g.Gc.minor_heap_size <- 500_000; (* ×8 to obtain bytes on 64 bits -->  *)
   Gc.set g
+
+module Int_set = CCSet.Make(CCInt)
+module Int_map = CCMap.Make(CCInt)

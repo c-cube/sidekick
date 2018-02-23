@@ -51,7 +51,6 @@ module Make (E : Theory_intf.S) = struct
   and reason =
     | Decision
     | Bcp of clause
-    | Semantic
 
   and premise =
     | Hyp
@@ -250,8 +249,6 @@ module Make (E : Theory_intf.S) = struct
         Format.fprintf fmt "@@%d" n
       | n, Some Bcp c ->
         Format.fprintf fmt "->%d/%s" n (name_of_clause c)
-      | n, Some Semantic ->
-        Format.fprintf fmt "::%d" n
 
     let pp_level fmt a =
       debug_reason fmt (a.var.v_level, a.var.reason)

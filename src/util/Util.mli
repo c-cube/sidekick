@@ -22,3 +22,6 @@ val errorf : ('a, Format.formatter, unit, 'b) format4 -> 'a
 
 val setup_gc : unit -> unit
 (** Change parameters of the GC *)
+
+module Int_set : CCSet.S with type elt = int
+module Int_map : CCMap.S with type key = int

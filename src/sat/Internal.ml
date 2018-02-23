@@ -315,12 +315,6 @@ module Make
               partition_aux trues unassigned falses (cl :: history) (i + 1)
             (* A var false at level 0 can be eliminated from the clause,
                but we need to kepp in mind that we used another clause to simplify it. *)
-            | Some Semantic ->
-              partition_aux trues unassigned falses history (i + 1)
-            (* Semantic propagations at level 0 are, well not easy to deal with,
-               this shouldn't really happen actually (because semantic propagations
-               at level 0 should come with a proof). *)
-            (* TODO: get a proof of the propagation. *)
             | None | Some Decision -> assert false
             (* The var must have a reason, and it cannot be a decision/assumption,
                since its level is 0. *)
@@ -566,7 +560,7 @@ module Make
     let cond   = ref true in
     let blevel = ref 0 in
     let seen   = ref [] in
-    let c      = ref (Some c_clause) in
+    let c      = ref c_clause in
     let tr_ind = ref (Vec.size st.trail - 1) in
     let history = ref [] in
     assert (decision_level st > 0);
@@ -574,49 +568,45 @@ module Make
       Array.fold_left (fun acc p -> max acc p.var.v_level) 0 c_clause.atoms
     in
     Log.debugf 5
-      (fun k -> k "Analyzing conflict (%d): %a" conflict_level Clause.debug c_clause);
+      (fun k -> k "(@[sat.analyzing-conflict (%d)@ %a@])" conflict_level Clause.debug c_clause);
     while !cond do
-      begin match !c with
-        | None ->
-          Log.debug 5 "  skipping resolution for semantic propagation"
-        | Some clause ->
-          Log.debugf 5 (fun k->k"  Resolving clause: %a"  Clause.debug clause);
-          begin match clause.cpremise with
-            | History _ -> clause_bump_activity st clause
-            | Hyp | Local | Lemma _ -> ()
-          end;
-          history := clause :: !history;
-          (* visit the current predecessors *)
-          for j = 0 to Array.length clause.atoms - 1 do
-            let q = clause.atoms.(j) in
-            assert (q.is_true || q.neg.is_true && q.var.v_level >= 0); (* unsure? *)
-            if q.var.v_level <= 0 then (
-              assert (q.neg.is_true);
-              match q.var.reason with
-              | Some Bcp cl -> history := cl :: !history
-              | _ -> assert false
-            );
-            if not (Var.seen_both q.var) then (
-              Atom.mark q;
-              Atom.mark q.neg;
-              seen := q :: !seen;
-              if q.var.v_level > 0 then (
-                var_bump_activity st q.var;
-                if q.var.v_level >= conflict_level then (
-                  incr pathC;
-                ) else (
-                  learnt := q :: !learnt;
-                  blevel := max !blevel q.var.v_level
-                )
-              )
-            )
-          done
+      let clause = !c in
+      Log.debugf 5 (fun k->k"(@[sat.resolving-clause@ %a@])"  Clause.debug clause);
+      begin match clause.cpremise with
+        | History _ -> clause_bump_activity st clause
+        | Hyp | Local | Lemma _ -> ()
       end;
+      history := clause :: !history;
+      (* visit the current predecessors *)
+      for j = 0 to Array.length clause.atoms - 1 do
+        let q = clause.atoms.(j) in
+        assert (q.is_true || q.neg.is_true && q.var.v_level >= 0); (* unsure? *)
+        if q.var.v_level <= 0 then (
+          assert (q.neg.is_true);
+          match q.var.reason with
+          | Some Bcp cl -> history := cl :: !history
+          | _ -> assert false
+        );
+        if not (Var.seen_both q.var) then (
+          Atom.mark q;
+          Atom.mark q.neg;
+          seen := q :: !seen;
+          if q.var.v_level > 0 then (
+            var_bump_activity st q.var;
+            if q.var.v_level >= conflict_level then (
+              incr pathC;
+            ) else (
+              learnt := q :: !learnt;
+              blevel := max !blevel q.var.v_level
+            )
+          )
+        )
+      done;
 
       (* look for the next node to expand *)
       while
         let a = Vec.get st.trail !tr_ind in
-        Log.debugf 5 (fun k -> k "  looking at: %a" St.Atom.debug a);
+        Log.debugf 5 (fun k -> k "(@[sat.conflict.looking-at@ %a@])" St.Atom.debug a);
         (not (Var.seen_both a.var)) || (a.var.v_level < conflict_level)
       do
         decr tr_ind;
@@ -628,14 +618,10 @@ module Make
       | 0, _ ->
         cond := false;
         learnt := p.neg :: (List.rev !learnt)
-      | n, Some Semantic ->
-        assert (n > 0);
-        learnt := p.neg :: !learnt;
-        c := None
       | n, Some Bcp cl ->
         assert (n > 0);
         assert (p.var.v_level >= conflict_level);
-        c := Some cl
+        c := cl
       | _ -> assert false
     done;
     List.iter (fun q -> Var.clear q.var) !seen;
@@ -684,7 +670,7 @@ module Make
      - report unsat if conflict at level 0
   *)
   let add_boolean_conflict st (confl:clause): unit =
-    Log.debugf 3 (fun k -> k "(@[@{<Yellow>boolean conflict@}@ %a@])" Clause.debug confl);
+    Log.debugf 3 (fun k -> k "(@[@{<Yellow>sat.boolean-conflict@}@ %a@])" Clause.debug confl);
     st.next_decision <- None;
     assert (decision_level st >= base_level st);
     if decision_level st = base_level st ||
@@ -1014,7 +1000,7 @@ module Make
       while st.elt_head < Vec.size st.trail do
         let a = Vec.get st.trail st.elt_head in
         incr num_props;
-        Log.debugf 5 (fun k->k "(@sat.propagate_atom@ %a@])" Atom.pp a);
+        Log.debugf 5 (fun k->k "(@[sat.propagate_atom@ %a@])" Atom.pp a);
         propagate_atom st a;
         st.elt_head <- st.elt_head + 1;
       done;
