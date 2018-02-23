@@ -84,7 +84,6 @@ and solve_result =
 and cc_node = {
   n_term: term;
   mutable n_bits: Node_bits.t; (* bitfield for various properties *)
-  mutable n_class: cc_node Bag.t; (* terms in the same equiv class *)
   mutable n_parents: cc_node Bag.t; (* parent terms of the whole equiv class *)
   mutable n_root: cc_node; (* representative of congruence class (itself if a representative) *)
   mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)

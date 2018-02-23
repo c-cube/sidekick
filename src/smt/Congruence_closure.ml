@@ -294,15 +294,12 @@ and update_combine cc =
       begin
         let r_from = (r_from :> node) in
         let r_into = (r_into :> node) in
-        let rb_old_class = r_into.n_class in
         let rb_old_parents = r_into.n_parents in
         cc.acts.on_backtrack
           (fun () ->
              r_from.n_root <- r_from;
-             r_into.n_class <- rb_old_class;
              r_into.n_parents <- rb_old_parents);
         r_from.n_root <- r_into;
-        r_from.n_class <- Bag.append rb_old_class r_from.n_class;
         r_from.n_parents <- Bag.append rb_old_parents r_from.n_parents;
       end;
       (* update explanations (a -> b), arbitrarily *)

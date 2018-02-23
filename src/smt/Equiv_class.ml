@@ -22,14 +22,11 @@ let make (t:term) : t =
   let rec n = {
     n_term=t;
     n_bits=Node_bits.empty;
-    n_class=Bag.empty;
     n_parents=Bag.empty;
     n_root=n;
     n_expl=E_none;
     n_payload=[];
   } in
-  (* set [class(t) = {t}] *)
-  n.n_class <- Bag.return n;
   n
 
 let set_payload ?(can_erase=fun _->false) n e =
