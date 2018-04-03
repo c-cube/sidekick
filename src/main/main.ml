@@ -162,13 +162,13 @@ let main () =
 let () = match main() with
   | E.Ok () -> ()
   | E.Error msg ->
-    print_endline msg;
+    Format.printf "@{<Red>Error@}: %s@." msg;
     exit 1
   | exception e ->
     let b = Printexc.get_backtrace () in
     begin match e with
       | Util.Error msg ->
-        print_endline msg;
+        Format.printf "@{<Red>Error@}: %s@." msg;
         ignore @@ exit 1
       | Out_of_time ->
         Format.printf "Timeout@.";
