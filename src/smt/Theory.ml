@@ -38,9 +38,6 @@ type actions = {
   on_backtrack: (unit -> unit) -> unit;
   (** Register an action to do when we backtrack *)
 
-  at_lvl_0: unit -> bool;
-  (** Are we at level 0 of backtracking? *)
-
   raise_conflict: 'a. conflict -> 'a;
   (** Give a conflict clause to the solver *)
 

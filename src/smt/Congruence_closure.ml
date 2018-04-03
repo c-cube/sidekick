@@ -22,9 +22,6 @@ type actions = {
   on_backtrack:(unit -> unit) -> unit;
   (** Register a callback to be invoked upon backtracking below the current level *)
 
-  at_lvl_0:unit -> bool;
-  (** Are we currently at backtracking level 0? *)
-
   on_merge:repr -> repr -> explanation -> unit;
   (** Call this when two classes are merged *)
 
@@ -65,10 +62,7 @@ type t = {
    several times.
    See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
 
-let[@inline] on_backtrack_if_not_lvl_0 cc f : unit =
-  if not (cc.acts.at_lvl_0 ()) then (
-    cc.acts.on_backtrack f
-  )
+let[@inline] on_backtrack cc f : unit = cc.acts.on_backtrack f
 
 let[@inline] is_root_ (n:node) : bool = n.n_root == n
 
@@ -90,7 +84,7 @@ let rec find_rec cc (n:node) : repr =
     let root = find_rec cc old_root in
     (* path compression *)
     if (root :> node) != old_root then (
-      on_backtrack_if_not_lvl_0 cc (fun () -> n.n_root <- old_root);
+      on_backtrack cc (fun () -> n.n_root <- old_root);
       n.n_root <- (root :> node);
     );
     root
@@ -155,7 +149,7 @@ let add_signature cc (t:term) (r:repr): unit = match signature cc t with
     (* add, but only if not present already *)
     begin match Sig_tbl.get cc.signatures_tbl s with
       | None ->
-        on_backtrack_if_not_lvl_0 cc
+        on_backtrack cc
           (fun () -> Sig_tbl.remove cc.signatures_tbl s);
         Sig_tbl.add cc.signatures_tbl s r;
       | Some r' ->
@@ -172,13 +166,13 @@ let push_pending cc t : unit =
 
 let push_combine cc t u e : unit =
   Log.debugf 5
-    (fun k->k "(@[<hv1>cc.push_combine@ %a@ %a@ expl: %a@])"
+    (fun k->k "(@[<hv1>cc.push_combine@ :t1 %a@ :t2 %a@ :expl %a@])"
       Equiv_class.pp t Equiv_class.pp u Explanation.pp e);
   Vec.push cc.combine (t,u,e)
 
 let push_propagation cc (lit:lit) (expl:explanation Bag.t): unit =
   Log.debugf 5
-    (fun k->k "(@[<hv1>cc.push_propagate@ %a@ expl: (@[<hv>%a@])@])"
+    (fun k->k "(@[<hv1>cc.push_propagate@ %a@ :expl (@[<hv>%a@])@])"
       Lit.pp lit (Util.pp_seq Explanation.pp) @@ Bag.to_seq expl);
   cc.acts.propagate lit expl
 
@@ -192,8 +186,7 @@ let[@inline] union cc (a:node) (b:node) (e:explanation): unit =
    postcondition: [n.n_expl = None] *)
 let rec reroot_expl (cc:t) (n:node): unit =
   let old_expl = n.n_expl in
-  on_backtrack_if_not_lvl_0 cc
-    (fun () -> n.n_expl <- old_expl);
+  on_backtrack cc (fun () -> n.n_expl <- old_expl);
   begin match old_expl with
     | E_none -> () (* already root *)
     | E_some {next=u; expl=e_n_u} ->
@@ -254,7 +247,7 @@ let ps_clear (cc:t) =
   ()
 
 let rec decompose_explain cc (e:explanation): unit =
-  Log.debugf 5 (fun k->k "(@[decompose_expl@ %a@])" Explanation.pp e);
+  Log.debugf 5 (fun k->k "(@[cc.decompose_expl@ %a@])" Explanation.pp e);
   begin match e with
     | E_reduction -> ()
     | E_lit lit -> ps_add_lit cc lit
@@ -305,7 +298,7 @@ let explain_loop (cc : t) : Lit.Set.t =
   while not (Vec.is_empty cc.ps_queue) do
     let a, b = Vec.pop_last cc.ps_queue in
     Log.debugf 5
-      (fun k->k "(@[explain_loop at@ %a@ %a@])" Equiv_class.pp a Equiv_class.pp b);
+      (fun k->k "(@[cc.explain_loop at@ %a@ %a@])" Equiv_class.pp a Equiv_class.pp b);
     assert (Equiv_class.equal (find cc a) (find cc b));
     let c = find_common_ancestor a b in
     explain_along_path cc a c;
@@ -352,9 +345,9 @@ let explain_unfold_bag ?(init=Lit.Set.empty) cc (b:explanation Bag.t) : Lit.Set.
 let add_tag_n cc (n:node) (tag:int) (expl:explanation) : unit =
   assert (is_root_ n);
   if not (Util.Int_map.mem tag n.n_tags) then (
-    on_backtrack_if_not_lvl_0 cc
+    on_backtrack cc
       (fun () -> n.n_tags <- Util.Int_map.remove tag n.n_tags);
-    n.n_tags <- Util.Int_map.add tag expl n.n_tags;
+    n.n_tags <- Util.Int_map.add tag (n,expl) n.n_tags;
   )
 
 (* conflict because [expl => t1 ≠ t2] but they are the same *)
@@ -396,7 +389,7 @@ and update_combine cc =
     let rb = find cc b in
     if not (Equiv_class.equal ra rb) then (
       assert (is_root_ ra);
-      assert (is_root_ (rb:>node));
+      assert (is_root_ rb);
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, unless
          it clashes with the invariant that the representative must
@@ -412,13 +405,19 @@ and update_combine cc =
       in
       let new_tags =
         Util.Int_map.union
-          (fun _i e1 e2 ->
+          (fun _i (n1,e1) (n2,e2) ->
              (* both maps contain same tag [_i]. conflict clause:
                  [e1 & e2 & e_ab] impossible *)
-             Log.debugf 5 (fun k->k "(cc.merge.distinct_conflict@ :tag %d@])" _i);
+             Log.debugf 5
+               (fun k->k "(@[<hv>cc.merge.distinct_conflict@ :tag %d@ \
+                          @[:r1 %a@ :e1 %a@]@ @[:r2 %a@ :e2 %a@]@ :e_ab %a@])"
+                   _i Equiv_class.pp n1 Explanation.pp e1
+                   Equiv_class.pp n2 Explanation.pp e2 Explanation.pp e_ab);
              let lits = explain_unfold cc e1 in
              let lits = explain_unfold ~init:lits cc e2 in
              let lits = explain_unfold ~init:lits cc e_ab in
+             let lits = explain_eq_n ~init:lits cc a n1 in
+             let lits = explain_eq_n ~init:lits cc b n2 in
              raise_conflict cc lits)
           ra.n_tags rb.n_tags
       in
@@ -462,8 +461,11 @@ and update_combine cc =
         let r_into = (r_into :> node) in
         let r_into_old_parents = r_into.n_parents in
         let r_into_old_tags = r_into.n_tags in
-        on_backtrack_if_not_lvl_0 cc
+        on_backtrack cc
           (fun () ->
+             Log.debugf 5
+               (fun k->k "(@[cc.undo_merge@ :of %a :into %a@])"
+                   Term.pp r_from.n_term Term.pp r_into.n_term);
              r_from.n_root <- r_from;
              r_into.n_tags <- r_into_old_tags;
              r_into.n_parents <- r_into_old_parents);
@@ -475,7 +477,7 @@ and update_combine cc =
       begin
         reroot_expl cc a;
         assert (a.n_expl = E_none);
-        on_backtrack_if_not_lvl_0 cc (fun () -> a.n_expl <- E_none);
+        on_backtrack cc (fun () -> a.n_expl <- E_none);
         a.n_expl <- E_some {next=b; expl=e_ab};
       end;
       (* notify listeners of the merge *)
@@ -501,15 +503,6 @@ and eval_pending (t:term): unit =
     theories
    *)
 
-(* FIXME: remove?
-(* main CC algo: add missing terms to the congruence class *)
-and update_add (cc:t) terms () =
-  while not (Queue.is_empty cc.terms_to_add) do
-    let t = Queue.pop cc.terms_to_add in
-    add cc t
-  done
-*)
-
 (* add [t] to [cc] when not present already *)
 and add_new_term cc (t:term) : node =
   assert (not @@ mem cc t);
@@ -517,7 +510,7 @@ and add_new_term cc (t:term) : node =
   (* how to add a subterm *)
   let add_to_parents_of_sub_node (sub:node) : unit =
     let old_parents = sub.n_parents in
-    on_backtrack_if_not_lvl_0 cc
+    on_backtrack cc
       (fun () -> sub.n_parents <- old_parents);
     sub.n_parents <- Bag.cons n sub.n_parents;
     push_pending cc sub
@@ -541,7 +534,7 @@ and add_new_term cc (t:term) : node =
       tc.tc_t_relevant view add_sub_t
   end;
   (* remove term when we backtrack *)
-  on_backtrack_if_not_lvl_0 cc (fun () -> Term.Tbl.remove cc.tbl t);
+  on_backtrack cc (fun () -> Term.Tbl.remove cc.tbl t);
   (* add term to the table *)
   Term.Tbl.add cc.tbl t n;
   (* [n] might be merged with other equiv classes *)
@@ -571,6 +564,10 @@ let assert_lit cc lit : unit = match Lit.view lit with
     (* equate t and true/false *)
     let rhs = if sign then true_ cc else false_ cc in
     let n = add cc t in
+    (* TODO: ensure that this is O(1).
+       basically, just have [n] point to true/false and thus acquire
+       the corresponding value, so its superterms (like [ite]) can evaluate
+       properly *)
     push_combine cc n rhs (E_lit lit);
     ()
 
@@ -612,14 +609,6 @@ module Distinct_ = struct
         mutable tags: Int_set.t;
       }
 
-  let get (n:Equiv_class.t) : Int_set.t =
-    Equiv_class.payload_find
-      ~f:(function
-        | P_dist {tags} -> Some tags
-        | _ -> None)
-      n
-    |> CCOpt.get_or ~default:Int_set.empty
-
   let add_tag (tag:int) (n:Equiv_class.t) : unit =
     if not @@
       CCList.exists
@@ -633,7 +622,6 @@ module Distinct_ = struct
 end
 
 let create ?(size=2048) ~actions (tst:Term.state) : t =
-  assert (actions.at_lvl_0 ());
   let nd = Equiv_class.dummy in
   let rec cc = {
     tst;

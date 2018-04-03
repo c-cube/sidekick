@@ -52,7 +52,7 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
     | Lit_atom {term_cell=Bool true; _} -> ()
     | Lit_atom {term_cell=Bool false; _} -> ()
     | Lit_atom _ ->
-      (* transmit to CC and theories *)
+      (* transmit to theories. *)
       Congruence_closure.assert_lit (cc self) lit;
       theories self (fun (Theory.State th) -> th.on_assert th.st lit);
   end
@@ -148,7 +148,6 @@ let mk_cc_actions (self:t) : Congruence_closure.actions =
   let Sat_solver.Actions r = self.cdcl_acts in
   { Congruence_closure.
     on_backtrack = r.on_backtrack;
-    at_lvl_0 = r.at_level_0;
     on_merge = on_merge_from_cc self;
     raise_conflict = act_raise_conflict;
     propagate = act_propagate self;
@@ -170,7 +169,7 @@ let create (cdcl_acts:_ Sat_solver.actions) : t =
     theories = [];
     conflict = None;
   } in
-  ignore @@ Lazy.force @@ self.cc;
+  ignore (Lazy.force @@ self.cc : Congruence_closure.t);
   self
 
 (** {2 Interface to individual theories} *)
@@ -203,7 +202,6 @@ let mk_theory_actions (self:t) : Theory.actions =
   let Sat_solver.Actions r = self.cdcl_acts in
   { Theory.
     on_backtrack = r.on_backtrack;
-    at_lvl_0 = r.at_level_0;
     raise_conflict = act_raise_conflict;
     propagate = act_propagate self;
     all_classes = act_all_classes self;

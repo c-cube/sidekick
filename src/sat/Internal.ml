@@ -146,14 +146,10 @@ module Make
   }
 
   let[@inline] theory st = Lazy.force st.th
-  let[@inline] on_backtrack st f : unit = Vec.push st.backtrack f
   let[@inline] at_level_0 st : bool = Vec.is_empty st.backtrack_levels
-
-  (* schedule [f] as a backtrack action, iff the solver's current
-     level is not 0. *)
-  let[@inline] on_backtrack_if_not_at_0 st f =
+  let[@inline] on_backtrack st f : unit =
     if not (at_level_0 st) then (
-      on_backtrack st f;
+      Vec.push st.backtrack f
     )
 
   let[@inline] st t = t.st
@@ -196,7 +192,7 @@ module Make
     if not (Var.in_heap v) && Var.level v < 0 then (
       (* new variable that is not assigned, add to heap.
          remember to remove variable when we backtrack *)
-      on_backtrack_if_not_at_0 st (fun () -> H.remove st.order v);
+      on_backtrack st (fun () -> H.remove st.order v);
       H.insert st.order v;
     )
 
@@ -350,11 +346,10 @@ module Make
   let attach_clause (self:t) (c:clause) : unit =
     if not (Clause.attached c) then (
       Log.debugf 5 (fun k -> k "(@[sat.attach_clause@ %a@])" Clause.debug c);
-      if not (at_level_0 self) then (
-        on_backtrack self
-          (fun () ->
-             Clause.set_attached c false)
-      );
+      on_backtrack self
+        (fun () ->
+           Log.debugf 5 (fun k->k "(@[sat.detach_clause@ %a@])" Clause.debug c);
+           Clause.set_attached c false);
       Vec.push c.atoms.(0).neg.watched c;
       Vec.push c.atoms.(1).neg.watched c;
       Clause.set_attached c true;
@@ -380,7 +375,8 @@ module Make
      i.e we want to go back to the state the solver was in
          when decision level [lvl] was created. *)
   let cancel_until st lvl =
-    Log.debugf 5 (fun k -> k "(@[@{<yellow>sat.cancel_until@}@ :level %d@])" lvl);
+    Log.debugf 5
+      (fun k -> k "(@[@{<yellow>sat.cancel_until@}@ :lvl %d :cur-decision-lvl %d@])" lvl @@ decision_level st);
     assert (lvl >= base_level st);
     (* Nothing to do if we try to backtrack to a non-existent level. *)
     if decision_level st <= lvl then (
@@ -471,15 +467,15 @@ module Make
      Wrapper function for adding a new propagated formula. *)
   let enqueue_bool st a reason : unit =
     if a.neg.is_true then (
-      Util.errorf "(@[sat.enqueue_bool@ :false-literal %a@])" Atom.debug a
+      Util.errorf "(@[sat.enqueue_bool.error@ :false-literal %a@])" Atom.debug a
     );
-    let level = Vec.size st.trail in
+    let level = decision_level st in
     Log.debugf 5
       (fun k->k "(@[sat.enqueue_bool@ :lvl %d@ %a@])" level Atom.debug a);
     let reason = if at_level_0 st then simpl_reason reason else reason in
     (* backtrack assignment if needed. Trail is backtracked automatically. *)
     assert (not a.is_true && a.var.v_level < 0 && a.var.reason = None);
-    on_backtrack_if_not_at_0 st
+    on_backtrack st
       (fun () ->
          a.var.v_level <- -1;
          a.is_true <- false;
@@ -653,7 +649,7 @@ module Make
       | fuip :: _ ->
         let lclause = Clause.make_l cr.cr_learnt (History cr.cr_history) in
         Vec.push st.clauses_learnt lclause;
-        attach_clause st lclause;
+        redo_down_to_level_0 st (fun () -> attach_clause st lclause);
         clause_bump_activity st lclause;
         if cr.cr_is_uip then (
           enqueue_bool st fuip (Bcp lclause)
@@ -712,21 +708,23 @@ module Make
         (* Since we cannot propagate the atom [a], in order to not lose
            the information that [a] must be true, we add clause to the list
            of clauses to add, so that it will be e-examined later. *)
-        Log.debug 5 "Unit clause, report failure";
+        Log.debug 5 "(sat.false-unit-clause@ report failure)";
         report_unsat st clause
       ) else if a.is_true then (
         (* If the atom is already true, then it should be because of a local hyp.
            However it means we can't propagate it at level 0. In order to not lose
            that information, we store the clause in a stack of clauses that we will
            add to the solver at the next pop. *)
-        Log.debug 5 "Unit clause, adding to root clauses";
+        Log.debug 5 "(sat.unit-clause@ adding to root clauses)";
         assert (0 < a.var.v_level && a.var.v_level <= base_level st);
-        on_backtrack_if_not_at_0 st (fun () -> Vec.pop vec_for_clause);
+        on_backtrack st
+          (fun () ->
+             Vec.pop vec_for_clause);
         Vec.push vec_for_clause clause;
       ) else (
         Log.debugf 5
           (fun k->k "(@[sat.add_clause.unit-clause@ :propagating %a@])" Atom.debug a);
-        on_backtrack_if_not_at_0 st (fun () -> Vec.pop vec_for_clause);
+        on_backtrack st (fun () -> Vec.pop vec_for_clause);
         Vec.push vec_for_clause clause;
         enqueue_bool st a (Bcp clause)
       )
@@ -803,7 +801,7 @@ module Make
             (fun () -> enqueue_bool st a (Bcp clause))
         )
       | a::b::_ ->
-        on_backtrack_if_not_at_0 st (fun () -> Vec.pop vec_for_clause);
+        on_backtrack st (fun () -> Vec.pop vec_for_clause);
         Vec.push vec_for_clause clause;
         (* Atoms need to be sorted in decreasing order of decision level,
            or we might watch the wrong literals. *)
@@ -902,7 +900,9 @@ module Make
   let act_push_ ~permanent st (l:formula IArray.t) (lemma:proof): unit =
     let atoms = IArray.to_array_map (new_atom ~permanent st) l in
     let c = Clause.make atoms (Lemma lemma) in
-    Log.debugf 3 (fun k->k "(@[sat.push_clause@ %a@])" Clause.debug c);
+    Log.debugf 3
+      (fun k->k "(@[sat.push_clause_from_theory@ :permanent %B@ %a@])"
+          permanent Clause.debug c);
     add_clause ~permanent st c
 
   (* TODO: ensure that the clause is removed upon backtracking *)
@@ -943,7 +943,6 @@ module Make
     push_persistent = act_push_persistent st;
     push_local = act_push_local st;
     on_backtrack = on_backtrack st;
-    at_level_0 = act_at_level_0 st;
     propagate = act_propagate st;
   }
 
@@ -1000,7 +999,7 @@ module Make
       while st.elt_head < Vec.size st.trail do
         let a = Vec.get st.trail st.elt_head in
         incr num_props;
-        Log.debugf 5 (fun k->k "(@[sat.propagate_atom@ %a@])" Atom.pp a);
+        Log.debugf 5 (fun k->k "(@[sat.bcp.propagate_atom@ %a@])" Atom.pp a);
         propagate_atom st a;
         st.elt_head <- st.elt_head + 1;
       done;
@@ -1052,7 +1051,7 @@ module Make
         if Vec.size st.trail = St.nb_elt st.st
         then raise Sat;
         if n_of_conflicts > 0 && !conflictC >= n_of_conflicts then (
-          Log.debug 3 "Restarting...";
+          Log.debug 3 "(sat.restarting)";
           cancel_until st (base_level st);
           raise Restart
         );
@@ -1088,7 +1087,7 @@ module Make
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
   let solve (st:t) : unit =
-    Log.debug 5 "solve";
+    Log.debug 5 "(sat.solve)";
     if is_unsat st then raise Unsat;
     let n_of_conflicts = ref (to_float restart_first) in
     let n_of_learnts = ref ((to_float (nb_clauses st)) *. learntsize_factor) in
@@ -1145,17 +1144,17 @@ module Make
 
   (* create a factice decision level for local assumptions *)
   let push st : unit =
-    Log.debug 5 "Pushing a new user level";
+    Log.debug 5 "(sat.push-new-user-level)";
     cancel_until st (base_level st);
     Log.debugf 5
-      (fun k -> k "@[<v>Status:@,@[<hov 2>trail: %d - %d@,%a@]"
+      (fun k -> k "(@[<v>sat.status@ :trail %d - %d@ %a@]"
           st.elt_head st.th_head (Vec.print ~sep:"" Atom.debug) st.trail);
     begin match propagate st with
       | Some confl ->
         report_unsat st confl
       | None ->
         pp_trail st;
-        Log.debug 3 "Creating new user level";
+        Log.debug 3 "(sat.create-new-user-level)";
         new_decision_level st;
         Vec.push st.user_levels (Vec.size st.clauses_temp);
         assert (decision_level st = base_level st)
@@ -1215,7 +1214,7 @@ module Make
     let res = Array.exists (fun x -> x) tmp in
     if not res then (
       Log.debugf 5
-        (fun k -> k "Clause not satisfied: @[<hov>%a@]" Clause.debug c);
+        (fun k -> k "(@[sat.check-clause.error@ :not-satisfied %a@])" Clause.debug c);
       false
     ) else
       true

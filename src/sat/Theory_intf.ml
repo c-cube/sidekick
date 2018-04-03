@@ -52,9 +52,6 @@ type ('form, 'proof) actions = Actions of {
   on_backtrack: (unit -> unit) -> unit;
   (** [on_backtrack f] calls [f] when the main solver backtracks *)
 
-  at_level_0 : unit -> bool;
-  (** Are we at level 0? *)
-
   propagate : 'form -> 'form list -> 'proof -> unit;
   (** [propagate lit causes proof] informs the solver to propagate [lit], with the reason
       that the clause [causes => lit] is a theory tautology. It is faster than pushing

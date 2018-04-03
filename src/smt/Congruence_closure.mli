@@ -15,9 +15,6 @@ type actions = {
   on_backtrack:(unit -> unit) -> unit;
   (** Register a callback to be invoked upon backtracking below the current level *)
 
-  at_lvl_0:unit -> bool;
-  (** Are we currently at backtracking level 0? *)
-
   on_merge:repr -> repr -> explanation -> unit;
   (** Call this when two classes are merged *)
 
