@@ -63,6 +63,7 @@ module Make
     clauses_temp : clause Vec.t;
     (* Temp clauses, corresponding to the local assumptions. This vec is used
        only to have an efficient way to access the list of local assumptions. *)
+    (* TODO: remove. We only need clauses_hyps for that. *)
 
     mutable unsat_conflict : clause option;
     (* conflict clause at [base_level], if any *)
