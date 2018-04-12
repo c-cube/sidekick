@@ -129,27 +129,28 @@ let main () =
     Dagon_smt.Solver.create ~theories ()
   in
   let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
-  let res = match syn with
+  begin match syn with
     | Smtlib ->
       (* parse pb *)
-      Dagon_smtlib.parse !file >>= fun input ->
-      (* TODO: parse list of plugins on CLI *)
-      (* process statements *)
-      begin
-        try
-          E.fold_l
-            (fun () ->
-               Process.process_stmt
-                 ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
-                 ~time:!time_limit ~memory:!size_limit
-                 ?dot_proof ~pp_model:!p_model ~check:!check ~progress:!p_progress
-                 solver)
-            () input
-        with Exit ->
-          E.return()
-      end
+      Dagon_smtlib.parse !file
     | Dimacs ->
-      assert false (* TODO *)
+      Dagon_dimacs.parse !file >|= fun cs ->
+      List.map (fun c -> Ast.Assert_bool c) cs
+  end
+  >>= fun input ->
+  (* process statements *)
+  let res =
+    try
+      E.fold_l
+        (fun () ->
+           Process.process_stmt
+             ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
+             ~time:!time_limit ~memory:!size_limit
+             ?dot_proof ~pp_model:!p_model ~check:!check ~progress:!p_progress
+             solver)
+        () input
+    with Exit ->
+      E.return()
   in
   if !p_stat then (
     Format.printf "%a@." Dagon_smt.Solver.pp_stats solver;

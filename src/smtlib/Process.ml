@@ -207,6 +207,54 @@ end
 let conv_ty = Conv.conv_ty
 let conv_term = Conv.conv_term
 
+(** {2 Terms for Dimacs atoms} *)
+module I_atom : sig
+  val mk_t : Term.state -> int -> Term.t
+  val mk_atom : Term.state -> int -> Lit.t
+end = struct
+  open Solver_types
+
+  type _ Term.custom +=
+    | Atom of int (* absolute *)
+
+  let pp _ out = function Atom i -> Fmt.int out i | _ -> assert false
+  let eq _ a b = match a, b with Atom a, Atom b -> a = b | _ -> false
+  let hash _ = function Atom i -> CCHash.int i | _ -> 0
+  let get_ty _ _ = Ty.prop
+  let is_semantic _ = false
+  let solve a b = match a, b with
+    | Atom a, Atom b when a=b -> Solve_ok {subst=[]}
+    | _ -> assert false
+  let sub _ _ = ()
+  let abs ~self _ = self, true
+  let relevant _ _ = ()
+  let subst _ _ : _ option = None
+  let explain _ _ _ = []
+
+  let tc : Term_cell.tc = {
+    Term_cell.
+    tc_t_pp = pp;
+    tc_t_equal = eq;
+    tc_t_hash = hash;
+    tc_t_ty = get_ty;
+    tc_t_is_semantic = is_semantic;
+    tc_t_solve = solve;
+    tc_t_sub = sub;
+    tc_t_abs = abs;
+    tc_t_relevant = relevant;
+    tc_t_subst = subst;
+    tc_t_explain = explain
+  }
+
+  let[@inline] mk_t tst i =
+    assert (i>=0);
+    Term.custom tst ~tc (Atom i)
+
+  let[@inline] mk_atom tst i =
+    let a = mk_t tst (Pervasives.abs i) in
+    Lit.atom ~sign:(i>0) a
+end
+
 (* call the solver to check-sat *)
 let solve
     ?gc:_
@@ -312,6 +360,10 @@ let process_stmt
          *)
       Solver.assume solver (IArray.singleton (Lit.atom t));
       E.return()
+    | A.Assert_bool l ->
+      let c = List.rev_map (I_atom.mk_atom tst) l in
+      Solver.assume solver (IArray.of_list c);
+      E.return ()
     | A.Goal (_, _) ->
       Util.errorf "cannot deal with goals yet"
     | A.Data _ ->
