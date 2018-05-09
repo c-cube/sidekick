@@ -135,7 +135,9 @@ let main () =
       Dagon_smtlib.parse !file
     | Dimacs ->
       Dagon_dimacs.parse !file >|= fun cs ->
-      List.map (fun c -> Ast.Assert_bool c) cs
+      List.rev_append
+        (List.rev_map (fun c -> Ast.Assert_bool c) cs)
+        [Ast.CheckSat]
   end
   >>= fun input ->
   (* process statements *)

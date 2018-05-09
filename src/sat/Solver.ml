@@ -88,7 +88,7 @@ module Make
 
   let[@inline] add_clause ~permanent st c : unit =
     cleanup_ st;
-    S.add_clause ~permanent st c
+    S.add_clause_user ~permanent st c
 
   let solve (st:t) ?(assumptions=[]) () =
     cleanup_ st;

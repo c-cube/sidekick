@@ -23,7 +23,7 @@ type tc = Solver_types.term_view_tc = {
   tc_t_is_semantic : 'a. 'a term_view_custom -> bool;
   tc_t_solve : cc_node term_view_custom -> cc_node term_view_custom -> solve_result;
   tc_t_sub : 'a. 'a term_view_custom -> 'a Sequence.t;
-  tc_t_abs : 'a. self:'a -> 'a custom -> 'a * bool;
+  tc_t_abs : self:term -> term custom -> term * bool;
   tc_t_relevant : 'a. 'a term_view_custom -> 'a Sequence.t;
   tc_t_subst :
     'a 'b. ('a -> 'b) -> 'a term_view_custom -> 'b term_view_custom option;

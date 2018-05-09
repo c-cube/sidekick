@@ -161,6 +161,7 @@ type statement =
   | Decl of ID.t * Ty.t
   | Define of definition list
   | Assert of term
+  | Assert_bool of int list
   | Goal of var list * term
   | CheckSat
   | Exit
@@ -437,6 +438,7 @@ let pp_statement out = function
     Fmt.fprintf out "(@[<1>declare-fun@ %a (@[%a@])@ %a@])"
       ID.pp id (Util.pp_list Ty.pp) args Ty.pp ret
   | Assert t -> Fmt.fprintf out "(@[assert@ %a@])" pp_term t
+  | Assert_bool l -> Fmt.fprintf out "(@[assert-bool@ %a@])" (Util.pp_list Fmt.int) l
   | Goal (vars,g) ->
     Fmt.fprintf out "(@[assert-not@ %a@])" pp_term (forall_l vars (not_ g))
   | Exit -> Fmt.string out "(exit)"
@@ -480,7 +482,7 @@ let env_add_statement env st =
       List.fold_left
         (fun map (id,ty,def) -> add_def id (E_defined (ty,def)) map)
         env l
-    | Goal _ | Assert _ | CheckSat | Exit
+    | Goal _ | Assert _ | Assert_bool _ | CheckSat | Exit
     | SetLogic _ | SetOption _ | SetInfo _
       -> env
 

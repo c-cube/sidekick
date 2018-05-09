@@ -113,6 +113,10 @@ module Make
     mutable clause_incr : float;
     (* increment for clauses' activity *)
 
+    to_add : (bool * clause) CCVector.vector;
+    (* clauses to add, from the user *)
+
+    (* TODO: remove *)
     mutable dirty: bool;
     (* is there a [pop()] on top of the stack for examining
        current model/proof? *)
@@ -140,6 +144,7 @@ module Make
     user_levels = Vec.make 0 (-1);
 
     order = H.create();
+    to_add = CCVector.create();
 
     var_incr = 1.;
     clause_incr = 1.;
@@ -323,7 +328,8 @@ module Make
         )
       )
     in
-    partition_aux [] [] [] [] 0
+    try partition_aux [] [] [] [] 0
+    with Trivial -> Array.to_list atoms, []
 
 
   (* Making a decision.
@@ -435,9 +441,8 @@ module Make
      be able to build a correct proof at the end of proof search. *)
   let simpl_reason : reason -> reason = function
     | (Bcp cl) as r ->
-      let l, history = partition cl.atoms in
-      begin match l with
-        | [_] ->
+      begin match partition cl.atoms with
+        | [_] as l, history ->
           if history = [] then (
             (* no simplification has been done, so [cl] is actually a clause with only
                [a], so it is a valid reason for propagating [a]. *)
@@ -453,7 +458,7 @@ module Make
                   Clause.debug cl Clause.debug c');
             Bcp c'
           )
-        | _ ->
+        | l, _history ->
           Log.debugf 1
             (fun k ->
                k "@[<v 2>Failed at reason simplification:@,%a@,%a@]"
@@ -461,6 +466,7 @@ module Make
                  (Vec.from_list l Atom.dummy)
                  Clause.debug cl);
           assert false
+        | exception Trivial -> r
       end
     | r -> r
 
@@ -820,6 +826,9 @@ module Make
           )
         )
 
+  let[@inline] add_clause_user ~permanent st (c:clause): unit =
+    CCVector.push st.to_add (permanent,c)
+
   type watch_res =
     | Watch_kept
     | Watch_removed
@@ -1092,39 +1101,49 @@ module Make
     if is_unsat st then raise Unsat;
     let n_of_conflicts = ref (to_float restart_first) in
     let n_of_learnts = ref ((to_float (nb_clauses st)) *. learntsize_factor) in
-    try
-      while true do
-        begin
-          try
-            search st (to_int !n_of_conflicts) (to_int !n_of_learnts)
-          with
-          | Restart ->
-            n_of_conflicts := !n_of_conflicts *. restart_inc;
-            n_of_learnts   := !n_of_learnts *. learntsize_inc
-          | Sat ->
-            assert (st.elt_head = Vec.size st.trail);
-            pp_trail st;
-            begin match Th.if_sat (theory st) (full_slice st) with
-              | Theory_intf.Sat ->
-                (* if no propagation is to be done, exit;
-                   otherwise continue loop *)
-                if propagation_fixpoint st then (
-                  raise Sat
-                )
-              | Theory_intf.Unsat (l, p) ->
-                let atoms = List.rev_map (new_atom ~permanent:false st) l in
-                let c = Clause.make_l atoms (Lemma p) in
-                Log.debugf 3
-                  (fun k -> k "(@[@{<Yellow>sat.theory_conflict_clause@}@ %a@])" Clause.debug c);
-                (* must backtrack *)
-                (* TODO: assert that this is indeed a conflict,
-                   then call [add_boolean_conflict st c] *)
-                add_clause ~permanent:false st c
-            end;
+    (* add clauses that are waiting in [to_add] *)
+    let rec add_clauses () =
+      match
+        CCVector.filter' (fun (permanent,c) -> add_clause ~permanent st c; false) st.to_add
+      with
+      | () -> call_solve()
+      | exception Conflict c ->
+        add_boolean_conflict st c;
+        call_solve()
+    and call_solve() =
+      match search st (to_int !n_of_conflicts) (to_int !n_of_learnts) with
+      | () -> ()
+      | exception Restart ->
+        n_of_conflicts := !n_of_conflicts *. restart_inc;
+        n_of_learnts   := !n_of_learnts *. learntsize_inc
+      | exception Conflict c ->
+        add_boolean_conflict st c;
+        call_solve()
+      | exception Sat ->
+        assert (st.elt_head = Vec.size st.trail);
+        pp_trail st;
+        begin match Th.if_sat (theory st) (full_slice st) with
+          | Theory_intf.Sat ->
+            (* if no propagation is to be done, exit;
+               otherwise continue loop *)
+            if propagation_fixpoint st then (
+              raise Sat
+            )
+          | Theory_intf.Unsat (l, p) ->
+            let atoms = List.rev_map (new_atom ~permanent:false st) l in
+            let c = Clause.make_l atoms (Lemma p) in
+            Log.debugf 3
+              (fun k -> k "(@[@{<Yellow>sat.theory_conflict_clause@}@ %a@])" Clause.debug c);
+            (* must backtrack *)
+            (* TODO: assert that this is indeed a conflict,
+               then call [add_boolean_conflict st c] *)
+            add_clause ~permanent:false st c
         end
-      done
+    in
+    try add_clauses()
     with Sat -> ()
 
+  (* TODO: merge with add_clause_user *)
   let assume ~permanent st ?tag cnf =
     let cs = List.rev_map
       (fun atoms ->
@@ -1143,12 +1162,13 @@ module Make
     then redo_down_to_level_0 st add_clauses
     else add_clauses()
 
+  (* TODO: remove push/pop *)
   (* create a factice decision level for local assumptions *)
   let push st : unit =
     Log.debug 5 "(sat.push-new-user-level)";
     cancel_until st (base_level st);
     Log.debugf 5
-      (fun k -> k "(@[<v>sat.status@ :trail %d - %d@ %a@]"
+      (fun k -> k "(@[<v>sat.status@ :trail %d - %d@ %a@])"
           st.elt_head st.th_head (Vec.print ~sep:"" Atom.debug) st.trail);
     begin match propagate st with
       | Some confl ->
