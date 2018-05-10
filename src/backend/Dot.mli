@@ -47,23 +47,23 @@ module type Arg = sig
 
 end
 
-module Default(S : Res.S) : Arg with type atom := S.atom
+module Default(S : Sidekick_sat.S) : Arg with type atom := S.atom
                                  and type hyp := S.clause
                                  and type lemma := S.clause
                                  and type assumption := S.clause
 (** Provides a reasonnable default to instantiate the [Make] functor, assuming
     the original printing functions are compatible with DOT html labels. *)
 
-module Make(S : Res.S)(A : Arg with type atom := S.atom
+module Make(S : Sidekick_sat.S)(A : Arg with type atom := S.atom
                                 and type hyp := S.clause
                                 and type lemma := S.clause
                                 and type assumption := S.clause) : S with type t := S.proof
 (** Functor for making a module to export proofs to the DOT format. *)
 
-module Simple(S : Res.S)(A : Arg with type atom := S.formula
-                                  and type hyp = S.formula list
+module Simple(S : Sidekick_sat.S)(A : Arg with type atom := S.atom
+                                  and type hyp = S.atom list
                                   and type lemma := S.lemma
-                                  and type assumption = S.formula) : S with type t := S.proof
+                                  and type assumption = S.atom) : S with type t := S.proof
 (** Functor for making a module to export proofs to the DOT format.
     The substitution of the hyp type is non-destructive due to a restriction
     of destructive substitutions on earlier versions of ocaml. *)

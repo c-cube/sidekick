@@ -8,25 +8,24 @@ module type S = Solver_intf.S
 
 open Solver_intf
 
-module Make
-    (St : Solver_types.S)
-    (Th :  Theory_intf.S with type formula = St.formula
-                         and type proof = St.proof)
-= struct
-
-  module St = St
-
-  module S = Internal.Make(St)(Th)
+module Make (Th : Theory_intf.S) = struct
+  module S = Internal.Make(Th)
 
   module Proof = S.Proof
 
   exception UndecidedLit = S.UndecidedLit
 
-  type formula = St.formula
-  type atom = St.formula
-  type lit = St.atom
-  type clause = St.clause
+  type formula = S.formula
+  type atom = S.atom
+  type clause = S.clause
   type theory = Th.t
+  type proof = S.proof
+  type lemma = S.lemma
+  type premise = S.premise =
+    | Hyp
+    | Local
+    | Lemma of lemma
+    | History of clause list
 
   type t = S.t
   type solver = t
@@ -35,8 +34,8 @@ module Make
 
   (* Result type *)
   type res =
-    | Sat of St.formula sat_state
-    | Unsat of (St.clause,Proof.proof) unsat_state
+    | Sat of formula sat_state
+    | Unsat of (clause,proof) unsat_state
 
   let pp_all st lvl status =
     Log.debugf lvl
@@ -44,15 +43,15 @@ module Make
           "@[<v>%s - Full resume:@,@[<hov 2>Trail:@\n%a@]@,\
            @[<hov 2>Temp:@\n%a@]@,@[<hov 2>Hyps:@\n%a@]@,@[<hov 2>Lemmas:@\n%a@]@,@]@."
           status
-          (Vec.print ~sep:"" St.Atom.debug) (S.trail st)
-          (Vec.print ~sep:"" St.Clause.debug) (S.temp st)
-          (Vec.print ~sep:"" St.Clause.debug) (S.hyps st)
-          (Vec.print ~sep:"" St.Clause.debug) (S.history st)
+          (Vec.print ~sep:"" S.Atom.debug) (S.trail st)
+          (Vec.print ~sep:"" S.Clause.debug) (S.temp st)
+          (Vec.print ~sep:"" S.Clause.debug) (S.hyps st)
+          (Vec.print ~sep:"" S.Clause.debug) (S.history st)
       )
 
   let mk_sat (st:S.t) : _ sat_state =
     pp_all st 99 "SAT";
-    let iter f : unit = Vec.iter (fun a -> f a.St.lit) (S.trail st) in
+    let iter f : unit = Vec.iter (fun a -> f a.S.lit) (S.trail st) in
     Sat_state {
       eval = S.eval st;
       eval_level = S.eval_level st;
@@ -109,6 +108,7 @@ module Make
     cleanup_ st;
     S.pop st
 
+  let n_vars = S.n_vars
   let unsat_core = S.Proof.unsat_core
 
   let true_at_level0 st a =
@@ -117,7 +117,7 @@ module Make
       b && lev = 0
     with S.UndecidedLit -> false
 
-  let get_tag cl = St.(cl.tag)
+  let[@inline] get_tag cl = S.(cl.tag)
 
   let[@inline] new_atom ~permanent st a =
     cleanup_ st;
@@ -125,32 +125,30 @@ module Make
 
   let actions = S.actions
 
-  let export (st:t) : St.clause export =
+  let export (st:t) : S.clause export =
     let hyps = S.hyps st in
     let history = S.history st in
     let local = S.temp st in
     {hyps; history; local}
 
-  module Lit = struct
-    type t = lit
-
-    let pp = St.Atom.pp
+  module Atom = struct
+    include S.Atom
     let make = S.new_atom ~permanent:false
   end
 
   module Clause = struct
-    include St.Clause
+    include S.Clause
 
-    let atoms c = St.Clause.atoms c |> IArray.of_array_map (fun a -> a.St.lit)
-    let atoms_l c = St.Clause.atoms_l c |> List.map (fun a -> a.St.lit)
+    let forms c = atoms c |> IArray.of_array_map Atom.get_formula
+    let forms_l c = atoms_l c |> List.map Atom.get_formula
 
-    let[@inline] make ?tag (a:lit array) : t = St.Clause.make ?tag a St.Hyp
-    let[@inline] make_l ?tag l : t = St.Clause.make_l ?tag l St.Hyp
+    let[@inline] make ?tag (a:atom array) : t = S.Clause.make ?tag a S.Hyp
+    let[@inline] make_l ?tag l : t = S.Clause.make_l ?tag l S.Hyp
 
-    let of_atoms st ?tag l =
+    let of_formulas st ?tag l =
       let l = List.map (S.new_atom ~permanent:false st) l in
       make_l ?tag l
   end
 
-  module Formula = St.Formula
+  module Formula = S.Formula
 end

@@ -15,19 +15,17 @@ module type S = sig
     Format.formatter ->
     hyps:clause Vec.t ->
     history:clause Vec.t ->
-    local:clause Vec.t ->
     unit
 
   val export_icnf :
     Format.formatter ->
     hyps:clause Vec.t ->
     history:clause Vec.t ->
-    local:clause Vec.t ->
     unit
 
 end
 
-module Make(St : Solver_types_intf.S) = struct
+module Make(St : Sidekick_sat.S) = struct
   type st = St.t
 
   (* Dimacs & iCNF export *)
@@ -72,20 +70,17 @@ module Make(St : Solver_types_intf.S) = struct
       ) learnt;
     lemmas
 
-  let export st fmt ~hyps ~history ~local =
+  let export st fmt ~hyps ~history : unit =
     assert (Vec.for_all (fun c -> St.Clause.premise c = St.Hyp) hyps);
     (* Learnt clauses, then filtered to only keep only
        the theory lemmas; all other learnt clauses should be logical
        consequences of the rest. *)
     let lemmas = filter_vec history in
-    (* Local assertions *)
-    assert (Vec.for_all (fun c -> St.Local = St.Clause.premise c) local);
     (* Number of atoms and clauses *)
-    let n = St.nb_elt st in
-    let m = Vec.size local + Vec.size hyps + Vec.size lemmas in
+    let n = St.n_vars st in
+    let m = Vec.size hyps + Vec.size lemmas in
     Format.fprintf fmt
-      "@[<v>p cnf %d %d@,%a%a%a@]@." n m
-      (export_vec "Local assumptions") local
+      "@[<v>p cnf %d %d@,%a%a@]@." n m
       (export_vec "Hypotheses") hyps
       (export_vec "Lemmas") lemmas
 
@@ -93,24 +88,15 @@ module Make(St : Solver_types_intf.S) = struct
   let icnf_hyp = ref 0
   let icnf_lemmas = ref 0
 
-  let export_icnf fmt ~hyps ~history ~local =
+  let export_icnf fmt ~hyps ~history =
     assert (Vec.for_all (fun c -> St.Clause.premise c = St.Hyp) hyps);
     let lemmas = history in
-    (* Local assertions *)
-    let l = List.map
-        (fun c -> match St.Clause.premise c, St.Clause.atoms c with
-             | St.Local, [| a |] -> a
-             | _ -> assert false)
-        (Vec.to_list local)
-    in
-    let local = St.Clause.make_l l St.Local in
     (* Number of atoms and clauses *)
     Format.fprintf fmt
-      "@[<v>%s@,%a%a%a@]@."
+      "@[<v>%s@,%a%a@]@."
       (if !icnf_hyp = 0 && !icnf_lemmas = 0 then "p inccnf" else "")
       (export_icnf_aux icnf_hyp "Hypotheses" (fun x -> Some x)) hyps
       (export_icnf_aux icnf_lemmas "Lemmas" map_filter_learnt) lemmas
-      export_assumption local
 
 end
 

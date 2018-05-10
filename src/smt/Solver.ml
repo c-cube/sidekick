@@ -14,10 +14,10 @@ type level = int
 module Sat_solver = Sidekick_sat.Make(Theory_combine)
 
 let[@inline] clause_of_mclause (c:Sat_solver.clause): Lit.t IArray.t =
-  Sat_solver.Clause.atoms c
+  Sat_solver.Clause.forms c
 
 module Proof = struct
-  type t = Sat_solver.Proof.proof
+  type t = Sat_solver.Proof.t
 
   let pp out (p:t) : unit =
     let pp_step_res out p =
@@ -389,7 +389,7 @@ let do_on_exit ~on_exit =
 
 let assume (self:t) (c:Lit.t IArray.t) : unit =
   let sat = solver self in
-  let c = Sat_solver.Clause.make (IArray.to_array_map (Sat_solver.Lit.make sat) c) in
+  let c = Sat_solver.Clause.make (IArray.to_array_map (Sat_solver.Atom.make sat) c) in
   Sat_solver.add_clause ~permanent:false sat c
 
 let[@inline] assume_eq self t u expl : unit =

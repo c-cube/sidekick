@@ -8,14 +8,14 @@
 module Sat_solver : Sidekick_sat.S
       with type formula = Lit.t
        and type theory = Theory_combine.t
-       and type Proof.lemma = Theory_combine.proof
+       and type lemma = Theory_combine.proof
 
 (** {2 Result} *)
 
 type model = Model.t
 
 module Proof : sig
-  type t = Sat_solver.Proof.proof
+  type t = Sat_solver.Proof.t
 
   val pp : t CCFormat.printer
 end

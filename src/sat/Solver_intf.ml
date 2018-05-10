@@ -5,6 +5,11 @@
     functor in {!Solver} or {!Mcsolver}.
 *)
 
+module Var_fields = BitField.Make()
+module C_fields = BitField.Make()
+
+type 'a printer = Format.formatter -> 'a -> unit
+
 type 'form sat_state = Sat_state of {
   eval: 'form -> bool;
   (** Returns the valuation of a formula in the current state
@@ -37,8 +42,6 @@ type 'clause export = {
 }
 (** Export internal state *)
 
-type 'a printer = Format.formatter -> 'a -> unit
-
 (** The external interface implemented by safe solvers, such as the one
     created by the {!Solver.Make} and {!Mcsolver.Make} functors. *)
 module type S = sig
@@ -46,16 +49,29 @@ module type S = sig
       These are the internal modules used, you should probably not use them
       if you're not familiar with the internals of mSAT. *)
 
-  type formula (** user formulas *)
+  type formula
+  (** The type of atoms given by the module argument for formulas.
+      An atom is a user-defined atomic formula whose truth value is
+      picked by Msat. *)
 
-  type lit (** SAT solver literals *)
+
+  type atom (** SAT solver literals *)
 
   type clause (** SAT solver clauses *)
 
   type theory (** user theory *)
 
-  module Proof : Res.S with type clause = clause
-  (** A module to manipulate proofs. *)
+  type proof
+  (** Lazy type for proof trees. Proofs are persistent objects, and can be
+      extended to proof nodes using functions defined later. *)
+
+  type lemma (** A theory lemma, used to justify a theory conflict clause *)
+
+  type premise =
+    | Hyp
+    | Local
+    | Lemma of lemma
+    | History of clause list
 
   type t
   (** Main solver type, containing all state for solving. *)
@@ -67,15 +83,10 @@ module type S = sig
 
   (** {2 Types} *)
 
-  type atom = formula
-  (** The type of atoms given by the module argument for formulas.
-      An atom is a user-defined atomic formula whose truth value is
-      picked by Msat. *)
-
   (** Result type for the solver *)
   type res =
     | Sat of formula sat_state (** Returned when the solver reaches SAT, with a model *)
-    | Unsat of (clause,Proof.proof) unsat_state (** Returned when the solver reaches UNSAT, with a proof *)
+    | Unsat of (clause,proof) unsat_state (** Returned when the solver reaches UNSAT, with a proof *)
 
   exception UndecidedLit
   (** Exception raised by the evaluating functions when a literal
@@ -83,9 +94,11 @@ module type S = sig
 
   (** {2 Base operations} *)
 
+  val n_vars : t -> int
+
   val theory : t -> theory
 
-  val assume : ?permanent:bool -> t -> ?tag:int -> atom list list -> unit
+  val assume : ?permanent:bool -> t -> ?tag:int -> formula list list -> unit
   (** Add the list of clauses to the current set of assumptions.
       Modifies the sat solver state in place.
       @param permanent if true, kept after backtracking (default true) *)
@@ -94,23 +107,23 @@ module type S = sig
   (** Lower level addition of clauses. See {!Clause} to create clauses.
       @param permanent if true, kept after backtracking *)
 
-  val solve : t -> ?assumptions:atom list -> unit -> res
+  val solve : t -> ?assumptions:formula list -> unit -> res
   (** Try and solves the current set of clauses.
       @param assumptions additional atomic assumptions to be temporarily added.
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state. *)
 
-  val new_atom : permanent:bool -> t -> atom -> unit
+  val new_atom : permanent:bool -> t -> formula -> unit
   (** Add a new atom (i.e propositional formula) to the solver.
       This formula will be decided on at some point during solving,
       whether it appears in clauses or not.
       @param permanent if true, kept after backtracking *)
 
-  val unsat_core : Proof.proof -> clause list
+  val unsat_core : proof -> clause list
   (** Returns the unsat core of a given proof, ie a subset of all the added
       clauses that is sufficient to establish unsatisfiability. *)
 
-  val true_at_level0 : t -> atom -> bool
+  val true_at_level0 : t -> formula -> bool
   (** [true_at_level0 a] returns [true] if [a] was proved at level0, i.e.
       it must hold in all models *)
 
@@ -126,7 +139,7 @@ module type S = sig
   (** Return to last save point, discarding clauses added since last
       call to [push] *)
 
-  val actions : t -> (formula,Proof.lemma) Theory_intf.actions
+  val actions : t -> (formula,lemma) Theory_intf.actions
   (** Obtain actions *)
 
   val export : t -> clause export
@@ -135,30 +148,132 @@ module type S = sig
 
   type solver = t
 
-  module Lit : sig
-    type t = lit
+  module Atom : sig
+    type t = atom
+    val is_pos : t -> bool
+    val neg : t -> t
+    val abs : t -> t
+    val compare : t -> t -> int
+    val equal : t -> t -> bool
+    val get_formula : t -> formula
 
-    val make : solver -> atom -> t
-    val pp : t CCFormat.printer
+    val make : solver -> formula -> t
+
+    val pp : t printer
   end
+
+  (** A module to manipulate proofs. *)
+  module Proof : sig
+    type t = proof
+
+    type node = {
+      conclusion : clause; (** The conclusion of the proof *)
+      step : step; (** The reasoning step used to prove the conclusion *)
+    }
+    (** A proof can be expanded into a proof node, which show the first step of the proof. *)
+
+    (** The type of reasoning steps allowed in a proof. *)
+    and step =
+      | Hypothesis
+      (** The conclusion is a user-provided hypothesis *)
+      | Assumption
+      (** The conclusion has been locally assumed by the user *)
+      | Lemma of lemma
+      (** The conclusion is a tautology provided by the theory, with associated proof *)
+      | Duplicate of proof * atom list
+      (** The conclusion is obtained by eliminating multiple occurences of the atom in
+          the conclusion of the provided proof. *)
+      | Resolution of proof * proof * atom
+      (** The conclusion can be deduced by performing a resolution between the conclusions
+          of the two given proofs. The atom on which to perform the resolution is also given. *)
+
+    exception Insufficient_hyps
+    (** Raised when a complete resolution derivation cannot be found using the current hypotheses. *)
+
+    (** {3 Proof building functions} *)
+
+    val prove : clause -> t
+    (** Given a clause, return a proof of that clause.
+        @raise Insuficient_hyps if it does not succeed. *)
+
+    val prove_unsat : clause -> t
+    (** Given a conflict clause [c], returns a proof of the empty clause.
+        @raise Insuficient_hyps if it does not succeed. *)
+
+    val prove_atom : atom -> t option
+    (** Given an atom [a], returns a proof of the clause [[a]] if [a] is true at level 0 *)
+
+    (** {3 Proof Nodes} *)
+
+    val is_leaf : step -> bool
+    (** Returns wether the the proof node is a leaf, i.e. an hypothesis,
+        an assumption, or a lemma.
+        [true] if and only if {parents} returns the empty list. *)
+
+    val expl : step -> string
+    (** Returns a short string description for the proof step; for instance
+        ["hypothesis"] for a [Hypothesis]
+        (it currently returns the variant name in lowercase). *)
+
+    val parents : step -> t list
+    (** Returns the parents of a proof node. *)
+
+    (** {3 Proof Manipulation} *)
+
+    val expand : proof -> node
+    (** Return the proof step at the root of a given proof. *)
+
+    val step : proof -> step
+
+    val conclusion : proof -> clause
+    (** What is proved at the root of the clause *)
+
+    val fold : ('a -> node -> 'a) -> 'a -> t -> 'a
+    (** [fold f acc p], fold [f] over the proof [p] and all its node. It is guaranteed that
+        [f] is executed exactly once on each proof node in the tree, and that the execution of
+        [f] on a proof node happens after the execution on the parents of the nodes. *)
+
+    val unsat_core : t -> clause list
+    (** Returns the unsat_core of the given proof, i.e the lists of conclusions
+        of all leafs of the proof.
+        More efficient than using the [fold] function since it has
+        access to the internal representation of proofs *)
+
+    (** {3 Misc} *)
+
+    val check : t -> unit
+    (** Check the contents of a proof. Mainly for internal use *)
+
+    module Tbl : Hashtbl.S with type key = t
+  end  
 
   module Clause : sig
     type t = clause
 
-    val atoms : t -> atom IArray.t
+    val atoms : t -> atom array (** do not modify *)
     val atoms_l : t -> atom list
+    val forms : t -> formula IArray.t
+    val forms_l : t -> formula list
     val tag : t -> int option
     val equal : t -> t -> bool
 
-    val make : ?tag:int -> lit array -> t
+    val make : ?tag:int -> atom array -> t
     (** Make a clause from this array of SAT literals.
         The array's ownership is transferred to the clause, do not mutate it *)
 
-    val make_l : ?tag:int -> lit list -> t
+    val make_l : ?tag:int -> atom list -> t
 
-    val of_atoms : solver -> ?tag:int -> atom list -> t
+    val of_formulas : solver -> ?tag:int -> formula list -> t
 
+    val premise : t -> premise
+
+    val name : t -> string
     val pp : t printer
+    val pp_dimacs : t printer
+
+    val dummy : t
+
+    module Tbl : Hashtbl.S with type key = t
   end
 
   module Formula : sig

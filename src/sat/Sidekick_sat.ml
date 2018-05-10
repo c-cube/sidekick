@@ -2,9 +2,6 @@
 (** Main API *)
 
 module Theory_intf = Theory_intf
-module Solver_types_intf = Solver_types_intf
-
-module Res = Res
 
 module type S = Solver_intf.S
 
@@ -50,7 +47,7 @@ type ('form, 'proof) slice_actions = ('form, 'proof) Theory_intf.slice_actions =
   slice_iter : ('form -> unit) -> unit;
 }
 
-module Make(E : Theory_intf.S) = Solver.Make(Solver_types.Make(E))(E)
+module Make = Solver.Make
 
 (**/**)
 module Vec = Vec

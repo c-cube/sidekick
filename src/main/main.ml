@@ -34,7 +34,7 @@ let p_progress = ref false
 
 let hyps : Ast.term list ref = ref []
 
-module Dot = Sidekick_backend.Dot.Make(Solver.Sat_solver.Proof)(Sidekick_backend.Dot.Default(Solver.Sat_solver.Proof))
+module Dot = Sidekick_backend.Dot.Make(Solver.Sat_solver)
 
 let check_model _state =
   let check_clause _c =

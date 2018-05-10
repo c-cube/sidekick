@@ -21,7 +21,6 @@ module type S = sig
     Format.formatter ->
     hyps:clause Vec.t ->
     history:clause Vec.t ->
-    local:clause Vec.t ->
     unit
   (** Export the given clause vectors to the dimacs format.
       The arguments should be transmitted directly from the corresponding
@@ -31,7 +30,6 @@ module type S = sig
     Format.formatter ->
     hyps:clause Vec.t ->
     history:clause Vec.t ->
-    local:clause Vec.t ->
     unit
   (** Export the given clause vectors to the dimacs format.
       The arguments should be transmitted directly from the corresponding
@@ -42,6 +40,6 @@ module type S = sig
 
 end
 
-module Make(St: Solver_types_intf.S) : S with type clause := St.clause and type st = St.t
+module Make(St: Sidekick_sat.S) : S with type clause := St.clause and type st = St.t
 (** Functor to create a module for exporting probems to the dimacs (& iCNF) formats. *)
 

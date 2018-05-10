@@ -13,14 +13,10 @@ Copyright 2014 Simon Cruanes
 module type S = Solver_intf.S
 (** Safe external interface of solvers. *)
 
-module Make
-    (St : Solver_types.S)
-    (Th : Theory_intf.S with type formula = St.formula
-                         and type proof = St.proof)
-  : S with type formula = St.formula
-       and type clause = St.clause
-       and type Proof.lemma = St.proof
+module Make(Th : Theory_intf.S)
+  : S with type formula = Th.formula
        and type theory = Th.t
+       and type lemma = Th.proof
 (** Functor to make a safe external interface. *)
 
 
