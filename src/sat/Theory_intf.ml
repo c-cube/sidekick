@@ -36,7 +36,7 @@ type ('formula, 'proof) res =
   (** The current set of assumptions is satisfiable. *)
   | Unsat of 'formula list * 'proof
   (** The current set of assumptions is *NOT* satisfiable, and here is a
-      theory tautology (with its proof), for which every litteral is false
+      theory tautology (with its proof), for which every literal is false
       under the current assumptions. *)
 
 (** Actions given to the theory during initialization, to be used
