@@ -698,7 +698,6 @@ module Make
    - if clause is unit, propagate lit immediately (with clause as justification)
      but do not add clause
 
-   TODO: also, remove buffering of clauses to add
    *)
 
   (* add permanent clause, to be kept down to level 0.
@@ -1143,24 +1142,13 @@ module Make
     try add_clauses()
     with Sat -> ()
 
-  (* TODO: merge with add_clause_user *)
   let assume ~permanent st ?tag cnf =
-    let cs = List.rev_map
+    List.iter
       (fun atoms ->
          let atoms = List.rev_map (new_atom ~permanent st) atoms in
-         Clause.make_l ?tag atoms Hyp)
+         let c = Clause.make_l ?tag atoms Hyp in
+         add_clause_user st ~permanent c)
       cnf
-    in
-    let add_clauses () =
-      List.iter
-        (fun c ->
-           Log.debugf 5 (fun k -> k "(@[sat.assume@ %a@])" Clause.debug c);
-           add_clause ~permanent:false st c)
-        cs
-    in
-    if permanent
-    then redo_down_to_level_0 st add_clauses
-    else add_clauses()
 
   (* TODO: remove push/pop *)
   (* create a factice decision level for local assumptions *)
