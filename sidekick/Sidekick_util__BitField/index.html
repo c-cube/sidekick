@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Sidekick_util__BitField (sidekick.Sidekick_util__BitField)</title><link rel="stylesheet" href="../../odoc.css"/><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body><header><nav><a href="../index.html">Up</a> – package <a href="../index.html">sidekick</a></nav><h1>Module <code>Sidekick_util__BitField</code></h1><h1 id="bit-field"><a href="#bit-field" class="anchor"></a>Bit Field</h1><p>This module defines efficient bitfields up to 30 or 62 bits (depending on the architecture) in a relatively type-safe way.</p><pre><code>module B = CCBitField.Make(struct end);;
+
+#install_printer B.pp;;
+
+let x = B.mk_field ()
+let y = B.mk_field ()
+let z = B.mk_field ()
+
+let f = B.empty |&gt; B.set x true |&gt; B.set y true;;
+
+assert (not (B.get z f)) ;;
+
+assert (f |&gt; B.set z true |&gt; B.get z);;</code></pre></header><dl><dt id="exception-TooManyFields"><a href="#exception-TooManyFields" class="anchor"></a><code><span class="keyword">exception </span></code><code><span class="exception">TooManyFields</span></code></dt><dd><p>Raised when too many fields are packed into one bitfield</p></dd></dl><dl><dt id="exception-Frozen"><a href="#exception-Frozen" class="anchor"></a><code><span class="keyword">exception </span></code><code><span class="exception">Frozen</span></code></dt><dd><p>Raised when a frozen bitfield is modified</p></dd></dl><dl><dt id="val-max_width"><a href="#val-max_width" class="anchor"></a><code><span class="keyword">val </span>max_width : int</code></dt><dd><p>System-dependent maximum width for a bitfield, typically 30 or 62</p></dd></dl><article id="module-type-S"><a href="#module-type-S" class="anchor"></a><code><span class="keyword">module type </span><a href="module-type-S/index.html">S</a> : <span class="keyword">sig</span> ... <span class="keyword">end</span></code></article><article id="module-Make"><a href="#module-Make" class="anchor"></a><code><span class="keyword">module </span><a href="Make/index.html">Make</a> : <span class="keyword">functor</span> () <a href="index.html#module-type-S">S</a></code></article></body></html>
