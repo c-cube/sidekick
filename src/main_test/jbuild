@@ -2,8 +2,8 @@
 
 (executable
   ((name main_test)
-   (libraries (dagon_sat dagon.backend dagon.th_sat dolmen))
-   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open Dagon_sat))
+   (libraries (sidekick_sat sidekick.backend sidekick.th_sat dolmen))
+   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open Sidekick_sat))
    (ocamlopt_flags (:standard -O3 -bin-annot
                     -unbox-closures -unbox-closures-factor 20))
   ))

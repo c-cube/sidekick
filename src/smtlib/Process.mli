@@ -1,7 +1,7 @@
 
 (** {1 Process Statements} *)
 
-open Dagon_smt
+open Sidekick_smt
 
 type 'a or_error = ('a, string) CCResult.t
 

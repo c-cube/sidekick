@@ -7,7 +7,7 @@ module Proof : sig
   type t = Proof
 end
 
-include Dagon_sat.Theory_intf.S
+include Sidekick_sat.Theory_intf.S
   with type formula = Lit.t
    and type proof = Proof.t
 

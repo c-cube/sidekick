@@ -1,5 +1,5 @@
 opam-version: "1.2"
-name: "dagon"
+name: "sidekick"
 license: "Apache"
 version: "dev"
 author: ["Simon Cruanes" "Guillaume Bury" "Sylvain Conchon" "Alain Mebsout" "Stephane Lecuyer"]
@@ -19,7 +19,7 @@ available: [
   ocaml-version >= "4.03.0"
 ]
 tags: [ "sat" "smt" ]
-homepage: "https://github.com/c-cube/dagon"
-dev-repo: "https://github.com/c-cube/dagon.git"
-bug-reports: "https://github.com/c-cube/dagon/issues/"
+homepage: "https://github.com/c-cube/sidekick"
+dev-repo: "https://github.com/c-cube/sidekick.git"
+bug-reports: "https://github.com/c-cube/sidekick/issues/"
 

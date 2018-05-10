@@ -7,7 +7,7 @@
 
 type 'a or_error = ('a, string) CCResult.t
 
-module Ast = Dagon_smt.Ast
+module Ast = Sidekick_smt.Ast
 module Process = Process
 
 val parse : string -> Ast.statement list or_error

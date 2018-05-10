@@ -1,6 +1,6 @@
-# dagon [![Build Status](https://travis-ci.org/c-cube/cdcl.svg?branch=master)](https://travis-ci.org/c-cube/CDCL)
+# Sidekick [![Build Status](https://travis-ci.org/c-cube/sidekick.svg?branch=master)](https://travis-ci.org/c-cube/sidekick)
 
-Dagon is an OCaml library with a functor to create SMT solvers following
+Sidekick is an OCaml library with a functor to create SMT solvers following
 the CDCL(T) approach (so called "lazy SMT").
 
 It derives from [Alt-Ergo Zero](http://cubicle.lri.fr/alt-ergo-zero)
@@ -9,16 +9,16 @@ and its fork [mSAT](https://github.com/gbury/msat).
 
 ## Documentation
 
-See https://c-cube.github.io/dagon/
+See https://c-cube.github.io/sidekick/
 
 ## Installation
 
 ### Via opam
 
-Once the package is on [opam](http://opam.ocaml.org), just `opam install dagon`.
+Once the package is on [opam](http://opam.ocaml.org), just `opam install sidekick`.
 For the development version, use:
 
-    opam pin add dagon https://github.com/c-cube/dagon.git
+    opam pin https://github.com/c-cube/sidekick.git
 
 ### Manual installation
 

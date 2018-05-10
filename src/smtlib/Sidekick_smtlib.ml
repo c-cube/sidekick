@@ -2,7 +2,7 @@
 (** {1 Process Statements} *)
 
 module Fmt = CCFormat
-module Ast = Dagon_smt.Ast
+module Ast = Sidekick_smt.Ast
 module E = CCResult
 module Loc = Locations
 module Process = Process

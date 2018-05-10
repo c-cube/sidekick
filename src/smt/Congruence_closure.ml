@@ -1,6 +1,6 @@
 
-module Vec = Dagon_sat.Vec
-module Log = Dagon_sat.Log
+module Vec = Sidekick_sat.Vec
+module Log = Sidekick_sat.Log
 open Solver_types
 
 type node = Equiv_class.t

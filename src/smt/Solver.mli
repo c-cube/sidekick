@@ -5,7 +5,7 @@
 
     The solving algorithm, based on MCSat *)
 
-module Sat_solver : Dagon_sat.S
+module Sat_solver : Sidekick_sat.S
       with type formula = Lit.t
        and type theory = Theory_combine.t
        and type Proof.lemma = Theory_combine.proof

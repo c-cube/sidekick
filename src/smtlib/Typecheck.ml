@@ -6,7 +6,7 @@
 module Loc = Locations
 module Fmt = CCFormat
 
-module A = Dagon_smt.Ast
+module A = Sidekick_smt.Ast
 module PA = Parse_ast
 
 type 'a or_error = ('a, string) CCResult.t
@@ -314,7 +314,7 @@ let rec conv_term ctx (t:PA.term) : A.term = match t with
     errorf_ctx ctx "unsupported term %a" PA.pp_term t
 
 let find_file_ name ~dir : string option =
-  Dagon_sat.Log.debugf 2 (fun k->k "search %s in %s" name dir);
+  Sidekick_sat.Log.debugf 2 (fun k->k "search %s in %s" name dir);
   let abs_path = Filename.concat dir name in
   if Sys.file_exists abs_path
   then Some abs_path

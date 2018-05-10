@@ -1,7 +1,7 @@
 
 (** {1 Theory of Booleans} *)
 
-open Dagon_smt
+open Sidekick_smt
 
 module Fmt = CCFormat
 

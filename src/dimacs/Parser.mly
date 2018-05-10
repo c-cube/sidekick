@@ -1,7 +1,7 @@
 /*  Copyright 2005 INRIA  */
 
 %{
-  open Dagon_util
+  open Sidekick_util
 
   let lnum pos = pos.Lexing.pos_lnum
   let cnum pos = pos.Lexing.pos_cnum - pos.Lexing.pos_bol

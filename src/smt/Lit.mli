@@ -28,7 +28,7 @@ val compare : t -> t -> int
 val equal : t -> t -> bool
 val print : t Fmt.printer
 val pp : t Fmt.printer
-val norm : t -> t * Dagon_sat.negated
+val norm : t -> t * Sidekick_sat.negated
 module Set : CCSet.S with type elt = t
 module Tbl : CCHashtbl.S with type key = t
 

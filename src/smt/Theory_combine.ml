@@ -3,7 +3,7 @@
 
 (** Combine the congruence closure with a number of plugins *)
 
-module Sat_solver = Dagon_sat
+module Sat_solver = Sidekick_sat
 open Solver_types
 
 module Proof = struct

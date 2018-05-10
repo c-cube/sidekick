@@ -11,7 +11,7 @@ let get_time : unit -> float = Sys.time
 
 type level = int
 
-module Sat_solver = Dagon_sat.Make(Theory_combine)
+module Sat_solver = Sidekick_sat.Make(Theory_combine)
 
 let[@inline] clause_of_mclause (c:Sat_solver.clause): Lit.t IArray.t =
   Sat_solver.Clause.atoms c
@@ -407,14 +407,14 @@ type unsat_core = Sat.clause list
 let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
   let r = Sat_solver.solve ~assumptions (solver self) () in
   match r with
-  | Sat_solver.Sat (Dagon_sat.Sat_state _st) ->
+  | Sat_solver.Sat (Sidekick_sat.Sat_state _st) ->
     Log.debugf 0 (fun k->k "SAT");
     Unknown U_incomplete (* TODO *)
     (*
     let env = Ast.env_empty in
     let m = Model.make ~env
     Sat m *)
-  | Sat_solver.Unsat (Dagon_sat.Unsat_state us) ->
+  | Sat_solver.Unsat (Sidekick_sat.Unsat_state us) ->
     let pr = us.get_proof () in
     Unsat pr
 

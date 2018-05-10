@@ -1,6 +1,6 @@
 (*  Copyright 2005 INRIA  *)
 {
-  open Dagon_util
+  open Sidekick_util
   open Parser
 }
 

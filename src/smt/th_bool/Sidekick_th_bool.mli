@@ -1,7 +1,7 @@
 
 (** {1 Theory of Booleans} *)
 
-open Dagon_smt
+open Sidekick_smt
 
 type term = Term.t
 
@@ -45,4 +45,4 @@ module Lit : sig
   val neq : Term.state -> term -> term -> t
 end
 
-val th : Dagon_smt.Theory.t
+val th : Sidekick_smt.Theory.t

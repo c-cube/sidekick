@@ -162,7 +162,7 @@ let equal_as_values (_:A.term) (_:A.term) : partial_eq =
    @param st the "stack trace" (terms around currently being evaluated)
    @param t the term to eval *)
 let rec eval_whnf (m:t) (st:term list) (subst:subst) (t:term): term =
-  Dagon_sat.Log.debugf 5
+  Sidekick_sat.Log.debugf 5
     (fun k->k "%s@[<2>eval_whnf `@[%a@]`@ in @[%a@]@]"
         (String.make (List.length st) ' ') (* indent *)
         A.pp_term t pp_subst subst);

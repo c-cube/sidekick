@@ -8,10 +8,10 @@ open CCResult.Infix
 
 module E = CCResult
 module Fmt = CCFormat
-module Term = Dagon_smt.Term
-module Ast = Dagon_smt.Ast
-module Solver = Dagon_smt.Solver
-module Process = Dagon_smtlib.Process
+module Term = Sidekick_smt.Term
+module Ast = Sidekick_smt.Ast
+module Solver = Sidekick_smt.Solver
+module Process = Sidekick_smtlib.Process
 
 type 'a or_error = ('a, string) E.t
 
@@ -34,7 +34,7 @@ let p_progress = ref false
 
 let hyps : Ast.term list ref = ref []
 
-module Dot = Dagon_backend.Dot.Make(Solver.Sat_solver.Proof)(Dagon_backend.Dot.Default(Solver.Sat_solver.Proof))
+module Dot = Sidekick_backend.Dot.Make(Solver.Sat_solver.Proof)(Sidekick_backend.Dot.Default(Solver.Sat_solver.Proof))
 
 let check_model _state =
   let check_clause _c =
@@ -43,7 +43,7 @@ let check_model _state =
     let l =
       List.map
         (fun a ->
-           Dagon_sat.Log.debugf 99
+           Sidekick_sat.Log.debugf 99
              (fun k -> k "Checking value of %a" Term.pp (Sat.Atom.term a));
            Sat_solver.Sat_state.eval state a)
         c
@@ -98,7 +98,7 @@ let argspec = Arg.align [
     "-no-p", Arg.Clear p_progress, " no progress bar";
     "-size", Arg.String (int_arg size_limit), " <s>[kMGT] sets the size limit for the sat solver";
     "-time", Arg.String (int_arg time_limit), " <t>[smhd] sets the time limit for the sat solver";
-    "-v", Arg.Int Dagon_sat.Log.set_debug, "<lvl> sets the debug verbose level";
+    "-v", Arg.Int Sidekick_sat.Log.set_debug, "<lvl> sets the debug verbose level";
   ]
 
 type syntax =
@@ -122,19 +122,19 @@ let main () =
   let solver =
     let theories = match syn with
       | Dimacs ->
-        [Dagon_th_bool.th]
+        [Sidekick_th_bool.th]
       | Smtlib ->
-        [Dagon_th_bool.th] (* TODO: more theories *)
+        [Sidekick_th_bool.th] (* TODO: more theories *)
     in
-    Dagon_smt.Solver.create ~theories ()
+    Sidekick_smt.Solver.create ~theories ()
   in
   let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
   begin match syn with
     | Smtlib ->
       (* parse pb *)
-      Dagon_smtlib.parse !file
+      Sidekick_smtlib.parse !file
     | Dimacs ->
-      Dagon_dimacs.parse !file >|= fun cs ->
+      Sidekick_dimacs.parse !file >|= fun cs ->
       List.rev_append
         (List.rev_map (fun c -> Ast.Assert_bool c) cs)
         [Ast.CheckSat]
@@ -155,7 +155,7 @@ let main () =
       E.return()
   in
   if !p_stat then (
-    Format.printf "%a@." Dagon_smt.Solver.pp_stats solver;
+    Format.printf "%a@." Sidekick_smt.Solver.pp_stats solver;
   );
   if !p_gc_stat then (
     Printf.printf "(gc_stats\n%t)\n" Gc.print_stat;

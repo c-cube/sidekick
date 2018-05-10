@@ -1,13 +1,13 @@
 
 (** {2 Conversion into {!Term.t}} *)
 
-open Dagon_smt
+open Sidekick_smt
 
 type 'a or_error = ('a, string) CCResult.t
 
 module E = CCResult
 module A = Ast
-module Form = Dagon_th_bool
+module Form = Sidekick_th_bool
 module Fmt = CCFormat
 
 module Subst = struct

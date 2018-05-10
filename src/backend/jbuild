@@ -2,11 +2,11 @@
 
 ; main binary
 (library
-  ((name Dagon_backend)
-   (public_name dagon.backend)
-   (synopsis "proof backends for Dagon")
-   (libraries (dagon.sat))
-   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open Dagon_sat))
+  ((name Sidekick_backend)
+   (public_name sidekick.backend)
+   (synopsis "proof backends for Sidekick")
+   (libraries (sidekick.sat))
+   (flags (:standard -w +a-4-42-44-48-50-58-32-60@8 -color always -safe-string -open Sidekick_sat))
    (ocamlopt_flags (:standard -O3 -bin-annot
                     -unbox-closures -unbox-closures-factor 20))
   ))
