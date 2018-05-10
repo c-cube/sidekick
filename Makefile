@@ -3,20 +3,17 @@
 
 .PHONY: clean build build-dev
 
-NAME=msat
 J?=3
 TIMEOUT?=30
-TARGETS=src/main/main.exe
 OPTS= -j $(J)
 
-build:
-	jbuilder build $(TARGETS) $(OPTS)
-
 build-install:
-	jbuilder build @install
+	jbuilder build $(OPTS) @install
+
+build: build-install
 
 build-dev:
-	jbuilder build $(TARGETS) $(OPTS) --dev
+	jbuilder build $(OPTS) --dev
 
 enable_log:
 	cd src/core; ln -sf log_real.ml log.ml
