@@ -113,12 +113,6 @@ module type S = sig
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state. *)
 
-  val new_atom : permanent:bool -> t -> formula -> unit
-  (** Add a new atom (i.e propositional formula) to the solver.
-      This formula will be decided on at some point during solving,
-      whether it appears in clauses or not.
-      @param permanent if true, kept after backtracking *)
-
   val unsat_core : proof -> clause list
   (** Returns the unsat core of a given proof, ie a subset of all the added
       clauses that is sufficient to establish unsatisfiability. *)

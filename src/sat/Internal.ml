@@ -14,6 +14,7 @@ let () = Var_fields.freeze()
 module C_fields = Solver_intf.C_fields
 
 let c_field_attached = C_fields.mk_field () (* watching literals? *)
+let c_field_dead = C_fields.mk_field () (* been removed once? *)
 let c_field_visited = C_fields.mk_field () (* used during propagation and proof generation. *)
 
 module Make (Th : Theory_intf.S) = struct
@@ -44,7 +45,7 @@ module Make (Th : Theory_intf.S) = struct
     name : int;
     tag : int option;
     atoms : atom array;
-    mutable cpremise : premise;
+    mutable c_premise : premise;
     mutable activity : float;
     mutable c_flags : C_fields.t
   }
@@ -87,7 +88,7 @@ module Make (Th : Theory_intf.S) = struct
       atoms = [| |];
       activity = -1.;
       c_flags = C_fields.empty;
-      cpremise = History [];
+      c_premise = History [];
     }
 
   let () = dummy_atom.watched <- Vec.make_empty dummy_clause
@@ -95,7 +96,7 @@ module Make (Th : Theory_intf.S) = struct
   (* Constructors *)
   module MF = Hashtbl.Make(Th.Form)
 
-  let name_of_clause c = match c.cpremise with
+  let name_of_clause c = match c.c_premise with
     | Hyp -> "H" ^ string_of_int c.name
     | Local -> "L" ^ string_of_int c.name
     | Lemma _ -> "T" ^ string_of_int c.name
@@ -386,7 +387,7 @@ module Make (Th : Theory_intf.S) = struct
         Format.fprintf fmt ""
 
     let debug out a =
-      Format.fprintf out "%s%d[%a][@[%a@]]"
+      Format.fprintf out "@[%s%d[%a][@[%a@]]@]"
         (sign a) (a.var.vid+1) debug_value a Th.Form.print a.lit
 
     let debug_a out vec =
@@ -407,10 +408,12 @@ module Make (Th : Theory_intf.S) = struct
           atoms = atoms;
           c_flags = C_fields.empty;
           activity = 0.;
-          cpremise = premise;
+          c_premise = premise;
         }
 
     let make_l ?tag l pr = make ?tag (Array.of_list l) pr
+
+    let[@inline] copy (c:t) : t = make ?tag:c.tag c.atoms c.c_premise
 
     let empty = make [| |] (History [])
     let name = name_of_clause
@@ -420,8 +423,13 @@ module Make (Th : Theory_intf.S) = struct
     let[@inline] tag c = c.tag
     let hash cl = Array.fold_left (fun i a -> Hashtbl.hash (a.aid, i)) 0 cl.atoms
 
-    let[@inline] premise c = c.cpremise
-    let[@inline] set_premise c p = c.cpremise <- p
+    let[@inline] premise c = c.c_premise
+    let[@inline] set_premise c p = c.c_premise <- p
+
+    (* a dead clause is a clause that has been removed. It should never
+       be added again *)
+    let[@inline] dead c = C_fields.get c_field_dead c.c_flags
+    let[@inline] mark_dead c = c.c_flags <- C_fields.set c_field_dead true c.c_flags
 
     let[@inline] visited c = C_fields.get c_field_visited c.c_flags
     let[@inline] set_visited c b = c.c_flags <- C_fields.set c_field_visited b c.c_flags
@@ -438,17 +446,18 @@ module Make (Th : Theory_intf.S) = struct
         let equal = equal
       end)
 
-    let pp fmt c =
-      Format.fprintf fmt "%s : %a" (name c) Atom.pp_a c.atoms
+    let pp fmt c = Format.fprintf fmt "%s : %a" (name c) Atom.pp_a c.atoms
 
     let debug_premise out = function
       | Hyp -> Format.fprintf out "hyp"
       | Local -> Format.fprintf out "local"
       | Lemma _ -> Format.fprintf out "th_lemma"
-      | History v -> Util.pp_list (CCFormat.of_to_string name_of_clause) out v
+      | History v ->
+        Format.fprintf out "[@[%a@]]"
+          (Util.pp_list @@ CCFormat.of_to_string name_of_clause) v
 
-    let debug out ({atoms=arr; cpremise=cp;_}as c) =
-      Format.fprintf out "%s@[<hov>{@[<hov>%a@]}@ cpremise={@[<hov>%a@]}@]"
+    let debug out ({atoms=arr; c_premise=cp;_}as c) =
+      Format.fprintf out "%s@[{@[%a@]}@ c_premise={@[%a@]}@]"
         (name c) Atom.debug_a arr debug_premise cp
 
     let pp_dimacs fmt {atoms;_} =
@@ -544,7 +553,7 @@ module Make (Th : Theory_intf.S) = struct
       aux (c, d)
 
     let[@inline] prove conclusion =
-      assert (conclusion.cpremise <> History []);
+      assert (conclusion.c_premise <> History []);
       conclusion
 
     let rec set_atom_proof a =
@@ -626,7 +635,7 @@ module Make (Th : Theory_intf.S) = struct
 
     let expand conclusion =
       Log.debugf 5 (fun k -> k "Expanding : @[%a@]" Clause.debug conclusion);
-      match conclusion.cpremise with
+      match conclusion.c_premise with
       | Lemma l ->
         {conclusion; step = Lemma l; }
       | Hyp ->
@@ -646,7 +655,7 @@ module Make (Th : Theory_intf.S) = struct
         { conclusion; step = Resolution (c', d', a); }
       | History ( c :: r ) ->
         let (l, c', d', a) = chain_res (c, to_list c) r in
-        conclusion.cpremise <- History [c'; d'];
+        conclusion.c_premise <- History [c'; d'];
         assert (cmp_cl l (to_list conclusion) = 0);
         { conclusion; step = Resolution (c', d', a); }
 
@@ -683,7 +692,7 @@ module Make (Th : Theory_intf.S) = struct
         | c :: r ->
           if not (Clause.visited c) then (
             Clause.set_visited c true;
-            match c.cpremise with
+            match c.c_premise with
             | Hyp | Local | Lemma _ -> aux (c :: res) acc r
             | History h ->
               let l = List.fold_left (fun acc c ->
@@ -764,10 +773,6 @@ module Make (Th : Theory_intf.S) = struct
     );
     f()
 
-  (* Misc functions *)
-  let to_float = float_of_int
-  let to_int = int_of_float
-
   (* Are the assumptions currently unsat ? *)
   let[@inline] is_unsat st =
     match st.unsat_conflict with
@@ -786,15 +791,8 @@ module Make (Th : Theory_intf.S) = struct
       H.insert st.order v;
     )
 
-  let new_atom ~permanent st (p:formula) : atom =
-    let a = Atom.make st p in
-    if permanent then (
-      redo_down_to_level_0 st
-        (fun () -> insert_var_order st a.var)
-    ) else (
-      insert_var_order st a.var
-    );
-    a
+  (* attach an atom by deciding on its variable, if needed *)
+  let[@inline] attach_atom (st:t) (a:atom) : unit = insert_var_order st a.var
 
   (* Rather than iterate over all the heap when we want to decrease all the
      variables/literals activity, we instead increase the value by which
@@ -873,17 +871,15 @@ module Make (Th : Theory_intf.S) = struct
       Clause.make_l !res (History [clause])
     )
 
-  (* Partition literals for new clauses, into:
+  (* Sort literals for new clause, into:
      - true literals (maybe makes the clause trivial if the lit is proved true at level 0)
      - unassigned literals, yet to be decided
-     - false literals (not suitable to watch, those at level 0 can be removed from the clause)
-
-     Clauses that propagated false lits are remembered to reconstruct resolution proofs.
+     - false literals (not suitable to watch)
   *)
-  let partition atoms : atom list * clause list =
-    let rec partition_aux trues unassigned falses history i =
+  let sort_lits_by_level atoms : atom list =
+    let rec partition_aux trues unassigned falses i =
       if i >= Array.length atoms then (
-        trues @ unassigned @ falses, history
+        trues @ unassigned @ falses
       ) else (
         let a = atoms.(i) in
         if a.is_true then (
@@ -891,30 +887,16 @@ module Make (Th : Theory_intf.S) = struct
           if l = 0 then
             raise Trivial (* A var true at level 0 gives a trivially true clause *)
           else
-            (a :: trues) @ unassigned @ falses @
-            (arr_to_list atoms (i + 1)), history
+            (a :: trues) @ unassigned @ falses @ (arr_to_list atoms (i + 1))
         ) else if a.neg.is_true then (
-          let l = a.var.v_level in
-          if l = 0 then (
-            match a.var.reason with
-            | Some (Bcp cl) ->
-              partition_aux trues unassigned falses (cl :: history) (i + 1)
-            (* A var false at level 0 can be eliminated from the clause,
-               but we need to kepp in mind that we used another clause to simplify it. *)
-            | None | Some Decision -> assert false
-            (* The var must have a reason, and it cannot be a decision/assumption,
-               since its level is 0. *)
-          ) else (
-            partition_aux trues unassigned (a::falses) history (i + 1)
-          )
+          partition_aux trues unassigned (a::falses) (i + 1)
         ) else (
-          partition_aux trues (a::unassigned) falses history (i + 1)
+          partition_aux trues (a::unassigned) falses (i + 1)
         )
       )
     in
-    try partition_aux [] [] [] [] 0
-    with Trivial -> Array.to_list atoms, []
-
+    try partition_aux [] [] [] 0
+    with Trivial -> Array.to_list atoms
 
   (* Making a decision.
      Before actually creatig a new decision level, we check that
@@ -935,6 +917,7 @@ module Make (Th : Theory_intf.S) = struct
      either because it is assumed or learnt.
   *)
   let attach_clause (self:t) (c:clause) : unit =
+    assert (not @@ Clause.dead c);
     if not (Clause.attached c) then (
       Log.debugf 5 (fun k -> k "(@[sat.attach_clause@ %a@])" Clause.debug c);
       on_backtrack self
@@ -944,6 +927,8 @@ module Make (Th : Theory_intf.S) = struct
       Vec.push c.atoms.(0).neg.watched c;
       Vec.push c.atoms.(1).neg.watched c;
       Clause.set_attached c true;
+      (* internalize atoms *)
+      Array.iter (attach_atom self) c.atoms;
     )
 
   (* perform all backtracking actions down to level [l].
@@ -1017,43 +1002,6 @@ module Make (Th : Theory_intf.S) = struct
     st.unsat_conflict <- Some confl;
     raise Unsat
 
-  (* Simplification of boolean propagation reasons.
-     When doing boolean propagation *at level 0*, it can happen
-     that the clause cl, which propagates a formula, also contains
-     other formulas, but has been simplified. in which case, we
-     need to rebuild a clause with correct history, in order to
-     be able to build a correct proof at the end of proof search. *)
-  let simpl_reason : reason -> reason = function
-    | (Bcp cl) as r ->
-      begin match partition cl.atoms with
-        | [_] as l, history ->
-          if history = [] then (
-            (* no simplification has been done, so [cl] is actually a clause with only
-               [a], so it is a valid reason for propagating [a]. *)
-            r
-          ) else (
-            (* Clauses in [history] have been used to simplify [cl] into a clause [tmp_cl]
-               with only one formula (which is [a]). So we explicitly create that clause
-               and set it as the cause for the propagation of [a], that way we can
-               rebuild the whole resolution tree when we want to prove [a]. *)
-            let c' = Clause.make_l l (History (cl :: history)) in
-            Log.debugf 5
-              (fun k -> k "(@[sat.simplified-reason@ :old %a@ :new %a@])"
-                  Clause.debug cl Clause.debug c');
-            Bcp c'
-          )
-        | l, _history ->
-          Log.debugf 1
-            (fun k ->
-               k "@[<v 2>Failed at reason simplification:@,%a@,%a@]"
-                 (Vec.print ~sep:"" Atom.debug)
-                 (Vec.from_list l Atom.dummy)
-                 Clause.debug cl);
-          assert false
-        | exception Trivial -> r
-      end
-    | r -> r
-
   (* Boolean propagation.
      Wrapper function for adding a new propagated formula. *)
   let enqueue_bool st a reason : unit =
@@ -1063,7 +1011,6 @@ module Make (Th : Theory_intf.S) = struct
     let level = decision_level st in
     Log.debugf 5
       (fun k->k "(@[sat.enqueue_bool@ :lvl %d@ %a@])" level Atom.debug a);
-    let reason = if at_level_0 st then simpl_reason reason else reason in
     (* backtrack assignment if needed. Trail is backtracked automatically. *)
     assert (not a.is_true && a.var.v_level < 0 && a.var.reason = None);
     on_backtrack st
@@ -1159,7 +1106,7 @@ module Make (Th : Theory_intf.S) = struct
     while !cond do
       let clause = !c in
       Log.debugf 5 (fun k->k"(@[sat.resolving-clause@ %a@])"  Clause.debug clause);
-      begin match clause.cpremise with
+      begin match clause.c_premise with
         | History _ -> clause_bump_activity st clause
         | Hyp | Local | Lemma _ -> ()
       end;
@@ -1223,6 +1170,8 @@ module Make (Th : Theory_intf.S) = struct
   let[@inline] analyze st c_clause : conflict_res =
     analyze_sat st c_clause
 
+  (* FIXME: this shouldn't go through the backtracking stack, but directly
+     into one vector where it can be GC'd later *)
   (* add the learnt clause to the clause database, propagate, etc. *)
   let record_learnt_clause st (confl:clause) (cr:conflict_res): unit =
     begin match cr.cr_learnt with
@@ -1240,6 +1189,7 @@ module Make (Th : Theory_intf.S) = struct
       | fuip :: _ ->
         let lclause = Clause.make_l cr.cr_learnt (History cr.cr_history) in
         Vec.push st.clauses_learnt lclause;
+        (* clause will stay attached *)
         redo_down_to_level_0 st (fun () -> attach_clause st lclause);
         clause_bump_activity st lclause;
         if cr.cr_is_uip then (
@@ -1271,143 +1221,82 @@ module Make (Th : Theory_intf.S) = struct
 
   (* Get the correct vector to insert a clause in. *)
   let rec clause_vector st c =
-    match c.cpremise with
+    match c.c_premise with
     | Hyp -> st.clauses_hyps
     | Local -> st.clauses_temp
     | History [c'] -> clause_vector st c' (* simplified version of [d] *)
     | Lemma _ | History _ -> st.clauses_learnt
 
-  (* TODO: rewrite this, accounting for backtracking semantics.
+  (* Add clause, accounting for backtracking semantics.
+   - always add literals to queue if not decided yet
    - if clause is already true, probably just do nothing
    - if clause is unit, propagate lit immediately (with clause as justification)
      but do not add clause
-
+   - permanent stuff: just re-add it on backtrack
    *)
-
-  (* add permanent clause, to be kept down to level 0.
-     precond: non empty clause
-     @param atoms list of atoms of [c]
-     @param c the clause itself *)
-  let add_clause_permanent st (atoms:atom list) (clause:clause) : unit =
-    Log.debugf 5 (fun k->k "(@[sat.add_clause_permanent@ %a@])" Clause.debug clause);
-    let vec_for_clause = clause_vector st clause in
-    match atoms with
-    | [] -> assert false
-    | [a]   ->
-      if a.neg.is_true then (
-        (* Since we cannot propagate the atom [a], in order to not lose
-           the information that [a] must be true, we add clause to the list
-           of clauses to add, so that it will be e-examined later. *)
-        Log.debug 5 "(sat.false-unit-clause@ report failure)";
-        report_unsat st clause
-      ) else if a.is_true then (
-        (* If the atom is already true, then it should be because of a local hyp.
-           However it means we can't propagate it at level 0. In order to not lose
-           that information, we store the clause in a stack of clauses that we will
-           add to the solver at the next pop. *)
-        Log.debug 5 "(sat.unit-clause@ adding to root clauses)";
-        assert (0 < a.var.v_level && a.var.v_level <= base_level st);
-        on_backtrack st
-          (fun () ->
-             Vec.pop vec_for_clause);
-        Vec.push vec_for_clause clause;
-      ) else (
-        Log.debugf 5
-          (fun k->k "(@[sat.add_clause.unit-clause@ :propagating %a@])" Atom.debug a);
-        on_backtrack st (fun () -> Vec.pop vec_for_clause);
-        Vec.push vec_for_clause clause;
-        enqueue_bool st a (Bcp clause)
-      )
-    | a::b::_ ->
-      Vec.push vec_for_clause clause;
-      if a.neg.is_true then (
-        (* Atoms need to be sorted in decreasing order of decision level,
-           or we might watch the wrong literals. *)
-        put_high_level_atoms_first clause.atoms;
-        attach_clause st clause;
-        add_boolean_conflict st clause
-      ) else (
-        attach_clause st clause;
-        if b.neg.is_true && not a.is_true && not a.neg.is_true then (
-          let lvl = List.fold_left (fun m a -> max m a.var.v_level) 0 atoms in
-          cancel_until st (max lvl (base_level st));
-          enqueue_bool st a (Bcp clause)
-        )
-      )
-
-  (* Add a new clause, simplifying, propagating, and backtracking if
-     the clause is false in the current trail *)
-  let add_clause ~permanent st (init:clause) : unit =
+  let add_clause_ st (c:clause) : unit =
     Log.debugf 5
-      (fun k -> k "(@[@{<Yellow>sat.add_clause@}@ :permanent %B@ %a@])"
-          permanent Clause.debug init);
-    let vec_for_clause = clause_vector st init in
-    match eliminate_duplicates init with
+      (fun k -> k "(@[@{<Yellow>sat.add_clause@}@ %a@])" Clause.debug c);
+    assert (not @@ Clause.dead c);
+    let vec_for_clause = clause_vector st c in
+    match eliminate_duplicates c with
     | exception Trivial ->
-      Vec.push vec_for_clause init;
-      Log.debugf 3 (fun k->k "(@[sat.add_clause.ignore-trivial@ %a@])" Clause.debug init)
+      Log.debugf 3 (fun k->k "(@[sat.add_clause.ignore-trivial@ %a@])" Clause.debug c)
     | c ->
       Log.debugf 5 (fun k -> k "(@[sat.add_clause.after_eliminate_dups@ %a@])" Clause.debug c);
-      let atoms, history = partition c.atoms in
-      let clause =
-        if history = []
-        then (
-          (* update order of atoms *)
-          List.iteri (fun i a -> c.atoms.(i) <- a) atoms;
-          c
-        ) else (
-          Clause.make_l atoms (History (c :: history))
-        )
-      in
-      Log.debugf 3 (fun k->k "(@[sat.add_clause.new_clause@ %a@])" Clause.debug clause);
+      (* sort atoms by decreasing level of decision (undecided first) *)
+      let atoms = sort_lits_by_level c.atoms in
+      (* update order of atoms *)
+      assert (List.length atoms = Array.length c.atoms);
+      List.iteri (fun i a -> c.atoms.(i) <- a) atoms;
+      Log.debugf 3 (fun k->k "(@[sat.add_clause.new_clause@ %a@])" Clause.debug c);
+      (* kill clause once we backtrack *)
+      on_backtrack st (fun () -> Clause.mark_dead c);
       match atoms with
       | [] ->
         (* report Unsat immediately *)
-        report_unsat st clause
-      | _::_ when permanent ->
-        (* add clause, down to level 0 *)
-        redo_down_to_level_0 st
-          (fun () -> add_clause_permanent st atoms clause)
+        report_unsat st c
       | [a] ->
         if a.neg.is_true then (
-          (* Since we cannot propagate the atom [a], in order to not lose
-             the information that [a] must be true, we add clause to the list
-             of clauses to add, so that it will be e-examined later. *)
           Log.debug 5 "(sat.add_clause: false unit clause, report unsat)";
-          report_unsat st clause
+          report_unsat st c
         ) else if a.is_true then (
-          (* If the atom is already true, then it should be because of a local hyp.
-             However it means we can't propagate it at level 0. In order to not lose
-             that information, we store the clause in a stack of clauses that we will
-             add to the solver at the next pop. *)
+          (* ignore clause, will never be useful *)
           Log.debug 5 "(sat.add_clause: true unit clause, ignore)";
           assert (0 < a.var.v_level && a.var.v_level <= base_level st);
         ) else (
           Log.debugf 5
             (fun k->k "(@[sat.add_clause.unit_clause@ :propagating %a@])" Atom.debug a);
-          (* propagate but without adding the clause. May need to
-             re-propagate after backtracking *)
-          redo_down_to_level_0 st
-            (fun () -> enqueue_bool st a (Bcp clause))
+          enqueue_bool st a (Bcp c)
         )
-      | a::b::_ ->
+      | _::_::_ ->
         on_backtrack st (fun () -> Vec.pop vec_for_clause);
-        Vec.push vec_for_clause clause;
+        Vec.push vec_for_clause c;
         (* Atoms need to be sorted in decreasing order of decision level,
            or we might watch the wrong literals. *)
-        put_high_level_atoms_first clause.atoms;
+        put_high_level_atoms_first c.atoms;
+        attach_clause st c;
+        let a = c.atoms.(0) in
+        let b = c.atoms.(1) in
         if a.neg.is_true then (
           (* conflict, even the last literal is false *)
-          attach_clause st clause;
-          add_boolean_conflict st clause
+          add_boolean_conflict st c
         ) else (
-          attach_clause st clause;
           if b.neg.is_true && not a.is_true && not a.neg.is_true then (
             let lvl = List.fold_left (fun m a -> max m a.var.v_level) 0 atoms in
             cancel_until st (max lvl (base_level st));
-            enqueue_bool st a (Bcp clause)
+            enqueue_bool st a (Bcp c)
           )
         )
+
+  (* Add a new clause, simplifying, propagating, and backtracking if
+     the clause is false in the current trail *)
+  let add_clause ~permanent st (c:clause) : unit =
+    if permanent then (
+      redo_down_to_level_0 st (fun () -> add_clause_ st (Clause.copy c))
+    ) else (
+      add_clause_ st c
+    )
 
   let[@inline] add_clause_user ~permanent st (c:clause): unit =
     CCVector.push st.to_add (permanent,c)
@@ -1491,25 +1380,24 @@ module Make (Th : Theory_intf.S) = struct
     done
 
   let act_push_ ~permanent st (l:formula IArray.t) (lemma:lemma): unit =
-    let atoms = IArray.to_array_map (new_atom ~permanent st) l in
+    let atoms = IArray.to_array_map (Atom.make st) l in
     let c = Clause.make atoms (Lemma lemma) in
     Log.debugf 3
       (fun k->k "(@[sat.push_clause_from_theory@ :permanent %B@ %a@])"
           permanent Clause.debug c);
     add_clause ~permanent st c
 
-  (* TODO: ensure that the clause is removed upon backtracking *)
   let act_push_local = act_push_ ~permanent:false
   let act_push_persistent = act_push_ ~permanent:true
 
-  (* TODO: ensure that the clause is removed upon backtracking *)
   let act_propagate (st:t) f causes proof : unit =
-    let l = List.rev_map (new_atom ~permanent:false st) causes in
+    let l = List.rev_map (Atom.make st) causes in
     if List.for_all (fun a -> a.is_true) l then (
-      let p = new_atom ~permanent:false st f in
+      let p = Atom.make st f in
       let c = Clause.make_l (p :: List.map Atom.neg l) (Lemma proof) in
       if p.is_true then (
       ) else if p.neg.is_true then (
+        (* propagate other lits in the clause *)
         add_clause ~permanent:false st c
       ) else (
         insert_var_order st p.var;
@@ -1572,7 +1460,8 @@ module Make (Th : Theory_intf.S) = struct
         propagate st
       | Theory_intf.Unsat (l, p) ->
         (* conflict *)
-        let l = List.rev_map (new_atom ~permanent:false st) l in
+        let l = List.rev_map (Atom.make st) l in
+        (* TODO: do that when the conflict clause is added *)
         List.iter (fun a -> insert_var_order st a.var) l;
         let c = Clause.make_l l (Lemma p) in
         Some c
@@ -1680,8 +1569,8 @@ module Make (Th : Theory_intf.S) = struct
   let solve (st:t) : unit =
     Log.debug 5 "(sat.solve)";
     if is_unsat st then raise Unsat;
-    let n_of_conflicts = ref (to_float restart_first) in
-    let n_of_learnts = ref ((to_float (nb_clauses st)) *. learntsize_factor) in
+    let n_of_conflicts = ref (float_of_int restart_first) in
+    let n_of_learnts = ref ((float_of_int (nb_clauses st)) *. learntsize_factor) in
     (* add clauses that are waiting in [to_add] *)
     let rec add_clauses () =
       match
@@ -1692,7 +1581,7 @@ module Make (Th : Theory_intf.S) = struct
         add_boolean_conflict st c;
         call_solve()
     and call_solve() =
-      match search st (to_int !n_of_conflicts) (to_int !n_of_learnts) with
+      match search st (int_of_float !n_of_conflicts) (int_of_float !n_of_learnts) with
       | () -> ()
       | exception Restart ->
         n_of_conflicts := !n_of_conflicts *. restart_inc;
@@ -1711,7 +1600,7 @@ module Make (Th : Theory_intf.S) = struct
               raise Sat
             )
           | Theory_intf.Unsat (l, p) ->
-            let atoms = List.rev_map (new_atom ~permanent:false st) l in
+            let atoms = List.rev_map (Atom.make st) l in
             let c = Clause.make_l atoms (Lemma p) in
             Log.debugf 3
               (fun k -> k "(@[@{<Yellow>sat.theory_conflict_clause@}@ %a@])" Clause.debug c);
@@ -1727,7 +1616,7 @@ module Make (Th : Theory_intf.S) = struct
   let assume ~permanent st ?tag cnf =
     List.iter
       (fun atoms ->
-         let atoms = List.rev_map (new_atom ~permanent st) atoms in
+         let atoms = List.rev_map (Atom.make st) atoms in
          let c = Clause.make_l ?tag atoms Hyp in
          add_clause_user st ~permanent c)
       cnf
@@ -1771,7 +1660,7 @@ module Make (Th : Theory_intf.S) = struct
   (* Add local hyps to the current decision level *)
   let local (st:t) (assumptions:formula list) : unit =
     let add_lit lit : unit =
-      let a = new_atom ~permanent:false st lit in
+      let a = Atom.make st lit in
       Log.debugf 3 (fun k-> k "(@[sat.local_assumption@ %a@])" Atom.debug a);
       assert (decision_level st = base_level st);
       if not a.is_true then (

@@ -119,10 +119,6 @@ module Make (Th : Theory_intf.S) = struct
 
   let[@inline] get_tag cl = S.(cl.tag)
 
-  let[@inline] new_atom ~permanent st a =
-    cleanup_ st;
-    ignore (S.new_atom ~permanent st a)
-
   let actions = S.actions
 
   let export (st:t) : S.clause export =
@@ -131,10 +127,7 @@ module Make (Th : Theory_intf.S) = struct
     let local = S.temp st in
     {hyps; history; local}
 
-  module Atom = struct
-    include S.Atom
-    let make = S.new_atom ~permanent:false
-  end
+  module Atom = S.Atom
 
   module Clause = struct
     include S.Clause
@@ -146,7 +139,7 @@ module Make (Th : Theory_intf.S) = struct
     let[@inline] make_l ?tag l : t = S.Clause.make_l ?tag l S.Hyp
 
     let of_formulas st ?tag l =
-      let l = List.map (S.new_atom ~permanent:false st) l in
+      let l = List.map (Atom.make st) l in
       make_l ?tag l
   end
 
