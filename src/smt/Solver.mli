@@ -17,6 +17,7 @@ type model = Model.t
 module Proof : sig
   type t = Sat_solver.Proof.t
 
+  val check : t -> unit
   val pp : t CCFormat.printer
 end
 
@@ -62,6 +63,8 @@ val solve :
 (** [solve s] checks the satisfiability of the statement added so far to [s]
     @param check if true, the model is checked before returning
     @param on_exit functions to be run before this returns *)
+
+val check_model : t -> unit
 
 val pp_term_graph: t CCFormat.printer
 val pp_stats : t CCFormat.printer

@@ -9,6 +9,7 @@ module E = CCResult
 module A = Ast
 module Form = Sidekick_th_bool
 module Fmt = CCFormat
+module Dot = Sidekick_backend.Dot.Simple(Solver.Sat_solver)
 
 module Subst = struct
   type 'a t = 'a ID.Map.t
@@ -17,7 +18,7 @@ module Subst = struct
   let pp pp_x out = ID.Map.pp ~arrow:"→" ID.pp pp_x out
   let add subst v t =
     if mem subst v then (
-      Util.errorf "%a already bound" A.Var.pp v;
+      Error.errorf "%a already bound" A.Var.pp v;
     );
     ID.Map.add (A.Var.id v) t subst
   let find subst v = ID.Map.get (A.Var.id v) subst
@@ -33,9 +34,9 @@ module Conv = struct
   (*     | A.Ty.Rat -> Reg.find_exn reg Mc2_lra.k_rat *)
       | A.Ty.App (id, []) -> mk_ty id
       | A.Ty.App (_, _) ->
-        Util.errorf "cannot convert parametrized type %a" A.Ty.pp ty
+        Error.errorf "cannot convert parametrized type %a" A.Ty.pp ty
       | A.Ty.Arrow _ ->
-        Util.errorf "cannot convert arrow type `%a`" A.Ty.pp ty
+        Error.errorf "cannot convert arrow type `%a`" A.Ty.pp ty
     in
     aux_ty ty
 
@@ -83,7 +84,7 @@ module Conv = struct
       begin match A.term_view t with
         | A.Var v ->
           begin match Subst.find subst v with
-            | None -> Util.errorf "variable %a not bound" A.Var.pp v
+            | None -> Error.errorf "variable %a not bound" A.Var.pp v
             | Some t -> t
           end
         | A.Const id ->
@@ -94,7 +95,7 @@ module Conv = struct
             | A.Const id ->
               (* TODO: lookup definition of [f] *)
               mk_app (Cst.make_undef id (A.ty f |> conv_ty)) l
-            | _ -> Util.errorf "cannot process HO application %a" A.pp_term t
+            | _ -> Error.errorf "cannot process HO application %a" A.pp_term t
           end
         | A.If (a,b,c) ->
           let a = aux subst a in
@@ -140,7 +141,7 @@ module Conv = struct
           begin match op, l with
             | A.Minus, [a] -> RLE.neg a |> ret_rat
             | _, [] | _, [_] ->
-              Util.errorf "ill-formed arith expr:@ %a@ (need ≥ 2 args)" A.pp_term t
+              Error.errorf "ill-formed arith expr:@ %a@ (need ≥ 2 args)" A.pp_term t
             | A.Leq, [a;b] ->
               let e = RLE.diff a b in
               mk_lra_pred Mc2_lra.Leq0 e |> ret_any
@@ -154,7 +155,7 @@ module Conv = struct
               let e = RLE.diff b a in
               mk_lra_pred Mc2_lra.Lt0 e |> ret_any
             | (A.Leq | A.Lt | A.Geq | A.Gt), _ ->
-              Util.errorf "ill-formed arith expr:@ %a@ (binary operator)" A.pp_term t
+              Error.errorf "ill-formed arith expr:@ %a@ (binary operator)" A.pp_term t
             | A.Add, _ ->
               let e = List.fold_left (fun n t -> RLE.add t n) RLE.empty l in
               mk_lra_expr e |> ret_t
@@ -179,7 +180,7 @@ module Conv = struct
                 | _, [t] ->
                   List.fold_right RLE.mult coeffs t |> ret_rat
                 | _ ->
-                  Util.errorf "non-linear expr:@ `%a`" A.pp_term t
+                  Error.errorf "non-linear expr:@ `%a`" A.pp_term t
               end
             | A.Div, (first::l) ->
               (* support t/a/b/c where only [t] is a rational *)
@@ -187,7 +188,7 @@ module Conv = struct
                 List.map
                   (fun c -> match RLE.as_const c with
                      | None ->
-                       Util.errorf "non-linear expr:@ `%a`" A.pp_term t
+                       Error.errorf "non-linear expr:@ `%a`" A.pp_term t
                      | Some c -> Q.inv c)
                   l
               in
@@ -259,7 +260,7 @@ end
 let solve
     ?gc:_
     ?restarts:_
-    ?dot_proof:_
+    ?dot_proof
     ?(pp_model=false)
     ?(check=false)
     ?time:_ ?memory:_ ?progress:_
@@ -275,17 +276,10 @@ let solve
       if pp_model then (
         Format.printf "(@[<hv1>model@ %a@])@." Model.pp  m
       );
-      if check then (
-        (* TODO
-        if not (check_model m) then (
-          Util.error "invalid model"
-        )
-           *)
-      );
+      if check then Solver.check_model s;
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
-    | Solver.Unsat _pr ->
-      (*
+    | Solver.Unsat p ->
       if check then (
         Solver.Proof.check p;
         begin match dot_proof with
@@ -299,7 +293,6 @@ let solve
                  Format.pp_print_flush fmt (); flush oc)
         end
       );
-         *)
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
     | Solver.Unknown reas ->
@@ -365,11 +358,11 @@ let process_stmt
       Solver.assume solver (IArray.of_list c);
       E.return ()
     | A.Goal (_, _) ->
-      Util.errorf "cannot deal with goals yet"
+      Error.errorf "cannot deal with goals yet"
     | A.Data _ ->
-      Util.errorf "cannot deal with datatypes yet"
+      Error.errorf "cannot deal with datatypes yet"
     | A.Define _ ->
-      Util.errorf "cannot deal with definitions yet"
+      Error.errorf "cannot deal with definitions yet"
   end
 
 
@@ -403,7 +396,7 @@ end = struct
     | Ast.Ty.Prop -> Ty.prop
     | Ast.Ty.Const id ->
       begin try ID.Tbl.find ty_tbl_ id |> Lazy.force
-        with Not_found -> Util.errorf "type %a not in ty_tbl" ID.pp id
+        with Not_found -> Error.errorf "type %a not in ty_tbl" ID.pp id
       end
     | Ast.Ty.Arrow (a,b) -> Ty.arrow (conv_ty a) (conv_ty b)
 

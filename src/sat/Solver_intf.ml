@@ -138,6 +138,8 @@ module type S = sig
 
   val export : t -> clause export
 
+  val check_model : t -> unit
+
   (** {2 Re-export some functions} *)
 
   type solver = t
@@ -235,7 +237,7 @@ module type S = sig
     (** Check the contents of a proof. Mainly for internal use *)
 
     module Tbl : Hashtbl.S with type key = t
-  end  
+  end
 
   module Clause : sig
     type t = clause

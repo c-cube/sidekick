@@ -93,7 +93,7 @@ module Ty = struct
     end)
 
   let ill_typed fmt =
-    Util.errorf ("ill-typed: " ^^ fmt)
+    Error.errorf ("ill-typed: " ^^ fmt)
 end
 
 type var = Ty.t Var.t
@@ -393,7 +393,7 @@ let num_z ty z = mk_ (Num_z z) ty
 
 let parse_num ~where (s:string) : [`Q of Q.t | `Z of Z.t] =
   let fail() =
-    Util.errorf "%sexpected number, got `%s`" (Lazy.force where) s
+    Error.errorf "%sexpected number, got `%s`" (Lazy.force where) s
   in
   begin match Z.of_string s with
     | n -> `Z n

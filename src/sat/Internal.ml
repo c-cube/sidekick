@@ -53,7 +53,7 @@ module Make (Th : Theory_intf.S) = struct
   and reason =
     | Decision
     | Bcp of clause
-    | Local
+    | Local of clause
 
   and premise =
     | Hyp
@@ -352,7 +352,7 @@ module Make (Th : Theory_intf.S) = struct
         Format.fprintf fmt "%%"
       | n, None ->
         Format.fprintf fmt "%d" n
-      | n, Some Local ->
+      | n, Some Local _ ->
         Format.fprintf fmt "L%d" n
       | n, Some Decision ->
         Format.fprintf fmt "@@%d" n
@@ -362,17 +362,17 @@ module Make (Th : Theory_intf.S) = struct
     let pp_level fmt a =
       debug_reason fmt (a.var.v_level, a.var.reason)
 
-    let debug_value fmt a =
-      if a.is_true then
-        Format.fprintf fmt "T%a" pp_level a
-      else if a.neg.is_true then
-        Format.fprintf fmt "F%a" pp_level a
-      else
-        Format.fprintf fmt ""
+    let debug_value out a =
+      if a.is_true then (
+        Format.fprintf out "[T%a]" pp_level a
+      ) else if a.neg.is_true then (
+        Format.fprintf out "[F%a]" pp_level a
+      ) else (
+        CCFormat.string out "[?]"
+      )
 
     let debug out a =
-      Format.fprintf out "@[%s%d[%a][@[%a@]]@]"
-        (sign a) (a.var.vid+1) debug_value a Th.Form.print a.lit
+      Format.fprintf out "@[@[%a@]%a@]" Th.Form.print a.lit debug_value a
 
     let debug_a out vec =
       Array.iteri (fun i a -> if i>0 then Format.fprintf out "@ "; debug out a) vec
@@ -615,14 +615,14 @@ module Make (Th : Theory_intf.S) = struct
     let[@inline] conclusion (p:proof) : clause = p
 
     let expand conclusion =
-      Log.debugf 5 (fun k -> k "Expanding : @[%a@]" Clause.debug conclusion);
+      Log.debugf 5 (fun k -> k "(@[proof.expand@ @[%a@]@])" Clause.debug conclusion);
       match conclusion.c_premise with
       | Lemma l ->
         {conclusion; step = Lemma l; }
       | Hyp ->
         { conclusion; step = Hypothesis; }
       | History [] ->
-        Log.debugf 1 (fun k -> k "Empty history for clause: %a" Clause.debug conclusion);
+        Log.debugf 1 (fun k -> k "(@[proof.empty_history@ %a@]" Clause.debug conclusion);
         raise (Resolution_error "Empty history")
       | Simplified c ->
         let duplicates, res = analyze (list c) in
@@ -974,7 +974,7 @@ module Make (Th : Theory_intf.S) = struct
      Wrapper function for adding a new propagated formula. *)
   let enqueue_bool st a reason : unit =
     if a.neg.is_true then (
-      Util.errorf "(@[sat.enqueue_bool.1@ :false-literal %a@])" Atom.debug a
+      Error.errorf "(@[sat.enqueue_bool.1@ :false-literal %a@])" Atom.debug a
     );
     let level = decision_level st in
     Log.debugf 5
@@ -1000,11 +1000,17 @@ module Make (Th : Theory_intf.S) = struct
       a.(j) <- tmp;
     )
 
-  (* move atoms assigned at high levels first *)
+  (* move atoms that are not assigned first,
+     else put atoms assigned at high levels first *)
   let put_high_level_atoms_first (arr:atom array) : unit =
+    (* move [a] in front of [b]? *)
+    let[@inline] put_before a b =
+      if Atom.level a < 0 then Atom.level b >= 0
+      else (Atom.level b >= 0 && Atom.level a > Atom.level b)
+    in
     Array.iteri
       (fun i a ->
-         if i>0 && Atom.level a > Atom.level arr.(0) then (
+         if i>0 && put_before a arr.(0) then (
            (* move first to second, [i]-th to first, second to [i] *)
            if i=1 then (
              swap_arr arr 0 1;
@@ -1014,7 +1020,7 @@ module Make (Th : Theory_intf.S) = struct
              arr.(0) <- arr.(i);
              arr.(i) <- tmp;
            );
-         ) else if i>1 && Atom.level a > Atom.level arr.(1) then (
+         ) else if i>1 && put_before a arr.(1) then (
            swap_arr arr 1 i;
          ))
       arr
@@ -1214,7 +1220,9 @@ module Make (Th : Theory_intf.S) = struct
      - report unsat if conflict at level 0
   *)
   and add_boolean_conflict st (confl:clause): unit =
-    Log.debugf 3 (fun k -> k "(@[@{<Yellow>sat.boolean-conflict@}@ %a@])" Clause.debug confl);
+    Log.debugf 3
+      (fun k -> k "(@[@{<Yellow>sat.boolean-conflict@}@ %a@ :decision-lvl %d@])"
+          Clause.debug confl (decision_level st));
     st.next_decision <- None;
     assert (decision_level st >= base_level st);
     if decision_level st = base_level st ||
@@ -1336,7 +1344,7 @@ module Make (Th : Theory_intf.S) = struct
         enqueue_bool st p (Bcp c)
       )
     ) else (
-      Util.errorf "(@[sat.act_propagate.invalid_guard@ :guard %a@ \
+      Error.errorf "(@[sat.act_propagate.invalid_guard@ :guard %a@ \
                    :1 all lits are not true@])"
         (Util.pp_list Atom.debug) l
     )
@@ -1502,21 +1510,20 @@ module Make (Th : Theory_intf.S) = struct
       let a = Atom.make st lit in
       Log.debugf 3 (fun k-> k "(@[sat.local_assumption@ %a@])" Atom.debug a);
       assert (decision_level st = base_level st);
+      let c = Clause.make [|a|] Hyp in
       if not a.is_true then (
         if a.neg.is_true then (
           (* conflict between assumptions: UNSAT *)
-          let c = Clause.make [|a|] Hyp in
           report_unsat st c;
         ) else (
           (* make a decision, propagate *)
-          enqueue_bool st a Local;
+          enqueue_bool st a (Local c);
         )
       )
     in
     match st.unsat_conflict with
     | None ->
       Log.debug 3 "(sat.adding_local_assumptions)";
-      cancel_until st (base_level st);
       List.iter add_lit assumptions
     | Some _ ->
       Log.debug 2 "(sat.local_assumptions.1: already unsat)"
@@ -1568,7 +1575,9 @@ module Make (Th : Theory_intf.S) = struct
         end
     in
     try
+      cancel_until st 0;
       local st assumptions;
+      new_decision_level st;
       add_clauses()
     with Sat -> ()
 
@@ -1609,6 +1618,15 @@ module Make (Th : Theory_intf.S) = struct
   (* Unsafe access to internal data *)
 
   let trail st = st.trail
+
+  let check_model st : unit =
+    Log.debug 5 "(sat.check-model)";
+    Vec.iter
+      (fun c ->
+         if not (Array.exists Atom.is_true c.atoms) then (
+           Error.errorf "(@[sat.check-model.invalid-model@ :clause %a@])" Clause.debug c
+         ))
+      st.clauses
 end
 [@@inline]
 

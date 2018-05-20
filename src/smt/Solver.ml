@@ -19,6 +19,8 @@ let[@inline] clause_of_mclause (c:Sat_solver.clause): Lit.t IArray.t =
 module Proof = struct
   type t = Sat_solver.Proof.t
 
+  let check = Sat_solver.Proof.check
+
   let pp out (p:t) : unit =
     let pp_step_res out p =
       let {Sat_solver.Proof.conclusion; _ } = Sat_solver.Proof.expand p in
@@ -398,6 +400,8 @@ let[@inline] assume_eq self t u expl : unit =
 let[@inline] assume_distinct self l ~neq expl : unit =
   Congruence_closure.assert_distinct (cc self) l (E_lit expl) ~neq
 
+let check_model (s:t) = Sat_solver.check_model s.solver
+
 (*
 type unsat_core = Sat.clause list
    *)
@@ -409,11 +413,13 @@ let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
   match r with
   | Sat_solver.Sat (Sidekick_sat.Sat_state _st) ->
     Log.debugf 0 (fun k->k "SAT");
-    Unknown U_incomplete (* TODO *)
+    Sat Model.empty
     (*
     let env = Ast.env_empty in
-    let m = Model.make ~env
-    Sat m *)
+    let m = Model.make ~env in
+       …
+    Unknown U_incomplete (* TODO *)
+    *)
   | Sat_solver.Unsat (Sidekick_sat.Unsat_state us) ->
     let pr = us.get_proof () in
     Unsat pr

@@ -18,6 +18,8 @@ type t = {
   (* constant -> its value *)
 }
 
+let empty : t = { env=A.env_empty; domains=A.Ty.Map.empty; consts=ID.Map.empty}
+
 let make ~env ~consts ~domains =
   (* also add domains to [env] *)
   let env =
@@ -169,7 +171,7 @@ let rec eval_whnf (m:t) (st:term list) (subst:subst) (t:term): term =
   let st = t :: st in
   try
     eval_whnf_rec m st subst t
-  with Util.Error msg ->
+  with Error.Error msg ->
     errorf "@[<2>Model:@ internal type error `%s`@ in %a@]" msg pp_stack st
 and eval_whnf_rec m st subst t = match A.term_view t with
   | A.Num_q _

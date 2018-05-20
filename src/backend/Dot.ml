@@ -147,41 +147,4 @@ module Make(S : Sidekick_sat.S)(A : Arg with type atom := S.atom
 
 end
 
-module Simple(S : Sidekick_sat.S)
-    (A : Arg with type atom := S.atom
-              and type hyp = S.atom list
-              and type lemma := S.lemma
-              and type assumption = S.atom) =
-  Make(S)(struct
-    module Atom = S.Atom
-    module Clause = S.Clause
-    module P = S.Proof
-
-    (* Some helpers *)
-    let get_form = Atom.get_formula
-
-    let get_assumption c =
-      match Clause.atoms_l c with
-      | [ x ] -> x
-      | _ -> assert false
-
-    let get_lemma c =
-      match P.expand (P.prove c) with
-      | {P.step=P.Lemma p;_} -> p
-      | _ -> assert false
-
-    (* Actual functions *)
-    let print_atom fmt a =
-      A.print_atom fmt a
-
-    let hyp_info c =
-      A.hyp_info (Clause.atoms_l c)
-
-    let lemma_info c =
-      A.lemma_info (get_lemma c)
-
-    let assumption_info c =
-      A.assumption_info (get_assumption c)
-
-  end)
-
+module Simple(S : Sidekick_sat.S) = Make(S)(Default(S))

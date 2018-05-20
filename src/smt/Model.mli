@@ -16,6 +16,10 @@ type t = private {
   (* constant -> its value *)
 }
 
+(* TODO: remove *)
+(** Trivial model *)
+val empty : t
+
 val make :
   env:Ast.env ->
   consts:term ID.Map.t ->

@@ -78,15 +78,15 @@ module Ctx = struct
 
   let find_kind t (id:ID.t) : kind =
     try ID.Tbl.find t.kinds id
-    with Not_found -> Util.errorf "did not find kind of ID `%a`" ID.pp id
+    with Not_found -> Error.errorf "did not find kind of ID `%a`" ID.pp id
 
   let as_data t (ty:A.Ty.t) : (ID.t * A.Ty.t) list = match ty with
     | A.Ty.App (id,_) ->
       begin match ID.Tbl.get t.data id with
         | Some l -> l
-        | None -> Util.errorf "expected %a to be a datatype" A.Ty.pp ty
+        | None -> Error.errorf "expected %a to be a datatype" A.Ty.pp ty
       end
-    | _ -> Util.errorf "expected %a to be a constant type" A.Ty.pp ty
+    | _ -> Error.errorf "expected %a to be a constant type" A.Ty.pp ty
 
   let pp_kind out = function
     | K_ty _ -> Format.fprintf out "type"
@@ -107,7 +107,7 @@ end
 
 let error_loc ctx : string = Fmt.sprintf "at %a: " pp_loc_opt (Ctx.loc ctx)
 let errorf_ctx ctx msg =
-  Util.errorf ("at %a:@ " ^^ msg) pp_loc_opt (Ctx.loc ctx)
+  Error.errorf ("at %a:@ " ^^ msg) pp_loc_opt (Ctx.loc ctx)
 
 let check_bool_ t =
   if not (A.Ty.equal (A.ty t) A.Ty.prop) then (

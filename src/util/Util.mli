@@ -15,11 +15,6 @@ val pp_pair : ?sep:string -> 'a printer -> 'b printer -> ('a * 'b) printer
 
 val pp_iarray : ?sep:string -> 'a CCFormat.printer -> 'a IArray.t CCFormat.printer
 
-exception Error of string
-
-val errorf : ('a, Format.formatter, unit, 'b) format4 -> 'a
-(** @raise Error when called *)
-
 val setup_gc : unit -> unit
 (** Change parameters of the GC *)
 

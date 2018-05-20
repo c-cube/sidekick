@@ -99,6 +99,8 @@ module Make (Th : Theory_intf.S) = struct
     let clauses = st.S.clauses in
     {clauses}
 
+  let check_model = S.check_model
+
   module Atom = S.Atom
 
   module Clause = struct

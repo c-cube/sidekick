@@ -264,7 +264,7 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
       self.acts.Theory.propagate_distinct l ~neq:lit_t (Explanation.lit lit)
     ) else (
       (* TODO: propagate pairwise equalities? *)
-      Util.errorf "cannot process negative distinct lit %a" Lit.pp lit;
+      Error.errorf "cannot process negative distinct lit %a" Lit.pp lit;
     )
   | B_and subs ->
     if Lit.sign lit then (

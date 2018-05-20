@@ -24,15 +24,6 @@ let pp_array ?(sep=" ") pp out l =
 let pp_iarray ?(sep=" ") pp out a =
   Fmt.seq ~sep:(pp_sep sep) pp out (IArray.to_seq a)
 
-exception Error of string
-
-let () = Printexc.register_printer
-    (function
-      | Error msg -> Some ("internal error: " ^ msg)
-      | _ -> None)
-
-let errorf msg = Fmt.ksprintf msg ~f:(fun s -> raise (Error s))
-
 let setup_gc () =
   let g = Gc.get () in
   g.Gc.space_overhead <- 3_000; (* major gc *)

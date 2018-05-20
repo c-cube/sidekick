@@ -34,26 +34,6 @@ let p_progress = ref false
 
 let hyps : Ast.term list ref = ref []
 
-module Dot = Sidekick_backend.Dot.Make(Solver.Sat_solver)
-
-let check_model _state =
-  let check_clause _c =
-    true
-    (* FIXME
-    let l =
-      List.map
-        (fun a ->
-           Sidekick_sat.Log.debugf 99
-             (fun k -> k "Checking value of %a" Term.pp (Sat.Atom.term a));
-           Sat_solver.Sat_state.eval state a)
-        c
-    in
-    List.exists (fun x -> x) l
-       *)
-  in
-  let l = List.map check_clause !hyps in
-  List.for_all (fun x -> x) l
-
 (* Arguments parsing *)
 let int_arg r arg =
   let l = String.length arg in
@@ -170,7 +150,7 @@ let () = match main() with
   | exception e ->
     let b = Printexc.get_backtrace () in
     begin match e with
-      | Util.Error msg ->
+      | Error.Error msg ->
         Format.printf "@{<Red>Error@}: %s@." msg;
         ignore @@ exit 1
       | Out_of_time ->
