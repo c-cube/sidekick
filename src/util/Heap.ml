@@ -133,12 +133,16 @@ module Make(Elt : RANKED) = struct
   let remove ({heap} as s) (elt:elt) : unit =
     if in_heap elt then (
       let i = Elt.idx elt in
-      Vec.fast_remove heap i;
+      (* move last element in place of [i] *)
+      let elt' = Vec.last heap in
+      Vec.set heap i elt';
+      Elt.set_idx elt' i;
       Elt.set_idx elt ~-1;
+      Vec.pop heap;
       assert (not (in_heap elt));
-      (* element put in place of [x] might be too high *)
+      (* element put in place of [elt] might be too high *)
       if Vec.size heap > i then (
-        percolate_down s (Vec.get heap i);
+        percolate_down s elt';
       );
     )
 

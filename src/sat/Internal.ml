@@ -294,6 +294,8 @@ module Make (Th : Theory_intf.S) = struct
     let[@inline] seen_both v =
       Var_fields.get v_field_seen_pos v.v_fields &&
       Var_fields.get v_field_seen_neg v.v_fields
+
+    let pp out (v:t) = Th.Form.print out v.pa.lit
   end
 
   module Atom = struct
@@ -765,9 +767,7 @@ module Make (Th : Theory_intf.S) = struct
   *)
   let insert_var_order st (v:var) : unit =
     if not (Var.in_heap v) && Var.level v < 0 then (
-      (* new variable that is not assigned, add to heap.
-         remember to remove variable when we backtrack *)
-      on_backtrack st (fun () -> H.remove st.order v);
+      (* new variable that is not assigned, add to heap. *)
       H.insert st.order v;
     )
 
@@ -902,7 +902,7 @@ module Make (Th : Theory_intf.S) = struct
   (* perform all backtracking actions down to level [l].
      To be called only from [cancel_until] *)
   let backtrack_down_to (st:t) (lvl:int): unit =
-    Log.debugf 2 (fun k->k "(@[@{<Yellow>sat.backtrack@} now at level %d@])" lvl);
+    Log.debugf 2 (fun k->k "(@[@{<Yellow>sat.backtrack@} now at stack depth %d@])" lvl);
     while Vec.size st.backtrack > lvl do
       let f = Vec.pop_last st.backtrack in
       f()
@@ -953,12 +953,13 @@ module Make (Th : Theory_intf.S) = struct
           insert_var_order st a.var
         )
       done;
-      (* Recover the right theory state. *)
-      backtrack_down_to st (Vec.get st.backtrack_levels lvl);
+      let b_lvl = Vec.get st.backtrack_levels lvl in
       (* Resize the vectors according to their new size. *)
       Vec.shrink st.trail !head;
       Vec.shrink st.elt_levels lvl;
       Vec.shrink st.backtrack_levels lvl;
+      (* Recover the right theory state. *)
+      backtrack_down_to st b_lvl;
     );
     assert (Vec.size st.elt_levels = Vec.size st.backtrack_levels);
     ()
@@ -981,11 +982,6 @@ module Make (Th : Theory_intf.S) = struct
       (fun k->k "(@[sat.enqueue_bool@ :lvl %d@ %a@])" level Atom.debug a);
     (* backtrack assignment if needed. Trail is backtracked automatically. *)
     assert (not a.is_true && a.var.v_level < 0 && a.var.reason = None);
-    on_backtrack st
-      (fun () ->
-         a.var.v_level <- -1;
-         a.is_true <- false;
-         a.var.reason <- None);
     a.is_true <- true;
     a.var.v_level <- level;
     a.var.reason <- Some reason;
@@ -1188,7 +1184,6 @@ module Make (Th : Theory_intf.S) = struct
           enqueue_bool st a (Bcp c)
         )
       | _::_::_ ->
-        on_backtrack st (fun () -> Vec.pop st.clauses);
         Vec.push st.clauses c;
         (* Atoms need to be sorted in decreasing order of decision level,
            or we might watch the wrong literals. *)
@@ -1414,9 +1409,9 @@ module Make (Th : Theory_intf.S) = struct
   and propagate (st:t) : clause option =
     (* Now, check that the situation is sane *)
     assert (st.elt_head <= Vec.size st.trail);
-    if st.elt_head = Vec.size st.trail then
+    if st.elt_head = Vec.size st.trail then (
       theory_propagate st
-    else (
+    ) else (
       let num_props = ref 0 in
       let res = ref None in
       while st.elt_head < Vec.size st.trail do
@@ -1557,13 +1552,15 @@ module Make (Th : Theory_intf.S) = struct
         call_solve()
       | exception Sat ->
         assert (st.elt_head = Vec.size st.trail);
-        pp_trail st;
         begin match Th.if_sat (theory st) (full_slice st) with
           | Theory_intf.Sat ->
             (* if no propagation is to be done, exit;
                otherwise continue loop *)
             if propagation_fixpoint st then (
+              pp_trail st;
               raise Sat
+            ) else (
+              add_clauses ()
             )
           | Theory_intf.Unsat (l, p) ->
             let atoms = List.rev_map (Atom.make st) l in
