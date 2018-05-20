@@ -1181,7 +1181,7 @@ module Make (Th : Theory_intf.S) = struct
         ) else if a.is_true then (
           (* ignore clause, will never be useful *)
           Log.debug 5 "(sat.add_clause: true unit clause, ignore)";
-          assert (0 < a.var.v_level && a.var.v_level <= base_level st);
+          assert (a.var.v_level >= base_level st);
         ) else (
           Log.debugf 5
             (fun k->k "(@[sat.add_clause.unit_clause@ :propagating %a@])" Atom.debug a);
@@ -1230,7 +1230,10 @@ module Make (Th : Theory_intf.S) = struct
       (* Top-level conflict *)
       report_unsat st confl;
     );
+    (* compute learnt clause with conflict resolution *)
     let cr = analyze st confl in
+    let confl = Clause.make_l cr.cr_learnt (History cr.cr_history) in
+    Log.debugf 5 (fun k->k "(@[sat.conflict-clause@ %a@])" Clause.debug confl);
     cancel_until st (max cr.cr_backtrack_lvl (base_level st));
     (* make some progress *)
     var_decay_activity st;
@@ -1300,7 +1303,6 @@ module Make (Th : Theory_intf.S) = struct
     let i = ref 0 in
     while !i < Vec.size watched do
       let c = Vec.get watched !i in
-      assert (Clause.attached c);
       if not (Clause.attached c) then (
         Vec.fast_remove watched !i (* remove *)
       ) else (
@@ -1569,15 +1571,14 @@ module Make (Th : Theory_intf.S) = struct
             Log.debugf 3
               (fun k -> k "(@[@{<Yellow>sat.theory_conflict_clause@}@ %a@])" Clause.debug c);
             (* must backtrack *)
-            (* TODO: assert that this is indeed a conflict,
-               then call [add_boolean_conflict st c] *)
-            add_clause ~permanent:false st c
+            add_boolean_conflict st c
         end
     in
     try
       cancel_until st 0;
-      local st assumptions;
+      (* push decision level before calling [local] *)
       new_decision_level st;
+      local st assumptions;
       add_clauses()
     with Sat -> ()
 
@@ -1588,32 +1589,6 @@ module Make (Th : Theory_intf.S) = struct
          let c = Clause.make_l ?tag atoms Hyp in
          add_clause_user st ~permanent c)
       cnf
-
-  (* Check satisfiability *)
-  let check_clause c =
-    let tmp = Array.map (fun a ->
-        if a.is_true then true
-        else if a.neg.is_true then false
-        else raise UndecidedLit) c.atoms in
-    let res = Array.exists (fun x -> x) tmp in
-    if not res then (
-      Log.debugf 5
-        (fun k -> k "(@[sat.check-clause.1@ :not-satisfied %a@])" Clause.debug c);
-      false
-    ) else
-      true
-
-  let check_vec v =
-    Vec.for_all check_clause v
-
-  let check_stack s =
-    try
-      Stack.iter (fun c -> if not (check_clause c) then raise Exit) s;
-      true
-    with Exit ->
-      false
-
-  let check st : bool = check_vec st.clauses
 
   (* Unsafe access to internal data *)
 
