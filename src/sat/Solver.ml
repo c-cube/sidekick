@@ -24,6 +24,7 @@ module Make (Th : Theory_intf.S) = struct
   type premise = S.premise =
     | Hyp
     | Lemma of lemma
+    | Simplified of clause
     | History of clause list
 
   type t = S.t
@@ -62,10 +63,7 @@ module Make (Th : Theory_intf.S) = struct
       | None -> assert false
       | Some c -> c
     in
-    let get_proof () =
-      let c = unsat_conflict () in
-      S.Proof.prove_unsat c
-    in
+    let get_proof () = unsat_conflict () in
     Unsat_state { unsat_conflict; get_proof; }
 
   let theory = S.theory

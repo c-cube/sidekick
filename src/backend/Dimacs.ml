@@ -28,18 +28,7 @@ module Make(St : Sidekick_sat.S) = struct
     Format.fprintf fmt "c Local assumptions@,a %a@," St.Clause.pp_dimacs vec
 
   let map_filter_learnt c =
-    match St.Clause.premise c with
-    | St.Hyp -> assert false
-    | St.Lemma _ -> Some c
-    | St.History l ->
-      begin match l with
-        | [] -> assert false
-        | d :: _ ->
-          begin match St.Clause.premise d with
-            | St.Lemma _ -> Some d
-            | St.Hyp | St.History _ -> None
-          end
-      end
+    if St.Clause.is_learnt c then Some c else None
 
   let filter_vec learnt =
     let lemmas = Vec.make (Vec.size learnt) St.Clause.dummy in

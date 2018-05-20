@@ -68,6 +68,7 @@ module type S = sig
   type premise =
     | Hyp
     | Lemma of lemma
+    | Simplified of clause
     | History of clause list
 
   type t
@@ -189,10 +190,6 @@ module type S = sig
     (** Given a clause, return a proof of that clause.
         @raise Insuficient_hyps if it does not succeed. *)
 
-    val prove_unsat : clause -> t
-    (** Given a conflict clause [c], returns a proof of the empty clause.
-        @raise Insuficient_hyps if it does not succeed. *)
-
     val prove_atom : atom -> t option
     (** Given an atom [a], returns a proof of the clause [[a]] if [a] is true at level 0 *)
 
@@ -259,6 +256,7 @@ module type S = sig
     val of_formulas : solver -> ?tag:int -> formula list -> t
 
     val premise : t -> premise
+    val is_learnt : t -> bool
 
     val name : t -> string
     val pp : t printer
