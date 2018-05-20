@@ -23,7 +23,6 @@ module Make (Th : Theory_intf.S) = struct
   type lemma = S.lemma
   type premise = S.premise =
     | Hyp
-    | Local
     | Lemma of lemma
     | History of clause list
 
@@ -41,12 +40,10 @@ module Make (Th : Theory_intf.S) = struct
     Log.debugf lvl
       (fun k -> k
           "@[<v>%s - Full resume:@,@[<hov 2>Trail:@\n%a@]@,\
-           @[<hov 2>Temp:@\n%a@]@,@[<hov 2>Hyps:@\n%a@]@,@[<hov 2>Lemmas:@\n%a@]@,@]@."
+           @[<hov 2>Clauses:@\n%a@]@]@."
           status
           (Vec.print ~sep:"" S.Atom.debug) (S.trail st)
-          (Vec.print ~sep:"" S.Clause.debug) (S.temp st)
-          (Vec.print ~sep:"" S.Clause.debug) (S.hyps st)
-          (Vec.print ~sep:"" S.Clause.debug) (S.history st)
+          (Vec.print ~sep:"" S.Clause.debug) st.S.clauses
       )
 
   let mk_sat (st:S.t) : _ sat_state =
@@ -71,42 +68,21 @@ module Make (Th : Theory_intf.S) = struct
     in
     Unsat_state { unsat_conflict; get_proof; }
 
-  (* clean local state *)
-  let[@inline] cleanup_ (st:t) : unit =
-    if st.S.dirty then (
-      S.pop st; (* reset *)
-      st.S.dirty <- false;
-    )
-
   let theory = S.theory
 
   (* Wrappers around internal functions*)
   let[@inline] assume ?(permanent=true) st ?tag cls : unit =
-    cleanup_ st;
     S.assume ~permanent st ?tag cls
 
   let[@inline] add_clause ~permanent st c : unit =
-    cleanup_ st;
     S.add_clause_user ~permanent st c
 
   let solve (st:t) ?(assumptions=[]) () =
-    cleanup_ st;
     try
-      S.push st;
-      st.S.dirty <- true; (* to call [pop] before any other action *)
-      S.local st assumptions;
-      S.solve st;
+      S.solve ~assumptions st;
       Sat (mk_sat st)
     with S.Unsat ->
       Unsat (mk_unsat st)
-
-  let[@inline] push st =
-    cleanup_ st;
-    S.push st
-
-  let[@inline] pop st =
-    cleanup_ st;
-    S.pop st
 
   let n_vars = S.n_vars
   let unsat_core = S.Proof.unsat_core
@@ -122,10 +98,8 @@ module Make (Th : Theory_intf.S) = struct
   let actions = S.actions
 
   let export (st:t) : S.clause export =
-    let hyps = S.hyps st in
-    let history = S.history st in
-    let local = S.temp st in
-    {hyps; history; local}
+    let clauses = st.S.clauses in
+    {clauses}
 
   module Atom = S.Atom
 

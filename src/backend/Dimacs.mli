@@ -19,24 +19,11 @@ module type S = sig
   val export :
     st ->
     Format.formatter ->
-    hyps:clause Vec.t ->
-    history:clause Vec.t ->
+    clauses:clause Vec.t ->
     unit
   (** Export the given clause vectors to the dimacs format.
       The arguments should be transmitted directly from the corresponding
       function of the {Internal} module. *)
-
-  val export_icnf :
-    Format.formatter ->
-    hyps:clause Vec.t ->
-    history:clause Vec.t ->
-    unit
-  (** Export the given clause vectors to the dimacs format.
-      The arguments should be transmitted directly from the corresponding
-      function of the {Internal} module.
-      This function may be called multiple times in order to add
-      new clauses (and new local hyps) to the problem.
-  *)
 
 end
 

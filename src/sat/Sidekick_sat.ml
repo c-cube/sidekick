@@ -31,9 +31,7 @@ type ('clause, 'proof) unsat_state = ('clause, 'proof) Solver_intf.unsat_state =
 }
 
 type 'clause export = 'clause Solver_intf.export = {
-  hyps : 'clause Vec.t;
-  history : 'clause Vec.t;
-  local : 'clause Vec.t;
+  clauses : 'clause Vec.t;
 }
 
 type ('form, 'proof) actions = ('form,'proof) Theory_intf.actions = Actions of {

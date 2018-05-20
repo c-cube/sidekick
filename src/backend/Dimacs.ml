@@ -13,16 +13,8 @@ module type S = sig
   val export :
     st ->
     Format.formatter ->
-    hyps:clause Vec.t ->
-    history:clause Vec.t ->
+    clauses:clause Vec.t ->
     unit
-
-  val export_icnf :
-    Format.formatter ->
-    hyps:clause Vec.t ->
-    history:clause Vec.t ->
-    unit
-
 end
 
 module Make(St : Sidekick_sat.S) = struct
@@ -35,21 +27,9 @@ module Make(St : Sidekick_sat.S) = struct
   let export_assumption fmt vec =
     Format.fprintf fmt "c Local assumptions@,a %a@," St.Clause.pp_dimacs vec
 
-  let export_icnf_aux r name map_filter fmt vec =
-    let aux fmt _ =
-      for i = !r to (Vec.size vec) - 1 do
-        let x = Vec.get vec i in
-        match map_filter x with
-        | None -> ()
-        | Some _ -> Format.fprintf fmt "%a@," St.Clause.pp_dimacs (Vec.get vec i)
-      done;
-      r := Vec.size vec
-    in
-    Format.fprintf fmt "c %s@,%a" name aux vec
-
   let map_filter_learnt c =
     match St.Clause.premise c with
-    | St.Hyp | St.Local -> assert false
+    | St.Hyp -> assert false
     | St.Lemma _ -> Some c
     | St.History l ->
       begin match l with
@@ -57,7 +37,7 @@ module Make(St : Sidekick_sat.S) = struct
         | d :: _ ->
           begin match St.Clause.premise d with
             | St.Lemma _ -> Some d
-            | St.Hyp | St.Local | St.History _ -> None
+            | St.Hyp | St.History _ -> None
           end
       end
 
@@ -70,33 +50,12 @@ module Make(St : Sidekick_sat.S) = struct
       ) learnt;
     lemmas
 
-  let export st fmt ~hyps ~history : unit =
-    assert (Vec.for_all (fun c -> St.Clause.premise c = St.Hyp) hyps);
-    (* Learnt clauses, then filtered to only keep only
-       the theory lemmas; all other learnt clauses should be logical
-       consequences of the rest. *)
-    let lemmas = filter_vec history in
+  let export st fmt ~clauses : unit =
     (* Number of atoms and clauses *)
     let n = St.n_vars st in
-    let m = Vec.size hyps + Vec.size lemmas in
+    let m = Vec.size clauses in
     Format.fprintf fmt
-      "@[<v>p cnf %d %d@,%a%a@]@." n m
-      (export_vec "Hypotheses") hyps
-      (export_vec "Lemmas") lemmas
-
-  (* Refs to remember what portion of a problem has been printed *)
-  let icnf_hyp = ref 0
-  let icnf_lemmas = ref 0
-
-  let export_icnf fmt ~hyps ~history =
-    assert (Vec.for_all (fun c -> St.Clause.premise c = St.Hyp) hyps);
-    let lemmas = history in
-    (* Number of atoms and clauses *)
-    Format.fprintf fmt
-      "@[<v>%s@,%a%a@]@."
-      (if !icnf_hyp = 0 && !icnf_lemmas = 0 then "p inccnf" else "")
-      (export_icnf_aux icnf_hyp "Hypotheses" (fun x -> Some x)) hyps
-      (export_icnf_aux icnf_lemmas "Lemmas" map_filter_learnt) lemmas
-
+      "@[<v>p cnf %d %d@,%a@]@." n m
+      (export_vec "Clauses") clauses
 end
 

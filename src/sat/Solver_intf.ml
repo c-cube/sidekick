@@ -36,9 +36,7 @@ type ('clause, 'proof) unsat_state = Unsat_state of {
 (** The type of values returned when the solver reaches an UNSAT state. *)
 
 type 'clause export = {
-  hyps: 'clause Vec.t;
-  history: 'clause Vec.t;
-  local: 'clause Vec.t;
+  clauses: 'clause Vec.t;
 }
 (** Export internal state *)
 
@@ -69,7 +67,6 @@ module type S = sig
 
   type premise =
     | Hyp
-    | Local
     | Lemma of lemma
     | History of clause list
 
@@ -124,6 +121,7 @@ module type S = sig
   val get_tag : clause -> int option
   (** Recover tag from a clause, if any *)
 
+  (* FIXME
   val push : t -> unit
   (** Push a new save point. Clauses added after this call to [push] will
       be added as normal, but the corresponding call to [pop] will
@@ -132,6 +130,7 @@ module type S = sig
   val pop : t -> unit
   (** Return to last save point, discarding clauses added since last
       call to [push] *)
+     *)
 
   val actions : t -> (formula,lemma) Theory_intf.actions
   (** Obtain actions *)

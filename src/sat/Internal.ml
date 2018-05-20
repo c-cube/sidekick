@@ -53,10 +53,10 @@ module Make (Th : Theory_intf.S) = struct
   and reason =
     | Decision
     | Bcp of clause
+    | Local
 
   and premise =
     | Hyp
-    | Local
     | Lemma of lemma
     | History of clause list
 
@@ -98,7 +98,6 @@ module Make (Th : Theory_intf.S) = struct
 
   let name_of_clause c = match c.c_premise with
     | Hyp -> "H" ^ string_of_int c.name
-    | Local -> "L" ^ string_of_int c.name
     | Lemma _ -> "T" ^ string_of_int c.name
     | History _ -> "C" ^ string_of_int c.name
 
@@ -144,18 +143,7 @@ module Make (Th : Theory_intf.S) = struct
 
     th: Th.t lazy_t;
 
-    (* Clauses are simplified for eficiency purposes. In the following
-       vectors, the comments actually refer to the original non-simplified
-       clause. *)
-
-    clauses_hyps : clause Vec.t;
-    (* clauses added by the user *)
-    clauses_learnt : clause Vec.t;
-    (* learnt clauses (tautologies true at any time, whatever the user level) *)
-    clauses_temp : clause Vec.t;
-    (* Temp clauses, corresponding to the local assumptions. This vec is used
-       only to have an efficient way to access the list of local assumptions. *)
-    (* TODO: remove. We only need clauses_hyps for that. *)
+    clauses: clause Vec.t;
 
     mutable unsat_conflict : clause option;
     (* conflict clause at [base_level], if any *)
@@ -205,13 +193,8 @@ module Make (Th : Theory_intf.S) = struct
     mutable clause_incr : float;
     (* increment for clauses' activity *)
 
-    to_add : (bool * clause) CCVector.vector;
+    to_add : (bool * clause) Vec.t;
     (* clauses to add, from the user *)
-
-    (* TODO: remove *)
-    mutable dirty: bool;
-    (* is there a [pop()] on top of the stack for examining
-       current model/proof? *)
   }
 
   (* Starting environment. *)
@@ -224,9 +207,7 @@ module Make (Th : Theory_intf.S) = struct
     unsat_conflict = None;
     next_decision = None;
 
-    clauses_hyps = Vec.make 0 dummy_clause;
-    clauses_learnt = Vec.make 0 dummy_clause;
-    clauses_temp = Vec.make 0 dummy_clause;
+    clauses = Vec.make 0 dummy_clause;
 
     th_head = 0;
     elt_head = 0;
@@ -239,11 +220,10 @@ module Make (Th : Theory_intf.S) = struct
     user_levels = Vec.make 0 (-1);
 
     order = H.create();
-    to_add = CCVector.create();
+    to_add = Vec.make_empty (true, dummy_clause);
 
     var_incr = 1.;
     clause_incr = 1.;
-    dirty=false;
   }
 
   type state = t
@@ -370,6 +350,8 @@ module Make (Th : Theory_intf.S) = struct
         Format.fprintf fmt "%%"
       | n, None ->
         Format.fprintf fmt "%d" n
+      | n, Some Local ->
+        Format.fprintf fmt "L%d" n
       | n, Some Decision ->
         Format.fprintf fmt "@@%d" n
       | n, Some Bcp c ->
@@ -450,7 +432,6 @@ module Make (Th : Theory_intf.S) = struct
 
     let debug_premise out = function
       | Hyp -> Format.fprintf out "hyp"
-      | Local -> Format.fprintf out "local"
       | Lemma _ -> Format.fprintf out "th_lemma"
       | History v ->
         Format.fprintf out "[@[%a@]]"
@@ -640,8 +621,6 @@ module Make (Th : Theory_intf.S) = struct
         {conclusion; step = Lemma l; }
       | Hyp ->
         { conclusion; step = Hypothesis; }
-      | Local ->
-        { conclusion; step = Assumption; }
       | History [] ->
         Log.debugf 1 (fun k -> k "Empty history for clause: %a" Clause.debug conclusion);
         raise (Resolution_error "Empty history")
@@ -693,7 +672,7 @@ module Make (Th : Theory_intf.S) = struct
           if not (Clause.visited c) then (
             Clause.set_visited c true;
             match c.c_premise with
-            | Hyp | Local | Lemma _ -> aux (c :: res) acc r
+            | Hyp | Lemma _ -> aux (c :: res) acc r
             | History h ->
               let l = List.fold_left (fun acc c ->
                   if not (Clause.visited c) then c :: acc else acc) r h in
@@ -752,7 +731,7 @@ module Make (Th : Theory_intf.S) = struct
       Vec.push st.backtrack f
     )
 
-  let[@inline] nb_clauses st = Vec.size st.clauses_hyps
+  let[@inline] nb_clauses st = Vec.size st.clauses
   let[@inline] decision_level st = Vec.size st.elt_levels
   let[@inline] base_level st = Vec.size st.user_levels
 
@@ -820,10 +799,9 @@ module Make (Th : Theory_intf.S) = struct
   let clause_bump_activity st (c:clause) : unit =
     c.activity <- c.activity +. st.clause_incr;
     if c.activity > 1e20 then (
-      for i = 0 to Vec.size st.clauses_learnt - 1 do
-        (Vec.get st.clauses_learnt i).activity <-
-          (Vec.get st.clauses_learnt i).activity *. 1e-20;
-      done;
+      Vec.iter
+        (fun c -> c.activity <- c.activity *. 1e-20)
+        st.clauses;
       st.clause_incr <- st.clause_incr *. 1e-20
     )
 
@@ -1108,7 +1086,7 @@ module Make (Th : Theory_intf.S) = struct
       Log.debugf 5 (fun k->k"(@[sat.resolving-clause@ %a@])"  Clause.debug clause);
       begin match clause.c_premise with
         | History _ -> clause_bump_activity st clause
-        | Hyp | Local | Lemma _ -> ()
+        | Hyp | Lemma _ -> ()
       end;
       history := clause :: !history;
       (* visit the current predecessors *)
@@ -1182,13 +1160,13 @@ module Make (Th : Theory_intf.S) = struct
           report_unsat st confl
         ) else (
           let uclause = Clause.make_l cr.cr_learnt (History cr.cr_history) in
-          Vec.push st.clauses_learnt uclause;
+          Vec.push st.clauses uclause;
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool st fuip (Bcp uclause)
         )
       | fuip :: _ ->
         let lclause = Clause.make_l cr.cr_learnt (History cr.cr_history) in
-        Vec.push st.clauses_learnt lclause;
+        Vec.push st.clauses lclause;
         (* clause will stay attached *)
         redo_down_to_level_0 st (fun () -> attach_clause st lclause);
         clause_bump_activity st lclause;
@@ -1219,14 +1197,6 @@ module Make (Th : Theory_intf.S) = struct
     cancel_until st (max cr.cr_backtrack_lvl (base_level st));
     record_learnt_clause st confl cr
 
-  (* Get the correct vector to insert a clause in. *)
-  let rec clause_vector st c =
-    match c.c_premise with
-    | Hyp -> st.clauses_hyps
-    | Local -> st.clauses_temp
-    | History [c'] -> clause_vector st c' (* simplified version of [d] *)
-    | Lemma _ | History _ -> st.clauses_learnt
-
   (* Add clause, accounting for backtracking semantics.
    - always add literals to queue if not decided yet
    - if clause is already true, probably just do nothing
@@ -1238,7 +1208,6 @@ module Make (Th : Theory_intf.S) = struct
     Log.debugf 5
       (fun k -> k "(@[@{<Yellow>sat.add_clause@}@ %a@])" Clause.debug c);
     assert (not @@ Clause.dead c);
-    let vec_for_clause = clause_vector st c in
     match eliminate_duplicates c with
     | exception Trivial ->
       Log.debugf 3 (fun k->k "(@[sat.add_clause.ignore-trivial@ %a@])" Clause.debug c)
@@ -1270,8 +1239,8 @@ module Make (Th : Theory_intf.S) = struct
           enqueue_bool st a (Bcp c)
         )
       | _::_::_ ->
-        on_backtrack st (fun () -> Vec.pop vec_for_clause);
-        Vec.push vec_for_clause c;
+        on_backtrack st (fun () -> Vec.pop st.clauses);
+        Vec.push st.clauses c;
         (* Atoms need to be sorted in decreasing order of decision level,
            or we might watch the wrong literals. *)
         put_high_level_atoms_first c.atoms;
@@ -1299,7 +1268,7 @@ module Make (Th : Theory_intf.S) = struct
     )
 
   let[@inline] add_clause_user ~permanent st (c:clause): unit =
-    CCVector.push st.to_add (permanent,c)
+    Vec.push st.to_add (permanent,c)
 
   type watch_res =
     | Watch_kept
@@ -1538,7 +1507,7 @@ module Make (Th : Theory_intf.S) = struct
         (* if decision_level() = 0 then simplify (); *)
 
         if n_of_learnts >= 0 &&
-           Vec.size st.clauses_learnt - Vec.size st.trail >= n_of_learnts
+           Vec.size st.clauses - Vec.size st.trail >= n_of_learnts
         then reduce_db();
 
         pick_branch_lit st
@@ -1564,9 +1533,35 @@ module Make (Th : Theory_intf.S) = struct
       (fun k -> k "(@[<v>sat.current_trail:@ %a@])"
           (Vec.print ~sep:"" Atom.debug) st.trail)
 
+  (* Add local hyps to the current decision level *)
+  let local (st:t) (assumptions:formula list) : unit =
+    let add_lit lit : unit =
+      let a = Atom.make st lit in
+      Log.debugf 3 (fun k-> k "(@[sat.local_assumption@ %a@])" Atom.debug a);
+      assert (decision_level st = base_level st);
+      if not a.is_true then (
+        if a.neg.is_true then (
+          (* conflict between assumptions: UNSAT *)
+          let c = Clause.make [|a|] Hyp in
+          report_unsat st c;
+        ) else (
+          (* make a decision, propagate *)
+          enqueue_bool st a Local;
+        )
+      )
+    in
+    assert (base_level st > 0);
+    match st.unsat_conflict with
+    | None ->
+      Log.debug 3 "(sat.adding_local_assumptions)";
+      cancel_until st (base_level st);
+      List.iter add_lit assumptions
+    | Some _ ->
+      Log.debug 2 "(sat.local_assumptions.1: already unsat)"
+
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
-  let solve (st:t) : unit =
+  let solve ?(assumptions=[]) (st:t) : unit =
     Log.debug 5 "(sat.solve)";
     if is_unsat st then raise Unsat;
     let n_of_conflicts = ref (float_of_int restart_first) in
@@ -1574,7 +1569,7 @@ module Make (Th : Theory_intf.S) = struct
     (* add clauses that are waiting in [to_add] *)
     let rec add_clauses () =
       match
-        CCVector.filter' (fun (permanent,c) -> add_clause ~permanent st c; false) st.to_add
+        Vec.filter_in_place (fun (permanent,c) -> add_clause ~permanent st c; false) st.to_add
       with
       | () -> call_solve()
       | exception Conflict c ->
@@ -1610,7 +1605,9 @@ module Make (Th : Theory_intf.S) = struct
             add_clause ~permanent:false st c
         end
     in
-    try add_clauses()
+    try
+      local st assumptions;
+      add_clauses()
     with Sat -> ()
 
   let assume ~permanent st ?tag cnf =
@@ -1620,70 +1617,6 @@ module Make (Th : Theory_intf.S) = struct
          let c = Clause.make_l ?tag atoms Hyp in
          add_clause_user st ~permanent c)
       cnf
-
-  (* TODO: remove push/pop *)
-  (* create a factice decision level for local assumptions *)
-  let push st : unit =
-    Log.debug 5 "(sat.push-new-user-level)";
-    cancel_until st (base_level st);
-    Log.debugf 5
-      (fun k -> k "(@[<v>sat.status@ :trail %d - %d@ %a@])"
-          st.elt_head st.th_head (Vec.print ~sep:"" Atom.debug) st.trail);
-    begin match propagate st with
-      | Some confl ->
-        report_unsat st confl
-      | None ->
-        pp_trail st;
-        Log.debug 3 "(sat.create-new-user-level)";
-        new_decision_level st;
-        Vec.push st.user_levels (Vec.size st.clauses_temp);
-        assert (decision_level st = base_level st)
-    end
-
-  (* pop the last factice decision level *)
-  let pop st : unit =
-    if base_level st = 0 then (
-      Log.debug 2 "(sat.1: cannot pop (already at level 0))"
-    ) else (
-      Log.debug 3 "(sat.pop-user-level)";
-      assert (base_level st > 0);
-      st.unsat_conflict <- None;
-      let n = Vec.last st.user_levels in
-      Vec.pop st.user_levels; (* before the [cancel_until]! *)
-      (* remove from env.clauses_temp the now invalid caluses. *)
-      Vec.shrink st.clauses_temp n;
-      assert (Vec.for_all (fun c -> Array.length c.atoms = 1) st.clauses_temp);
-      assert (Vec.for_all (fun c -> c.atoms.(0).var.v_level <= base_level st) st.clauses_temp);
-      cancel_until st (base_level st)
-    )
-
-  (* Add local hyps to the current decision level *)
-  let local (st:t) (assumptions:formula list) : unit =
-    let add_lit lit : unit =
-      let a = Atom.make st lit in
-      Log.debugf 3 (fun k-> k "(@[sat.local_assumption@ %a@])" Atom.debug a);
-      assert (decision_level st = base_level st);
-      if not a.is_true then (
-        let c = Clause.make [|a|] Local in
-        Log.debugf 5 (fun k -> k "(@[sat.add_temp_clause@ %a@])" Clause.debug c);
-        Vec.push st.clauses_temp c;
-        if a.neg.is_true then (
-          (* conflict between assumptions: UNSAT *)
-          report_unsat st c;
-        ) else (
-          (* make a decision, propagate *)
-          enqueue_bool st a (Bcp c);
-        )
-      )
-    in
-    assert (base_level st > 0);
-    match st.unsat_conflict with
-    | None ->
-      Log.debug 3 "(sat.adding_local_assumptions)";
-      cancel_until st (base_level st);
-      List.iter add_lit assumptions
-    | Some _ ->
-      Log.debug 2 "(sat.local_assumptions.1: already unsat)"
 
   (* Check satisfiability *)
   let check_clause c =
@@ -1709,21 +1642,11 @@ module Make (Th : Theory_intf.S) = struct
     with Exit ->
       false
 
-  let check st : bool =
-    check_vec st.clauses_hyps &&
-    check_vec st.clauses_learnt &&
-    check_vec st.clauses_temp
+  let check st : bool = check_vec st.clauses
 
   (* Unsafe access to internal data *)
 
-  let hyps env = env.clauses_hyps
-
-  let history env = env.clauses_learnt
-
-  let temp env = env.clauses_temp
-
-  let trail env = env.trail
-
+  let trail st = st.trail
 end
 [@@inline]
 
