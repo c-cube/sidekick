@@ -392,7 +392,7 @@ let do_on_exit ~on_exit =
 let assume (self:t) (c:Lit.t IArray.t) : unit =
   let sat = solver self in
   let c = Sat_solver.Clause.make (IArray.to_array_map (Sat_solver.Atom.make sat) c) in
-  Sat_solver.add_clause ~permanent:false sat c
+  Sat_solver.add_clause ~permanent:true sat c
 
 let[@inline] assume_eq self t u expl : unit =
   Congruence_closure.assert_eq (cc self) t u (E_lit expl)

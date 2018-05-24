@@ -886,12 +886,8 @@ module Make (Th : Theory_intf.S) = struct
   *)
   let attach_clause (self:t) (c:clause) : unit =
     assert (not @@ Clause.dead c);
-    if not (Clause.attached c) then (
+    if Array.length c.atoms >= 2 && not (Clause.attached c) then (
       Log.debugf 5 (fun k -> k "(@[sat.attach_clause@ %a@])" Clause.debug c);
-      on_backtrack self
-        (fun () ->
-           Log.debugf 5 (fun k->k "(@[sat.detach_clause@ %a@])" Clause.debug c);
-           Clause.set_attached c false);
       Vec.push c.atoms.(0).neg.watched c;
       Vec.push c.atoms.(1).neg.watched c;
       Clause.set_attached c true;
@@ -1164,8 +1160,6 @@ module Make (Th : Theory_intf.S) = struct
       assert (List.length atoms = Array.length c.atoms);
       List.iteri (fun i a -> c.atoms.(i) <- a) atoms;
       Log.debugf 3 (fun k->k "(@[sat.add_clause.new_clause@ %a@])" Clause.debug c);
-      (* kill clause once we backtrack *)
-      on_backtrack st (fun () -> Clause.mark_dead c);
       match atoms with
       | [] ->
         (* report Unsat immediately *)
@@ -1195,18 +1189,28 @@ module Make (Th : Theory_intf.S) = struct
           (* conflict, even the last literal is false *)
           add_boolean_conflict st c
         ) else if b.neg.is_true && not a.is_true && not a.neg.is_true then (
-        let lvl = List.fold_left (fun m a -> max m a.var.v_level) 0 atoms in
-        cancel_until st (max lvl (base_level st));
-        enqueue_bool st a (Bcp c)
+          let lvl = List.fold_left (fun m a -> max m a.var.v_level) 0 atoms in
+          cancel_until st (max lvl (base_level st));
+          enqueue_bool st a (Bcp c)
         )
 
   (* Add a new clause, simplifying, propagating, and backtracking if
      the clause is false in the current trail *)
   and add_clause ~permanent st (c:clause) : unit =
     if permanent then (
-      redo_down_to_level_0 st (fun () -> add_clause_ st (Clause.copy c))
+      add_clause_ st c;
+      redo_down_to_level_0 st (fun () -> attach_clause st c)
     ) else (
-      add_clause_ st c
+      (* kill clause once we backtrack *)
+      on_backtrack st (fun () -> Clause.mark_dead c);
+      add_clause_ st c;
+      (* detach clause once we backtrack *)
+      if Clause.attached c then (
+        on_backtrack st
+          (fun () ->
+             Log.debugf 5 (fun k->k "(@[sat.detach_clause@ %a@])" Clause.debug c);
+             Clause.set_attached c false);
+      )
     )
 
   (* process a conflict:
@@ -1329,7 +1333,7 @@ module Make (Th : Theory_intf.S) = struct
 
   let act_propagate (st:t) f causes proof : unit =
     let l = List.rev_map (Atom.make st) causes in
-    if List.for_all (fun a -> a.is_true) l then (
+    if List.for_all Atom.is_true l then (
       let p = Atom.make st f in
       let c = Clause.make_l (p :: List.map Atom.neg l) (Lemma proof) in
       if p.is_true then (
