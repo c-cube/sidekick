@@ -255,13 +255,13 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
   | B_not _ -> assert false (* normalized *)
   | B_eq (t,u) ->
     if Lit.sign lit then (
-      self.acts.Theory.propagate_eq t u (Explanation.lit lit)
+      self.acts.Theory.propagate_eq t u (Lit.Set.singleton lit)
     ) else (
-      self.acts.Theory.propagate_distinct [t;u] ~neq:lit_t (Explanation.lit lit)
+      self.acts.Theory.propagate_distinct [t;u] ~neq:lit_t lit
     )
   | B_distinct l ->
     if Lit.sign lit then (
-      self.acts.Theory.propagate_distinct l ~neq:lit_t (Explanation.lit lit)
+      self.acts.Theory.propagate_distinct l ~neq:lit_t lit
     ) else (
       (* TODO: propagate pairwise equalities? *)
       Error.errorf "cannot process negative distinct lit %a" Lit.pp lit;
@@ -269,7 +269,7 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
   | B_and subs ->
     if Lit.sign lit then (
       (* propagate [lit => subs_i] *)
-      let expl = Bag.return (Explanation.lit lit) in
+      let expl = Lit.Set.singleton lit in
       List.iter
         (fun sub ->
            let sublit = Lit.atom sub in
@@ -277,7 +277,7 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
         subs
     ) else (
       (* propagate [¬lit => ∨_i ¬ subs_i] *)
-      let c = lit :: List.map (Lit.atom ~sign:false) subs in
+      let c = Lit.neg lit :: List.map (Lit.atom ~sign:false) subs in
       self.acts.Theory.add_local_axiom (IArray.of_list c)
     )
   | B_or subs ->
@@ -287,7 +287,7 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
       self.acts.Theory.add_local_axiom (IArray.of_list c)
     ) else (
       (* propagate [¬lit => ¬subs_i] *)
-      let expl = Bag.return (Explanation.lit lit) in
+      let expl = Lit.Set.singleton lit in
       List.iter
         (fun sub ->
            let sublit = Lit.atom ~sign:false sub in
@@ -300,7 +300,7 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
       let c = Lit.atom concl :: Lit.neg lit :: List.map (Lit.atom ~sign:false) guard in
       self.acts.Theory.add_local_axiom (IArray.of_list c)
     ) else (
-      let expl = Bag.return (Explanation.lit lit) in
+      let expl = Lit.Set.singleton lit in
       (* propagate [¬lit => ¬concl] *)
       self.acts.Theory.propagate (Lit.atom ~sign:false concl) expl;
       (* propagate [¬lit => ∧_i guard_i] *)

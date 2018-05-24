@@ -21,8 +21,7 @@ type actions = {
   raise_conflict: 'a. Lit.Set.t -> 'a;
   (** Report a conflict *)
 
-  (* FIXME: take a delayed Lit.Set.t? *)
-  propagate: Lit.t -> Explanation.t Bag.t -> unit;
+  propagate: Lit.t -> Lit.t list -> unit;
   (** Propagate a literal *)
 }
 

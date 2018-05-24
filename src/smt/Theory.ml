@@ -41,13 +41,13 @@ type actions = {
   raise_conflict: 'a. conflict -> 'a;
   (** Give a conflict clause to the solver *)
 
-  propagate_eq: Term.t -> Term.t -> Explanation.t -> unit;
+  propagate_eq: Term.t -> Term.t -> Lit.Set.t -> unit;
   (** Propagate an equality [t = u] because [e] *)
 
-  propagate_distinct: Term.t list -> neq:Term.t -> Explanation.t -> unit;
-  (** Propagate a [distinct l] because [e] (where [e = atom neq] *)
+  propagate_distinct: Term.t list -> neq:Term.t -> Lit.t -> unit;
+  (** Propagate a [distinct l] because [e] (where [e = neq] *)
 
-  propagate: Lit.t -> Explanation.t Bag.t -> unit;
+  propagate: Lit.t -> Lit.Set.t -> unit;
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 

@@ -126,10 +126,6 @@ let if_sat (self:t) (slice:_) : _ Sat_solver.res =
 (* forward propagations from CC or theories directly to the SMT core *)
 let act_propagate (self:t) f guard : unit =
   let Sat_solver.Actions r = self.cdcl_acts in
-  let guard =
-    Congruence_closure.explain_unfold_bag (cc self) guard
-    |> Lit.Set.to_list
-  in
   Sat_solver.Log.debugf 2
     (fun k->k "(@[@{<green>propagate@}@ %a@ :guard %a@])"
         Lit.pp f (Util.pp_list Lit.pp) guard);
