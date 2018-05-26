@@ -124,6 +124,9 @@ module type S = sig
   (** Assume the formulas in the slice, possibly pushing new formulas to be propagated,
       and returns the result of the new assumptions. *)
 
+  val add_formula : t -> formula -> unit
+  (** Internalize formula for later use *)
+
   val if_sat : t -> formula slice_actions -> (formula, proof) res
   (** Called at the end of the search in case a model has been found. If no new clause is
       pushed, then 'sat' is returned, else search is resumed. *)

@@ -4,6 +4,7 @@
 (** Combine the congruence closure with a number of plugins *)
 
 module Sat_solver = Sidekick_sat
+module C_clos = Congruence_closure
 open Solver_types
 
 module Proof = struct
@@ -25,7 +26,7 @@ type t = {
   (** actions provided by the SAT solver *)
   tst: Term.state;
   (** state for managing terms *)
-  cc: Congruence_closure.t lazy_t;
+  cc: C_clos.t lazy_t;
   (** congruence closure *)
   mutable theories : Theory.state list;
   (** Set of theories *)
@@ -43,7 +44,7 @@ let[@inline] theories (self:t) : Theory.state Sequence.t =
 (* handle a literal assumed by the SAT solver *)
 let assume_lit (self:t) (lit:Lit.t) : unit =
   Sat_solver.Log.debugf 2
-    (fun k->k "(@[<1>@{<green>theory_combine.assume_lit@}@ @[%a@]@])" Lit.pp lit);
+    (fun k->k "(@[<1>@{<green>th_combine.assume_lit@}@ @[%a@]@])" Lit.pp lit);
   (* check consistency first *)
   begin match Lit.view lit with
     | Lit_fresh _ -> ()
@@ -52,7 +53,7 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
     | Lit_atom {term_cell=Bool false; _} -> ()
     | Lit_atom _ ->
       (* transmit to theories. *)
-      Congruence_closure.assert_lit (cc self) lit;
+      C_clos.assert_lit (cc self) lit;
       theories self (fun (module Th) -> Th.on_assert Th.state lit);
   end
 
@@ -64,14 +65,15 @@ let cdcl_return_res (self:t) : _ Sat_solver.res =
     | Some lit_set ->
       let conflict_clause = IArray.of_list_map Lit.neg lit_set in
       Sat_solver.Log.debugf 3
-        (fun k->k "(@[<1>conflict@ clause: %a@])"
+        (fun k->k "(@[<1>@{<yellow>th_combine.conflict@}@ :clause %a@])"
             Theory.Clause.pp conflict_clause);
       self.conflict <- None;
       Sat_solver.Unsat (IArray.to_list conflict_clause, Proof.default)
   end
 
 let[@inline] check (self:t) : unit =
-  Congruence_closure.check (cc self)
+  Log.debug 5 "(th_combine.check)";
+  C_clos.check (cc self)
 
 let with_conflict_catch self f =
   begin
@@ -95,27 +97,29 @@ let assume_real (self:t) (slice:Lit.t Sat_solver.slice_actions) =
        check self
     )
 
+let add_formula (self:t) (lit:Lit.t) =
+  match Lit.view lit with
+  | Lit_atom t ->
+    let lazy cc = self.cc in
+    ignore (C_clos.add cc t : cc_node)
+  | Lit_expanded _ | Lit_fresh _ -> ()
+
 (* propagation from the bool solver *)
 let assume (self:t) (slice:_ Sat_solver.slice_actions) =
   match self.conflict with
+  | Some _ -> cdcl_return_res self (* already in conflict! *)
   | None -> assume_real self slice
-  | Some _ ->
-    (* already in conflict! *)
-    cdcl_return_res self
 
 (* perform final check of the model *)
 let if_sat (self:t) (slice:Lit.t Sat_solver.slice_actions) : _ Sat_solver.res =
-  Congruence_closure.final_check (cc self);
   (* all formulas in the SAT solver's trail *)
-  let forms =
-    let (module SA) = slice in
-    SA.slice_iter
-  in
-  (* final check for each theory *)
+  let (module SA) = slice in
   with_conflict_catch self
     (fun () ->
+       (* final check for CC + each theory *)
+       C_clos.final_check (cc self);
        theories self
-         (fun (module Th) -> Th.final_check Th.state forms))
+         (fun (module Th) -> Th.final_check Th.state SA.slice_iter))
 
 (** {2 Various helpers} *)
 
@@ -123,7 +127,7 @@ let if_sat (self:t) (slice:Lit.t Sat_solver.slice_actions) : _ Sat_solver.res =
 let act_propagate (self:t) f guard : unit =
   let (module A) = self.cdcl_acts in
   Sat_solver.Log.debugf 2
-    (fun k->k "(@[@{<green>propagate@}@ %a@ :guard %a@])"
+    (fun k->k "(@[@{<green>th.propagate@}@ %a@ :guard %a@])"
         Lit.pp f (Util.pp_list Lit.pp) guard);
   A.propagate f guard Proof.default
 
@@ -136,7 +140,7 @@ let on_merge_from_cc (self:t) r1 r2 e : unit =
   theories self
     (fun (module Th) -> Th.on_merge Th.state r1 r2 e)
 
-let mk_cc_actions (self:t) : Congruence_closure.actions =
+let mk_cc_actions (self:t) : C_clos.actions =
   let (module A) = self.cdcl_acts in
   let module R = struct
     let on_backtrack = A.on_backtrack
@@ -150,34 +154,34 @@ let mk_cc_actions (self:t) : Congruence_closure.actions =
 
 (* create a new theory combination *)
 let create (cdcl_acts:_ Sat_solver.actions) : t =
-  Sat_solver.Log.debug 5 "theory_combine.create";
+  Sat_solver.Log.debug 5 "th_combine.create";
   let rec self = {
     cdcl_acts;
     tst=Term.create ~size:1024 ();
     cc = lazy (
       (* lazily tie the knot *)
       let actions = mk_cc_actions self in
-      Congruence_closure.create ~size:1024 ~actions self.tst;
+      C_clos.create ~size:1024 ~actions self.tst;
     );
     theories = [];
     conflict = None;
   } in
-  ignore (Lazy.force @@ self.cc : Congruence_closure.t);
+  ignore (Lazy.force @@ self.cc : C_clos.t);
   self
 
 (** {2 Interface to individual theories} *)
 
-let act_all_classes self = Congruence_closure.all_classes (cc self)
+let act_all_classes self = C_clos.all_classes (cc self)
 
 let act_propagate_eq self t u guard =
-  Congruence_closure.assert_eq (cc self) t u guard
+  C_clos.assert_eq (cc self) t u guard
 
 let act_propagate_distinct self l ~neq guard =
-  Congruence_closure.assert_distinct (cc self) l ~neq guard
+  C_clos.assert_distinct (cc self) l ~neq guard
 
 let act_find self t =
-  Congruence_closure.add (cc self) t
-  |> Congruence_closure.find (cc self)
+  C_clos.add (cc self) t
+  |> C_clos.find (cc self)
 
 let act_add_local_axiom self c : unit =
   Sat_solver.Log.debugf 5 (fun k->k "(@[<2>th_combine.push_local_lemma@ %a@])" Theory.Clause.pp c);
@@ -208,7 +212,7 @@ let mk_theory_actions (self:t) : Theory.actions =
 
 let add_theory (self:t) (th:Theory.t) : unit =
   Sat_solver.Log.debugf 2
-    (fun k->k "(@[theory_combine.add_th@ :name %S@])" th.Theory.name);
+    (fun k->k "(@[th_combine.add_th@ :name %S@])" th.Theory.name);
   let th_s = th.Theory.make self.tst (mk_theory_actions self) in
   self.theories <- th_s :: self.theories
 

@@ -154,8 +154,7 @@ let add_signature cc (t:term) (r:repr): unit = match signature cc t with
     (* add, but only if not present already *)
     begin match Sig_tbl.get cc.signatures_tbl s with
       | None ->
-        on_backtrack cc
-          (fun () -> Sig_tbl.remove cc.signatures_tbl s);
+        on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
         Sig_tbl.add cc.signatures_tbl s r;
       | Some r' ->
         assert (Equiv_class.equal r r');
@@ -381,18 +380,8 @@ and update_combine cc =
       assert (is_root_ ra);
       assert (is_root_ rb);
       (* We will merge [r_from] into [r_into].
-         we try to ensure that [size ra <= size rb] in general, unless
-         it clashes with the invariant that the representative must
-         be a normal form if the class contains a normal form *)
-      let must_solve, r_from, r_into =
-        match Term.is_semantic ra.n_term, Term.is_semantic rb.n_term with
-        | true, true ->
-          if size_ ra > size_ rb then true, rb, ra else true, ra, rb
-        | false, false ->
-          if size_ ra > size_ rb then false, rb, ra else false, ra, rb
-        | true, false -> false, rb, ra (* semantic ==> representative *)
-        | false, true -> false, ra, rb
-      in
+         we try to ensure that [size ra <= size rb] in general *)
+      let r_from, r_into = if size_ ra > size_ rb then rb, ra else ra, rb in
       let new_tags =
         Util.Int_map.union
           (fun _i (n1,e1) (n2,e2) ->
@@ -411,28 +400,6 @@ and update_combine cc =
              raise_conflict cc @@ Lit.Set.elements lits)
           ra.n_tags rb.n_tags
       in
-      (* solve the equation, if both [ra] and [rb] are semantic.
-         The equation is between signatures, so as to canonize w.r.t the
-         current congruence before solving *)
-      if must_solve then (
-        let t_a = ra.n_term and t_b = rb.n_term in
-        match signature cc t_a, signature cc t_b with
-        | Some (Custom t1), Some (Custom t2) ->
-          begin match t1.tc.tc_t_solve t1.view t2.view with
-            | Solve_ok {subst=l} ->
-              Log.debugf 5
-                (fun k->k "(@[solve@ (@[= %a %a@])@ :yields (@[%a@])@])"
-                    Term.pp t_a Term.pp t_b
-                    (Util.pp_list @@ Util.pp_pair Equiv_class.pp Term.pp) l);
-              List.iter (fun (u1,u2) -> push_combine cc u1 (add cc u2) e_ab) l
-            | Solve_fail {expl} ->
-              Log.debugf 5
-                (fun k->k "(@[solve-fail@ (@[= %a %a@])@ :expl %a@])"
-                    Term.pp t_a Term.pp t_b (CCFormat.Dump.list Lit.pp) expl);
-              raise_conflict cc expl 
-          end
-        | _ -> assert false
-      );
       (* remove [ra.parents] from signature, put them into [st.pending] *)
       begin
         Bag.to_seq (r_from:>node).n_parents
@@ -487,6 +454,7 @@ and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
 (* add [t] to [cc] when not present already *)
 and add_new_term cc (t:term) : node =
   assert (not @@ mem cc t);
+  Log.debugf 20 (fun k->k "(@[cc.add_term@ %a@])" Term.pp t);
   let n = Equiv_class.make t in
   (* how to add a subterm *)
   let add_to_parents_of_sub_node (sub:node) : unit =
@@ -515,25 +483,28 @@ and add_new_term cc (t:term) : node =
       tc.tc_t_relevant view add_sub_t
   end;
   (* remove term when we backtrack *)
-  on_backtrack cc (fun () -> Term.Tbl.remove cc.tbl t);
+  on_backtrack cc
+    (fun () ->
+       Log.debugf 20 (fun k->k "(@[cc.remove_term@ %a@])" Term.pp t);
+       Term.Tbl.remove cc.tbl t);
   (* add term to the table *)
   Term.Tbl.add cc.tbl t n;
   (* [n] might be merged with other equiv classes *)
   push_pending cc n;
   n
 
-(* TODO? *)
-(* add [t=u] to the congruence closure, unconditionally (reduction relation) *)
-and[@inline] add_eqn (cc:t) (eqn:merge_op): unit =
-  let t, u, expl = eqn in
-  push_combine cc t u expl
-
 (* add a term *)
-and[@inline] add cc t =
+and[@inline] add cc t : node =
   try Term.Tbl.find cc.tbl t
   with Not_found -> add_new_term cc t
 
 let[@inline] add_seq cc seq = seq (fun t -> ignore @@ add cc t)
+
+(* before we push tasks into [pending], ensure they are removed when we backtrack *)
+let reset_on_backtrack cc : unit =
+  if Vec.is_empty cc.pending then (
+    on_backtrack cc (fun () -> Vec.clear cc.pending);
+  )
 
 (* assert that this boolean literal holds *)
 let assert_lit cc lit : unit = match Lit.view lit with
@@ -541,6 +512,7 @@ let assert_lit cc lit : unit = match Lit.view lit with
   | Lit_expanded _ -> ()
   | Lit_atom t ->
     assert (Ty.is_prop t.term_ty);
+    Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);
     let sign = Lit.sign lit in
     (* equate t and true/false *)
     let rhs = if sign then true_ cc else false_ cc in
@@ -549,6 +521,7 @@ let assert_lit cc lit : unit = match Lit.view lit with
        basically, just have [n] point to true/false and thus acquire
        the corresponding value, so its superterms (like [ite]) can evaluate
        properly *)
+    reset_on_backtrack cc;
     push_combine cc n rhs (E_lit lit);
     ()
 
@@ -556,6 +529,7 @@ let assert_eq cc (t:term) (u:term) expl : unit =
   let n1 = add cc t in
   let n2 = add cc u in
   if not (same_class cc n1 n2) then (
+    reset_on_backtrack cc;
     union cc n1 n2 expl
   )
 
