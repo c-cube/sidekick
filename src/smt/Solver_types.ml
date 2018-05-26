@@ -104,16 +104,10 @@ and explanation_forest_link =
 (* atomic explanation in the congruence closure *)
 and explanation =
   | E_reduction (* by pure reduction, tautologically equal *)
+  | E_merges of (cc_node * cc_node) list (* caused by these merges *)
   | E_lit of lit (* because of this literal *)
   | E_lits of lit list (* because of this (true) conjunction *)
   | E_congruence of cc_node * cc_node (* these terms are congruent *)
-  | E_injectivity of cc_node * cc_node (* injective function *)
-  | E_reduce_eq of cc_node * cc_node (* reduce because those are equal by reduction *)
-  | E_custom of {
-      name: ID.t; (* name of the rule *)
-      args: explanation list; (* sub-explanations *)
-      pp: (ID.t * explanation list) Fmt.printer;
-    } (** Custom explanation, typically for theories *)
 
 (* boolean literal *)
 and lit = {
@@ -229,26 +223,20 @@ let cmp_cc_node a b = term_cmp_ a.n_term b.n_term
 
 let rec cmp_exp a b =
   let toint = function
-    | E_congruence _ -> 0 | E_lit _ -> 1
-    | E_reduction -> 2 | E_injectivity _ -> 3
-    | E_reduce_eq _ -> 5
-    | E_custom _ -> 6
-    | E_lits _ -> 7
+    | E_merges _ -> 0 | E_lit _ -> 1
+    | E_reduction -> 2 | E_lits _ -> 3
+    | E_congruence _ -> 4
   in
   begin match a, b with
     | E_congruence (t1,t2), E_congruence (u1,u2) ->
       CCOrd.(cmp_cc_node t1 u1 <?> (cmp_cc_node, t2, u2))
+    | E_merges l1, E_merges l2 ->
+      CCList.compare (CCOrd.pair cmp_cc_node cmp_cc_node) l1 l2
     | E_reduction, E_reduction -> 0
     | E_lit l1, E_lit l2 -> cmp_lit l1 l2
     | E_lits l1, E_lits l2 -> CCList.compare cmp_lit l1 l2
-    | E_injectivity (t1,t2), E_injectivity (u1,u2) ->
-      CCOrd.(cmp_cc_node t1 u1 <?> (cmp_cc_node, t2, u2))
-    | E_reduce_eq (t1, u1), E_reduce_eq (t2,u2) ->
-      CCOrd.(cmp_cc_node t1 t2 <?> (cmp_cc_node, u1, u2))
-    | E_custom r1, E_custom r2 ->
-      CCOrd.(ID.compare r1.name r2.name <?> (list cmp_exp, r1.args, r2.args))
-    | E_congruence _, _ | E_lit _, _ | E_reduction, _ | E_lits _, _
-    | E_injectivity _, _ | E_reduce_eq _, _ | E_custom _, _
+    | E_merges _, _ | E_lit _, _ | E_lits _, _
+    | E_reduction, _ | E_congruence _, _
       -> CCInt.compare (toint a)(toint b)
   end
 
@@ -323,8 +311,8 @@ let pp_explanation out (e:explanation) = match e with
   | E_lits l -> CCFormat.Dump.list pp_lit out l
   | E_congruence (a,b) ->
     Format.fprintf out "(@[<hv1>congruence@ %a@ %a@])" pp_cc_node a pp_cc_node b
-  | E_injectivity (a,b) ->
-    Format.fprintf out "(@[<hv1>injectivity@ %a@ %a@])" pp_cc_node a pp_cc_node b
-  | E_reduce_eq (t, u) ->
-    Format.fprintf out "(@[<hv1>reduce_eq@ %a@ %a@])" pp_cc_node t pp_cc_node u
-  | E_custom {name; args; pp} -> pp out (name,args)
+  | E_merges l ->
+    Format.fprintf out "(@[<hv1>merges@ %a@])"
+      Fmt.(list ~sep:(return "@ ") @@ within "[" "]" @@ hvbox @@
+        pair ~sep:(return "@ <-> ") pp_cc_node pp_cc_node)
+      l

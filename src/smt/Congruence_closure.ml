@@ -253,15 +253,9 @@ let rec decompose_explain cc (e:explanation): unit =
     | E_reduction -> ()
     | E_lit lit -> ps_add_lit cc lit
     | E_lits l -> List.iter (ps_add_lit cc) l
-    | E_custom {args;_} ->
-      (* decompose sub-expls *)
-      List.iter (decompose_explain cc) args
-    | E_reduce_eq (a, b) ->
-      ps_add_obligation cc a b;
-    | E_injectivity (t1,t2) ->
-      (* arguments of [t1], [t2] are equal by injectivity, so we
-         just need to explain why [t1=t2] *)
-      ps_add_obligation cc t1 t2
+    | E_merges l ->
+      (* need to explain each merge in [l] *)
+      List.iter (fun (t,u) -> ps_add_obligation cc t u) l
     | E_congruence (t1,t2) ->
       (* [t1] and [t2] must be applications of the same symbol to
          arguments that are pairwise equal *)
@@ -366,7 +360,7 @@ let rec update_pending (cc:t): unit =
         add_signature cc n.n_term (find cc n)
       | Some u ->
         (* must combine [t] with [r] *)
-        push_combine cc n u(E_congruence (n,u))
+        push_combine cc n u (Explanation.mk_congruence n u)
     end;
     (* FIXME: when to actually evaluate?
     eval_pending cc;
@@ -489,15 +483,6 @@ and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
   assert (is_root_ rb);
   let (module A) = cc.acts in
   A.on_merge ra rb e
-
-
-(* FIXME: callback?
-(* evaluation rules: if, case... *)
-and eval_pending (t:term): unit =
-  List.iter
-    (fun ((module Theory):repr theory) -> Theory.eval t)
-    theories
-   *)
 
 (* add [t] to [cc] when not present already *)
 and add_new_term cc (t:term) : node =
@@ -625,7 +610,7 @@ let create ?(size=2048) ~actions (tst:Term.state) : t =
     tbl = Term.Tbl.create size;
     signatures_tbl = Sig_tbl.create size;
     pending=Vec.make_empty Equiv_class.dummy;
-    combine= Vec.make_empty (nd,nd,E_reduce_eq(nd,nd));
+    combine= Vec.make_empty (nd,nd,E_reduction);
     ps_lits=Lit.Set.empty;
     ps_queue=Vec.make_empty (nd,nd);
     true_ = lazy (add cc (Term.true_ tst));
