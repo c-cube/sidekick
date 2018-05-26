@@ -19,19 +19,21 @@ module Sig_tbl = CCHashtbl.Make(Signature)
 type merge_op = node * node * explanation
 (* a merge operation to perform *)
 
-type actions = {
-  on_backtrack:(unit -> unit) -> unit;
+module type ACTIONS = sig
+  val on_backtrack: (unit -> unit) -> unit
   (** Register a callback to be invoked upon backtracking below the current level *)
 
-  on_merge:repr -> repr -> explanation -> unit;
+  val on_merge: repr -> repr -> explanation -> unit
   (** Call this when two classes are merged *)
 
-  raise_conflict: 'a. conflict -> 'a;
+  val raise_conflict: conflict -> 'a
   (** Report a conflict *)
 
-  propagate: Lit.t -> Lit.t list -> unit;
+  val propagate: Lit.t -> Lit.t list -> unit
   (** Propagate a literal *)
-}
+end
+
+type actions = (module ACTIONS)
 
 type t = {
   tst: Term.state;
@@ -63,7 +65,9 @@ type t = {
    several times.
    See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
 
-let[@inline] on_backtrack cc f : unit = cc.acts.on_backtrack f
+let[@inline] on_backtrack cc f : unit =
+  let (module A) = cc.acts in
+  A.on_backtrack f
 
 let[@inline] is_root_ (n:node) : bool = n.n_root == n
 
@@ -192,7 +196,8 @@ let rec reroot_expl (cc:t) (n:node): unit =
   end
 
 let[@inline] raise_conflict (cc:t) (e:conflict): _ =
-  cc.acts.raise_conflict e
+  let (module A) = cc.acts in
+  A.raise_conflict e
 
 let[@inline] all_classes cc : repr Sequence.t =
   Term.Tbl.values cc.tbl
@@ -482,7 +487,8 @@ and update_combine cc =
    Side effect: also pushes sub-tasks *)
 and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
   assert (is_root_ rb);
-  cc.acts.on_merge ra rb e
+  let (module A) = cc.acts in
+  A.on_merge ra rb e
 
 
 (* FIXME: callback?

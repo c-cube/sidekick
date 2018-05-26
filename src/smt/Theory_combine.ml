@@ -53,7 +53,7 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
     | Lit_atom _ ->
       (* transmit to theories. *)
       Congruence_closure.assert_lit (cc self) lit;
-      theories self (fun (Theory.State th) -> th.on_assert th.st lit);
+      theories self (fun (module Th) -> Th.on_assert Th.state lit);
   end
 
 (* return result to the SAT solver *)
@@ -84,13 +84,13 @@ let with_conflict_catch self f =
   cdcl_return_res self
 
 (* propagation from the bool solver *)
-let assume_real (self:t) (slice:_ Sat_solver.slice_actions) =
+let assume_real (self:t) (slice:Lit.t Sat_solver.slice_actions) =
   (* TODO if Config.progress then print_progress(); *)
-  let Sat_solver.Slice_acts slice = slice in
-  Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Sequence.length slice.slice_iter));
+  let (module SA) = slice in
+  Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Sequence.length @@ SA.slice_iter));
   with_conflict_catch self
     (fun () ->
-       slice.slice_iter (assume_lit self);
+       SA.slice_iter (assume_lit self);
        (* now check satisfiability *)
        check self
     )
@@ -104,28 +104,28 @@ let assume (self:t) (slice:_ Sat_solver.slice_actions) =
     cdcl_return_res self
 
 (* perform final check of the model *)
-let if_sat (self:t) (slice:_) : _ Sat_solver.res =
+let if_sat (self:t) (slice:Lit.t Sat_solver.slice_actions) : _ Sat_solver.res =
   Congruence_closure.final_check (cc self);
   (* all formulas in the SAT solver's trail *)
   let forms =
-    let Sat_solver.Slice_acts r = slice in
-    r.slice_iter
+    let (module SA) = slice in
+    SA.slice_iter
   in
   (* final check for each theory *)
   with_conflict_catch self
     (fun () ->
        theories self
-         (fun (Theory.State th) -> th.final_check th.st forms))
+         (fun (module Th) -> Th.final_check Th.state forms))
 
 (** {2 Various helpers} *)
 
 (* forward propagations from CC or theories directly to the SMT core *)
 let act_propagate (self:t) f guard : unit =
-  let Sat_solver.Actions r = self.cdcl_acts in
+  let (module A) = self.cdcl_acts in
   Sat_solver.Log.debugf 2
     (fun k->k "(@[@{<green>propagate@}@ %a@ :guard %a@])"
         Lit.pp f (Util.pp_list Lit.pp) guard);
-  r.propagate f guard Proof.default
+  A.propagate f guard Proof.default
 
 (** {2 Interface to Congruence Closure} *)
 
@@ -134,16 +134,17 @@ let act_raise_conflict e = raise (Exn_conflict e)
 (* when CC decided to merge [r1] and [r2], notify theories *)
 let on_merge_from_cc (self:t) r1 r2 e : unit =
   theories self
-    (fun (Theory.State th) -> th.on_merge th.st r1 r2 e)
+    (fun (module Th) -> Th.on_merge Th.state r1 r2 e)
 
 let mk_cc_actions (self:t) : Congruence_closure.actions =
-  let Sat_solver.Actions r = self.cdcl_acts in
-  { Congruence_closure.
-    on_backtrack = r.on_backtrack;
-    on_merge = on_merge_from_cc self;
-    raise_conflict = act_raise_conflict;
-    propagate = act_propagate self;
-  }
+  let (module A) = self.cdcl_acts in
+  let module R = struct
+    let on_backtrack = A.on_backtrack
+    let on_merge = on_merge_from_cc self
+    let raise_conflict = act_raise_conflict
+    let propagate = act_propagate self
+  end in
+  (module R)
 
 (** {2 Main} *)
 
@@ -180,29 +181,30 @@ let act_find self t =
 
 let act_add_local_axiom self c : unit =
   Sat_solver.Log.debugf 5 (fun k->k "(@[<2>th_combine.push_local_lemma@ %a@])" Theory.Clause.pp c);
-  let Sat_solver.Actions r = self.cdcl_acts in
-  r.push_local c Proof.default
+  let (module A) = self.cdcl_acts in
+  A.push_local c Proof.default
 
 (* push one clause into [M], in the current level (not a lemma but
    an axiom) *)
 let act_add_persistent_axiom self c : unit =
   Sat_solver.Log.debugf 5 (fun k->k "(@[<2>th_combine.push_persistent_lemma@ %a@])" Theory.Clause.pp c);
-  let Sat_solver.Actions r = self.cdcl_acts in
-  r.push_persistent c Proof.default
+  let (module A) = self.cdcl_acts in
+  A.push_persistent c Proof.default
 
 let mk_theory_actions (self:t) : Theory.actions =
-  let Sat_solver.Actions r = self.cdcl_acts in
-  { Theory.
-    on_backtrack = r.on_backtrack;
-    raise_conflict = act_raise_conflict;
-    propagate = act_propagate self;
-    all_classes = act_all_classes self;
-    propagate_eq = act_propagate_eq self;
-    propagate_distinct = act_propagate_distinct self;
-    add_local_axiom = act_add_local_axiom self;
-    add_persistent_axiom = act_add_persistent_axiom self;
-    find = act_find self;
-  }
+  let (module A) = self.cdcl_acts in
+  let module R = struct
+    let on_backtrack = A.on_backtrack
+    let raise_conflict = act_raise_conflict
+    let propagate = act_propagate self
+    let all_classes = act_all_classes self
+    let propagate_eq = act_propagate_eq self
+    let propagate_distinct = act_propagate_distinct self
+    let add_local_axiom = act_add_local_axiom self
+    let add_persistent_axiom = act_add_persistent_axiom self
+    let find = act_find self
+  end
+  in (module R)
 
 let add_theory (self:t) (th:Theory.t) : unit =
   Sat_solver.Log.debugf 2

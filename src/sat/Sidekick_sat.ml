@@ -34,16 +34,8 @@ type 'clause export = 'clause Solver_intf.export = {
   clauses : 'clause Vec.t;
 }
 
-type ('form, 'proof) actions = ('form,'proof) Theory_intf.actions = Actions of {
-  push_persistent : 'form IArray.t -> 'proof -> unit;
-  push_local : 'form IArray.t -> 'proof -> unit;
-  on_backtrack: (unit -> unit) -> unit;
-  propagate : 'form -> 'form list -> 'proof -> unit;
-}
-
-type ('form, 'proof) slice_actions = ('form, 'proof) Theory_intf.slice_actions = Slice_acts of {
-  slice_iter : ('form -> unit) -> unit;
-}
+type ('form, 'proof) actions = ('form,'proof) Theory_intf.actions
+type 'form slice_actions = 'form Theory_intf.slice_actions
 
 module Make = Solver.Make
 

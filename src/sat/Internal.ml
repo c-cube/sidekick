@@ -1345,23 +1345,33 @@ module Make (Th : Theory_intf.S) = struct
         (Util.pp_list Atom.debug) l
     )
 
-  let current_slice st head = Theory_intf.Slice_acts {
-    slice_iter = slice_iter st head (Vec.size st.trail);
-  }
+  let current_slice st head : formula Theory_intf.slice_actions =
+    let module A = struct
+      type form = formula
+      let slice_iter = slice_iter st head (Vec.size st.trail)
+    end in
+    (module A)
 
   (* full slice, for [if_sat] final check *)
-  let full_slice st = Theory_intf.Slice_acts {
-    slice_iter = slice_iter st 0 (Vec.size st.trail);
-  }
+  let full_slice st : formula Theory_intf.slice_actions =
+    let module A = struct
+      type form = formula
+      let slice_iter = slice_iter st 0 (Vec.size st.trail)
+    end in
+    (module A)
 
   let act_at_level_0 st () = at_level_0 st
 
-  let actions st = Theory_intf.Actions {
-    push_persistent = act_push_persistent st;
-    push_local = act_push_local st;
-    on_backtrack = on_backtrack st;
-    propagate = act_propagate st;
-  }
+  let actions st: (formula,lemma) Theory_intf.actions =
+    let module A = struct
+      type nonrec formula = formula
+      type proof = lemma
+      let push_persistent = act_push_persistent st
+      let push_local = act_push_local st
+      let on_backtrack = on_backtrack st
+      let propagate = act_propagate st
+    end in
+    (module A)
 
   let create ?(size=`Big) () : t =
     let size_map, size_vars, size_trail, size_lvl = match size with

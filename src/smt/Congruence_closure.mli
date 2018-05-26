@@ -13,19 +13,21 @@ type repr = Equiv_class.t
 
 type conflict = Theory.conflict
 
-type actions = {
-  on_backtrack:(unit -> unit) -> unit;
+module type ACTIONS = sig
+  val on_backtrack: (unit -> unit) -> unit
   (** Register a callback to be invoked upon backtracking below the current level *)
 
-  on_merge:repr -> repr -> explanation -> unit;
+  val on_merge: repr -> repr -> explanation -> unit
   (** Call this when two classes are merged *)
 
-  raise_conflict: 'a. conflict -> 'a;
+  val raise_conflict: conflict -> 'a
   (** Report a conflict *)
 
-  propagate: Lit.t -> Lit.t list -> unit;
+  val propagate: Lit.t -> Lit.t list -> unit
   (** Propagate a literal *)
-}
+end
+
+type actions = (module ACTIONS)
 
 val create :
   ?size:int ->

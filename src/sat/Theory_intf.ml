@@ -39,30 +39,40 @@ type ('formula, 'proof) res =
       theory tautology (with its proof), for which every literal is false
       under the current assumptions. *)
 
-(** Actions given to the theory during initialization, to be used
-    at any time *)
-type ('form, 'proof) actions = Actions of {
-  push_persistent : 'form IArray.t -> 'proof -> unit;
+module type ACTIONS = sig
+  type formula
+  type proof
+
+  val push_persistent : formula IArray.t -> proof -> unit
   (** Allows to add a persistent clause to the solver. *)
 
-  push_local : 'form IArray.t -> 'proof -> unit;
+  val push_local : formula IArray.t -> proof -> unit
   (** Allows to add a local clause to the solver. The clause
       will be removed after backtracking. *)
 
-  on_backtrack: (unit -> unit) -> unit;
+  val on_backtrack: (unit -> unit) -> unit
   (** [on_backtrack f] calls [f] when the main solver backtracks *)
 
-  propagate : 'form -> 'form list -> 'proof -> unit;
+  val propagate : formula -> formula list -> proof -> unit
   (** [propagate lit causes proof] informs the solver to propagate [lit], with the reason
       that the clause [causes => lit] is a theory tautology. It is faster than pushing
       the associated clause but the clause will not be remembered by the sat solver,
       i.e it will not be used by the solver to do boolean propagation. *)
-}
+end
 
-type ('form, 'proof) slice_actions = Slice_acts of {
-  slice_iter : ('form -> unit) -> unit;
+(** Actions given to the theory during initialization, to be used
+    at any time *)
+type ('form, 'proof) actions =
+  (module ACTIONS with type formula = 'form and type proof = 'proof)
+
+module type SLICE_ACTIONS = sig
+  type form
+
+  val slice_iter : (form -> unit) -> unit
   (** iterate on the slice of the trail *)
-}
+end
+
+type 'form slice_actions = (module SLICE_ACTIONS with type form = 'form)
 (** The type for a slice. Slices are some kind of view of the current
     propagation queue. They allow to look at the propagated literals,
     and to add new clauses to the solver. *)
@@ -110,11 +120,11 @@ module type S = sig
   val create : (formula, proof) actions -> t
   (** Create a new instance of the theory *)
 
-  val assume : t -> (formula, proof) slice_actions -> (formula, proof) res
+  val assume : t -> formula slice_actions -> (formula, proof) res
   (** Assume the formulas in the slice, possibly pushing new formulas to be propagated,
       and returns the result of the new assumptions. *)
 
-  val if_sat : t -> (formula, proof) slice_actions -> (formula, proof) res
+  val if_sat : t -> formula slice_actions -> (formula, proof) res
   (** Called at the end of the search in case a model has been found. If no new clause is
       pushed, then 'sat' is returned, else search is resumed. *)
 end

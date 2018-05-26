@@ -14,58 +14,65 @@ end = struct
     )
 end
 
-(** Runtime state of a theory, with all the operations it provides.
-    ['a] is the internal state *)
-type state = State : {
-  mutable st: 'a;
-  on_merge: 'a -> Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit;
+module type STATE = sig
+  type t
+
+  val state : t
+
+  val on_merge: t -> Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit
   (** Called when two classes are merged *)
 
-  on_assert: 'a -> Lit.t -> unit;
+  val on_assert: t -> Lit.t -> unit
   (** Called when a literal becomes true *)
 
-  final_check: 'a -> Lit.t Sequence.t -> unit;
+  val final_check: t -> Lit.t Sequence.t -> unit
   (** Final check, must be complete (i.e. must raise a conflict
       if the set of literals is not satisfiable) *)
-} -> state
+end
+
+
+(** Runtime state of a theory, with all the operations it provides. *)
+type state = (module STATE) 
 
 (** Unsatisfiable conjunction.
     Its negation will become a conflict clause *)
 type conflict = Lit.t list
 
 (** Actions available to a theory during its lifetime *)
-type actions = {
-  on_backtrack: (unit -> unit) -> unit;
+module type ACTIONS = sig
+  val on_backtrack: (unit -> unit) -> unit
   (** Register an action to do when we backtrack *)
 
-  raise_conflict: 'a. conflict -> 'a;
+  val raise_conflict: conflict -> 'a
   (** Give a conflict clause to the solver *)
 
-  propagate_eq: Term.t -> Term.t -> Lit.t list -> unit;
+  val propagate_eq: Term.t -> Term.t -> Lit.t list -> unit
   (** Propagate an equality [t = u] because [e] *)
 
-  propagate_distinct: Term.t list -> neq:Term.t -> Lit.t -> unit;
+  val propagate_distinct: Term.t list -> neq:Term.t -> Lit.t -> unit
   (** Propagate a [distinct l] because [e] (where [e = neq] *)
 
-  propagate: Lit.t -> Lit.t list -> unit;
+  val propagate: Lit.t -> Lit.t list -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  add_local_axiom: Lit.t IArray.t -> unit;
+  val add_local_axiom: Lit.t IArray.t -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
-  add_persistent_axiom: Lit.t IArray.t -> unit;
+  val add_persistent_axiom: Lit.t IArray.t -> unit
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
-  find: Term.t -> Equiv_class.t;
+  val find: Term.t -> Equiv_class.t
   (** Find representative of this term *)
 
-  all_classes: Equiv_class.t Sequence.t;
+  val all_classes: Equiv_class.t Sequence.t
   (** All current equivalence classes
       (caution: linear in the number of terms existing in the solver) *)
-}
+end
+
+type actions = (module ACTIONS)
 
 type t = {
   name: string;
@@ -75,9 +82,17 @@ type t = {
 let make ~name ~make () : t = {name;make}
 
 let make_st
+  (type st)
     ?(on_merge=fun _ _ _ _ -> ())
     ?(on_assert=fun _ _ -> ())
     ~final_check
     ~st
     () : state =
-  State { st; on_merge; on_assert; final_check }
+  let module A = struct
+    type nonrec t = st
+    let state = st
+    let on_merge = on_merge
+    let on_assert = on_assert
+    let final_check = final_check
+  end in
+  (module A : STATE)
