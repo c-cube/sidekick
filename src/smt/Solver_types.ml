@@ -49,10 +49,9 @@ and explanation_forest_link =
 (* atomic explanation in the congruence closure *)
 and explanation =
   | E_reduction (* by pure reduction, tautologically equal *)
-  | E_merges of (cc_node * cc_node) list (* caused by these merges *)
+  | E_merges of (cc_node * cc_node) IArray.t (* caused by these merges *)
   | E_lit of lit (* because of this literal *)
   | E_lits of lit list (* because of this (true) conjunction *)
-  | E_congruence of cc_node * cc_node (* these terms are congruent *)
 
 (* boolean literal *)
 and lit = {
@@ -152,18 +151,14 @@ let rec cmp_exp a b =
   let toint = function
     | E_merges _ -> 0 | E_lit _ -> 1
     | E_reduction -> 2 | E_lits _ -> 3
-    | E_congruence _ -> 4
   in
   begin match a, b with
-    | E_congruence (t1,t2), E_congruence (u1,u2) ->
-      CCOrd.(cmp_cc_node t1 u1 <?> (cmp_cc_node, t2, u2))
     | E_merges l1, E_merges l2 ->
-      CCList.compare (CCOrd.pair cmp_cc_node cmp_cc_node) l1 l2
+      IArray.compare (CCOrd.pair cmp_cc_node cmp_cc_node) l1 l2
     | E_reduction, E_reduction -> 0
     | E_lit l1, E_lit l2 -> cmp_lit l1 l2
     | E_lits l1, E_lits l2 -> CCList.compare cmp_lit l1 l2
-    | E_merges _, _ | E_lit _, _ | E_lits _, _
-    | E_reduction, _ | E_congruence _, _
+    | E_merges _, _ | E_lit _, _ | E_lits _, _ | E_reduction, _
       -> CCInt.compare (toint a)(toint b)
   end
 
@@ -215,10 +210,8 @@ let pp_explanation out (e:explanation) = match e with
   | E_reduction -> Fmt.string out "reduction"
   | E_lit lit -> pp_lit out lit
   | E_lits l -> CCFormat.Dump.list pp_lit out l
-  | E_congruence (a,b) ->
-    Format.fprintf out "(@[<hv1>congruence@ %a@ %a@])" pp_cc_node a pp_cc_node b
   | E_merges l ->
     Format.fprintf out "(@[<hv1>merges@ %a@])"
-      Fmt.(list ~sep:(return "@ ") @@ within "[" "]" @@ hvbox @@
+      Fmt.(seq ~sep:(return "@ ") @@ within "[" "]" @@ hvbox @@
         pair ~sep:(return "@ <-> ") pp_cc_node pp_cc_node)
-      l
+      (IArray.to_seq l)

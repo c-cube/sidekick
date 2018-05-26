@@ -40,8 +40,8 @@ type t = {
   acts: actions;
   tbl: node Term.Tbl.t;
   (* internalization [term -> node] *)
-  signatures_tbl : repr Sig_tbl.t;
-  (* map a signature to the corresponding term in some equivalence class.
+  signatures_tbl : node Sig_tbl.t;
+  (* map a signature to the corresponding node in some equivalence class.
      A signature is a [term_cell] in which every immediate subterm
      that participates in the congruence/evaluation relation
      is normalized (i.e. is its own representative).
@@ -79,6 +79,8 @@ let[@inline] size_ (r:repr) =
    Invariant: [in_cc t => in_cc u, forall u subterm t] *)
 let[@inline] mem (cc:t) (t:term): bool =
   Term.Tbl.mem cc.tbl t
+
+(* TODO: remove path compression, point to new root explicitely during `union` *)
 
 (* find representative, recursively, and perform path compression *)
 let rec find_rec cc (n:node) : repr =
@@ -135,21 +137,16 @@ let find_by_signature cc (t:term) : repr option = match signature cc t with
   | None -> None
   | Some s -> Sig_tbl.get cc.signatures_tbl s
 
-let remove_signature cc (t:term): unit = match signature cc t with
-  | None -> ()
-  | Some s ->
-    Sig_tbl.remove cc.signatures_tbl s
-
-let add_signature cc (t:term) (r:repr): unit = match signature cc t with
+let add_signature cc (t:term) (r:node): unit = match signature cc t with
   | None -> ()
   | Some s ->
     (* add, but only if not present already *)
-    begin match Sig_tbl.get cc.signatures_tbl s with
-      | None ->
+    begin match Sig_tbl.find cc.signatures_tbl s with
+      | exception Not_found ->
         on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
         Sig_tbl.add cc.signatures_tbl s r;
-      | Some r' ->
-        assert (Equiv_class.equal r r');
+      | r' ->
+        assert (same_class cc r r');
     end
 
 let is_done (cc:t): bool =
@@ -246,18 +243,7 @@ let rec decompose_explain cc (e:explanation): unit =
     | E_lits l -> List.iter (ps_add_lit cc) l
     | E_merges l ->
       (* need to explain each merge in [l] *)
-      List.iter (fun (t,u) -> ps_add_obligation cc t u) l
-    | E_congruence (t1,t2) ->
-      (* [t1] and [t2] must be applications of the same symbol to
-         arguments that are pairwise equal *)
-      begin match t1.n_term.term_view, t2.n_term.term_view with
-        | App_cst (f1, a1), App_cst (f2, a2) ->
-          assert (Cst.equal f1 f2);
-          assert (IArray.length a1 = IArray.length a2);
-          IArray.iter2 (ps_add_obligation_t cc) a1 a2
-        | If _, _ | App_cst _, _ | Bool _, _
-          -> assert false
-      end
+      IArray.iter (fun (t,u) -> ps_add_obligation cc t u) l
   end
 
 (* explain why [a = parent_a], where [a -> ... -> parent_a] in the
@@ -339,12 +325,24 @@ let rec update_pending (cc:t): unit =
     (* check if some parent collided *)
     begin match find_by_signature cc n.n_term with
       | None ->
-        (* add to the signature table [n --> n.root] *)
-        add_signature cc n.n_term (find cc n)
+        (* add to the signature table [sig(n) --> n] *)
+        add_signature cc n.n_term n
       | Some u ->
         (* must combine [t] with [r] *)
-        if not @@ Equiv_class.equal n u then (
-          push_combine cc n u (Explanation.mk_congruence n u)
+        if not @@ same_class cc n u then (
+          (* [t1] and [t2] must be applications of the same symbol to
+             arguments that are pairwise equal *)
+          assert (n != u);
+          let expl = match n.n_term.term_view, u.n_term.term_view with
+            | App_cst (f1, a1), App_cst (f2, a2) ->
+              assert (Cst.equal f1 f2);
+              assert (IArray.length a1 = IArray.length a2);
+              Explanation.mk_merges @@
+              IArray.map2 (fun u1 u2 -> add cc u1, add cc u2) a1 a2
+            | If _, _ | App_cst _, _ | Bool _, _
+              -> assert false
+          in
+          push_combine cc n u expl
         )
     end;
     (* FIXME: when to actually evaluate?
@@ -390,12 +388,7 @@ and update_combine cc =
       begin
         Bag.to_seq (r_from:>node).n_parents
         |> Sequence.iter
-          (fun parent ->
-             (* FIXME: with OCaml's hashtable, we should be able
-                to keep this entry (and have it become relevant later
-                once the signature of [parent] is backtracked) *)
-             remove_signature cc parent.n_term;
-             push_pending cc parent)
+          (fun parent -> push_pending cc parent)
       end;
       (* perform [union ra rb] *)
       begin
