@@ -123,7 +123,8 @@ let signature cc (t:term): node Term.view option =
   let find = find_tn cc in
   begin match Term.view t with
     | App_cst (_, a) when IArray.is_empty a -> None
-    | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return
+    | App_cst ({cst_view=Cst_def {do_cc=false;_}; _}, _) -> None (* no CC *)
+    | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return (* FIXME: relevance *)
     | Bool _ | If _
       -> None (* no congruence for these *)
    end
@@ -142,8 +143,6 @@ let remove_signature cc (t:term): unit = match signature cc t with
 let add_signature cc (t:term) (r:repr): unit = match signature cc t with
   | None -> ()
   | Some s ->
-    assert (CCOpt.map_or ~default:false (Signature.equal s)
-        (signature cc r.n_term));
     (* add, but only if not present already *)
     begin match Sig_tbl.get cc.signatures_tbl s with
       | None ->
@@ -344,7 +343,9 @@ let rec update_pending (cc:t): unit =
         add_signature cc n.n_term (find cc n)
       | Some u ->
         (* must combine [t] with [r] *)
-        push_combine cc n u (Explanation.mk_congruence n u)
+        if not @@ Equiv_class.equal n u then (
+          push_combine cc n u (Explanation.mk_congruence n u)
+        )
     end;
     (* FIXME: when to actually evaluate?
     eval_pending cc;

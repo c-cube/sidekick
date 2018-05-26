@@ -25,8 +25,10 @@ let id_distinct = ID.make "distinct"
 
 module C = struct
 
-  let get_ty _ = Ty.prop
-  let relevant _ = Sequence.empty (* no congruence closure *)
+  let get_ty _ _ = Ty.prop
+
+  (* no congruence closure, except for `=` *)
+  let relevant id _ _ = ID.equal id_eq id
 
   let abs ~self _a =
     match Term.view self with
@@ -35,14 +37,14 @@ module C = struct
       IArray.get args 0, false
     | _ -> self, true
 
-  let mk_cst id : Cst.t =
-    {cst_id=id; cst_view=Cst_def { pp=None; abs; ty=get_ty; relevant; }; }
+  let mk_cst ?(do_cc=false) id : Cst.t =
+    {cst_id=id; cst_view=Cst_def { pp=None; abs; ty=get_ty; relevant; do_cc; }; }
 
   let not = mk_cst id_not
   let and_ = mk_cst id_and
   let or_ = mk_cst id_or
   let imply = mk_cst id_imply
-  let eq = mk_cst id_eq
+  let eq = mk_cst ~do_cc:true id_eq
   let distinct = mk_cst id_distinct
 end
 

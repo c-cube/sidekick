@@ -74,8 +74,9 @@ and cst_view =
   | Cst_def of {
       pp : 'a. ('a Fmt.printer -> 'a IArray.t Fmt.printer) option;
       abs : self:term -> term IArray.t -> term * bool; (* remove the sign? *)
-      relevant : 'a. 'a IArray.t -> 'a Sequence.t; (* iter on relevant immediate subterms *)
-      ty : term IArray.t -> ty; (* compute type *)
+      do_cc: bool; (* participate in congruence closure? *)
+      relevant : 'a. ID.t -> 'a IArray.t -> int -> bool; (* relevant argument? *)
+      ty : ID.t -> term IArray.t -> ty; (* compute type *)
     }
 (** Methods on the custom term view whose arguments are ['a].
     Terms must be printable, and provide some additional theory handles.

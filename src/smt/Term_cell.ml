@@ -78,7 +78,7 @@ let ty (t:t): Ty.t = match t with
              ))
           ty_args;
         ty_ret
-      | Cst_def def -> def.ty args
+      | Cst_def def -> def.ty f.cst_id args
     end
   | If (_,b,_) -> b.term_ty
 
