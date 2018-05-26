@@ -880,6 +880,9 @@ module Make (Th : Theory_intf.S) = struct
     Vec.push st.backtrack_levels (Vec.size st.backtrack); (* save the current theory state *)
     ()
 
+  let[@inline] internalize_atoms (self:t) (c:clause) : unit =
+    Array.iter (attach_atom self) c.atoms
+
   (* Attach a clause.
      A clause is attached (to its watching lits) when it is first added,
      either because it is assumed or learnt.
@@ -891,8 +894,7 @@ module Make (Th : Theory_intf.S) = struct
       Vec.push c.atoms.(0).neg.watched c;
       Vec.push c.atoms.(1).neg.watched c;
       Clause.set_attached c true;
-      (* internalize atoms *)
-      Array.iter (attach_atom self) c.atoms;
+      internalize_atoms self c;
     )
 
   (* perform all backtracking actions down to level [l].
@@ -1197,20 +1199,13 @@ module Make (Th : Theory_intf.S) = struct
   (* Add a new clause, simplifying, propagating, and backtracking if
      the clause is false in the current trail *)
   and add_clause ~permanent st (c:clause) : unit =
+    add_clause_ st c;
     if permanent then (
-      add_clause_ st c;
-      redo_down_to_level_0 st (fun () -> attach_clause st c)
+      (* need to re-internalize *)
+      redo_down_to_level_0 st (fun () -> internalize_atoms st c)
     ) else (
-      (* kill clause once we backtrack *)
-      on_backtrack st (fun () -> Clause.mark_dead c);
-      add_clause_ st c;
-      (* detach clause once we backtrack *)
-      if Clause.attached c then (
-        on_backtrack st
-          (fun () ->
-             Log.debugf 5 (fun k->k "(@[sat.detach_clause@ %a@])" Clause.debug c);
-             Clause.set_attached c false);
-      )
+      (* kill clause on backtrack *)
+      on_backtrack st (fun () -> Clause.mark_dead c)
     )
 
   (* process a conflict:
