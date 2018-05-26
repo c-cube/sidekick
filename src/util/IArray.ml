@@ -17,6 +17,8 @@ let make n x = Array.make n x
 
 let init n f = Array.init n f
 
+let sub = Array.sub
+
 let get = Array.get
 
 let unsafe_get = Array.unsafe_get

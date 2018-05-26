@@ -10,7 +10,7 @@ type conflict = Theory.conflict
 (** A signature is a shallow term shape where immediate subterms
     are representative *)
 module Signature = struct
-  type t = node term_cell
+  type t = node Term.view
   include Term_cell.Make_eq(Equiv_class)
 end
 
@@ -119,19 +119,12 @@ let[@inline] same_class_t cc (t1:term)(t2:term): bool =
   Equiv_class.equal (find_tn cc t1) (find_tn cc t2)
 
 (* compute signature *)
-let signature cc (t:term): node term_cell option =
+let signature cc (t:term): node Term.view option =
   let find = find_tn cc in
-  begin match Term.cell t with
+  begin match Term.view t with
     | App_cst (_, a) when IArray.is_empty a -> None
     | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return
-    | Custom {view;tc} ->
-      begin match tc.tc_t_subst find view with
-        | None -> None
-        | Some u' -> Some (Custom{tc; view=u'})
-      end
-    | Bool _
-    | If _
-    | Case _
+    | Bool _ | If _
       -> None (* no congruence for these *)
    end
 
@@ -258,20 +251,12 @@ let rec decompose_explain cc (e:explanation): unit =
     | E_congruence (t1,t2) ->
       (* [t1] and [t2] must be applications of the same symbol to
          arguments that are pairwise equal *)
-      begin match t1.n_term.term_cell, t2.n_term.term_cell with
+      begin match t1.n_term.term_view, t2.n_term.term_view with
         | App_cst (f1, a1), App_cst (f2, a2) ->
           assert (Cst.equal f1 f2);
           assert (IArray.length a1 = IArray.length a2);
           IArray.iter2 (ps_add_obligation_t cc) a1 a2
-        | Custom r1, Custom r2 ->
-          (* ask the theory to explain why [r1 = r2] *)
-          let l = r1.tc.tc_t_explain (same_class_t cc) r1.view r2.view in
-          List.iter (fun (t,u) -> ps_add_obligation_t cc t u) l
-        | If _, _
-        | App_cst _, _
-        | Case _, _
-        | Bool _, _
-        | Custom _, _
+        | If _, _ | App_cst _, _ | Bool _, _
           -> assert false
       end
   end
@@ -470,17 +455,14 @@ and add_new_term cc (t:term) : node =
     add_to_parents_of_sub_node n_u
   in
   (* register sub-terms, add [t] to their parent list *)
-  begin match t.term_cell with
+  begin match t.term_view with
     | Bool _-> ()
     | App_cst (_, a) -> IArray.iter add_sub_t a
     | If (a,b,c) ->
+      (* TODO: relevancy? only [a] needs be decided for now *)
       add_sub_t a;
       add_sub_t b;
       add_sub_t c
-    | Case (u, _) -> add_sub_t u
-    | Custom {view;tc} ->
-      (* add relevant subterms to the CC *)
-      tc.tc_t_relevant view add_sub_t
   end;
   (* remove term when we backtrack *)
   on_backtrack cc
@@ -508,8 +490,7 @@ let reset_on_backtrack cc : unit =
 
 (* assert that this boolean literal holds *)
 let assert_lit cc lit : unit = match Lit.view lit with
-  | Lit_fresh _
-  | Lit_expanded _ -> ()
+  | Lit_fresh _ -> ()
   | Lit_atom t ->
     assert (Ty.is_prop t.term_ty);
     Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);

@@ -5,30 +5,17 @@ open Sidekick_smt
 
 type term = Term.t
 
-type 'a builtin =
+type 'a view = private
   | B_not of 'a
   | B_eq of 'a * 'a
-  | B_and of 'a list
-  | B_or of 'a list
-  | B_imply of 'a list * 'a
-  | B_distinct of 'a list
+  | B_and of 'a IArray.t
+  | B_or of 'a IArray.t
+  | B_imply of 'a IArray.t * 'a
+  | B_distinct of 'a IArray.t
+  | B_atom of 'a
 
-val map_builtin : ('a -> 'b) -> 'a builtin -> 'b builtin
-val builtin_to_seq : 'a builtin -> 'a Sequence.t
+val view : term -> term view
 
-module T_cell : sig
-  type t = Term_cell.t
-  val builtin : term builtin -> t
-  val and_ : term list -> t
-  val or_ : term list -> t
-  val not_ : term -> t
-  val imply : term list -> term -> t
-  val eq : term -> term -> t
-  val neq : term -> term -> t
-  val distinct : term list -> t
-end
-
-val builtin : Term.state -> term builtin -> term
 val and_ : Term.state -> term -> term -> term
 val or_ : Term.state -> term -> term -> term
 val not_ : Term.state -> term -> term

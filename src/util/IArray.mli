@@ -1,7 +1,7 @@
 
 (* This file is free software. See file "license" for more details. *)
 
-type 'a t
+type 'a t = private 'a array
 (** Array of values of type 'a. The underlying type really is
     an array, but it will never be modified.
 
@@ -12,6 +12,8 @@ val empty : 'a t
 val is_empty : _ t  -> bool
 
 val length : _ t -> int
+
+val sub : 'a t -> int -> int -> 'a t
 
 val singleton : 'a -> 'a t
 

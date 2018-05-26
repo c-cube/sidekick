@@ -15,8 +15,11 @@ val pp_pair : ?sep:string -> 'a printer -> 'b printer -> ('a * 'b) printer
 
 val pp_iarray : ?sep:string -> 'a CCFormat.printer -> 'a IArray.t CCFormat.printer
 
+val flat_map_l_ia : ('a -> 'b IArray.t) -> 'a list -> 'b list
+
 val setup_gc : unit -> unit
 (** Change parameters of the GC *)
 
 module Int_set : CCSet.S with type elt = int
 module Int_map : CCMap.S with type key = int
+module Int_tbl : CCHashtbl.S with type key = int

@@ -24,6 +24,9 @@ let pp_array ?(sep=" ") pp out l =
 let pp_iarray ?(sep=" ") pp out a =
   Fmt.seq ~sep:(pp_sep sep) pp out (IArray.to_seq a)
 
+let flat_map_l_ia f l =
+  CCList.flat_map (fun x -> IArray.to_list @@ f x) l
+
 let setup_gc () =
   let g = Gc.get () in
   g.Gc.space_overhead <- 3_000; (* major gc *)

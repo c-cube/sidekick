@@ -4,36 +4,17 @@ open Solver_types
 type t = term = {
   mutable term_id : int;
   mutable term_ty : ty;
-  term_cell : t term_cell;
+  term_view : t term_view;
 }
 
-type 'a cell = 'a term_cell =
+type 'a view = 'a term_view =
   | Bool of bool
   | App_cst of cst * 'a IArray.t
   | If of 'a * 'a * 'a
-  | Case of 'a * 'a ID.Map.t
-  | Custom of { view : 'a term_view_custom; tc : term_view_tc; }
-
-type 'a custom = 'a Solver_types.term_view_custom = ..
-
-type tc = Solver_types.term_view_tc = {
-  tc_t_pp : 'a. 'a Fmt.printer -> 'a custom Fmt.printer;
-  tc_t_equal : 'a. 'a CCEqual.t -> 'a custom CCEqual.t;
-  tc_t_hash : 'a. 'a Hash.t -> 'a custom Hash.t;
-  tc_t_ty : 'a. ('a -> ty) -> 'a custom -> ty;
-  tc_t_is_semantic : 'a. 'a custom -> bool;
-  tc_t_solve : cc_node custom -> cc_node custom -> solve_result;
-  tc_t_sub : 'a. 'a custom -> 'a Sequence.t;
-  tc_t_abs : self:term -> term custom -> term * bool;
-  tc_t_relevant : 'a. 'a custom -> 'a Sequence.t;
-  tc_t_subst : 'a 'b. ('a -> 'b) -> 'a custom -> 'b custom option;
-  tc_t_explain : 'a. 'a CCEqual.t -> 'a custom -> 'a custom -> ('a * 'a) list;
-}
-
 
 let[@inline] id t = t.term_id
 let[@inline] ty t = t.term_ty
-let[@inline] cell t = t.term_cell
+let[@inline] view t = t.term_view
 
 let equal = term_equal_
 let hash = term_hash_
@@ -51,13 +32,13 @@ let mk_real_ st c : t =
   let t = {
     term_id= st.n;
     term_ty;
-    term_cell=c;
+    term_view=c;
   } in
   st.n <- 1 + st.n;
   Term_cell.Tbl.add st.tbl c t;
   t
 
-let[@inline] make st (c:t term_cell) : t =
+let[@inline] make st (c:t term_view) : t =
   try Term_cell.Tbl.find st.tbl c
   with Not_found -> mk_real_ st c
 
@@ -83,37 +64,22 @@ let app_cst st f a =
 
 let const st c = app_cst st c IArray.empty
 
-let case st u m = make st (Term_cell.case u m)
-
 let if_ st a b c = make st (Term_cell.if_ a b c)
 
 (* "eager" and, evaluating [a] first *)
 let and_eager st a b = if_ st a b (false_ st)
 
-let custom st ~tc view = make st (Term_cell.custom ~tc view)
-
-let cstor_test st cstor t = make st (Term_cell.cstor_test cstor t)
-let cstor_proj st cstor i t = make st (Term_cell.cstor_proj cstor i t)
-
 (* might need to tranfer the negation from [t] to [sign] *)
-let abs t : t * bool = match t.term_cell with
-  | Custom {view;tc} -> tc.tc_t_abs ~self:t view
+let abs t : t * bool = match view t with
+  | App_cst ({cst_view=Cst_def def; _}, args) ->
+    def.abs ~self:t args
   | _ -> t, true
 
-let[@inline] is_true t = match t.term_cell with Bool true -> true | _ -> false
-let[@inline]  is_false t = match t.term_cell with Bool false -> true | _ -> false
+let[@inline] is_true t = match view t with Bool true -> true | _ -> false
+let[@inline] is_false t = match view t with Bool false -> true | _ -> false
 
-let[@inline] is_const t = match t.term_cell with
+let[@inline] is_const t = match view t with
   | App_cst (_, a) -> IArray.is_empty a
-  | _ -> false
-
-let[@inline] is_custom t = match t.term_cell with
-  | Custom _ -> true
-  | _ -> false
-
-let[@inline] is_semantic t = match t.term_cell with
-  | Bool _ -> true
-  | Custom {view;tc} -> tc.tc_t_is_semantic view
   | _ -> false
 
 module As_key = struct
@@ -129,49 +95,23 @@ module Tbl = CCHashtbl.Make(As_key)
 let to_seq t yield =
   let rec aux t =
     yield t;
-    match t.term_cell with
-      | Bool _ -> ()
-      | App_cst (_,a) -> IArray.iter aux a
-      | If (a,b,c) -> aux a; aux b; aux c
-      | Case (t, m) ->
-        aux t;
-        ID.Map.iter (fun _ rhs -> aux rhs) m
-      | Custom {view;tc} -> tc.tc_t_sub view aux
+    match view t with
+    | Bool _ -> ()
+    | App_cst (_,a) -> IArray.iter aux a
+    | If (a,b,c) -> aux a; aux b; aux c
   in
   aux t
 
 (* return [Some] iff the term is an undefined constant *)
-let as_cst_undef (t:term): (cst * Ty.t) option =
-  match t.term_cell with
-    | App_cst (c, a) when IArray.is_empty a ->
-      Cst.as_undefined c
-    | _ -> None
-
-(* return [Some (cstor,ty,args)] if the term is a constructor
-   applied to some arguments *)
-let as_cstor_app (t:term): (cst * data_cstor * term IArray.t) option =
-  match t.term_cell with
-    | App_cst ({cst_kind=Cst_cstor (lazy cstor); _} as c, a) ->
-      Some (c,cstor,a)
-    | _ -> None
-
-(* typical view for unification/equality *)
-type unif_form =
-  | Unif_cst of cst * Ty.t
-  | Unif_cstor of cst * data_cstor * term IArray.t
-  | Unif_none
-
-let as_unif (t:term): unif_form = match t.term_cell with
-  | App_cst ({cst_kind=Cst_undef ty; _} as c, a) when IArray.is_empty a ->
-    Unif_cst (c,ty)
-  | App_cst ({cst_kind=Cst_cstor (lazy cstor); _} as c, a) ->
-    Unif_cstor (c,cstor,a)
-  | _ -> Unif_none
+let as_cst_undef (t:term): (cst * Ty.Fun.t) option =
+  match view t with
+  | App_cst (c, a) when IArray.is_empty a -> Cst.as_undefined c
+  | _ -> None
 
 let pp = Solver_types.pp_term
 
 let dummy : t = {
   term_id= -1;
   term_ty=Ty.prop;
-  term_cell=Term_cell.true_;
+  term_view=Term_cell.true_;
 }

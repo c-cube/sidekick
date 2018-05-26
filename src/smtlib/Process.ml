@@ -27,7 +27,7 @@ end
 
 module Conv = struct
   let conv_ty (ty:A.Ty.t) : Ty.t =
-    let mk_ty id = Ty.atomic id Ty.Uninterpreted ~card:(lazy Ty_card.infinite) in
+    let mk_ty id = Ty.atomic_uninterpreted id in
     (* convert a type *)
     let aux_ty (ty:A.Ty.t) : Ty.t = match ty with
       | A.Ty.Prop -> Ty.prop
@@ -39,6 +39,15 @@ module Conv = struct
         Error.errorf "cannot convert arrow type `%a`" A.Ty.pp ty
     in
     aux_ty ty
+
+  let conv_fun_ty (ty:A.Ty.t) : Ty.Fun.t =
+    let rec aux args ty =
+      match ty with
+      | A.Ty.Arrow (a,b) ->
+        aux (conv_ty a :: args) b
+      | _ -> Ty.Fun.mk (List.rev args) (conv_ty ty)
+    in
+    aux [] ty
 
   let conv_term (tst:Term.state) (t:A.term): Term.t =
     (* polymorphic equality *)
@@ -80,7 +89,6 @@ module Conv = struct
     (* convert term.
        @param subst used to expand let-bindings on the fly *)
     let rec aux (subst:Term.t Subst.t) (t:A.term) : Term.t =
-      let ty = A.ty t |> conv_ty in
       begin match A.term_view t with
         | A.Var v ->
           begin match Subst.find subst v with
@@ -88,13 +96,14 @@ module Conv = struct
             | Some t -> t
           end
         | A.Const id ->
-          mk_const (Cst.make_undef id ty)
+          let ty = conv_fun_ty @@ A.ty t in
+          mk_const (Cst.mk_undef id ty)
         | A.App (f, l) ->
           let l = List.map (aux subst) l in
           begin match A.term_view f with
             | A.Const id ->
               (* TODO: lookup definition of [f] *)
-              mk_app (Cst.make_undef id (A.ty f |> conv_ty)) l
+              mk_app (Cst.mk_undef id (conv_fun_ty @@ A.ty f)) l
             | _ -> Error.errorf "cannot process HO application %a" A.pp_term t
           end
         | A.If (a,b,c) ->
@@ -208,54 +217,6 @@ end
 let conv_ty = Conv.conv_ty
 let conv_term = Conv.conv_term
 
-(** {2 Terms for Dimacs atoms} *)
-module I_atom : sig
-  val mk_t : Term.state -> int -> Term.t
-  val mk_atom : Term.state -> int -> Lit.t
-end = struct
-  open Solver_types
-
-  type _ Term.custom +=
-    | Atom of int (* absolute *)
-
-  let pp _ out = function Atom i -> Fmt.int out i | _ -> assert false
-  let eq _ a b = match a, b with Atom a, Atom b -> a = b | _ -> false
-  let hash _ = function Atom i -> CCHash.int i | _ -> 0
-  let get_ty _ _ = Ty.prop
-  let is_semantic _ = false
-  let solve a b = match a, b with
-    | Atom a, Atom b when a=b -> Solve_ok {subst=[]}
-    | _ -> assert false
-  let sub _ _ = ()
-  let abs ~self _ = self, true
-  let relevant _ _ = ()
-  let subst _ _ : _ option = None
-  let explain _ _ _ = []
-
-  let tc : Term_cell.tc = {
-    Term_cell.
-    tc_t_pp = pp;
-    tc_t_equal = eq;
-    tc_t_hash = hash;
-    tc_t_ty = get_ty;
-    tc_t_is_semantic = is_semantic;
-    tc_t_solve = solve;
-    tc_t_sub = sub;
-    tc_t_abs = abs;
-    tc_t_relevant = relevant;
-    tc_t_subst = subst;
-    tc_t_explain = explain
-  }
-
-  let[@inline] mk_t tst i =
-    assert (i>=0);
-    Term.custom tst ~tc (Atom i)
-
-  let[@inline] mk_atom tst i =
-    let a = mk_t tst (Pervasives.abs i) in
-    Lit.atom ~sign:(i>0) a
-end
-
 (* call the solver to check-sat *)
 let solve
     ?gc:_
@@ -298,6 +259,15 @@ let solve
     | Solver.Unknown reas ->
       Format.printf "Unknown (:reason %a)" Solver.pp_unknown reas
   end
+
+(* NOTE: hack for testing with dimacs. Proper treatment should go into
+   scoping in Ast, or having theory-specific state in `Term.state` *)
+let mk_iatom =
+  let tbl = Util.Int_tbl.create 6 in (* for atoms *)
+  fun tst i ->
+    let c = Util.Int_tbl.get_or_add tbl ~k:(abs i) 
+        ~f:(fun i -> Cst.mk_undef_const (ID.makef "a_%d" i) Ty.prop) in
+    Lit.atom ~sign:(i>0) @@ Term.const tst c
 
 (* process a single statement *)
 let process_stmt
@@ -354,7 +324,7 @@ let process_stmt
       Solver.assume solver (IArray.singleton (Lit.atom t));
       E.return()
     | A.Assert_bool l ->
-      let c = List.rev_map (I_atom.mk_atom tst) l in
+      let c = List.rev_map (mk_iatom tst) l in
       Solver.assume solver (IArray.of_list c);
       E.return ()
     | A.Goal (_, _) ->

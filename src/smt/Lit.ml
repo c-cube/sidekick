@@ -9,7 +9,6 @@ type t = lit = {
 and view = lit_view =
   | Lit_fresh of ID.t
   | Lit_atom of term
-  | Lit_expanded of term
 
 let neg l = {l with lit_sign=not l.lit_sign}
 
@@ -37,10 +36,6 @@ let atom ?(sign=true) (t:term) : t =
   let t, sign' = Term.abs t in
   let sign = if not sign' then not sign else sign in
   make ~sign (Lit_atom t)
-
-let expanded t = make ~sign:true (Lit_expanded t)
-
-let cstor_test tst cstor t = atom ~sign:true (Term.cstor_test tst cstor t)
 
 let as_atom (lit:t) : (term * bool) option = match lit.lit_view with
   | Lit_atom t -> Some (t, lit.lit_sign)

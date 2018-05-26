@@ -48,9 +48,8 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
   (* check consistency first *)
   begin match Lit.view lit with
     | Lit_fresh _ -> ()
-    | Lit_expanded _
-    | Lit_atom {term_cell=Bool true; _} -> ()
-    | Lit_atom {term_cell=Bool false; _} -> ()
+    | Lit_atom {term_view=Bool true; _} -> ()
+    | Lit_atom {term_view=Bool false; _} -> ()
     | Lit_atom _ ->
       (* transmit to theories. *)
       C_clos.assert_lit (cc self) lit;
@@ -102,7 +101,7 @@ let add_formula (self:t) (lit:Lit.t) =
   | Lit_atom t ->
     let lazy cc = self.cc in
     ignore (C_clos.add cc t : cc_node)
-  | Lit_expanded _ | Lit_fresh _ -> ()
+  | Lit_fresh _ -> ()
 
 (* propagation from the bool solver *)
 let assume (self:t) (slice:_ Sat_solver.slice_actions) =
