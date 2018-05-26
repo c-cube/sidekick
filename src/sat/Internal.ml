@@ -22,9 +22,9 @@ module Make (Th : Theory_intf.S) = struct
   type lemma = Th.proof
 
   type var = {
-    vid : int;
-    pa : atom;
-    na : atom;
+    v_id : int;
+    v_pa : atom;
+    v_na : atom;
     mutable v_fields : Var_fields.t;
     mutable v_level : int;
     mutable v_idx: int; (** position in heap *)
@@ -33,7 +33,7 @@ module Make (Th : Theory_intf.S) = struct
   }
 
   and atom = {
-    aid : int;
+    a_id : int;
     var : var;
     neg : atom;
     lit : formula;
@@ -64,9 +64,9 @@ module Make (Th : Theory_intf.S) = struct
   type proof = clause
 
   let rec dummy_var =
-    { vid = -101;
-      pa = dummy_atom;
-      na = dummy_atom;
+    { v_id = -101;
+      v_pa = dummy_atom;
+      v_na = dummy_atom;
       v_fields = Var_fields.empty;
       v_level = -1;
       v_weight = -1.;
@@ -81,7 +81,7 @@ module Make (Th : Theory_intf.S) = struct
          but we have to break the cycle *)
       neg = dummy_atom;
       is_true = false;
-      aid = -102;
+      a_id = -102;
     }
   let dummy_clause =
     { name = -1;
@@ -237,12 +237,12 @@ module Make (Th : Theory_intf.S) = struct
     type t = var
     let dummy = dummy_var
     let[@inline] level v = v.v_level
-    let[@inline] pos v = v.pa
-    let[@inline] neg v = v.na
+    let[@inline] pos v = v.v_pa
+    let[@inline] neg v = v.v_na
     let[@inline] reason v = v.reason
     let[@inline] weight v = v.v_weight
 
-    let[@inline] id v = v.vid
+    let[@inline] id v = v.v_id
     let[@inline] level v = v.v_level
     let[@inline] idx v = v.v_idx
 
@@ -259,29 +259,29 @@ module Make (Th : Theory_intf.S) = struct
       with Not_found ->
         let cpt_double = st.cpt_mk_var lsl 1 in
         let rec var  =
-          { vid = st.cpt_mk_var;
-            pa = pa;
-            na = na;
+          { v_id = st.cpt_mk_var;
+            v_pa = v_pa;
+            v_na = v_na;
             v_fields = Var_fields.empty;
             v_level = -1;
             v_idx= -1;
             v_weight = 0.;
             reason = None;
           }
-        and pa =
+        and v_pa =
           { var = var;
             lit = lit;
             watched = Vec.make 10 dummy_clause;
-            neg = na;
+            neg = v_na;
             is_true = false;
-            aid = cpt_double (* aid = vid*2 *) }
-        and na =
+            a_id = cpt_double (* a_id = v_id*2 *) }
+        and v_na =
           { var = var;
             lit = Th.Form.neg lit;
             watched = Vec.make 10 dummy_clause;
-            neg = pa;
+            neg = v_pa;
             is_true = false;
-            aid = cpt_double + 1 (* aid = vid*2+1 *) } in
+            a_id = cpt_double + 1 (* a_id = v_id*2+1 *) } in
         MF.add st.f_map lit var;
         st.cpt_mk_var <- st.cpt_mk_var + 1;
         Vec.push st.vars var;
@@ -295,7 +295,7 @@ module Make (Th : Theory_intf.S) = struct
       Var_fields.get v_field_seen_pos v.v_fields &&
       Var_fields.get v_field_seen_neg v.v_fields
 
-    let pp out (v:t) = Th.Form.print out v.pa.lit
+    let pp out (v:t) = Th.Form.print out v.v_pa.lit
   end
 
   module Atom = struct
@@ -304,13 +304,13 @@ module Make (Th : Theory_intf.S) = struct
     let[@inline] level a = a.var.v_level
     let[@inline] var a = a.var
     let[@inline] neg a = a.neg
-    let[@inline] abs a = a.var.pa
+    let[@inline] abs a = a.var.v_pa
     let[@inline] get_formula a = a.lit
     let[@inline] equal a b = a == b
     let[@inline] is_pos a = a == abs a
-    let[@inline] compare a b = Pervasives.compare a.aid b.aid
+    let[@inline] compare a b = Pervasives.compare a.a_id b.a_id
     let[@inline] reason a = Var.reason a.var
-    let[@inline] id a = a.aid
+    let[@inline] id a = a.a_id
     let[@inline] is_true a = a.is_true
     let[@inline] is_false a = a.neg.is_true
 
@@ -329,8 +329,8 @@ module Make (Th : Theory_intf.S) = struct
     let[@inline] make st lit =
       let var, negated = Var.make st lit in
       match negated with
-      | Theory_intf.Negated -> var.na
-      | Theory_intf.Same_sign -> var.pa
+      | Theory_intf.Negated -> var.v_na
+      | Theory_intf.Same_sign -> var.v_pa
 
     let pp fmt a = Th.Form.print fmt a.lit
 
@@ -347,7 +347,7 @@ module Make (Th : Theory_intf.S) = struct
       )
 
     (* Complete debug printing *)
-    let sign a = if a == a.var.pa then "+" else "-"
+    let sign a = if a == a.var.v_pa then "+" else "-"
 
     let debug_reason fmt = function
       | n, _ when n < 0 ->
@@ -407,7 +407,7 @@ module Make (Th : Theory_intf.S) = struct
     let[@inline] atoms c = c.atoms
     let[@inline] atoms_l c = Array.to_list c.atoms
     let[@inline] tag c = c.tag
-    let hash cl = Array.fold_left (fun i a -> Hashtbl.hash (a.aid, i)) 0 cl.atoms
+    let hash cl = Array.fold_left (fun i a -> Hashtbl.hash (a.a_id, i)) 0 cl.atoms
 
     let[@inline] premise c = c.c_premise
     let[@inline] set_premise c p = c.c_premise <- p
@@ -456,8 +456,8 @@ module Make (Th : Theory_intf.S) = struct
       let aux fmt a =
         Array.iter (fun p ->
           Format.fprintf fmt "%s%d "
-            (if p == p.var.pa then "-" else "")
-            (p.var.vid+1)
+            (if p == p.var.v_pa then "-" else "")
+            (p.var.v_id+1)
         ) a
       in
       Format.fprintf fmt "%a0" aux atoms
@@ -493,7 +493,7 @@ module Make (Th : Theory_intf.S) = struct
           if equal_atoms a b then
             aux resolved (a :: acc) r
           else if equal_atoms (a.neg) b then
-            aux ((a.var.pa) :: resolved) acc r
+            aux ((a.var.v_pa) :: resolved) acc r
           else
             aux resolved (a :: acc) (b :: r)
       in
@@ -767,8 +767,10 @@ module Make (Th : Theory_intf.S) = struct
   *)
   let insert_var_order st (v:var) : unit =
     if not (Var.in_heap v) && Var.level v < 0 then (
-      (* new variable that is not assigned, add to heap. *)
+      (* new variable that is not assigned, add to heap and to theory. *)
       H.insert st.order v;
+      Th.add_formula (Lazy.force st.th) v.v_pa.lit;
+      Th.add_formula (Lazy.force st.th) v.v_na.lit;
     )
 
   (* attach an atom by deciding on its variable, if needed *)
@@ -845,7 +847,7 @@ module Make (Th : Theory_intf.S) = struct
      - false literals (not suitable to watch)
   *)
   let sort_lits_by_level atoms : atom list =
-    let rec partition_aux trues unassigned falses i =
+    let rec aux trues unassigned falses i =
       if i >= Array.length atoms then (
         trues @ unassigned @ falses
       ) else (
@@ -857,13 +859,13 @@ module Make (Th : Theory_intf.S) = struct
           else
             (a :: trues) @ unassigned @ falses @ (array_slice_to_list atoms (i + 1))
         ) else if a.neg.is_true then (
-          partition_aux trues unassigned (a::falses) (i + 1)
+          aux trues unassigned (a::falses) (i + 1)
         ) else (
-          partition_aux trues (a::unassigned) falses (i + 1)
+          aux trues (a::unassigned) falses (i + 1)
         )
       )
     in
-    try partition_aux [] [] [] 0
+    try aux [] [] [] 0
     with Trivial -> Array.to_list atoms
 
   (* Making a decision.
@@ -1057,7 +1059,7 @@ module Make (Th : Theory_intf.S) = struct
      except we look the the Last UIP (TODO: check ?), and do it in an imperative
      and efficient manner. *)
   let analyze_sat st c_clause : conflict_res =
-    let pathC  = ref 0 in
+    let path_c = ref 0 in
     let learnt = ref [] in
     let cond   = ref true in
     let blevel = ref 0 in
@@ -1097,7 +1099,7 @@ module Make (Th : Theory_intf.S) = struct
           if q.var.v_level > 0 then (
             var_bump_activity st q.var;
             if q.var.v_level >= conflict_level then (
-              incr pathC;
+              incr path_c;
             ) else (
               learnt := q :: !learnt;
               blevel := max !blevel q.var.v_level
@@ -1115,9 +1117,9 @@ module Make (Th : Theory_intf.S) = struct
         decr tr_ind;
       done;
       let p = get_atom st !tr_ind in
-      decr pathC;
+      decr path_c;
       decr tr_ind;
-      match !pathC, p.var.reason with
+      match !path_c, p.var.reason with
       | 0, _ ->
         cond := false;
         learnt := p.neg :: (List.rev !learnt)
@@ -1444,7 +1446,7 @@ module Make (Th : Theory_intf.S) = struct
   let rec pick_branch_aux st atom : unit =
     let v = atom.var in
     if v.v_level >= 0 then (
-      assert (v.pa.is_true || v.na.is_true);
+      assert (v.v_pa.is_true || v.v_na.is_true);
       pick_branch_lit st
     ) else (
       new_decision_level st;
@@ -1458,7 +1460,7 @@ module Make (Th : Theory_intf.S) = struct
       pick_branch_aux st atom
     | None ->
       begin match H.remove_min st.order with
-        | v -> pick_branch_aux st v.pa
+        | v -> pick_branch_aux st v.v_pa
         | exception Not_found -> raise Sat
       end
 
@@ -1492,10 +1494,10 @@ module Make (Th : Theory_intf.S) = struct
 
   let eval_level (st:t) lit =
     let var, negated = Var.make st lit in
-    if not var.pa.is_true && not var.na.is_true
+    if not var.v_pa.is_true && not var.v_na.is_true
     then raise UndecidedLit
     else assert (var.v_level >= 0);
-    let truth = var.pa.is_true in
+    let truth = var.v_pa.is_true in
     let value = match negated with
       | Theory_intf.Negated -> not truth
       | Theory_intf.Same_sign -> truth
