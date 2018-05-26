@@ -15,8 +15,7 @@ module Form = Lit
 
 type formula = Lit.t
 type proof = Proof.t
-
-type conflict = Lit.Set.t
+type conflict = Theory.conflict
 
 (* raise upon conflict *)
 exception Exn_conflict of conflict
@@ -63,10 +62,7 @@ let cdcl_return_res (self:t) : _ Sat_solver.res =
     | None ->
       Sat_solver.Sat
     | Some lit_set ->
-      let conflict_clause =
-        Lit.Set.to_list lit_set
-        |> IArray.of_list_map Lit.neg
-      in
+      let conflict_clause = IArray.of_list_map Lit.neg lit_set in
       Sat_solver.Log.debugf 3
         (fun k->k "(@[<1>conflict@ clause: %a@])"
             Theory.Clause.pp conflict_clause);

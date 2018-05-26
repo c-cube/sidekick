@@ -11,6 +11,8 @@ type node = Equiv_class.t
 type repr = Equiv_class.t
 (** Node that is currently a representative *)
 
+type conflict = Theory.conflict
+
 type actions = {
   on_backtrack:(unit -> unit) -> unit;
   (** Register a callback to be invoked upon backtracking below the current level *)
@@ -18,7 +20,7 @@ type actions = {
   on_merge:repr -> repr -> explanation -> unit;
   (** Call this when two classes are merged *)
 
-  raise_conflict: 'a. Lit.Set.t -> 'a;
+  raise_conflict: 'a. conflict -> 'a;
   (** Report a conflict *)
 
   propagate: Lit.t -> Lit.t list -> unit;
@@ -40,7 +42,7 @@ val find : t -> node -> repr
 val same_class : t -> node -> node -> bool
 (** Are these two classes the same in the current CC? *)
 
-val union : t -> node -> node -> explanation -> unit
+val union : t -> node -> node -> Lit.t list -> unit
 (** Merge the two equivalence classes. Will be undone on backtracking. *)
 
 val mem : t -> term -> bool
@@ -60,9 +62,9 @@ val assert_lit : t -> Lit.t -> unit
 (** Given a literal, assume it in the congruence closure and propagate
     its consequences. Will be backtracked. *)
 
-val assert_eq : t -> term -> term -> explanation -> unit
+val assert_eq : t -> term -> term -> Lit.t list -> unit
 
-val assert_distinct : t -> term list -> neq:term -> explanation -> unit
+val assert_distinct : t -> term list -> neq:term -> Lit.t -> unit
 (** [assert_distinct l ~expl:u e] asserts all elements of [l] are distinct
     with explanation [e]
     precond: [u = distinct l] *)

@@ -71,7 +71,7 @@ and solve_result =
   } (** Success,  the two terms being equal is equivalent
         to the given substitution *)
   | Solve_fail of {
-    expl: explanation;
+    expl: lit list;
   } (** Failure, because of the given explanation.
         The two terms cannot be equal *)
 
@@ -105,6 +105,7 @@ and explanation_forest_link =
 and explanation =
   | E_reduction (* by pure reduction, tautologically equal *)
   | E_lit of lit (* because of this literal *)
+  | E_lits of lit list (* because of this (true) conjunction *)
   | E_congruence of cc_node * cc_node (* these terms are congruent *)
   | E_injectivity of cc_node * cc_node (* injective function *)
   | E_reduce_eq of cc_node * cc_node (* reduce because those are equal by reduction *)
@@ -232,19 +233,21 @@ let rec cmp_exp a b =
     | E_reduction -> 2 | E_injectivity _ -> 3
     | E_reduce_eq _ -> 5
     | E_custom _ -> 6
+    | E_lits _ -> 7
   in
   begin match a, b with
     | E_congruence (t1,t2), E_congruence (u1,u2) ->
       CCOrd.(cmp_cc_node t1 u1 <?> (cmp_cc_node, t2, u2))
     | E_reduction, E_reduction -> 0
     | E_lit l1, E_lit l2 -> cmp_lit l1 l2
+    | E_lits l1, E_lits l2 -> CCList.compare cmp_lit l1 l2
     | E_injectivity (t1,t2), E_injectivity (u1,u2) ->
       CCOrd.(cmp_cc_node t1 u1 <?> (cmp_cc_node, t2, u2))
     | E_reduce_eq (t1, u1), E_reduce_eq (t2,u2) ->
       CCOrd.(cmp_cc_node t1 t2 <?> (cmp_cc_node, u1, u2))
     | E_custom r1, E_custom r2 ->
       CCOrd.(ID.compare r1.name r2.name <?> (list cmp_exp, r1.args, r2.args))
-    | E_congruence _, _ | E_lit _, _ | E_reduction, _
+    | E_congruence _, _ | E_lit _, _ | E_reduction, _ | E_lits _, _
     | E_injectivity _, _ | E_reduce_eq _, _ | E_custom _, _
       -> CCInt.compare (toint a)(toint b)
   end
@@ -317,6 +320,7 @@ let pp_cc_node out n = pp_term out n.n_term
 let pp_explanation out (e:explanation) = match e with
   | E_reduction -> Fmt.string out "reduction"
   | E_lit lit -> pp_lit out lit
+  | E_lits l -> CCFormat.Dump.list pp_lit out l
   | E_congruence (a,b) ->
     Format.fprintf out "(@[<hv1>congruence@ %a@ %a@])" pp_cc_node a pp_cc_node b
   | E_injectivity (a,b) ->

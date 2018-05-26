@@ -4,6 +4,7 @@ open Solver_types
 type t = explanation =
   | E_reduction
   | E_lit of lit
+  | E_lits of lit list
   | E_congruence of cc_node * cc_node
   | E_injectivity of cc_node * cc_node
   | E_reduce_eq of cc_node * cc_node

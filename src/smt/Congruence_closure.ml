@@ -5,6 +5,7 @@ open Solver_types
 
 type node = Equiv_class.t
 type repr = Equiv_class.t
+type conflict = Theory.conflict
 
 (** A signature is a shallow term shape where immediate subterms
     are representative *)
@@ -25,7 +26,7 @@ type actions = {
   on_merge:repr -> repr -> explanation -> unit;
   (** Call this when two classes are merged *)
 
-  raise_conflict: 'a. Lit.Set.t -> 'a;
+  raise_conflict: 'a. conflict -> 'a;
   (** Report a conflict *)
 
   propagate: Lit.t -> Lit.t list -> unit;
@@ -170,14 +171,9 @@ let push_combine cc t u e : unit =
       Equiv_class.pp t Equiv_class.pp u Explanation.pp e);
   Vec.push cc.combine (t,u,e)
 
-let push_propagation cc (lit:lit) (expl:explanation Bag.t): unit =
-  Log.debugf 5
-    (fun k->k "(@[<hv1>cc.push_propagate@ %a@ :expl (@[<hv>%a@])@])"
-      Lit.pp lit (Util.pp_seq Explanation.pp) @@ Bag.to_seq expl);
-  cc.acts.propagate lit expl
-
-let[@inline] union cc (a:node) (b:node) (e:explanation): unit =
+let[@inline] union cc (a:node) (b:node) (e:Lit.t list): unit =
   if not (same_class cc a b) then (
+    let e = Explanation.E_lits e in
     push_combine cc a b e; (* start by merging [a=b] *)
   )
 
@@ -195,7 +191,7 @@ let rec reroot_expl (cc:t) (n:node): unit =
       n.n_expl <- E_none;
   end
 
-let[@inline] raise_conflict (cc:t) (e:Lit.Set.t): _ =
+let[@inline] raise_conflict (cc:t) (e:conflict): _ =
   cc.acts.raise_conflict e
 
 let[@inline] all_classes cc : repr Sequence.t =
@@ -251,6 +247,7 @@ let rec decompose_explain cc (e:explanation): unit =
   begin match e with
     | E_reduction -> ()
     | E_lit lit -> ps_add_lit cc lit
+    | E_lits l -> List.iter (ps_add_lit cc) l
     | E_custom {args;_} ->
       (* decompose sub-expls *)
       List.iter (decompose_explain cc) args
@@ -350,12 +347,6 @@ let add_tag_n cc (n:node) (tag:int) (expl:explanation) : unit =
     n.n_tags <- Util.Int_map.add tag (n,expl) n.n_tags;
   )
 
-(* conflict because [expl => t1 ≠ t2] but they are the same *)
-let distinct_conflict cc (t1 : term) (t2: term) (expl:explanation Bag.t) : 'a =
-  let lits = explain_unfold_bag cc expl in
-  let lits = explain_eq_t ~init:lits cc t1 t2 in
-  raise_conflict cc lits
-
 (* main CC algo: add terms from [pending] to the signature table,
    check for collisions *)
 let rec update_pending (cc:t): unit =
@@ -418,7 +409,7 @@ and update_combine cc =
              let lits = explain_unfold ~init:lits cc e_ab in
              let lits = explain_eq_n ~init:lits cc a n1 in
              let lits = explain_eq_n ~init:lits cc b n2 in
-             raise_conflict cc lits)
+             raise_conflict cc @@ Lit.Set.elements lits)
           ra.n_tags rb.n_tags
       in
       (* solve the equation, if both [ra] and [rb] are semantic.
@@ -438,9 +429,8 @@ and update_combine cc =
             | Solve_fail {expl} ->
               Log.debugf 5
                 (fun k->k "(@[solve-fail@ (@[= %a %a@])@ :expl %a@])"
-                    Term.pp t_a Term.pp t_b Explanation.pp expl);
-              let lits = explain_unfold cc expl in
-              raise_conflict cc lits
+                    Term.pp t_a Term.pp t_b (CCFormat.Dump.list Lit.pp) expl);
+              raise_conflict cc expl 
           end
         | _ -> assert false
       );
@@ -578,7 +568,7 @@ let assert_eq cc (t:term) (u:term) expl : unit =
     union cc n1 n2 expl
   )
 
-let assert_distinct cc (l:term list) ~neq expl : unit =
+let assert_distinct cc (l:term list) ~neq (lit:Lit.t) : unit =
   assert (match l with[] | [_] -> false | _ -> true);
   let tag = Term.id neq in
   Log.debugf 5
@@ -592,12 +582,12 @@ let assert_distinct cc (l:term list) ~neq expl : unit =
     | Some ((t1,_n1),(t2,_n2)) ->
       (* two classes are already equal *)
       Log.debugf 5 (fun k->k "(@[cc.assert_distinct.conflict@ %a = %a@])" Term.pp t1 Term.pp t2);
-      let lits = explain_unfold cc expl in
+      let lits = Lit.Set.singleton lit in
       let lits = explain_eq_t ~init:lits cc t1 t2 in
-      raise_conflict cc lits
+      raise_conflict cc @@ Lit.Set.to_list lits
     | None ->
       (* put a tag on all equivalence classes, that will make their merge fail *)
-      List.iter (fun (_,n) -> add_tag_n cc n tag expl) l
+      List.iter (fun (_,n) -> add_tag_n cc n tag @@ Explanation.lit lit) l
   end
 
 (* handling "distinct" constraints *)

@@ -255,7 +255,7 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
   | B_not _ -> assert false (* normalized *)
   | B_eq (t,u) ->
     if Lit.sign lit then (
-      self.acts.Theory.propagate_eq t u (Lit.Set.singleton lit)
+      self.acts.Theory.propagate_eq t u [lit]
     ) else (
       self.acts.Theory.propagate_distinct [t;u] ~neq:lit_t lit
     )
@@ -269,11 +269,10 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
   | B_and subs ->
     if Lit.sign lit then (
       (* propagate [lit => subs_i] *)
-      let expl = Lit.Set.singleton lit in
       List.iter
         (fun sub ->
            let sublit = Lit.atom sub in
-           self.acts.Theory.propagate sublit expl)
+           self.acts.Theory.propagate sublit [lit])
         subs
     ) else (
       (* propagate [¬lit => ∨_i ¬ subs_i] *)
@@ -287,11 +286,10 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
       self.acts.Theory.add_local_axiom (IArray.of_list c)
     ) else (
       (* propagate [¬lit => ¬subs_i] *)
-      let expl = Lit.Set.singleton lit in
       List.iter
         (fun sub ->
            let sublit = Lit.atom ~sign:false sub in
-           self.acts.Theory.propagate sublit expl)
+           self.acts.Theory.propagate sublit [lit])
         subs
     )
   | B_imply (guard,concl) ->
@@ -300,14 +298,13 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (b:term builtin) : unit =
       let c = Lit.atom concl :: Lit.neg lit :: List.map (Lit.atom ~sign:false) guard in
       self.acts.Theory.add_local_axiom (IArray.of_list c)
     ) else (
-      let expl = Lit.Set.singleton lit in
       (* propagate [¬lit => ¬concl] *)
-      self.acts.Theory.propagate (Lit.atom ~sign:false concl) expl;
+      self.acts.Theory.propagate (Lit.atom ~sign:false concl) [lit];
       (* propagate [¬lit => ∧_i guard_i] *)
       List.iter
         (fun sub ->
            let sublit = Lit.atom ~sign:true sub in
-           self.acts.Theory.propagate sublit expl)
+           self.acts.Theory.propagate sublit [lit])
         guard
     )
 

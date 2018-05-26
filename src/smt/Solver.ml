@@ -395,10 +395,10 @@ let assume (self:t) (c:Lit.t IArray.t) : unit =
   Sat_solver.add_clause ~permanent:true sat c
 
 let[@inline] assume_eq self t u expl : unit =
-  Congruence_closure.assert_eq (cc self) t u (E_lit expl)
+  Congruence_closure.assert_eq (cc self) t u [expl]
 
-let[@inline] assume_distinct self l ~neq expl : unit =
-  Congruence_closure.assert_distinct (cc self) l (E_lit expl) ~neq
+let[@inline] assume_distinct self l ~neq lit : unit =
+  Congruence_closure.assert_distinct (cc self) l lit ~neq
 
 let check_model (s:t) = Sat_solver.check_model s.solver
 

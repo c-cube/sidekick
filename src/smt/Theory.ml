@@ -31,7 +31,7 @@ type state = State : {
 
 (** Unsatisfiable conjunction.
     Its negation will become a conflict clause *)
-type conflict = Lit.Set.t
+type conflict = Lit.t list
 
 (** Actions available to a theory during its lifetime *)
 type actions = {
@@ -41,13 +41,13 @@ type actions = {
   raise_conflict: 'a. conflict -> 'a;
   (** Give a conflict clause to the solver *)
 
-  propagate_eq: Term.t -> Term.t -> Lit.Set.t -> unit;
+  propagate_eq: Term.t -> Term.t -> Lit.t list -> unit;
   (** Propagate an equality [t = u] because [e] *)
 
   propagate_distinct: Term.t list -> neq:Term.t -> Lit.t -> unit;
   (** Propagate a [distinct l] because [e] (where [e = neq] *)
 
-  propagate: Lit.t -> Lit.Set.t -> unit;
+  propagate: Lit.t -> Lit.t list -> unit;
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
