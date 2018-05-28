@@ -338,7 +338,7 @@ let rec update_pending (cc:t): unit =
               assert (Cst.equal f1 f2);
               assert (IArray.length a1 = IArray.length a2);
               Explanation.mk_merges @@
-              IArray.map2 (fun u1 u2 -> add cc u1, add cc u2) a1 a2
+              IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
             | If _, _ | App_cst _, _ | Bool _, _
               -> assert false
           in
@@ -445,7 +445,7 @@ and add_new_term cc (t:term) : node =
   in
   (* add sub-term to [cc], and register [n] to its parents *)
   let add_sub_t (u:term) : unit =
-    let n_u = add cc u in
+    let n_u = add_ cc u in
     add_to_parents_of_sub_node n_u
   in
   (* register sub-terms, add [t] to their parent list *)
@@ -470,11 +470,18 @@ and add_new_term cc (t:term) : node =
   n
 
 (* add a term *)
-and[@inline] add cc t : node =
+and[@inline] add_ cc t : node =
   try Term.Tbl.find cc.tbl t
   with Not_found -> add_new_term cc t
 
-let[@inline] add_seq cc seq = seq (fun t -> ignore @@ add cc t)
+let add cc t : node =
+  let n = add_ cc t in
+  update_pending cc;
+  n
+
+let add_seq cc seq =
+  seq (fun t -> ignore @@ add_ cc t);
+  update_pending cc
 
 (* before we push tasks into [pending], ensure they are removed when we backtrack *)
 let reset_on_backtrack cc : unit =

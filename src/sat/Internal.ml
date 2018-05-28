@@ -979,7 +979,8 @@ module Make (Th : Theory_intf.S) = struct
     );
     let level = decision_level st in
     Log.debugf 5
-      (fun k->k "(@[sat.enqueue_bool@ :lvl %d@ %a@])" level Atom.debug a);
+      (fun k->k "(@[sat.enqueue_bool@ :lvl %d@ %a@ :reason %a@])"
+          level Atom.debug a Atom.debug_reason (level,Some reason));
     (* backtrack assignment if needed. Trail is backtracked automatically. *)
     assert (not a.is_true && a.var.v_level < 0 && a.var.reason = None);
     a.is_true <- true;
@@ -1428,7 +1429,7 @@ module Make (Th : Theory_intf.S) = struct
       while st.elt_head < Vec.size st.trail do
         let a = Vec.get st.trail st.elt_head in
         incr num_props;
-        Log.debugf 5 (fun k->k "(@[sat.bcp.propagate_atom@ %a@])" Atom.pp a);
+        Log.debugf 5 (fun k->k "(@[sat.bcp.propagate_atom_on_trail@ %a@])" Atom.pp a);
         propagate_atom st a;
         st.elt_head <- st.elt_head + 1;
       done;
