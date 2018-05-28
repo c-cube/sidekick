@@ -4,11 +4,6 @@ open Solver_types
 type t = cc_node
 type payload = cc_node_payload = ..
 
-let field_expanded = Node_bits.mk_field ()
-let field_has_expansion_lit = Node_bits.mk_field ()
-let field_is_lit = Node_bits.mk_field ()
-let field_is_split = Node_bits.mk_field ()
-let field_add_level_0 = Node_bits.mk_field()
 let field_is_active = Node_bits.mk_field()
 let () = Node_bits.freeze()
 

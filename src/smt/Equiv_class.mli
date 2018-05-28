@@ -23,24 +23,6 @@ open Solver_types
 type t = cc_node
 type payload = cc_node_payload = ..
 
-val field_expanded : Node_bits.field
-(** Term is expanded? *)
-
-val field_has_expansion_lit : Node_bits.field
-(** Upon expansion, does this term have a special literal [Lit_expanded t]
-    that should be asserted? *)
-
-val field_is_lit : Node_bits.field
-(** Is this term a boolean literal? *)
-
-val field_is_split : Node_bits.field
-(** Did we perform case split (Split 1) on this term?
-    This is only relevant for terms whose type is a datatype. *)
-
-val field_add_level_0 : Node_bits.field
-(** Is the corresponding term to be re-added upon backtracking,
-    down to level 0? *)
-
 val field_is_active : Node_bits.field
 (** The term is needed for evaluation. We must try to evaluate it
     or to find a value for it using the theory *)
