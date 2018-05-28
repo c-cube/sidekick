@@ -28,11 +28,14 @@ module type STATE = sig
   val final_check: t -> Lit.t Sequence.t -> unit
   (** Final check, must be complete (i.e. must raise a conflict
       if the set of literals is not satisfiable) *)
+
+  val mk_model : t -> Lit.t Sequence.t -> Model.t
+  (** Make a model for this theory's terms *)
 end
 
 
 (** Runtime state of a theory, with all the operations it provides. *)
-type state = (module STATE) 
+type state = (module STATE)
 
 (** Unsatisfiable conjunction.
     Its negation will become a conflict clause *)
@@ -85,6 +88,7 @@ let make_st
   (type st)
     ?(on_merge=fun _ _ _ _ -> ())
     ?(on_assert=fun _ _ -> ())
+    ?(mk_model=fun _ _ -> Model.empty)
     ~final_check
     ~st
     () : state =
@@ -94,5 +98,6 @@ let make_st
     let on_merge = on_merge
     let on_assert = on_assert
     let final_check = final_check
+    let mk_model = mk_model
   end in
   (module A : STATE)

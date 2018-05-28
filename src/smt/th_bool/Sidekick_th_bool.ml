@@ -23,6 +23,43 @@ let id_imply = ID.make "=>"
 let id_eq = ID.make "="
 let id_distinct = ID.make "distinct"
 
+type 'a view =
+  | B_not of 'a
+  | B_eq of 'a * 'a
+  | B_and of 'a IArray.t
+  | B_or of 'a IArray.t
+  | B_imply of 'a IArray.t * 'a
+  | B_distinct of 'a IArray.t
+  | B_atom of 'a
+
+exception Not_a_th_term
+
+let view_id cst_id args =
+  if ID.equal cst_id id_not && IArray.length args=1 then (
+    B_not (IArray.get args 0)
+  ) else if ID.equal cst_id id_eq && IArray.length args=2 then (
+    B_eq (IArray.get args 0, IArray.get args 1)
+  ) else if ID.equal cst_id id_and then (
+    B_and args
+  ) else if ID.equal cst_id id_or then (
+    B_or args
+  ) else if ID.equal cst_id id_imply && IArray.length args >= 2 then (
+    (* conclusion is stored first *)
+    let len = IArray.length args in
+    B_imply (IArray.sub args 1 (len-1), IArray.get args 0)
+  ) else if ID.equal cst_id id_distinct then (
+    B_distinct args
+  ) else (
+    raise Not_a_th_term
+  )
+
+let view (t:Term.t) : term view =
+  match Term.view t with
+  | App_cst ({cst_id; _}, args) ->
+    (try view_id cst_id args with Not_a_th_term -> B_atom t)
+  | _ -> B_atom t
+
+
 module C = struct
 
   let get_ty _ _ = Ty.prop
@@ -37,8 +74,29 @@ module C = struct
       IArray.get args 0, false
     | _ -> self, true
 
+  let eval id args = match view_id id args with
+    | B_not (V_bool b) -> Value.bool (not b)
+    | B_and a when IArray.for_all Value.is_true a -> Value.true_
+    | B_and a when IArray.exists Value.is_false a -> Value.false_
+    | B_or a when IArray.exists Value.is_true a -> Value.true_
+    | B_or a when IArray.for_all Value.is_false a -> Value.false_
+    | B_imply (_, V_bool true) -> Value.true_
+    | B_imply (a,_) when IArray.exists Value.is_false a -> Value.true_
+    | B_imply (a,b) when IArray.for_all Value.is_bool a && Value.is_bool b -> Value.false_
+    | B_eq (a,b) -> Value.bool @@ Value.equal a b
+    | B_atom v -> v
+    | B_distinct a ->
+      if
+        Sequence.diagonal (IArray.to_seq a)
+        |> Sequence.for_all (fun (x,y) -> not @@ Value.equal x y)
+      then Value.true_
+      else Value.false_
+    | B_not _ | B_and _ | B_or _ | B_imply _
+        -> Error.errorf "non boolean value in boolean connective"
+
   let mk_cst ?(do_cc=false) id : Cst.t =
-    {cst_id=id; cst_view=Cst_def { pp=None; abs; ty=get_ty; relevant; do_cc; }; }
+    {cst_id=id;
+     cst_view=Cst_def { pp=None; abs; ty=get_ty; relevant; do_cc; eval=eval id; }; }
 
   let not = mk_cst id_not
   let and_ = mk_cst id_and
@@ -109,38 +167,6 @@ module Lit = struct
   let eq tst a b = Lit.atom ~sign:true (eq tst a b)
   let neq tst a b = Lit.atom ~sign:false (neq tst a b)
 end
-
-type 'a view =
-  | B_not of 'a
-  | B_eq of 'a * 'a
-  | B_and of 'a IArray.t
-  | B_or of 'a IArray.t
-  | B_imply of 'a IArray.t * 'a
-  | B_distinct of 'a IArray.t
-  | B_atom of 'a
-
-let view (t:Term.t) : term view =
-  match Term.view t with
-  | App_cst ({cst_id; _}, args) ->
-    if ID.equal cst_id id_not && IArray.length args=1 then (
-      B_not t
-    ) else if ID.equal cst_id id_eq && IArray.length args=2 then (
-      B_eq (IArray.get args 0, IArray.get args 1)
-    ) else if ID.equal cst_id id_and then (
-      B_and args
-    ) else if ID.equal cst_id id_or then (
-      B_or args
-    ) else if ID.equal cst_id id_imply && IArray.length args >= 2 then (
-      (* conclusion is stored first *)
-      let len = IArray.length args in
-      B_imply (IArray.sub args 1 (len-1), IArray.get args 0)
-    ) else if ID.equal cst_id id_distinct then (
-      B_distinct args
-    ) else (
-      B_atom t
-    )
-  | _ -> B_atom t
-
 
 type t = {
   tst: Term.state;
@@ -229,6 +255,7 @@ let th =
     Theory.make_st
       ~on_assert
       ~final_check
+      ?mk_model:None (* entirely interpreted *)
       ~st
       ()
   in

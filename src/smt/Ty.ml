@@ -7,9 +7,9 @@ type def = Solver_types.ty_def
 
 let view t = t.ty_view
 
-let equal a b = a.ty_id = b.ty_id
-let compare a b = CCInt.compare a.ty_id b.ty_id
-let hash a = a.ty_id
+let equal = eq_ty
+let[@inline] compare a b = CCInt.compare a.ty_id b.ty_id
+let[@inline] hash a = a.ty_id
 
 let equal_def d1 d2 = match d1, d2 with
   | Ty_uninterpreted id1, Ty_uninterpreted id2 -> ID.equal id1 id2

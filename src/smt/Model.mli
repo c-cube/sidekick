@@ -3,31 +3,20 @@
 
 (** {1 Model} *)
 
-type term = Ast.term
-type ty = Ast.Ty.t
-type domain = ID.t list
-
-type t = private {
-  env: Ast.env;
-  (* environment, defining symbols *)
-  domains: domain Ast.Ty.Map.t;
-  (* uninterpreted type -> its domain *)
-  consts: term ID.Map.t;
-  (* constant -> its value *)
+type t = {
+  values: Value.t Term.Map.t;
 }
 
-(* TODO: remove *)
-(** Trivial model *)
 val empty : t
 
-val make :
-  env:Ast.env ->
-  consts:term ID.Map.t ->
-  domains:domain Ast.Ty.Map.t ->
-  t
+val add : Term.t -> Value.t -> t -> t
+
+val mem : Term.t -> t -> bool
+
+val find : Term.t -> t -> Value.t option
+
+val merge : t -> t -> t
 
 val pp : t CCFormat.printer
 
-val eval : t -> term -> term
-
-exception Bad_model of t * term * term
+val eval : t -> Term.t -> Value.t option

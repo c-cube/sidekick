@@ -584,3 +584,29 @@ let final_check cc : unit =
   Log.debug 5 "(CC.final_check)";
   update_pending cc
 
+(* model: map each uninterpreted equiv class to some ID *)
+let mk_model (cc:t) (m:Model.t) : Model.t =
+  (* populate [repr -> value] table *)
+  let tbl = Equiv_class.Tbl.create 32 in
+  Term.Tbl.values cc.tbl
+    (fun r ->
+       if is_root_ r then (
+         let v = match Model.eval m r.n_term with
+           | Some v -> v
+           | None ->
+             Value.mk_elt
+               (ID.makef "v_%d" @@ Term.id r.n_term)
+               (Term.ty r.n_term)
+         in
+         Equiv_class.Tbl.add tbl r v
+       ));
+  (* now map every uninterpreted term to its representative's value *)
+  Term.Tbl.to_seq cc.tbl
+  |> Sequence.fold
+    (fun m (t,r) ->
+       if Model.mem t m then m
+       else (
+         let v = Equiv_class.Tbl.find tbl r in
+         Model.add t v m
+       ))
+    m

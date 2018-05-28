@@ -76,6 +76,7 @@ and cst_view =
       do_cc: bool; (* participate in congruence closure? *)
       relevant : 'a. ID.t -> 'a IArray.t -> int -> bool; (* relevant argument? *)
       ty : ID.t -> term IArray.t -> ty; (* compute type *)
+      eval: value IArray.t -> value; (* evaluate term *)
     }
 (** Methods on the custom term view whose arguments are ['a].
     Terms must be printable, and provide some additional theory handles.
@@ -117,6 +118,21 @@ and ty_def =
 and ty_card =
   | Finite
   | Infinite
+
+(** Semantic values, used for models (and possibly model-constructing calculi) *)
+and value =
+  | V_bool of bool
+  | V_element of {
+      id: ID.t;
+      ty: ty;
+    } (** a named constant, distinct from any other constant *)
+  | V_custom of {
+      view: value_custom_view;
+      pp: value_custom_view Fmt.printer;
+      eq: value_custom_view -> value_custom_view -> bool;
+    } (** Custom value *)
+
+and value_custom_view = ..
 
 let[@inline] term_equal_ (a:term) b = a==b
 let[@inline] term_hash_ a = a.term_id
@@ -164,6 +180,22 @@ let rec cmp_exp a b =
 
 let pp_cst out a = ID.pp out a.cst_id
 let id_of_cst a = a.cst_id
+
+let[@inline] eq_ty a b = a.ty_id = b.ty_id
+
+let eq_value a b = match a, b with
+  | V_bool a, V_bool b -> a=b
+  | V_element e1, V_element e2 ->
+    ID.equal e1.id e2.id && eq_ty e1.ty e2.ty
+  | V_custom x1, V_custom x2 ->
+    x1.eq x1.view x2.view
+  | V_bool _, _ | V_element _, _ | V_custom _, _
+    -> false
+
+let pp_value out = function
+  | V_bool b -> Fmt.bool out b
+  | V_element e -> ID.pp out e.id
+  | V_custom c -> c.pp out c.view
 
 let pp_db out (i,_) = Format.fprintf out "%%%d" i
 

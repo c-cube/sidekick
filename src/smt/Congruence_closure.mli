@@ -86,3 +86,7 @@ val explain_unfold_bag : ?init:Lit.Set.t -> t -> explanation Bag.t -> Lit.Set.t
 val explain_unfold_seq : ?init:Lit.Set.t -> t -> explanation Sequence.t -> Lit.Set.t
 (** Unfold those explanations into a complete set of
     literals implying them *)
+
+(** Enrich a model by mapping terms to their representative's value,
+    if any. Otherwise map the representative to a fresh value *)
+val mk_model : t -> Model.t -> Model.t

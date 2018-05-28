@@ -59,5 +59,10 @@ let payload_pred ~f:p n =
     | l -> List.exists p l
   end
 
+module Tbl = CCHashtbl.Make(struct
+    type t = cc_node
+    let equal = equal
+    let hash = hash
+  end)
 
 let dummy = make Term.dummy

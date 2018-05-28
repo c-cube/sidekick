@@ -49,6 +49,8 @@ val set_payload : ?can_erase:(payload -> bool) -> t -> payload -> unit
     @param can_erase if provided, checks whether an existing value
       is to be replaced instead of adding a new entry *)
 
+module Tbl : CCHashtbl.S with type key = t
+
 (**/**)
 val dummy : t
 (**/**)

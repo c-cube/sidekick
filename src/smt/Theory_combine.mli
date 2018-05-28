@@ -15,6 +15,8 @@ val cc : t -> Congruence_closure.t
 val tst : t -> Term.state
 val theories : t -> Theory.state Sequence.t
 
+val mk_model : t -> Lit.t Sequence.t -> Model.t
+
 val add_theory : t -> Theory.t -> unit
 (** How to add new theories *)
 

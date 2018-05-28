@@ -159,204 +159,6 @@ type res =
   | Unsat of Proof.t
   | Unknown of unknown
 
-(* FIXME: repair this and output a nice model.
-module Model_build : sig
-  val make: unit -> model
-
-  val check : model -> unit
-end = struct
-  module ValueListMap = CCMap.Make(struct
-      type t = Term.t list (* normal forms *)
-      let compare = CCList.compare Term.compare
-    end)
-
-  type doms = {
-    dom_of_ty: ID.t list Ty.Tbl.t; (* uninterpreted type -> domain elements *)
-    dom_of_class: term Term.Tbl.t; (* representative -> normal form *)
-    dom_of_cst: term Cst.Tbl.t; (* cst -> its normal form *)
-    dom_of_fun: term ValueListMap.t Cst.Tbl.t; (* function -> args -> normal form *)
-    dom_traversed: unit Term.Tbl.t; (* avoid cycles *)
-  }
-
-  let create_doms() : doms =
-    { dom_of_ty=Ty.Tbl.create 32;
-      dom_of_class = Term.Tbl.create 32;
-      dom_of_cst=Cst.Tbl.create 32;
-      dom_of_fun=Cst.Tbl.create 32;
-      dom_traversed=Term.Tbl.create 128;
-    }
-
-  (* pick a term belonging to this type.
-     we just generate a new constant, as picking true/a constructor might
-     refine the partial model into an unsatisfiable state. *)
-  let pick_default ~prefix (doms:doms)(ty:Ty.t) : term =
-    (* introduce a fresh constant for this equivalence class *)
-    let elts = Ty.Tbl.get_or ~default:[] doms.dom_of_ty ty in
-    let cst = ID.makef "%s%s_%d" prefix (Ty.mangle ty) (List.length elts) in
-    let nf = Term.const (Cst.make_undef cst ty) in
-    Ty.Tbl.replace doms.dom_of_ty ty (cst::elts);
-    nf
-
-  (* follow "normal form" pointers deeply in the term *)
-  let deref_deep (doms:doms) (t:term) : term =
-    let rec aux t =
-      let repr = (CC.find t :> term) in
-      (* if not already done, traverse all parents to update the functions'
-         models *)
-      if not (Term.Tbl.mem doms.dom_traversed repr) then (
-        Term.Tbl.add doms.dom_traversed repr ();
-        Bag.to_seq repr.term_parents |> Sequence.iter aux_ignore;
-      );
-      (* find a normal form *)
-      let nf: term =
-        begin match CC.normal_form t with
-          | Some (NF_bool true) -> Term.true_
-          | Some (NF_bool false) -> Term.false_
-          | Some (NF_cstor (cstor, args)) ->
-            (* cstor applied to sub-normal forms *)
-            Term.app_cst cstor.cstor_cst (IArray.map aux args)
-          | None ->
-            let repr = (CC.find t :> term) in
-            begin match Term.Tbl.get doms.dom_of_class repr with
-              | Some u -> u
-              | None when Ty.is_uninterpreted t.term_ty ->
-                let nf = pick_default ~prefix:"$" doms t.term_ty in
-                Term.Tbl.add doms.dom_of_class repr nf;
-                nf
-              | None ->
-                let nf = pick_default ~prefix:"?" doms t.term_ty in
-                Term.Tbl.add doms.dom_of_class repr nf;
-                nf
-            end
-        end
-      in
-      (* update other tables *)
-      begin match t.term_cell with
-        | True | False -> assert false (* should have normal forms *)
-        | Fun _ | DB _ | Mu _
-          -> ()
-        | Builtin b -> ignore (Term.map_builtin aux b)
-        | If (a,b,c) -> aux_ignore a; aux_ignore b; aux_ignore c
-        | App_ho (f, l) -> aux_ignore f; List.iter aux_ignore l
-        | Case (t, m) -> aux_ignore t; ID.Map.iter (fun _ rhs -> aux_ignore rhs) m
-        | App_cst (f, a) when IArray.is_empty a ->
-          (* remember [f := c] *)
-          Cst.Tbl.replace doms.dom_of_cst f nf
-        | App_cst (f, a) ->
-          (* remember [f a := c] *)
-          let a_values = IArray.map aux a |> IArray.to_list in
-          let map =
-            Cst.Tbl.get_or ~or_:ValueListMap.empty doms.dom_of_fun f
-          in
-          Cst.Tbl.replace doms.dom_of_fun f (ValueListMap.add a_values nf map)
-      end;
-      nf
-    and aux_ignore t =
-      ignore (aux t)
-    in
-    aux t
-
-  (* TODO: maybe we really need a notion of "Undefined" that is
-           also not a domain element (i.e. equality not defined on it)
-           + some syntax for it *)
-
-  (* build the model of a function *)
-  let model_of_fun (doms:doms) (c:cst): Ast.term =
-    let ty_args, ty_ret = Ty.unfold (Cst.ty c) in
-    assert (ty_args <> []);
-    let vars =
-      List.mapi
-        (fun i ty -> Ast.Var.make (ID.makef "x_%d" i) (Conv.ty_to_ast ty))
-        ty_args
-    in
-    let default = match ty_ret.ty_cell with
-      | Prop -> Ast.true_ (* should be safe: we would have split it otherwise *)
-      | _ ->
-        (* TODO: what about other finites types? *)
-        pick_default ~prefix:"?" doms ty_ret |> Conv.term_to_ast
-    in
-    let cases =
-      Cst.Tbl.get_or ~or_:ValueListMap.empty doms.dom_of_fun c
-      |> ValueListMap.to_list
-      |> List.map
-        (fun (args,rhs) ->
-           assert (List.length ty_args = List.length vars);
-           let tests =
-             List.map2
-               (fun v arg -> Ast.eq (Ast.var v) (Conv.term_to_ast arg))
-               vars args
-           in
-           Ast.and_l tests, Conv.term_to_ast rhs)
-    in
-    (* decision tree for the body *)
-    let body =
-      List.fold_left
-        (fun else_ (test, then_) -> Ast.if_ test then_ else_)
-        default cases
-    in
-    Ast.fun_l vars body
-
-  let make () : model =
-    let env = !model_env_ in
-    let doms = create_doms () in
-    (* compute values of meta variables *)
-    let consts =
-      !model_support_
-      |> Sequence.of_list
-      |> Sequence.filter_map
-        (fun c ->
-           if Ty.is_arrow (Cst.ty c) then None
-           else
-             (* find normal form of [c] *)
-             let t = Term.const c in
-             let t = deref_deep doms t |> Conv.term_to_ast in
-             Some (c.cst_id, t))
-      |> ID.Map.of_seq
-    in
-    (* now compute functions (the previous "deref_deep" have updated their use cases)  *)
-    let consts =
-      !model_support_
-      |> Sequence.of_list
-      |> Sequence.filter_map
-        (fun c ->
-           if Ty.is_arrow (Cst.ty c)
-           then (
-             let t = model_of_fun doms c in
-             Some (c.cst_id, t)
-           ) else None)
-      |> ID.Map.add_seq consts
-    in
-    (* now we can convert domains *)
-    let domains =
-      Ty.Tbl.to_seq doms.dom_of_ty
-      |> Sequence.filter_map
-        (fun (ty,dom) ->
-           if Ty.is_uninterpreted ty
-           then Some (Conv.ty_to_ast ty, List.rev dom)
-           else None)
-      |> Ast.Ty.Map.of_seq
-    (* and update env: add every domain element to it *)
-    and env =
-      Ty.Tbl.to_seq doms.dom_of_ty
-      |> Sequence.flat_map_l (fun (_,dom) -> dom)
-      |> Sequence.fold
-        (fun env id -> Ast.env_add_def env id Ast.E_uninterpreted_cst)
-        env
-    in
-    Model.make ~env ~consts ~domains
-
-  let check m =
-    Log.debugf 1 (fun k->k "checking model…");
-    Log.debugf 5 (fun k->k "(@[<1>candidate model: %a@])" Model.pp m);
-    let goals =
-      Top_goals.to_seq
-      |> Sequence.map Conv.term_to_ast
-      |> Sequence.to_list
-    in
-    Model.check m ~goals
-end
-   *)
-
 (** {2 Main} *)
 
 (* convert unsat-core *)
@@ -402,18 +204,15 @@ let[@inline] assume_distinct self l ~neq lit : unit =
 
 let check_model (s:t) = Sat_solver.check_model s.solver
 
-(*
-type unsat_core = Sat.clause list
-   *)
-
 (* TODO: main loop with iterative deepening of the unrolling  limit
    (not the value depth limit) *)
 let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
   let r = Sat_solver.solve ~assumptions (solver self) () in
   match r with
-  | Sat_solver.Sat (Sidekick_sat.Sat_state _st) ->
+  | Sat_solver.Sat (Sidekick_sat.Sat_state st) ->
     Log.debugf 0 (fun k->k "SAT");
-    Sat Model.empty
+    let m = Theory_combine.mk_model (th_combine self) st.iter_trail in
+    Sat m
     (*
     let env = Ast.env_empty in
     let m = Model.make ~env in

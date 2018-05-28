@@ -120,6 +120,15 @@ let if_sat (self:t) (slice:Lit.t Sat_solver.slice_actions) : _ Sat_solver.res =
        theories self
          (fun (module Th) -> Th.final_check Th.state SA.slice_iter))
 
+let mk_model (self:t) lits : Model.t =
+  let m =
+    Sequence.fold
+      (fun m (module Th : Theory.STATE) -> Model.merge m (Th.mk_model Th.state lits))
+      Model.empty (theories self)
+  in
+  (* now complete model using CC *)
+  Congruence_closure.mk_model (cc self) m
+
 (** {2 Various helpers} *)
 
 (* forward propagations from CC or theories directly to the SMT core *)
