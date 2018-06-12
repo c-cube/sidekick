@@ -112,6 +112,7 @@ and ty_def =
   | Ty_def of {
       id: ID.t;
       pp: ty Fmt.printer -> ty list Fmt.printer;
+      default_val: value list -> value; (* default value of this type *)
       card: ty list -> ty_card;
     }
 

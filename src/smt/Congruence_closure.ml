@@ -597,9 +597,13 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
          let v = match Model.eval m t with
            | Some v -> v
            | None ->
-             Value.mk_elt
-               (ID.makef "v_%d" @@ Term.id t)
-               (Term.ty r.n_term)
+             if same_class cc r (Lazy.force cc.true_) then Value.true_
+             else if same_class cc r (Lazy.force cc.false_) then Value.false_
+             else (
+               Value.mk_elt
+                 (ID.makef "v_%d" @@ Term.id t)
+                 (Term.ty r.n_term)
+             )
          in
          if not @@ Ty.Tbl.mem ty_tbl (Term.ty t) then (
            Ty.Tbl.add ty_tbl (Term.ty t) v; (* also give a value to this type *)
@@ -638,9 +642,19 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
       (m,Cst.Map.empty)
   in
   (* get or make a default value for this type *)
-  let get_ty_default (ty:Ty.t) : Value.t =
-    Ty.Tbl.get_or_add ty_tbl ~k:ty
-      ~f:(fun ty -> Value.mk_elt (ID.makef "ty_%d" @@ Ty.id ty) ty)
+  let rec get_ty_default (ty:Ty.t) : Value.t =
+    match Ty.view ty with
+    | Ty_prop -> Value.true_
+    | Ty_atomic { def = Ty_uninterpreted _;_} ->
+      (* domain element *)
+      Ty.Tbl.get_or_add ty_tbl ~k:ty
+        ~f:(fun ty -> Value.mk_elt (ID.makef "ty_%d" @@ Ty.id ty) ty)
+    | Ty_atomic { def = Ty_def d; args; _} -> 
+      (* ask the theory for a default value *)
+      Ty.Tbl.get_or_add ty_tbl ~k:ty
+        ~f:(fun _ty ->
+          let vals = List.map get_ty_default args in
+          d.default_val vals)
   in
   let funs =
     Cst.Map.map
