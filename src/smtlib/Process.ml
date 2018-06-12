@@ -217,6 +217,47 @@ end
 let conv_ty = Conv.conv_ty
 let conv_term = Conv.conv_term
 
+(* check SMT model *)
+let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : unit =
+  Log.debug 1 "(smt.check-smt-model)";
+  let open Solver_types in
+  let module S = Solver.Sat_solver in
+  let check_atom (lit:Lit.t) : bool option =
+    Log.debugf 5 (fun k->k "(@[smt.check-smt-model.atom@ %a@])" Lit.pp lit);
+    let a = S.Atom.make solver lit in
+    let is_true = S.Atom.is_true a in
+    let is_false = S.Atom.is_true (S.Atom.neg a) in
+    let sat_value = if is_true then Some true else if is_false then Some false else None in
+    begin match Lit.as_atom lit with
+    | None -> assert false
+    | Some (t, sign) ->
+      match Model.eval m t with
+      | Some (V_bool b) ->
+        let b = if sign then b else not b in
+        if (is_true || is_false) && ((b && is_false) || (not b && is_true)) then (
+          Error.errorf "(@[check-model.error@ :atom %a@ :model-val %B@ :sat-val %B@])"
+            S.Atom.pp a b (if is_true then true else not is_false)
+        )
+      | Some v ->
+        Error.errorf "(@[check-model.error@ :atom %a@ :non-bool-value %a@])"
+          S.Atom.pp a Value.pp v
+      | None ->
+        if is_true || is_false then (
+          Error.errorf "(@[check-model.error@ :atom %a@ :no-smt-value@ :sat-val %B@])"
+            S.Atom.pp a is_true
+        );
+    end;
+    sat_value
+  in
+  let check_c c =
+    let bs = List.map check_atom c in
+    if List.for_all (function Some true -> false | _ -> true) bs then (
+      Error.errorf "(@[check-model.error.none-true@ :clause %a@ :vals %a@])"
+        (Fmt.Dump.list Lit.pp) c Fmt.(Dump.list @@ Dump.option bool) bs
+    );
+  in
+  Vec.iter check_c hyps
+
 (* call the solver to check-sat *)
 let solve
     ?gc:_
@@ -225,11 +266,13 @@ let solve
     ?(pp_model=false)
     ?(check=false)
     ?time:_ ?memory:_ ?progress:_
-    ~assumptions s : unit =
+    ?hyps
+    ~assumptions
+    s : unit =
   let t1 = Sys.time() in
   let res =
     Solver.solve ~assumptions s
-    (* ?gc ?restarts ?time ?memory ?progress s *)
+    (* ?gc ?restarts ?time ?memory ?progress *)
   in
   let t2 = Sys.time () in
   begin match res with
@@ -237,7 +280,10 @@ let solve
       if pp_model then (
         Format.printf "(@[<hv1>model@ %a@])@." Model.pp  m
       );
-      if check then Solver.check_model s;
+      if check then (
+        Solver.check_model s;
+        CCOpt.iter (fun h -> check_smt_model (Solver.solver s) h m) hyps;
+      );
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
     | Solver.Unsat p ->
@@ -271,6 +317,7 @@ let mk_iatom =
 
 (* process a single statement *)
 let process_stmt
+    ?hyps
     ?gc ?restarts ?(pp_cnf=false) ?dot_proof ?pp_model ?check
     ?time ?memory ?progress
     (solver:Solver.t)
@@ -301,8 +348,10 @@ let process_stmt
       Log.debug 1 "exit";
       raise Exit
     | A.CheckSat ->
-      solve ?gc ?restarts ?dot_proof ?check ?pp_model ?time ?memory ?progress
-        solver ~assumptions:[];
+      solve
+        ?gc ?restarts ?dot_proof ?check ?pp_model ?time ?memory ?progress
+        ~assumptions:[] ?hyps
+        solver;
       E.return()
     | A.TyDecl (id,n) ->
       decl_sort id n;
@@ -318,13 +367,13 @@ let process_stmt
       if pp_cnf then (
         Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t
       );
-      (* TODO
-      hyps := clauses @ !hyps;
-         *)
-      Solver.assume solver (IArray.singleton (Lit.atom t));
+      let atom = Lit.atom t in
+      CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
+      Solver.assume solver (IArray.singleton atom);
       E.return()
     | A.Assert_bool l ->
       let c = List.rev_map (mk_iatom tst) l in
+      CCOpt.iter (fun h -> Vec.push h c) hyps;
       Solver.assume solver (IArray.of_list c);
       E.return ()
     | A.Goal (_, _) ->

@@ -130,6 +130,7 @@ and value =
       view: value_custom_view;
       pp: value_custom_view Fmt.printer;
       eq: value_custom_view -> value_custom_view -> bool;
+      hash: value_custom_view -> int;
     } (** Custom value *)
 
 and value_custom_view = ..
@@ -191,6 +192,11 @@ let eq_value a b = match a, b with
     x1.eq x1.view x2.view
   | V_bool _, _ | V_element _, _ | V_custom _, _
     -> false
+
+let hash_value a = match a with
+  | V_bool a -> Hash.bool a
+  | V_element e -> ID.hash e.id
+  | V_custom x -> x.hash x.view
 
 let pp_value out = function
   | V_bool b -> Fmt.bool out b

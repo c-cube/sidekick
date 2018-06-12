@@ -12,6 +12,8 @@ let as_undefined (c:t) = match view c with
   | Cst_undef ty -> Some (c,ty)
   | Cst_def _ -> None
 
+let[@inline] is_undefined c = match view c with Cst_undef _ -> true | _ -> false
+
 let as_undefined_exn (c:t) = match as_undefined c with
   | Some tup -> tup
   | None -> assert false

@@ -123,10 +123,11 @@ let main () =
   (* process statements *)
   let res =
     try
+      let hyps = Vec.make_empty [] in
       E.fold_l
         (fun () ->
            Process.process_stmt
-             ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
+             ~hyps ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
              ~time:!time_limit ~memory:!size_limit
              ?dot_proof ~pp_model:!p_model ~check:!check ~progress:!p_progress
              solver)

@@ -7,6 +7,7 @@ type t = Solver_types.ty
 type view = Solver_types.ty_view
 type def = Solver_types.ty_def
 
+val id : t -> int
 val view : t -> view
 
 val prop : t

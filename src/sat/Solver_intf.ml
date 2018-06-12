@@ -152,7 +152,9 @@ module type S = sig
     val compare : t -> t -> int
     val equal : t -> t -> bool
     val get_formula : t -> formula
+    val is_true : t -> bool
 
+    val dummy : t
     val make : solver -> formula -> t
 
     val pp : t printer

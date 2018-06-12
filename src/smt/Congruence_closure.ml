@@ -587,26 +587,65 @@ let final_check cc : unit =
 (* model: map each uninterpreted equiv class to some ID *)
 let mk_model (cc:t) (m:Model.t) : Model.t =
   (* populate [repr -> value] table *)
-  let tbl = Equiv_class.Tbl.create 32 in
+  let t_tbl = Equiv_class.Tbl.create 32 in
+  (* type -> default value *)
+  let ty_tbl = Ty.Tbl.create 8 in
   Term.Tbl.values cc.tbl
     (fun r ->
        if is_root_ r then (
-         let v = match Model.eval m r.n_term with
+         let t = r.n_term in
+         let v = match Model.eval m t with
            | Some v -> v
            | None ->
              Value.mk_elt
-               (ID.makef "v_%d" @@ Term.id r.n_term)
+               (ID.makef "v_%d" @@ Term.id t)
                (Term.ty r.n_term)
          in
-         Equiv_class.Tbl.add tbl r v
+         if not @@ Ty.Tbl.mem ty_tbl (Term.ty t) then (
+           Ty.Tbl.add ty_tbl (Term.ty t) v; (* also give a value to this type *)
+         );
+         Equiv_class.Tbl.add t_tbl r v
        ));
-  (* now map every uninterpreted term to its representative's value *)
-  Term.Tbl.to_seq cc.tbl
-  |> Sequence.fold
-    (fun m (t,r) ->
-       if Model.mem t m then m
-       else (
-         let v = Equiv_class.Tbl.find tbl r in
-         Model.add t v m
-       ))
-    m
+  (* now map every uninterpreted term to its representative's value, and
+     create function tables *)
+  let m, funs =
+    Term.Tbl.to_seq cc.tbl
+    |> Sequence.fold
+      (fun (m,funs) (t,r) ->
+         let r = find cc r in (* get representative *)
+         match Term.view t with
+         | _ when Model.mem t m -> m, funs
+         | App_cst (c, args) ->
+           if Model.mem t m then m, funs
+           else if Cst.is_undefined c && IArray.length args > 0 then (
+             (* update signature of [c] *)
+             let ty = Term.ty t in
+             let v = Equiv_class.Tbl.find t_tbl r in
+             let args =
+               args
+               |> IArray.map (fun t -> Equiv_class.Tbl.find t_tbl @@ find_tn cc t)
+               |> IArray.to_list
+             in
+             let ty, l = Cst.Map.get_or c funs ~default:(ty,[]) in
+             m, Cst.Map.add c (ty, (args,v)::l) funs
+           ) else (
+             let v = Equiv_class.Tbl.find t_tbl r in
+             Model.add t v m, funs
+           )
+         | _ ->
+           let v = Equiv_class.Tbl.find t_tbl r in
+           Model.add t v m, funs)
+      (m,Cst.Map.empty)
+  in
+  (* get or make a default value for this type *)
+  let get_ty_default (ty:Ty.t) : Value.t =
+    Ty.Tbl.get_or_add ty_tbl ~k:ty
+      ~f:(fun ty -> Value.mk_elt (ID.makef "ty_%d" @@ Ty.id ty) ty)
+  in
+  let funs =
+    Cst.Map.map
+      (fun (ty,l) ->
+         Model.Fun_interpretation.make ~default:(get_ty_default ty) l)
+      funs
+  in
+  Model.add_funs funs m

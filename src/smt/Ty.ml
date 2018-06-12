@@ -5,7 +5,8 @@ type t = ty
 type view = Solver_types.ty_view
 type def = Solver_types.ty_def
 
-let view t = t.ty_view
+let[@inline] id t = t.ty_id
+let[@inline] view t = t.ty_view
 
 let equal = eq_ty
 let[@inline] compare a b = CCInt.compare a.ty_id b.ty_id

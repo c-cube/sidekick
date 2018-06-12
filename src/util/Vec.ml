@@ -146,6 +146,8 @@ let append a b =
   grow_to_at_least a (size a + size b);
   iter (push a) b
 
+let append_l v l = List.iter (push v) l
+
 let fold f acc t =
   let rec _fold f acc t i =
     if i=t.sz

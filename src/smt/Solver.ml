@@ -202,7 +202,9 @@ let[@inline] assume_eq self t u expl : unit =
 let[@inline] assume_distinct self l ~neq lit : unit =
   Congruence_closure.assert_distinct (cc self) l lit ~neq
 
-let check_model (s:t) = Sat_solver.check_model s.solver
+let check_model (s:t) : unit =
+  Log.debug 1 "(smt.solver.check-model)";
+  Sat_solver.check_model s.solver
 
 (* TODO: main loop with iterative deepening of the unrolling  limit
    (not the value depth limit) *)

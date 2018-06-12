@@ -66,6 +66,8 @@ val push : 'a t -> 'a -> unit
 val append : 'a t -> 'a t -> unit
 (** [append v1 v2] pushes all elements of [v2] into [v1] *)
 
+val append_l : 'a t -> 'a list -> unit
+
 val last : 'a t -> 'a
 (** Last element, or
     @raise Invalid_argument if the vector is empty *)

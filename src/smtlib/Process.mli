@@ -12,6 +12,7 @@ val conv_ty : Ast.Ty.t -> Ty.t
 val conv_term : Term.state -> Ast.term -> Term.t
 
 val process_stmt :
+  ?hyps:Lit.t list Vec.t ->
   ?gc:bool ->
   ?restarts:bool ->
   ?pp_cnf:bool ->
