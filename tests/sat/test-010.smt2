@@ -1,2 +1,7 @@
+(declare-sort $i 0)
+(declare-fun a () $i)
+(declare-fun b () $i)
+(declare-fun c () $i)
+(declare-fun d () $i)
 (assert (and (= a b) (= b c) (or (not (= a c)) (= a d))))
 (check-sat)
