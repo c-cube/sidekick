@@ -728,15 +728,16 @@ module Make (Th : Theory_intf.S) = struct
   end
 
   let[@inline] theory st = Lazy.force st.th
+
+  let[@inline] nb_clauses st = Vec.size st.clauses
+  let[@inline] decision_level st = Vec.size st.elt_levels
+  let[@inline] base_level st = if decision_level st > 0 then 1 else 0 (* first level=assumptions *)
+
   let[@inline] at_level_0 st : bool = Vec.is_empty st.backtrack_levels
   let[@inline] on_backtrack st f : unit =
     if not (at_level_0 st) then (
       Vec.push st.backtrack f
     )
-
-  let[@inline] nb_clauses st = Vec.size st.clauses
-  let[@inline] decision_level st = Vec.size st.elt_levels
-  let[@inline] base_level _st = 0
 
   (* [redo_down_to_level_0 f ~undo] performs [f] now. Upon backtracking
      before current level, some undo actions scheduled by [f]
