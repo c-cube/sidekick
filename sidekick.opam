@@ -11,6 +11,8 @@ depends: [
   "jbuilder" {build}
   "containers"
   "sequence"
+  "zarith"
+  "menhir"
 ]
 depopts: [
   "dolmen"
