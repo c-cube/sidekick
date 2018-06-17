@@ -13,9 +13,6 @@ type term = Term.t
 (* TODO: Tseitin on the fly when a composite boolean term is asserted.
   --> maybe, cache the clause inside the literal *)
 
-(* TODO: in theory (or terms?) have a way to evaluate custom terms
-   (like formulas) in a given model, for checking models *)
-
 let id_not = ID.make "not"
 let id_and = ID.make "and"
 let id_or = ID.make "or"
@@ -127,7 +124,7 @@ let and_l st l =
   | args -> Term.app_cst st C.and_ (IArray.of_list args)
 
 let or_l st l =
-  match flatten_id id_and l with
+  match flatten_id id_or l with
   | [] -> Term.false_ st
   | l when List.exists Term.is_true l -> Term.true_ st
   | [x] -> x

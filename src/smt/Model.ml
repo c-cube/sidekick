@@ -144,7 +144,6 @@ let eval (m:t) (t:Term.t) : Value.t option =
                 | Some v -> v
               end
             | exception Not_found ->
-              Log.debugf 5 (fun k->k "(@[model.eval.undef@ %a@])" Term.pp t);
               raise No_value (* no particular interpretation *)
           end
       end

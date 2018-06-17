@@ -237,6 +237,9 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
         if (is_true || is_false) && ((b && is_false) || (not b && is_true)) then (
           Error.errorf "(@[check-model.error@ :atom %a@ :model-val %B@ :sat-val %B@])"
             S.Atom.pp a b (if is_true then true else not is_false)
+        ) else (
+          Log.debugf 5
+            (fun k->k "(@[check-model@ :atom %a@ :model-val %B@ :no-sat-val@])" S.Atom.pp a b);
         )
       | Some v ->
         Error.errorf "(@[check-model.error@ :atom %a@ :non-bool-value %a@])"
