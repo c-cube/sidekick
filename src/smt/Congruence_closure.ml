@@ -56,8 +56,8 @@ type t = {
   (* proof state *)
   ps_queue: (node*node) Vec.t;
   (* pairs to explain *)
-  true_ : node lazy_t;
-  false_ : node lazy_t;
+  mutable true_ : node;
+  mutable false_ : node;
 }
 (* TODO: an additional union-find to keep track, for each term,
    of the terms they are known to be equal to, according
@@ -97,8 +97,8 @@ let rec find_rec cc (n:node) : repr =
     root
   )
 
-let[@inline] true_ cc = Lazy.force cc.true_
-let[@inline] false_ cc = Lazy.force cc.false_
+let[@inline] true_ cc = cc.true_
+let[@inline] false_ cc = cc.false_
 
 (* get term that should be there *)
 let[@inline] get_ cc (t:term) : node =
@@ -398,7 +398,7 @@ and update_combine cc =
         let r_into_old_tags = r_into.n_tags in
         on_backtrack cc
           (fun () ->
-             Log.debugf 5
+             Log.debugf 15
                (fun k->k "(@[cc.undo_merge@ :of %a :into %a@])"
                    Term.pp r_from.n_term Term.pp r_into.n_term);
              r_from.n_root <- r_from;
@@ -483,11 +483,11 @@ let add_seq cc seq =
   seq (fun t -> ignore @@ add_ cc t);
   update_pending cc
 
-(* before we push tasks into [pending], ensure they are removed when we backtrack *)
-let reset_on_backtrack cc : unit =
-  if Vec.is_empty cc.pending then (
-    on_backtrack cc (fun () -> Vec.clear cc.pending);
-  )
+(* to do after backtracking: reset task lists *)
+let reset_tasks cc : unit =
+  Vec.clear cc.pending;
+  Vec.clear cc.combine;
+  ()
 
 (* assert that this boolean literal holds *)
 let assert_lit cc lit : unit = match Lit.view lit with
@@ -503,7 +503,6 @@ let assert_lit cc lit : unit = match Lit.view lit with
        basically, just have [n] point to true/false and thus acquire
        the corresponding value, so its superterms (like [ite]) can evaluate
        properly *)
-    reset_on_backtrack cc;
     push_combine cc n rhs (E_lit lit);
     ()
 
@@ -511,7 +510,6 @@ let assert_eq cc (t:term) (u:term) expl : unit =
   let n1 = add cc t in
   let n2 = add cc u in
   if not (same_class cc n1 n2) then (
-    reset_on_backtrack cc;
     union cc n1 n2 expl
   )
 
@@ -560,7 +558,7 @@ end
 
 let create ?(size=2048) ~actions (tst:Term.state) : t =
   let nd = Equiv_class.dummy in
-  let rec cc = {
+  let cc = {
     tst;
     acts=actions;
     tbl = Term.Tbl.create size;
@@ -569,11 +567,11 @@ let create ?(size=2048) ~actions (tst:Term.state) : t =
     combine= Vec.make_empty (nd,nd,E_reduction);
     ps_lits=Lit.Set.empty;
     ps_queue=Vec.make_empty (nd,nd);
-    true_ = lazy (add cc (Term.true_ tst));
-    false_ = lazy (add cc (Term.false_ tst));
+    true_ = Equiv_class.dummy;
+    false_ = Equiv_class.dummy;
   } in
-  ignore (Lazy.force cc.true_);
-  ignore (Lazy.force cc.false_);
+  cc.true_ <- add cc (Term.true_ tst);
+  cc.false_ <- add cc (Term.false_ tst);
   cc
 (* check satisfiability, update congruence closure *)
 let check (cc:t) : unit =
@@ -597,8 +595,8 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
          let v = match Model.eval m t with
            | Some v -> v
            | None ->
-             if same_class cc r (Lazy.force cc.true_) then Value.true_
-             else if same_class cc r (Lazy.force cc.false_) then Value.false_
+             if same_class cc r cc.true_ then Value.true_
+             else if same_class cc r cc.false_ then Value.false_
              else (
                Value.mk_elt
                  (ID.makef "v_%d" @@ Term.id t)

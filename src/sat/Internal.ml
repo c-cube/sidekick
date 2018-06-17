@@ -960,6 +960,7 @@ module Make (Th : Theory_intf.S) = struct
       Vec.shrink st.elt_levels lvl;
       Vec.shrink st.backtrack_levels lvl;
       (* Recover the right theory state. *)
+      Th.reset_tasks (theory st);
       backtrack_down_to st b_lvl;
     );
     assert (Vec.size st.elt_levels = Vec.size st.backtrack_levels);

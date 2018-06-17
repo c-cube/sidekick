@@ -71,6 +71,9 @@ val assert_distinct : t -> term list -> neq:term -> Lit.t -> unit
     with explanation [e]
     precond: [u = distinct l] *)
 
+val reset_tasks : t -> unit
+(** Reset the queue of pending tasks *)
+
 val check : t -> unit
 
 val final_check : t -> unit

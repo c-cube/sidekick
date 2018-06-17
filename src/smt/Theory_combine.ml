@@ -21,6 +21,7 @@ type conflict = Theory.conflict
 (* raise upon conflict *)
 exception Exn_conflict of conflict
 
+(* TODO: first-class module instead *)
 type t = {
   cdcl_acts: (formula,proof) Sat_solver.actions;
   (** actions provided by the SAT solver *)
@@ -226,3 +227,5 @@ let add_theory (self:t) (th:Theory.t) : unit =
 
 let add_theory_l self = List.iter (add_theory self)
 
+let reset_tasks self =
+  Congruence_closure.reset_tasks (cc self)
