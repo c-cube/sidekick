@@ -963,6 +963,7 @@ module Make (Th : Theory_intf.S) = struct
       backtrack_down_to st b_lvl;
     );
     assert (Vec.size st.elt_levels = Vec.size st.backtrack_levels);
+    Log.debugf 15 (fun k->k "(@[<v>sat.trail@ %a@])" (Vec.print Atom.debug) st.trail);
     ()
 
   (* Unsatisfiability is signaled through an exception, since it can happen
@@ -1075,7 +1076,7 @@ module Make (Th : Theory_intf.S) = struct
       Array.fold_left (fun acc p -> max acc p.var.v_level) 0 c_clause.atoms
     in
     Log.debugf 5
-      (fun k -> k "(@[sat.analyzing-conflict (%d)@ %a@])" conflict_level Clause.debug c_clause);
+      (fun k -> k "(@[sat.analyzing-conflict :lvl %d@ :clause %a@])" conflict_level Clause.debug c_clause);
     while !cond do
       let clause = !c in
       Log.debugf 5 (fun k->k"(@[sat.resolving-clause@ %a@])"  Clause.debug clause);
@@ -1149,28 +1150,29 @@ module Make (Th : Theory_intf.S) = struct
    - if clause is already true, probably just do nothing
    - if clause is unit, propagate lit immediately (with clause as justification)
      but do not add clause
+   - if clause is false, raise Conflict
    - permanent stuff: just re-add it on backtrack
    *)
-  let rec add_clause_ st (c:clause) : unit =
+  let add_clause_ st (c0:clause) : unit =
     Log.debugf 5
-      (fun k -> k "(@[@{<Yellow>sat.add_clause@}@ %a@])" Clause.debug c);
-    assert (not @@ Clause.dead c);
-    match eliminate_duplicates c with
+      (fun k -> k "(@[@{<Yellow>sat.add_clause@}@ %a@])" Clause.debug c0);
+    assert (not @@ Clause.dead c0);
+    match eliminate_duplicates c0 with
     | exception Trivial ->
-      Log.debugf 3 (fun k->k "(@[sat.add_clause.ignore-trivial@ %a@])" Clause.debug c)
+      Log.debugf 3 (fun k->k "(@[sat.add_clause.ignore-trivial@ %a@])" Clause.debug c0)
     | c ->
-      Log.debugf 5 (fun k -> k "(@[sat.add_clause.after_eliminate_dups@ %a@])" Clause.debug c);
-      (* sort atoms by decreasing level of decision (undecided first) *)
-      let atoms = sort_lits_by_level c.atoms in
-      (* update order of atoms *)
-      assert (List.length atoms = Array.length c.atoms);
-      List.iteri (fun i a -> c.atoms.(i) <- a) atoms;
+      if c != c0 then (
+        Log.debugf 5 (fun k -> k "(@[sat.add_clause.after-eliminate-dups@ %a@])" Clause.debug c);
+      );
+      (* update order of atoms to put the two highest-level/unassigned ones first,
+         so that watch literals are correct *)
+      put_high_level_atoms_first c.atoms;
       Log.debugf 3 (fun k->k "(@[sat.add_clause.new_clause@ %a@])" Clause.debug c);
-      match atoms with
-      | [] ->
+      match c.atoms with
+      | [||] ->
         (* report Unsat immediately *)
         report_unsat st c
-      | [a] ->
+      | [|a|] ->
         if a.neg.is_true then (
           Log.debug 5 "(sat.add_clause: false unit clause, report unsat)";
           report_unsat st c
@@ -1183,26 +1185,21 @@ module Make (Th : Theory_intf.S) = struct
             (fun k->k "(@[sat.add_clause.unit_clause@ :propagating %a@])" Atom.debug a);
           enqueue_bool st a (Bcp c)
         )
-      | _::_::_ ->
+      | _ ->
         Vec.push st.clauses c;
-        (* Atoms need to be sorted in decreasing order of decision level,
-           or we might watch the wrong literals. *)
-        put_high_level_atoms_first c.atoms;
         attach_clause st c;
         let a = c.atoms.(0) in
         let b = c.atoms.(1) in
         if a.neg.is_true then (
           (* conflict, even the last literal is false *)
-          add_boolean_conflict st c
+          raise (Conflict c)
         ) else if b.neg.is_true && not a.is_true && not a.neg.is_true then (
-          let lvl = List.fold_left (fun m a -> max m a.var.v_level) 0 atoms in
-          cancel_until st (max lvl (base_level st));
           enqueue_bool st a (Bcp c)
         )
 
   (* Add a new clause, simplifying, propagating, and backtracking if
      the clause is false in the current trail *)
-  and add_clause ~permanent st (c:clause) : unit =
+  let add_clause ~permanent st (c:clause) : unit =
     add_clause_ st c;
     if permanent then (
       (* need to re-internalize *)
@@ -1217,7 +1214,7 @@ module Make (Th : Theory_intf.S) = struct
      - backtrack
      - report unsat if conflict at level 0
   *)
-  and add_boolean_conflict st (confl:clause): unit =
+  let add_boolean_conflict st (confl:clause): unit =
     Log.debugf 3
       (fun k -> k "(@[@{<Yellow>sat.boolean-conflict@}@ %a@ :decision-lvl %d@])"
           Clause.debug confl (decision_level st));
@@ -1325,7 +1322,8 @@ module Make (Th : Theory_intf.S) = struct
     Log.debugf 3
       (fun k->k "(@[sat.push_clause_from_theory@ :permanent %B@ %a@])"
           permanent Clause.debug c);
-    add_clause ~permanent st c
+    add_clause ~permanent st c;
+    ()
 
   let act_push_local = act_push_ ~permanent:false
   let act_push_persistent = act_push_ ~permanent:true
@@ -1338,10 +1336,10 @@ module Make (Th : Theory_intf.S) = struct
       if p.is_true then (
       ) else if p.neg.is_true then (
         (* propagate other lits in the clause *)
-        add_clause ~permanent:false st c
+        add_clause ~permanent:false st c;
       ) else (
         insert_var_order st p.var;
-        enqueue_bool st p (Bcp c)
+        enqueue_bool st p (Bcp c);
       )
     ) else (
       Error.errorf "(@[sat.act_propagate.invalid_guard@ :guard %a@ \
@@ -1363,8 +1361,6 @@ module Make (Th : Theory_intf.S) = struct
       let slice_iter = slice_iter st 0 (Vec.size st.trail)
     end in
     (module A)
-
-  let act_at_level_0 st () = at_level_0 st
 
   let actions st: (formula,lemma) Theory_intf.actions =
     let module A = struct
@@ -1411,8 +1407,6 @@ module Make (Th : Theory_intf.S) = struct
       | Theory_intf.Unsat (l, p) ->
         (* conflict *)
         let l = List.rev_map (Atom.make st) l in
-        (* TODO: do that when the conflict clause is added *)
-        List.iter (fun a -> insert_var_order st a.var) l;
         let c = Clause.make_l l (Lemma p) in
         Some c
     )
@@ -1422,22 +1416,13 @@ module Make (Th : Theory_intf.S) = struct
   and propagate (st:t) : clause option =
     (* Now, check that the situation is sane *)
     assert (st.elt_head <= Vec.size st.trail);
-    if st.elt_head = Vec.size st.trail then (
-      theory_propagate st
-    ) else (
-      let num_props = ref 0 in
-      let res = ref None in
-      while st.elt_head < Vec.size st.trail do
-        let a = Vec.get st.trail st.elt_head in
-        incr num_props;
-        Log.debugf 5 (fun k->k "(@[sat.bcp.propagate_atom_on_trail@ %a@])" Atom.pp a);
-        propagate_atom st a;
-        st.elt_head <- st.elt_head + 1;
-      done;
-      match !res with
-      | None -> theory_propagate st
-      | _ -> !res
-    )
+    while st.elt_head < Vec.size st.trail do
+      let a = Vec.get st.trail st.elt_head in
+      Log.debugf 5 (fun k->k "(@[sat.bcp.propagate_atom_on_trail@ %a@])" Atom.pp a);
+      propagate_atom st a;
+      st.elt_head <- st.elt_head + 1;
+    done;
+    theory_propagate st
 
   (* remove some learnt clauses
      NOTE: so far we do not forget learnt clauses. We could, as long as
