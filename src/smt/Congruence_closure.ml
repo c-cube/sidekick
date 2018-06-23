@@ -76,9 +76,8 @@ let[@inline] size_ (r:repr) =
   Bag.size r.n_parents
 
 (* check if [t] is in the congruence closure.
-   Invariant: [in_cc t => in_cc u, forall u subterm t] *)
-let[@inline] mem (cc:t) (t:term): bool =
-  Term.Tbl.mem cc.tbl t
+   Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
+let[@inline] mem (cc:t) (t:term): bool = Term.Tbl.mem cc.tbl t
 
 (* TODO: remove path compression, point to new root explicitely during `union` *)
 
@@ -125,7 +124,7 @@ let signature cc (t:term): node Term.view option =
   let find = find_tn cc in
   begin match Term.view t with
     | App_cst (_, a) when IArray.is_empty a -> None
-    | App_cst ({cst_view=Cst_def {do_cc=false;_}; _}, _) -> None (* no CC *)
+    | App_cst (c, _) when not @@ Cst.do_cc c -> None (* no CC *)
     | App_cst (f, a) -> App_cst (f, IArray.map find a) |> CCOpt.return (* FIXME: relevance *)
     | Bool _ | If _
       -> None (* no congruence for these *)
@@ -452,8 +451,8 @@ and add_new_term cc (t:term) : node =
   in
   (* register sub-terms, add [t] to their parent list *)
   begin match t.term_view with
-    | Bool _-> ()
-    | App_cst (_, a) -> IArray.iter add_sub_t a
+    | App_cst (c, a) when Cst.do_cc c -> IArray.iter add_sub_t a
+    | Bool _ | App_cst _ -> ()
     | If (a,b,c) ->
       (* TODO: relevancy? only [a] needs be decided for now *)
       add_sub_t a;
@@ -463,7 +462,7 @@ and add_new_term cc (t:term) : node =
   (* remove term when we backtrack *)
   on_backtrack cc
     (fun () ->
-       Log.debugf 20 (fun k->k "(@[cc.remove_term@ %a@])" Term.pp t);
+       Log.debugf 20 (fun k->k "(@[cc.remove-term@ %a@])" Term.pp t);
        Term.Tbl.remove cc.tbl t);
   (* add term to the table *)
   Term.Tbl.add cc.tbl t n;

@@ -13,6 +13,7 @@ val as_undefined : t -> (t * Ty.Fun.t) option
 val as_undefined_exn : t -> t * Ty.Fun.t
 val is_undefined : t -> bool
 
+val do_cc : t -> bool
 val mk_undef : ID.t -> Ty.Fun.t -> t
 val mk_undef_const : ID.t -> Ty.t -> t
 

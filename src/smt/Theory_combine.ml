@@ -53,6 +53,7 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
     | _ ->
       (* transmit to theories. *)
       C_clos.assert_lit (cc self) lit;
+      C_clos.check (cc self);
       theories self (fun (module Th) -> Th.on_assert Th.state lit);
   end
 

@@ -149,7 +149,7 @@ let hash_lit a =
 
 let cmp_cc_node a b = term_cmp_ a.n_term b.n_term
 
-let rec cmp_exp a b =
+let cmp_exp a b =
   let toint = function
     | E_merges _ -> 0 | E_lit _ -> 1
     | E_reduction -> 2 | E_lits _ -> 3
