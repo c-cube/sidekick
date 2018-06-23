@@ -236,13 +236,11 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (v:term view) : unit =
     )
 
 let on_assert (self:t) (lit:Lit.t) =
-  match Lit.view lit with
-  | Lit.Lit_atom t ->
-    begin match view t with
-      | B_atom _ -> ()
-      | v -> tseitin self lit t v
-    end
-  | _ -> ()
+  let t = Lit.view lit in
+  begin match view t with
+    | B_atom _ -> ()
+    | v -> tseitin self lit t v
+  end
 
 let final_check _ _ : unit = ()
 

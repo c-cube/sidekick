@@ -27,6 +27,9 @@ val field_is_active : Node_bits.field
 (** The term is needed for evaluation. We must try to evaluate it
     or to find a value for it using the theory *)
 
+val field_is_pending : Node_bits.field
+(** true iff the node is in the [cc.pending] queue *)
+
 (** {2 basics} *)
 
 val term : t -> term
@@ -48,6 +51,9 @@ val set_payload : ?can_erase:(payload -> bool) -> t -> payload -> unit
 (** Add given payload
     @param can_erase if provided, checks whether an existing value
       is to be replaced instead of adding a new entry *)
+
+val get_field : Node_bits.field -> t -> bool
+val set_field : Node_bits.field -> bool -> t -> unit
 
 module Tbl : CCHashtbl.S with type key = t
 

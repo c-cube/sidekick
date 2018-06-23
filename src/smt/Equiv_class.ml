@@ -5,6 +5,7 @@ type t = cc_node
 type payload = cc_node_payload = ..
 
 let field_is_active = Node_bits.mk_field()
+let field_is_pending = Node_bits.mk_field()
 let () = Node_bits.freeze()
 
 let[@inline] equal (n1:t) n2 = n1==n2
@@ -58,6 +59,9 @@ let payload_pred ~f:p n =
     | _ :: _ :: e :: _ when p e -> true
     | l -> List.exists p l
   end
+
+let[@inline] get_field f t = Node_bits.get f t.n_bits
+let[@inline] set_field f b t = t.n_bits <- Node_bits.set f b t.n_bits
 
 module Tbl = CCHashtbl.Make(struct
     type t = cc_node

@@ -728,7 +728,6 @@ module Make (Th : Theory_intf.S) = struct
   end
 
   let[@inline] theory st = Lazy.force st.th
-
   let[@inline] nb_clauses st = Vec.size st.clauses
   let[@inline] decision_level st = Vec.size st.elt_levels
   let[@inline] base_level st = if decision_level st > 0 then 1 else 0 (* first level=assumptions *)

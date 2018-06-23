@@ -72,8 +72,8 @@ let[@inline] on_backtrack cc f : unit =
 let[@inline] is_root_ (n:node) : bool = n.n_root == n
 
 let[@inline] size_ (r:repr) =
-  assert (is_root_ (r:>node));
-  Bag.size (r :> node).n_parents
+  assert (is_root_ r);
+  Bag.size r.n_parents
 
 (* check if [t] is in the congruence closure.
    Invariant: [in_cc t => in_cc u, forall u subterm t] *)
@@ -90,9 +90,9 @@ let rec find_rec cc (n:node) : repr =
     let old_root = n.n_root in
     let root = find_rec cc old_root in
     (* path compression *)
-    if (root :> node) != old_root then (
+    if root != old_root then (
       on_backtrack cc (fun () -> n.n_root <- old_root);
-      n.n_root <- (root :> node);
+      n.n_root <- root;
     );
     root
   )
@@ -154,8 +154,11 @@ let is_done (cc:t): bool =
   Vec.is_empty cc.combine
 
 let push_pending cc t : unit =
-  Log.debugf 5 (fun k->k "(@[<hv1>cc.push_pending@ %a@])" Equiv_class.pp t);
-  Vec.push cc.pending t
+  if not @@ Equiv_class.get_field Equiv_class.field_is_pending t then (
+    Log.debugf 5 (fun k->k "(@[<hv1>cc.push_pending@ %a@])" Equiv_class.pp t);
+    Equiv_class.set_field Equiv_class.field_is_pending true t;
+    Vec.push cc.pending t
+  )
 
 let push_combine cc t u e : unit =
   Log.debugf 5
@@ -322,11 +325,13 @@ let rec update_pending (cc:t): unit =
      might have changed *)
   while not (Vec.is_empty cc.pending) do
     let n = Vec.pop_last cc.pending in
+    Equiv_class.set_field Equiv_class.field_is_pending false n;
     (* check if some parent collided *)
     begin match find_by_signature cc n.n_term with
       | None ->
         (* add to the signature table [sig(n) --> n] *)
         add_signature cc n.n_term n
+      | Some u when n == u -> ()
       | Some u ->
         (* must combine [t] with [r] *)
         if not @@ same_class cc n u then (
@@ -337,8 +342,7 @@ let rec update_pending (cc:t): unit =
             | App_cst (f1, a1), App_cst (f2, a2) ->
               assert (Cst.equal f1 f2);
               assert (IArray.length a1 = IArray.length a2);
-              Explanation.mk_merges @@
-              IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
+              Explanation.mk_merges @@ IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
             | If _, _ | App_cst _, _ | Bool _, _
               -> assert false
           in
@@ -386,14 +390,12 @@ and update_combine cc =
       in
       (* remove [ra.parents] from signature, put them into [st.pending] *)
       begin
-        Bag.to_seq (r_from:>node).n_parents
+        Bag.to_seq r_from.n_parents
         |> Sequence.iter
           (fun parent -> push_pending cc parent)
       end;
       (* perform [union ra rb] *)
       begin
-        let r_from = (r_from :> node) in
-        let r_into = (r_into :> node) in
         let r_into_old_parents = r_into.n_parents in
         let r_into_old_tags = r_into.n_tags in
         on_backtrack cc
@@ -485,26 +487,26 @@ let add_seq cc seq =
 
 (* to do after backtracking: reset task lists *)
 let reset_tasks cc : unit =
+  Vec.iter (Equiv_class.set_field Equiv_class.field_is_pending false) cc.pending;
   Vec.clear cc.pending;
   Vec.clear cc.combine;
   ()
 
 (* assert that this boolean literal holds *)
-let assert_lit cc lit : unit = match Lit.view lit with
-  | Lit_fresh _ -> ()
-  | Lit_atom t ->
-    assert (Ty.is_prop t.term_ty);
-    Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);
-    let sign = Lit.sign lit in
-    (* equate t and true/false *)
-    let rhs = if sign then true_ cc else false_ cc in
-    let n = add cc t in
-    (* TODO: ensure that this is O(1).
-       basically, just have [n] point to true/false and thus acquire
-       the corresponding value, so its superterms (like [ite]) can evaluate
-       properly *)
-    push_combine cc n rhs (E_lit lit);
-    ()
+let assert_lit cc lit : unit =
+  let t = Lit.view lit in
+  assert (Ty.is_prop t.term_ty);
+  Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);
+  let sign = Lit.sign lit in
+  (* equate t and true/false *)
+  let rhs = if sign then true_ cc else false_ cc in
+  let n = add cc t in
+  (* TODO: ensure that this is O(1).
+     basically, just have [n] point to true/false and thus acquire
+     the corresponding value, so its superterms (like [ite]) can evaluate
+     properly *)
+  push_combine cc n rhs (E_lit lit);
+  ()
 
 let assert_eq cc (t:term) (u:term) expl : unit =
   let n1 = add cc t in

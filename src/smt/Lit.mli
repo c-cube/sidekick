@@ -3,21 +3,15 @@
 open Solver_types
 
 type t = lit = {
-  lit_view : lit_view;
+  lit_term: term;
   lit_sign : bool
 }
-
-and view = lit_view =
-  | Lit_fresh of ID.t
-  | Lit_atom of term
 
 val neg : t -> t
 val abs : t -> t
 val sign : t -> bool
-val view : t -> lit_view
-val as_atom : t -> (term * bool) option
-val fresh_with : ID.t -> t
-val fresh : unit -> t
+val view : t -> term
+val as_atom : t -> term * bool
 val dummy : t
 val atom : ?sign:bool -> term -> t
 val hash : t -> int

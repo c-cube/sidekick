@@ -48,10 +48,9 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
     (fun k->k "(@[<1>@{<green>th_combine.assume_lit@}@ @[%a@]@])" Lit.pp lit);
   (* check consistency first *)
   begin match Lit.view lit with
-    | Lit_fresh _ -> ()
-    | Lit_atom {term_view=Bool true; _} -> ()
-    | Lit_atom {term_view=Bool false; _} -> ()
-    | Lit_atom _ ->
+    | {term_view=Bool true; _} -> ()
+    | {term_view=Bool false; _} -> ()
+    | _ ->
       (* transmit to theories. *)
       C_clos.assert_lit (cc self) lit;
       theories self (fun (module Th) -> Th.on_assert Th.state lit);
@@ -98,11 +97,9 @@ let assume_real (self:t) (slice:Lit.t Sat_solver.slice_actions) =
     )
 
 let add_formula (self:t) (lit:Lit.t) =
-  match Lit.view lit with
-  | Lit_atom t ->
-    let lazy cc = self.cc in
-    ignore (C_clos.add cc t : cc_node)
-  | Lit_fresh _ -> ()
+  let t = Lit.view lit in
+  let lazy cc = self.cc in
+  ignore (C_clos.add cc t : cc_node)
 
 (* propagation from the bool solver *)
 let assume (self:t) (slice:_ Sat_solver.slice_actions) =

@@ -55,13 +55,9 @@ and explanation =
 
 (* boolean literal *)
 and lit = {
-  lit_view: lit_view;
+  lit_term: term;
   lit_sign: bool;
 }
-
-and lit_view =
-  | Lit_fresh of ID.t (* fresh literals *)
-  | Lit_atom of term
 
 and cst = {
   cst_id: ID.t;
@@ -143,25 +139,13 @@ let[@inline] term_cmp_ a b = CCInt.compare a.term_id b.term_id
 let cmp_lit a b =
   let c = CCBool.compare a.lit_sign b.lit_sign in
   if c<>0 then c
-  else (
-    let int_of_cell_ = function
-      | Lit_fresh _ -> 0
-      | Lit_atom _ -> 1
-    in
-    match a.lit_view, b.lit_view with
-      | Lit_fresh i1, Lit_fresh i2 -> ID.compare i1 i2
-      | Lit_atom t1, Lit_atom t2 -> term_cmp_ t1 t2
-      | Lit_fresh _, _ | Lit_atom _, _
-        -> CCInt.compare (int_of_cell_ a.lit_view) (int_of_cell_ b.lit_view)
-  )
+  else term_cmp_ a.lit_term b.lit_term
 
 let cst_compare a b = ID.compare a.cst_id b.cst_id
 
 let hash_lit a =
   let sign = a.lit_sign in
-  match a.lit_view with
-    | Lit_fresh i -> Hash.combine3 1 (Hash.bool sign) (ID.hash i)
-    | Lit_atom t -> Hash.combine3 2 (Hash.bool sign) (term_hash_ t)
+  Hash.combine3 2 (Hash.bool sign) (term_hash_ a.lit_term)
 
 let cmp_cc_node a b = term_cmp_ a.n_term b.n_term
 
@@ -236,12 +220,8 @@ let pp_term = pp_term_top ~ids:false
 let pp_term_view = pp_term_view ~pp_id:ID.pp_name ~pp_t:pp_term
 
 let pp_lit out l =
-  let pp_lit_view out = function
-    | Lit_fresh i -> Format.fprintf out "#%a" ID.pp i
-    | Lit_atom t -> pp_term out t
-  in
-  if l.lit_sign then pp_lit_view out l.lit_view
-  else Format.fprintf out "(@[@<1>¬@ %a@])" pp_lit_view l.lit_view
+  if l.lit_sign then pp_term out l.lit_term
+  else Format.fprintf out "(@[@<1>¬@ %a@])" pp_term l.lit_term
 
 let pp_cc_node out n = pp_term out n.n_term
 

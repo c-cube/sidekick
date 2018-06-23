@@ -228,10 +228,8 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
     let is_true = S.Atom.is_true a in
     let is_false = S.Atom.is_true (S.Atom.neg a) in
     let sat_value = if is_true then Some true else if is_false then Some false else None in
-    begin match Lit.as_atom lit with
-    | None -> assert false
-    | Some (t, sign) ->
-      match Model.eval m t with
+    let t, sign = Lit.as_atom lit in
+    begin match Model.eval m t with
       | Some (V_bool b) ->
         let b = if sign then b else not b in
         if (is_true || is_false) && ((b && is_false) || (not b && is_true)) then (

@@ -2,48 +2,31 @@
 open Solver_types
 
 type t = lit = {
-  lit_view : lit_view;
+  lit_term: term;
   lit_sign : bool
 }
 
-and view = lit_view =
-  | Lit_fresh of ID.t
-  | Lit_atom of term
-
 let neg l = {l with lit_sign=not l.lit_sign}
 
-let sign t = t.lit_sign
-let view (t:t): lit_view = t.lit_view
+let[@inline] sign t = t.lit_sign
+let[@inline] view (t:t): term = t.lit_term
 
-let abs t: t = {t with lit_sign=true}
+let[@inline] abs t: t = {t with lit_sign=true}
 
-let make ~sign v = {lit_sign=sign; lit_view=v}
+let make ~sign t = {lit_sign=sign; lit_term=t}
 
-(* assume the ID is fresh *)
-let fresh_with id = make ~sign:true (Lit_fresh id)
-
-(* fresh boolean literal *)
-let fresh: unit -> t =
-  let n = ref 0 in
-  fun () ->
-    let id = ID.makef "#fresh_%d" !n in
-    incr n;
-    make ~sign:true (Lit_fresh id)
-
-let dummy = fresh()
+let dummy = make ~sign:true Term.dummy
 
 let atom ?(sign=true) (t:term) : t =
   let t, sign' = Term.abs t in
   let sign = if not sign' then not sign else sign in
-  make ~sign (Lit_atom t)
+  make ~sign t
 
-let as_atom (lit:t) : (term * bool) option = match lit.lit_view with
-  | Lit_atom t -> Some (t, lit.lit_sign)
-  | _ -> None
+let[@inline] as_atom (lit:t) = lit.lit_term, lit.lit_sign
 
 let hash = hash_lit
 let compare = cmp_lit
-let equal a b = compare a b = 0
+let[@inline] equal a b = compare a b = 0
 let pp = pp_lit
 let print = pp
 
