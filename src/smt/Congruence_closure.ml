@@ -165,12 +165,6 @@ let push_combine cc t u e : unit =
       Equiv_class.pp t Equiv_class.pp u Explanation.pp e);
   Vec.push cc.combine (t,u,e)
 
-let[@inline] union cc (a:node) (b:node) (e:Lit.t list): unit =
-  if not (same_class cc a b) then (
-    let e = Explanation.E_lits e in
-    push_combine cc a b e; (* start by merging [a=b] *)
-  )
-
 (* re-root the explanation tree of the equivalence class of [n]
    so that it points to [n].
    postcondition: [n.n_expl = None] *)
@@ -434,13 +428,12 @@ and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
 (* add [t] to [cc] when not present already *)
 and add_new_term cc (t:term) : node =
   assert (not @@ mem cc t);
-  Log.debugf 20 (fun k->k "(@[cc.add_term@ %a@])" Term.pp t);
+  Log.debugf 15 (fun k->k "(@[cc.add_term@ %a@])" Term.pp t);
   let n = Equiv_class.make t in
   (* how to add a subterm *)
   let add_to_parents_of_sub_node (sub:node) : unit =
     let old_parents = sub.n_parents in
-    on_backtrack cc
-      (fun () -> sub.n_parents <- old_parents);
+    on_backtrack cc (fun () -> sub.n_parents <- old_parents);
     sub.n_parents <- Bag.cons n sub.n_parents;
     push_pending cc sub
   in
@@ -462,7 +455,7 @@ and add_new_term cc (t:term) : node =
   (* remove term when we backtrack *)
   on_backtrack cc
     (fun () ->
-       Log.debugf 20 (fun k->k "(@[cc.remove-term@ %a@])" Term.pp t);
+       Log.debugf 15 (fun k->k "(@[cc.remove-term@ %a@])" Term.pp t);
        Term.Tbl.remove cc.tbl t);
   (* add term to the table *)
   Term.Tbl.add cc.tbl t n;
@@ -484,6 +477,13 @@ let add_seq cc seq =
   seq (fun t -> ignore @@ add_ cc t);
   update_pending cc
 
+let union cc (a:node) (b:node) (e:Lit.t list): unit =
+  if not (same_class cc a b) then (
+    let e = Explanation.E_lits e in
+    push_combine cc a b e; (* start by merging [a=b] *)
+    update_combine cc
+  )
+
 (* to do after backtracking: reset task lists *)
 let reset_tasks cc : unit =
   Vec.iter (Equiv_class.set_field Equiv_class.field_is_pending false) cc.pending;
@@ -499,20 +499,22 @@ let assert_lit cc lit : unit =
   let sign = Lit.sign lit in
   (* equate t and true/false *)
   let rhs = if sign then true_ cc else false_ cc in
-  let n = add cc t in
+  let n = add_ cc t in
   (* TODO: ensure that this is O(1).
      basically, just have [n] point to true/false and thus acquire
      the corresponding value, so its superterms (like [ite]) can evaluate
      properly *)
   push_combine cc n rhs (E_lit lit);
-  ()
+  update_pending cc
 
-let assert_eq cc (t:term) (u:term) expl : unit =
-  let n1 = add cc t in
-  let n2 = add cc u in
+let assert_eq cc (t:term) (u:term) e : unit =
+  let n1 = add_ cc t in
+  let n2 = add_ cc u in
   if not (same_class cc n1 n2) then (
-    union cc n1 n2 expl
-  )
+    let e = Explanation.E_lits e in
+    push_combine cc n1 n2 e;
+  );
+  update_pending cc
 
 let assert_distinct cc (l:term list) ~neq (lit:Lit.t) : unit =
   assert (match l with[] | [_] -> false | _ -> true);
