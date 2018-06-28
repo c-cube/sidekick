@@ -53,7 +53,6 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
     | _ ->
       (* transmit to theories. *)
       C_clos.assert_lit (cc self) lit;
-      C_clos.check (cc self);
       theories self (fun (module Th) -> Th.on_assert Th.state lit);
   end
 
@@ -71,10 +70,6 @@ let cdcl_return_res (self:t) : _ Sat_solver.res =
       Sat_solver.Unsat (IArray.to_list conflict_clause, Proof.default)
   end
 
-let[@inline] check (self:t) : unit =
-  Log.debug 5 "(th_combine.check)";
-  C_clos.check (cc self)
-
 let with_conflict_catch self f =
   begin
     try
@@ -91,11 +86,7 @@ let assume_real (self:t) (slice:Lit.t Sat_solver.slice_actions) =
   let (module SA) = slice in
   Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Sequence.length @@ SA.slice_iter));
   with_conflict_catch self
-    (fun () ->
-       SA.slice_iter (assume_lit self);
-       (* now check satisfiability *)
-       check self
-    )
+    (fun () -> SA.slice_iter (assume_lit self))
 
 let add_formula (self:t) (lit:Lit.t) =
   let t = Lit.view lit in
@@ -224,6 +215,3 @@ let add_theory (self:t) (th:Theory.t) : unit =
   self.theories <- th_s :: self.theories
 
 let add_theory_l self = List.iter (add_theory self)
-
-let reset_tasks self =
-  Congruence_closure.reset_tasks (cc self)

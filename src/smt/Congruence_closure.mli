@@ -41,15 +41,6 @@ val create :
 val find : t -> node -> repr
 (** Current representative *)
 
-val same_class : t -> node -> node -> bool
-(** Are these two classes the same in the current CC? *)
-
-val union : t -> node -> node -> Lit.t list -> unit
-(** Merge the two equivalence classes. Will be undone on backtracking. *)
-
-val mem : t -> term -> bool
-(** Is the term properly added to the congruence closure? *)
-
 val add : t -> term -> node
 (** Add the term to the congruence closure, if not present already.
     Will be backtracked. *)
@@ -71,25 +62,9 @@ val assert_distinct : t -> term list -> neq:term -> Lit.t -> unit
     with explanation [e]
     precond: [u = distinct l] *)
 
-val reset_tasks : t -> unit
-(** Reset the queue of pending tasks *)
-
-val check : t -> unit
-
 val final_check : t -> unit
 
-val explain_eq_n : ?init:Lit.Set.t -> t -> node -> node -> Lit.Set.t
-(** explain why the two nodes are equal *)
-
-val explain_eq_t : ?init:Lit.Set.t -> t -> term -> term -> Lit.Set.t
-(** explain why the two terms are equal *)
-
-val explain_unfold_bag : ?init:Lit.Set.t -> t -> explanation Bag.t -> Lit.Set.t
-
-val explain_unfold_seq : ?init:Lit.Set.t -> t -> explanation Sequence.t -> Lit.Set.t
-(** Unfold those explanations into a complete set of
-    literals implying them *)
-
+val mk_model : t -> Model.t -> Model.t
 (** Enrich a model by mapping terms to their representative's value,
     if any. Otherwise map the representative to a fresh value *)
-val mk_model : t -> Model.t -> Model.t
+

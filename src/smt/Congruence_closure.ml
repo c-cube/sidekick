@@ -111,13 +111,9 @@ let[@inline] find st (n:node) : repr =
   if n == n.n_root then n else find_rec st n
 
 let[@inline] find_tn cc (t:term) : repr = get_ cc t |> find cc
-let[@inline] find_tt cc (t:term) : term = find_tn cc t |> Equiv_class.term
 
 let[@inline] same_class cc (n1:node)(n2:node): bool =
   Equiv_class.equal (find cc n1) (find cc n2)
-
-let[@inline] same_class_t cc (t1:term)(t2:term): bool =
-  Equiv_class.equal (find_tn cc t1) (find_tn cc t2)
 
 (* compute signature *)
 let signature cc (t:term): node Term.view option =
@@ -132,11 +128,13 @@ let signature cc (t:term): node Term.view option =
 
 (* find whether the given (parent) term corresponds to some signature
    in [signatures_] *)
-let find_by_signature cc (t:term) : repr option = match signature cc t with
+let find_by_signature cc (t:term) : repr option =
+  match signature cc t with
   | None -> None
   | Some s -> Sig_tbl.get cc.signatures_tbl s
 
-let add_signature cc (t:term) (r:node): unit = match signature cc t with
+let add_signature cc (t:term) (r:node): unit =
+  match signature cc t with
   | None -> ()
   | Some s ->
     (* add, but only if not present already *)
@@ -148,7 +146,7 @@ let add_signature cc (t:term) (r:node): unit = match signature cc t with
         assert (same_class cc r r');
     end
 
-let is_done (cc:t): bool =
+let[@inline] is_done (cc:t): bool =
   Vec.is_empty cc.pending &&
   Vec.is_empty cc.combine
 
@@ -231,7 +229,7 @@ let ps_clear (cc:t) =
   Vec.clear cc.ps_queue;
   ()
 
-let rec decompose_explain cc (e:explanation): unit =
+let decompose_explain cc (e:explanation): unit =
   Log.debugf 5 (fun k->k "(@[cc.decompose_expl@ %a@])" Explanation.pp e);
   begin match e with
     | E_reduction -> ()
@@ -285,23 +283,8 @@ let explain_unfold ?(init=Lit.Set.empty) cc (e:explanation) : Lit.Set.t =
   decompose_explain cc e;
   explain_loop cc
 
-let explain_unfold_seq ?(init=Lit.Set.empty) cc (seq:explanation Sequence.t): Lit.Set.t =
-  ps_clear cc;
-  cc.ps_lits <- init;
-  Sequence.iter (decompose_explain cc) seq;
-  explain_loop cc
-
-let explain_unfold_bag ?(init=Lit.Set.empty) cc (b:explanation Bag.t) : Lit.Set.t =
-  match b with
-  | Bag.E -> init
-  | Bag.L (E_lit lit) -> Lit.Set.add lit init
-  | _ ->
-    ps_clear cc;
-    cc.ps_lits <- init;
-    Sequence.iter (decompose_explain cc) (Bag.to_seq b);
-    explain_loop cc
-
-(* add [tag] to [n]
+(* add [tag] to [n], indicating that [n] is distinct from all the other
+   nodes tagged with [tag]
    precond: [n] is a representative *)
 let add_tag_n cc (n:node) (tag:int) (expl:explanation) : unit =
   assert (is_root_ n);
@@ -384,7 +367,6 @@ and update_combine cc =
       (* remove [ra.parents] from signature, put them into [st.pending] *)
       begin
         Bag.to_seq r_from.n_parents
-        |> Sequence.iter
           (fun parent -> push_pending cc parent)
       end;
       (* perform [union ra rb] *)
@@ -426,7 +408,7 @@ and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
   A.on_merge ra rb e
 
 (* add [t] to [cc] when not present already *)
-and add_new_term cc (t:term) : node =
+and add_new_term_ cc (t:term) : node =
   assert (not @@ mem cc t);
   Log.debugf 15 (fun k->k "(@[cc.add_term@ %a@])" Term.pp t);
   let n = Equiv_class.make t in
@@ -466,7 +448,7 @@ and add_new_term cc (t:term) : node =
 (* add a term *)
 and[@inline] add_ cc t : node =
   try Term.Tbl.find cc.tbl t
-  with Not_found -> add_new_term cc t
+  with Not_found -> add_new_term_ cc t
 
 let add cc t : node =
   let n = add_ cc t in
@@ -476,20 +458,6 @@ let add cc t : node =
 let add_seq cc seq =
   seq (fun t -> ignore @@ add_ cc t);
   update_pending cc
-
-let union cc (a:node) (b:node) (e:Lit.t list): unit =
-  if not (same_class cc a b) then (
-    let e = Explanation.E_lits e in
-    push_combine cc a b e; (* start by merging [a=b] *)
-    update_combine cc
-  )
-
-(* to do after backtracking: reset task lists *)
-let reset_tasks cc : unit =
-  Vec.iter (Equiv_class.set_field Equiv_class.field_is_pending false) cc.pending;
-  Vec.clear cc.pending;
-  Vec.clear cc.combine;
-  ()
 
 (* assert that this boolean literal holds *)
 let assert_lit cc lit : unit =
@@ -505,7 +473,7 @@ let assert_lit cc lit : unit =
      the corresponding value, so its superterms (like [ite]) can evaluate
      properly *)
   push_combine cc n rhs (E_lit lit);
-  update_pending cc
+  update_combine cc
 
 let assert_eq cc (t:term) (u:term) e : unit =
   let n1 = add_ cc t in
@@ -538,27 +506,6 @@ let assert_distinct cc (l:term list) ~neq (lit:Lit.t) : unit =
       List.iter (fun (_,n) -> add_tag_n cc n tag @@ Explanation.lit lit) l
   end
 
-(* handling "distinct" constraints *)
-module Distinct_ = struct
-  module Int_set = Util.Int_set
-
-  type Equiv_class.payload +=
-    | P_dist of {
-        mutable tags: Int_set.t;
-      }
-
-  let add_tag (tag:int) (n:Equiv_class.t) : unit =
-    if not @@
-      CCList.exists
-        (function
-          | P_dist r -> r.tags <- Int_set.add tag r.tags; true
-          | _ -> false)
-        (Equiv_class.payload n)
-    then (
-      Equiv_class.set_payload n (P_dist {tags=Int_set.singleton tag})
-    )
-end
-
 let create ?(size=2048) ~actions (tst:Term.state) : t =
   let nd = Equiv_class.dummy in
   let cc = {
@@ -576,10 +523,6 @@ let create ?(size=2048) ~actions (tst:Term.state) : t =
   cc.true_ <- add cc (Term.true_ tst);
   cc.false_ <- add cc (Term.false_ tst);
   cc
-(* check satisfiability, update congruence closure *)
-let check (cc:t) : unit =
-  Log.debug 5 "(cc.check)";
-  update_pending cc
 
 let final_check cc : unit =
   Log.debug 5 "(CC.final_check)";

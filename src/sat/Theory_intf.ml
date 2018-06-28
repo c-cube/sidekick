@@ -127,9 +127,6 @@ module type S = sig
   val add_formula : t -> formula -> unit
   (** Internalize formula for later use *)
 
-  val reset_tasks : t -> unit
-  (** Clear caches/queues (when we backtrack) *)
-
   val if_sat : t -> formula slice_actions -> (formula, proof) res
   (** Called at the end of the search in case a model has been found. If no new clause is
       pushed, then 'sat' is returned, else search is resumed. *)
