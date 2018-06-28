@@ -16,9 +16,6 @@ end
 
 module Sig_tbl = CCHashtbl.Make(Signature)
 
-type merge_op = node * node * explanation
-(* a merge operation to perform *)
-
 module type ACTIONS = sig
   val on_backtrack: (unit -> unit) -> unit
   (** Register a callback to be invoked upon backtracking below the current level *)
@@ -35,6 +32,10 @@ end
 
 type actions = (module ACTIONS)
 
+type task =
+  | T_pending of node
+  | T_merge of node * node * explanation
+
 type t = {
   tst: Term.state;
   acts: actions;
@@ -48,10 +49,8 @@ type t = {
      The critical property is that all members of an equivalence class
      that have the same "shape" (including head symbol)
      have the same signature *)
-  pending: node Vec.t;
-  (* nodes to check, maybe their new signature is in {!signatures_tbl} *)
-  combine: merge_op Vec.t;
-  (* pairs of terms to merge *)
+  tasks: task Vec.t;
+  (* tasks to perform *)
   mutable ps_lits: Lit.Set.t;
   (* proof state *)
   ps_queue: (node*node) Vec.t;
@@ -146,22 +145,18 @@ let add_signature cc (t:term) (r:node): unit =
         assert (same_class cc r r');
     end
 
-let[@inline] is_done (cc:t): bool =
-  Vec.is_empty cc.pending &&
-  Vec.is_empty cc.combine
-
 let push_pending cc t : unit =
   if not @@ Equiv_class.get_field Equiv_class.field_is_pending t then (
     Log.debugf 5 (fun k->k "(@[<hv1>cc.push_pending@ %a@])" Equiv_class.pp t);
     Equiv_class.set_field Equiv_class.field_is_pending true t;
-    Vec.push cc.pending t
+    Vec.push cc.tasks (T_pending t)
   )
 
 let push_combine cc t u e : unit =
   Log.debugf 5
     (fun k->k "(@[<hv1>cc.push_combine@ :t1 %a@ :t2 %a@ :expl %a@])"
       Equiv_class.pp t Equiv_class.pp u Explanation.pp e);
-  Vec.push cc.combine (t,u,e)
+  Vec.push cc.tasks @@ T_merge (t,u,e)
 
 (* re-root the explanation tree of the equivalence class of [n]
    so that it points to [n].
@@ -296,108 +291,106 @@ let add_tag_n cc (n:node) (tag:int) (expl:explanation) : unit =
 
 (* main CC algo: add terms from [pending] to the signature table,
    check for collisions *)
-let rec update_pending (cc:t): unit =
+let rec update_tasks (cc:t): unit =
   (* step 2 deal with pending (parent) terms whose equiv class
      might have changed *)
-  while not (Vec.is_empty cc.pending) do
-    let n = Vec.pop_last cc.pending in
-    Equiv_class.set_field Equiv_class.field_is_pending false n;
-    (* check if some parent collided *)
-    begin match find_by_signature cc n.n_term with
-      | None ->
-        (* add to the signature table [sig(n) --> n] *)
-        add_signature cc n.n_term n
-      | Some u when n == u -> ()
-      | Some u ->
-        (* must combine [t] with [r] *)
-        if not @@ same_class cc n u then (
-          (* [t1] and [t2] must be applications of the same symbol to
-             arguments that are pairwise equal *)
-          assert (n != u);
-          let expl = match n.n_term.term_view, u.n_term.term_view with
-            | App_cst (f1, a1), App_cst (f2, a2) ->
-              assert (Cst.equal f1 f2);
-              assert (IArray.length a1 = IArray.length a2);
-              Explanation.mk_merges @@ IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
-            | If _, _ | App_cst _, _ | Bool _, _
-              -> assert false
-          in
-          push_combine cc n u expl
-        )
-    end;
-    (* FIXME: when to actually evaluate?
-    eval_pending cc;
-    *)
-  done;
-  if not (is_done cc) then (
-    update_combine cc (* repeat *)
-  )
+  while not (Vec.is_empty cc.tasks) do
+    let task = Vec.pop_last cc.tasks in
+    match task with 
+    | T_pending n -> task_pending_ cc n
+    | T_merge (t,u,expl) -> task_merge_ cc t u expl
+  done
+
+and task_pending_ cc n =
+  Equiv_class.set_field Equiv_class.field_is_pending false n;
+  (* check if some parent collided *)
+  begin match find_by_signature cc n.n_term with
+    | None ->
+      (* add to the signature table [sig(n) --> n] *)
+      add_signature cc n.n_term n
+    | Some u when n == u -> ()
+    | Some u ->
+      (* must combine [t] with [r] *)
+      if not @@ same_class cc n u then (
+        (* [t1] and [t2] must be applications of the same symbol to
+           arguments that are pairwise equal *)
+        assert (n != u);
+        let expl = match n.n_term.term_view, u.n_term.term_view with
+          | App_cst (f1, a1), App_cst (f2, a2) ->
+            assert (Cst.equal f1 f2);
+            assert (IArray.length a1 = IArray.length a2);
+            Explanation.mk_merges @@ IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
+          | If _, _ | App_cst _, _ | Bool _, _
+            -> assert false
+        in
+        push_combine cc n u expl
+      )
+  end;
+  (* FIXME: when to actually evaluate?
+     eval_pending cc;
+  *)
+  ()
 
 (* main CC algo: merge equivalence classes in [st.combine].
    @raise Exn_unsat if merge fails *)
-and update_combine cc =
-  while not (Vec.is_empty cc.combine) do
-    let a, b, e_ab = Vec.pop_last cc.combine in
-    let ra = find cc a in
-    let rb = find cc b in
-    if not (Equiv_class.equal ra rb) then (
-      assert (is_root_ ra);
-      assert (is_root_ rb);
-      (* We will merge [r_from] into [r_into].
-         we try to ensure that [size ra <= size rb] in general *)
-      let r_from, r_into = if size_ ra > size_ rb then rb, ra else ra, rb in
-      let new_tags =
-        Util.Int_map.union
-          (fun _i (n1,e1) (n2,e2) ->
-             (* both maps contain same tag [_i]. conflict clause:
-                 [e1 & e2 & e_ab] impossible *)
-             Log.debugf 5
-               (fun k->k "(@[<hv>cc.merge.distinct_conflict@ :tag %d@ \
-                          @[:r1 %a@ :e1 %a@]@ @[:r2 %a@ :e2 %a@]@ :e_ab %a@])"
-                   _i Equiv_class.pp n1 Explanation.pp e1
-                   Equiv_class.pp n2 Explanation.pp e2 Explanation.pp e_ab);
-             let lits = explain_unfold cc e1 in
-             let lits = explain_unfold ~init:lits cc e2 in
-             let lits = explain_unfold ~init:lits cc e_ab in
-             let lits = explain_eq_n ~init:lits cc a n1 in
-             let lits = explain_eq_n ~init:lits cc b n2 in
-             raise_conflict cc @@ Lit.Set.elements lits)
-          ra.n_tags rb.n_tags
-      in
-      (* remove [ra.parents] from signature, put them into [st.pending] *)
-      begin
-        Bag.to_seq r_from.n_parents
-          (fun parent -> push_pending cc parent)
-      end;
-      (* perform [union ra rb] *)
-      begin
-        let r_into_old_parents = r_into.n_parents in
-        let r_into_old_tags = r_into.n_tags in
-        on_backtrack cc
-          (fun () ->
-             Log.debugf 15
-               (fun k->k "(@[cc.undo_merge@ :of %a :into %a@])"
-                   Term.pp r_from.n_term Term.pp r_into.n_term);
-             r_from.n_root <- r_from;
-             r_into.n_tags <- r_into_old_tags;
-             r_into.n_parents <- r_into_old_parents);
-        r_from.n_root <- r_into;
-        r_into.n_tags <- new_tags;
-        r_from.n_parents <- Bag.append r_into_old_parents r_from.n_parents;
-      end;
-      (* update explanations (a -> b), arbitrarily *)
-      begin
-        reroot_expl cc a;
-        assert (a.n_expl = E_none);
-        on_backtrack cc (fun () -> a.n_expl <- E_none);
-        a.n_expl <- E_some {next=b; expl=e_ab};
-      end;
-      (* notify listeners of the merge *)
-      notify_merge cc r_from ~into:r_into e_ab;
-    )
-  done;
-  (* now update pending terms again *)
-  update_pending cc
+and task_merge_ cc a b e_ab : unit =
+  let ra = find cc a in
+  let rb = find cc b in
+  if not (Equiv_class.equal ra rb) then (
+    assert (is_root_ ra);
+    assert (is_root_ rb);
+    (* We will merge [r_from] into [r_into].
+       we try to ensure that [size ra <= size rb] in general *)
+    let r_from, r_into = if size_ ra > size_ rb then rb, ra else ra, rb in
+    let new_tags =
+      Util.Int_map.union
+        (fun _i (n1,e1) (n2,e2) ->
+           (* both maps contain same tag [_i]. conflict clause:
+               [e1 & e2 & e_ab] impossible *)
+           Log.debugf 5
+             (fun k->k "(@[<hv>cc.merge.distinct_conflict@ :tag %d@ \
+                        @[:r1 %a@ :e1 %a@]@ @[:r2 %a@ :e2 %a@]@ :e_ab %a@])"
+                 _i Equiv_class.pp n1 Explanation.pp e1
+                 Equiv_class.pp n2 Explanation.pp e2 Explanation.pp e_ab);
+           let lits = explain_unfold cc e1 in
+           let lits = explain_unfold ~init:lits cc e2 in
+           let lits = explain_unfold ~init:lits cc e_ab in
+           let lits = explain_eq_n ~init:lits cc a n1 in
+           let lits = explain_eq_n ~init:lits cc b n2 in
+           raise_conflict cc @@ Lit.Set.elements lits)
+        ra.n_tags rb.n_tags
+    in
+    (* remove [ra.parents] from signature, put them into [st.pending] *)
+    begin
+      Bag.to_seq r_from.n_parents
+        (fun parent -> push_pending cc parent)
+    end;
+    (* perform [union ra rb] *)
+    begin
+      let r_into_old_parents = r_into.n_parents in
+      let r_into_old_tags = r_into.n_tags in
+      on_backtrack cc
+        (fun () ->
+           Log.debugf 15
+             (fun k->k "(@[cc.undo_merge@ :of %a :into %a@])"
+                 Term.pp r_from.n_term Term.pp r_into.n_term);
+           r_from.n_root <- r_from;
+           r_into.n_tags <- r_into_old_tags;
+           r_into.n_parents <- r_into_old_parents);
+      r_from.n_root <- r_into;
+      r_into.n_tags <- new_tags;
+      r_from.n_parents <- Bag.append r_into_old_parents r_from.n_parents;
+    end;
+    (* update explanations (a -> b), arbitrarily *)
+    begin
+      reroot_expl cc a;
+      assert (a.n_expl = E_none);
+      on_backtrack cc (fun () -> a.n_expl <- E_none);
+      a.n_expl <- E_some {next=b; expl=e_ab};
+    end;
+    (* notify listeners of the merge *)
+    notify_merge cc r_from ~into:r_into e_ab;
+  )
 
 (* Checks if [ra] and [~into] have compatible normal forms and can
    be merged w.r.t. the theories.
@@ -452,12 +445,12 @@ and[@inline] add_ cc t : node =
 
 let add cc t : node =
   let n = add_ cc t in
-  update_pending cc;
+  update_tasks cc;
   n
 
 let add_seq cc seq =
   seq (fun t -> ignore @@ add_ cc t);
-  update_pending cc
+  update_tasks cc
 
 (* assert that this boolean literal holds *)
 let assert_lit cc lit : unit =
@@ -473,7 +466,7 @@ let assert_lit cc lit : unit =
      the corresponding value, so its superterms (like [ite]) can evaluate
      properly *)
   push_combine cc n rhs (E_lit lit);
-  update_combine cc
+  update_tasks cc
 
 let assert_eq cc (t:term) (u:term) e : unit =
   let n1 = add_ cc t in
@@ -482,7 +475,7 @@ let assert_eq cc (t:term) (u:term) e : unit =
     let e = Explanation.E_lits e in
     push_combine cc n1 n2 e;
   );
-  update_pending cc
+  update_tasks cc
 
 let assert_distinct cc (l:term list) ~neq (lit:Lit.t) : unit =
   assert (match l with[] | [_] -> false | _ -> true);
@@ -513,8 +506,7 @@ let create ?(size=2048) ~actions (tst:Term.state) : t =
     acts=actions;
     tbl = Term.Tbl.create size;
     signatures_tbl = Sig_tbl.create size;
-    pending=Vec.make_empty Equiv_class.dummy;
-    combine= Vec.make_empty (nd,nd,E_reduction);
+    tasks=Vec.make_empty (T_pending Equiv_class.dummy);
     ps_lits=Lit.Set.empty;
     ps_queue=Vec.make_empty (nd,nd);
     true_ = Equiv_class.dummy;
@@ -526,7 +518,7 @@ let create ?(size=2048) ~actions (tst:Term.state) : t =
 
 let final_check cc : unit =
   Log.debug 5 "(CC.final_check)";
-  update_pending cc
+  update_tasks cc
 
 (* model: map each uninterpreted equiv class to some ID *)
 let mk_model (cc:t) (m:Model.t) : Model.t =
