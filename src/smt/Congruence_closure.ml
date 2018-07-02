@@ -102,7 +102,7 @@ let[@inline] false_ cc = cc.false_
 let[@inline] get_ cc (t:term) : node =
   try Term.Tbl.find cc.tbl t
   with Not_found ->
-    Log.debugf 5 (fun k->k "(@[<hv1>missing@ %a@])" Term.pp t);
+    Log.debugf 1 (fun k->k "(@[<hv1>cc.error: missing@ %a@])" Term.pp t);
     assert false
 
 (* non-recursive, inlinable function for [find] *)
@@ -172,8 +172,15 @@ let rec reroot_expl (cc:t) (n:node): unit =
       n.n_expl <- E_none;
   end
 
-let[@inline] raise_conflict (cc:t) (e:conflict): _ =
+let raise_conflict (cc:t) (e:conflict): _ =
   let (module A) = cc.acts in
+  (* clear tasks queue *)
+  Vec.iter
+    (function
+      | T_pending n -> Equiv_class.set_field Equiv_class.field_is_pending false n
+      | T_merge _ -> ())
+    cc.tasks;
+  Vec.clear cc.tasks;
   A.raise_conflict e
 
 let[@inline] all_classes cc : repr Sequence.t =
@@ -403,7 +410,7 @@ and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
 (* add [t] to [cc] when not present already *)
 and add_new_term_ cc (t:term) : node =
   assert (not @@ mem cc t);
-  Log.debugf 15 (fun k->k "(@[cc.add_term@ %a@])" Term.pp t);
+  Log.debugf 15 (fun k->k "(@[cc.add-term@ %a@])" Term.pp t);
   let n = Equiv_class.make t in
   (* how to add a subterm *)
   let add_to_parents_of_sub_node (sub:node) : unit =
