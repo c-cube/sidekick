@@ -838,7 +838,7 @@ module Make (Th : Theory_intf.S) = struct
     ) else if !duplicates = [] then (
       clause
     ) else (
-      Clause.make_l !res (History [clause])
+      Clause.make_l !res (Simplified clause)
     )
 
   (* Sort literals for new clause, into:
@@ -962,7 +962,7 @@ module Make (Th : Theory_intf.S) = struct
       backtrack_down_to st b_lvl;
     );
     assert (Vec.size st.elt_levels = Vec.size st.backtrack_levels);
-    Log.debugf 15 (fun k->k "(@[<v>sat.trail@ %a@])" (Vec.print Atom.debug) st.trail);
+    Log.debugf 15 (fun k->k "(@[<hv>sat.trail@,%a@])" (Vec.print ~sep:" " Atom.debug) st.trail);
     ()
 
   (* Unsatisfiability is signaled through an exception, since it can happen
