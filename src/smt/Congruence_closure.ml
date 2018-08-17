@@ -102,7 +102,7 @@ let[@inline] false_ cc = cc.false_
 let[@inline] get_ cc (t:term) : node =
   try Term.Tbl.find cc.tbl t
   with Not_found ->
-    Log.debugf 1 (fun k->k "(@[<hv1>cc.error: missing@ %a@])" Term.pp t);
+    Log.debugf 1 (fun k->k "(@[<hv1>cc.error@ :missing-term %a@])" Term.pp t);
     assert false
 
 (* non-recursive, inlinable function for [find] *)
