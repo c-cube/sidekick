@@ -31,8 +31,6 @@ type t = {
   (** congruence closure *)
   mutable theories : Theory.state list;
   (** Set of theories *)
-  mutable conflict: conflict option;
-  (** current conflict, if any *)
 }
 
 let[@inline] cc t = Lazy.force t.cc
@@ -56,54 +54,41 @@ let assume_lit (self:t) (lit:Lit.t) : unit =
       theories self (fun (module Th) -> Th.on_assert Th.state lit);
   end
 
-(* return result to the SAT solver *)
-let cdcl_return_res (self:t) : _ Sat_solver.res =
-  begin match self.conflict with
-    | None ->
-      Sat_solver.Sat
-    | Some lit_set ->
-      let conflict_clause = IArray.of_list_map Lit.neg lit_set in
-      Sat_solver.Log.debugf 3
-        (fun k->k "(@[<1>@{<yellow>th_combine.conflict@}@ :clause %a@])"
-            Theory.Clause.pp conflict_clause);
-      self.conflict <- None;
-      Sat_solver.Unsat (IArray.to_list conflict_clause, Proof.default)
-  end
-
-let with_conflict_catch self f =
-  begin
-    try
-      f ()
-    with Exn_conflict c ->
-      assert (CCOpt.is_none self.conflict);
-      self.conflict <- Some c;
-  end;
-  cdcl_return_res self
+let with_conflict_catch f =
+  try
+    f ();
+    Sat_solver.Sat
+  with Exn_conflict lit_set ->
+    let conflict_clause = IArray.of_list_map Lit.neg lit_set in
+    Sat_solver.Log.debugf 3
+      (fun k->k "(@[<1>@{<yellow>th_combine.conflict@}@ :clause %a@])"
+          Theory.Clause.pp conflict_clause);
+    Sat_solver.Unsat (IArray.to_list conflict_clause, Proof.default)
 
 (* propagation from the bool solver *)
 let assume_real (self:t) (slice:Lit.t Sat_solver.slice_actions) =
   (* TODO if Config.progress then print_progress(); *)
   let (module SA) = slice in
   Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Sequence.length @@ SA.slice_iter));
-  with_conflict_catch self
+  with_conflict_catch
     (fun () -> SA.slice_iter (assume_lit self))
 
 let add_formula (self:t) (lit:Lit.t) =
   let t = Lit.view lit in
   let lazy cc = self.cc in
-  ignore (C_clos.add cc t : Equiv_class.t)
+  let n = C_clos.add cc t in
+  Equiv_class.set_field Equiv_class.field_is_literal true n;
+  ()
 
 (* propagation from the bool solver *)
-let assume (self:t) (slice:_ Sat_solver.slice_actions) =
-  match self.conflict with
-  | Some _ -> cdcl_return_res self (* already in conflict! *)
-  | None -> assume_real self slice
+let[@inline] assume (self:t) (slice:_ Sat_solver.slice_actions) =
+  assume_real self slice
 
 (* perform final check of the model *)
 let if_sat (self:t) (slice:Lit.t Sat_solver.slice_actions) : _ Sat_solver.res =
   (* all formulas in the SAT solver's trail *)
   let (module SA) = slice in
-  with_conflict_catch self
+  with_conflict_catch
     (fun () ->
        (* final check for CC + each theory *)
        C_clos.final_check (cc self);
@@ -162,7 +147,6 @@ let create (cdcl_acts:_ Sat_solver.actions) : t =
       C_clos.create ~size:1024 ~actions self.tst;
     );
     theories = [];
-    conflict = None;
   } in
   ignore (Lazy.force @@ self.cc : C_clos.t);
   self
