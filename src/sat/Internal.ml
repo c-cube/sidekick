@@ -1434,7 +1434,7 @@ module Make (Th : Theory_intf.S) = struct
 
   (* do some amount of search, until the number of conflicts or clause learnt
      reaches the given parameters *)
-  let search (st:t) n_of_conflicts n_of_learnts : unit =
+  let search ~restarts (st:t) n_of_conflicts n_of_learnts : unit =
     let conflictC = ref 0 in
     while true do
       check_invariants st;
@@ -1447,8 +1447,8 @@ module Make (Th : Theory_intf.S) = struct
         assert (st.elt_head = Vec.size st.trail);
         assert (st.elt_head = st.th_head);
         if Vec.size st.trail = n_vars st then raise Sat;
-        if n_of_conflicts > 0 && !conflictC >= n_of_conflicts then (
-          Log.debug 3 "(sat.restarting)";
+        if restarts && n_of_conflicts > 0 && !conflictC >= n_of_conflicts then (
+          Log.debug 2 "(sat.restarting)";
           cancel_until st (base_level st);
           raise Restart
         );
@@ -1508,7 +1508,7 @@ module Make (Th : Theory_intf.S) = struct
 
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
-  let solve ?(assumptions=[]) (st:t) : unit =
+  let solve ?(restarts=true) ?(assumptions=[]) (st:t) : unit =
     Log.debug 5 "(sat.solve)";
     if is_unsat st then raise Unsat;
     let n_of_conflicts = ref (float_of_int restart_first) in
@@ -1523,11 +1523,12 @@ module Make (Th : Theory_intf.S) = struct
         add_boolean_conflict st c;
         call_solve()
     and call_solve() =
-      match search st (int_of_float !n_of_conflicts) (int_of_float !n_of_learnts) with
+      match search ~restarts st (int_of_float !n_of_conflicts) (int_of_float !n_of_learnts) with
       | () -> ()
       | exception Restart ->
         n_of_conflicts := !n_of_conflicts *. restart_inc;
-        n_of_learnts   := !n_of_learnts *. learntsize_inc
+        n_of_learnts   := !n_of_learnts *. learntsize_inc;
+        check_invariants st
       | exception Conflict c ->
         add_boolean_conflict st c;
         call_solve()

@@ -55,6 +55,7 @@ val assume_eq : t -> Term.t -> Term.t -> Lit.t -> unit
 val assume_distinct : t -> Term.t list -> neq:Term.t -> Lit.t -> unit
 
 val solve :
+  ?restarts:bool ->
   ?on_exit:(unit -> unit) list ->
   ?check:bool ->
   assumptions:Lit.t list ->

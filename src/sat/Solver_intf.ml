@@ -105,7 +105,7 @@ module type S = sig
   (** Lower level addition of clauses. See {!Clause} to create clauses.
       @param permanent if true, kept after backtracking *)
 
-  val solve : t -> ?assumptions:formula list -> unit -> res
+  val solve : ?restarts:bool -> t -> ?assumptions:formula list -> unit -> res
   (** Try and solves the current set of clauses.
       @param assumptions additional atomic assumptions to be temporarily added.
         The assumptions are just used for this call to [solve], they are

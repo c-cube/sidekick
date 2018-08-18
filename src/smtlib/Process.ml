@@ -262,7 +262,7 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
 (* call the solver to check-sat *)
 let solve
     ?gc:_
-    ?restarts:_
+    ?restarts
     ?dot_proof
     ?(pp_model=false)
     ?(check=false)
@@ -272,7 +272,7 @@ let solve
     s : unit =
   let t1 = Sys.time() in
   let res =
-    Solver.solve ~assumptions s
+    Solver.solve ?restarts ~assumptions s
     (* ?gc ?restarts ?time ?memory ?progress *)
   in
   let t2 = Sys.time () in

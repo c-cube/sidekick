@@ -75,9 +75,9 @@ module Make (Th : Theory_intf.S) = struct
   let[@inline] add_clause ~permanent st c : unit =
     S.add_clause_user ~permanent st c
 
-  let solve (st:t) ?(assumptions=[]) () =
+  let solve ?(restarts=true) (st:t) ?(assumptions=[]) () =
     try
-      S.solve ~assumptions st;
+      S.solve ~restarts ~assumptions st;
       Sat (mk_sat st)
     with S.Unsat ->
       Unsat (mk_unsat st)

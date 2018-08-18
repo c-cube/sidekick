@@ -208,8 +208,8 @@ let check_model (s:t) : unit =
 
 (* TODO: main loop with iterative deepening of the unrolling  limit
    (not the value depth limit) *)
-let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
-  let r = Sat_solver.solve ~assumptions (solver self) () in
+let solve ?restarts ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
+  let r = Sat_solver.solve ?restarts ~assumptions (solver self) () in
   match r with
   | Sat_solver.Sat (Sidekick_sat.Sat_state st) ->
     Log.debugf 0 (fun k->k "SAT");
