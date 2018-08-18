@@ -50,6 +50,11 @@ include Make_eq(struct
 let true_ = Bool true
 let false_ = Bool false
 
+let is_value = function
+  | Bool _ -> true
+  | App_cst ({cst_view=Cst_def r;_}, _) -> r.is_value
+  | If _ | App_cst _ -> false
+
 let app_cst f a = App_cst (f, a)
 let const c = App_cst (c, IArray.empty)
 

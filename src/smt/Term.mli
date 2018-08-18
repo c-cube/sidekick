@@ -40,6 +40,9 @@ val all_terms : state -> t Sequence.t
 
 val pp : t Fmt.printer
 
+val is_value : t -> bool
+(** Values are special terms that behave specially wrt congruence/equality *)
+
 (** {6 Views} *)
 
 val is_true : t -> bool

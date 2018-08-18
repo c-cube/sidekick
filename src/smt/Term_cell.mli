@@ -17,6 +17,8 @@ val const : cst -> t
 val app_cst : cst -> term IArray.t -> t
 val if_ : term -> term -> term -> t
 
+val is_value : t -> bool
+
 val ty : t -> Ty.t
 (** Compute the type of this term cell. Not totally free *)
 

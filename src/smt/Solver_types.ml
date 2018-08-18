@@ -72,6 +72,7 @@ and cst_view =
       do_cc: bool; (* participate in congruence closure? *)
       relevant : 'a. ID.t -> 'a IArray.t -> int -> bool; (* relevant argument? *)
       ty : ID.t -> term IArray.t -> ty; (* compute type *)
+      is_value: bool; (* value constructor *)
       eval: value IArray.t -> value; (* evaluate term *)
     }
 (** Methods on the custom term view whose arguments are ['a].

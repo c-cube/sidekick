@@ -60,6 +60,7 @@ let create ?(size=1024) () : state =
   st
 
 let[@inline] all_terms st = Term_cell.Tbl.values st.tbl
+let[@inline] is_value t = Term_cell.is_value t.term_view
 
 let app_cst st f a =
   let cell = Term_cell.app_cst f a in
