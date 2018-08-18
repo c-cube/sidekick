@@ -3,13 +3,13 @@
 
 (** {1 Main Solver} *)
 
+[@@@warning "-32"]
+
 open Solver_types
 
 let get_time : unit -> float = Sys.time
 
 (** {2 The Main Solver} *)
-
-type level = int
 
 module Sat_solver = Sidekick_sat.Make(Theory_combine)
 
