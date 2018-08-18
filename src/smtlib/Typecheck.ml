@@ -147,7 +147,8 @@ let rec conv_term ctx (t:PA.term) : A.term = match t with
   | PA.True -> A.true_
   | PA.False -> A.false_
   | PA.Const s when is_num s -> A.num_str A.Ty.rat s (* numeral *)
-  | PA.Const f ->
+  | PA.Const f
+  | PA.App (f, []) ->
     let id = find_id_ ctx f in
     begin match Ctx.find_kind ctx id with
       | Ctx.K_var v -> A.var v
@@ -156,6 +157,15 @@ let rec conv_term ctx (t:PA.term) : A.term = match t with
         errorf_ctx ctx "expected term, not type; got `%a`" ID.pp id
       | Ctx.K_cstor ty -> A.const id ty
       | Ctx.K_select _ -> errorf_ctx ctx "unapplied `select` not supported"
+    end
+  | PA.App (f, args) ->
+    let id = find_id_ ctx f in
+    let args = List.map (conv_term ctx) args in
+    begin match Ctx.find_kind ctx id with
+      | Ctx.K_fun ty -> A.app (A.const id ty) args
+      | _ ->
+        (* TODO: constructor + selector *)
+        errorf_ctx ctx "expected constant application; got `%a`" ID.pp id
     end
   | PA.If (a,b,c) ->
     let a = conv_term ctx a in
