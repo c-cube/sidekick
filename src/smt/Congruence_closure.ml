@@ -608,7 +608,8 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
 let pp_full out (cc:t) : unit =
   let pp_n out n =
     let pp_next out n =
-      if n==n.n_root then () else Fmt.fprintf out "@ :next %a" N.pp n.n_root in
+      if n==n.n_root then Fmt.string out " :is-root"
+      else Fmt.fprintf out "@ :next %a" N.pp n.n_root in
     let pp_root out n =
       let u = find cc n in if n==u||n.n_root==u then () else Fmt.fprintf out "@ :root %a" N.pp u in
     Fmt.fprintf out "(@[%a%a%a@])" Term.pp n.n_term pp_next n pp_root n
@@ -616,7 +617,7 @@ let pp_full out (cc:t) : unit =
     Fmt.fprintf out "(@[<1>%a@ -> %a@])" Signature.pp s N.pp n
   in
   Fmt.fprintf out
-    "(@[cc.state@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig@ %a@])@])"
+    "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig@ %a@])@])"
     (Util.pp_seq ~sep:" " pp_n) (Term.Tbl.values cc.tbl)
     (Util.pp_seq ~sep:" " pp_sig_e) (Sig_tbl.to_seq cc.signatures_tbl)
 
