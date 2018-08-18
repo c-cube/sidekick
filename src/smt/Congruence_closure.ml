@@ -78,20 +78,12 @@ let[@inline] size_ (r:repr) =
    Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
 let[@inline] mem (cc:t) (t:term): bool = Term.Tbl.mem cc.tbl t
 
-(* TODO: remove path compression, point to new root explicitely during `union` *)
-
-(* find representative, recursively, and perform path compression *)
+(* find representative, recursively *)
 let rec find_rec cc (n:node) : repr =
   if n==n.n_root then (
     n
   ) else (
-    let old_root = n.n_root in
-    let root = find_rec cc old_root in
-    (* path compression *)
-    if root != old_root then (
-      on_backtrack cc (fun () -> n.n_root <- old_root);
-      n.n_root <- root;
-    );
+    let root = find_rec cc n.n_root in
     root
   )
 
