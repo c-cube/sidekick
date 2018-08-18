@@ -1529,7 +1529,8 @@ module Make (Th : Theory_intf.S) = struct
       | exception Restart ->
         n_of_conflicts := !n_of_conflicts *. restart_inc;
         n_of_learnts   := !n_of_learnts *. learntsize_inc;
-        check_invariants st
+        check_invariants st;
+        call_solve()
       | exception Conflict c ->
         add_boolean_conflict st c;
         call_solve()
