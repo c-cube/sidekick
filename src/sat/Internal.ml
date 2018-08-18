@@ -842,33 +842,6 @@ module Make (Th : Theory_intf.S) = struct
       Clause.make_l !res (Simplified clause)
     )
 
-  (* Sort literals for new clause, into:
-     - true literals (maybe makes the clause trivial if the lit is proved true at level 0)
-     - unassigned literals, yet to be decided
-     - false literals (not suitable to watch)
-  *)
-  let sort_lits_by_level atoms : atom list =
-    let rec aux trues unassigned falses i =
-      if i >= Array.length atoms then (
-        trues @ unassigned @ falses
-      ) else (
-        let a = atoms.(i) in
-        if a.is_true then (
-          let l = a.var.v_level in
-          if l = 0 then
-            raise Trivial (* A var true at level 0 gives a trivially true clause *)
-          else
-            (a :: trues) @ unassigned @ falses @ (array_slice_to_list atoms (i + 1))
-        ) else if a.neg.is_true then (
-          aux trues unassigned (a::falses) (i + 1)
-        ) else (
-          aux trues (a::unassigned) falses (i + 1)
-        )
-      )
-    in
-    try aux [] [] [] 0
-    with Trivial -> Array.to_list atoms
-
   (* Making a decision.
      Before actually creatig a new decision level, we check that
      all propagations have been done and propagated to the theory,
