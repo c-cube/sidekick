@@ -910,10 +910,11 @@ module Make (Th : Theory_intf.S) = struct
         (* A literal is unassigned, we nedd to add it back to
            the heap of potentially assignable literals, unless it has
            a level lower than [lvl], in which case we just move it back. *)
+        assert (a.var.v_level > lvl);
         if a.var.v_level <= lvl then (
           (* It is a late propagation, which has a level
              lower than where we backtrack, so we just move it to the head
-             of the queue, to be propagated again. *)
+             of the queue, to be theory-propagated again (BCP will be fine). *)
           Vec.set st.trail !head a;
           head := !head + 1
         ) else (

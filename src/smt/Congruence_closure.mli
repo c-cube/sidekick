@@ -70,4 +70,5 @@ val mk_model : t -> Model.t -> Model.t
 
 (**/**)
 val check_invariants : t -> unit
+val pp_full : t Fmt.printer
 (**/**)

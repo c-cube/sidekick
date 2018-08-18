@@ -34,9 +34,7 @@ end
 
 type actions = (module ACTIONS)
 
-type task =
-  | T_pending of node
-  | T_merge of node * node * explanation
+type explanation_thunk = explanation lazy_t
 
 type t = {
   tst: Term.state;
@@ -51,8 +49,8 @@ type t = {
      The critical property is that all members of an equivalence class
      that have the same "shape" (including head symbol)
      have the same signature *)
-  tasks: task Vec.t;
-  (* tasks to perform *)
+  pending: node Vec.t;
+  combine: (node * node * explanation_thunk) Vec.t;
   on_backtrack:(unit->unit)->unit;
   mutable ps_lits: Lit.Set.t;
   (* proof state *)
@@ -69,10 +67,7 @@ type t = {
 
 let[@inline] on_backtrack cc f : unit = cc.on_backtrack f
 let[@inline] is_root_ (n:node) : bool = n.n_root == n
-
-let[@inline] size_ (r:repr) =
-  assert (is_root_ r);
-  Bag.size r.n_parents
+let[@inline] size_ (r:repr) = r.n_size
 
 (* check if [t] is in the congruence closure.
    Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
@@ -86,6 +81,15 @@ let rec find_rec cc (n:node) : repr =
     let root = find_rec cc n.n_root in
     root
   )
+
+(* traverse the equivalence class of [n] *)
+let iter_class_ (n:node) : node Sequence.t =
+  fun yield ->
+    let rec aux u =
+      yield u;
+      if u.n_next != n then aux u.n_next
+    in
+    aux n
 
 let[@inline] true_ cc = cc.true_
 let[@inline] false_ cc = cc.false_
@@ -106,6 +110,27 @@ let[@inline] find_tn cc (t:term) : repr = get_ cc t |> find cc
 let[@inline] same_class cc (n1:node)(n2:node): bool =
   N.equal (find cc n1) (find cc n2)
 
+(* print full state *)
+let pp_full out (cc:t) : unit =
+  let pp_next out n =
+    Fmt.fprintf out "@ :next %a" N.pp n.n_next in
+  let pp_root out n =
+    if is_root_ n then Fmt.string out " :is-root" else Fmt.fprintf out "@ :root %a" N.pp n.n_root in
+  let pp_expl out n = match n.n_expl with
+    | E_none -> ()
+    | E_some e ->
+      Fmt.fprintf out " (@[:forest %a :expl %a@])" N.pp e.next Explanation.pp e.expl
+  in
+  let pp_n out n =
+    Fmt.fprintf out "(@[%a%a%a%a@])" Term.pp n.n_term pp_root n pp_next n pp_expl n
+  and pp_sig_e out (s,n) =
+    Fmt.fprintf out "(@[<1>%a@ <--> %a%a@])" Signature.pp s N.pp n pp_root n
+  in
+  Fmt.fprintf out
+    "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig@ %a@])@])"
+    (Util.pp_seq ~sep:" " pp_n) (Term.Tbl.values cc.tbl)
+    (Util.pp_seq ~sep:" " pp_sig_e) (Sig_tbl.to_seq cc.signatures_tbl)
+
 (* compute signature *)
 let signature cc (t:term): node Term.view option =
   let find = find_tn cc in
@@ -124,13 +149,15 @@ let find_by_signature cc (t:term) : repr option =
   | None -> None
   | Some s -> Sig_tbl.get cc.signatures_tbl s
 
-let add_signature cc (t:term) (r:node): unit =
-  match signature cc t with
+let add_signature cc (r:node): unit =
+  match signature cc r.n_term with
   | None -> ()
   | Some s ->
     (* add, but only if not present already *)
     begin match Sig_tbl.find cc.signatures_tbl s with
       | exception Not_found ->
+        Log.debugf 15
+          (fun k->k "(@[cc.add_sig@ %a@ <--> %a@])" Signature.pp s N.pp r);
         on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
         Sig_tbl.add cc.signatures_tbl s r;
       | r' ->
@@ -141,21 +168,20 @@ let push_pending cc t : unit =
   if not @@ N.get_field N.field_is_pending t then (
     Log.debugf 5 (fun k->k "(@[<hv1>cc.push_pending@ %a@])" N.pp t);
     N.set_field N.field_is_pending true t;
-    Vec.push cc.tasks (T_pending t)
+    Vec.push cc.pending t
   )
 
 let push_combine cc t u e : unit =
   Log.debugf 5
     (fun k->k "(@[<hv1>cc.push_combine@ :t1 %a@ :t2 %a@ :expl %a@])"
-      N.pp t N.pp u Explanation.pp e);
-  Vec.push cc.tasks @@ T_merge (t,u,e)
+      N.pp t N.pp u Explanation.pp (Lazy.force e));
+  Vec.push cc.combine (t,u,e)
 
 (* re-root the explanation tree of the equivalence class of [n]
    so that it points to [n].
    postcondition: [n.n_expl = None] *)
 let rec reroot_expl (cc:t) (n:node): unit =
   let old_expl = n.n_expl in
-  on_backtrack cc (fun () -> n.n_expl <- old_expl);
   begin match old_expl with
     | E_none -> () (* already root *)
     | E_some {next=u; expl=e_n_u} ->
@@ -167,12 +193,9 @@ let rec reroot_expl (cc:t) (n:node): unit =
 let raise_conflict (cc:t) (e:conflict): _ =
   let (module A) = cc.acts in
   (* clear tasks queue *)
-  Vec.iter
-    (function
-      | T_pending n -> N.set_field N.field_is_pending false n
-      | T_merge _ -> ())
-    cc.tasks;
-  Vec.clear cc.tasks;
+  Vec.iter (N.set_field N.field_is_pending false) cc.pending;
+  Vec.clear cc.pending;
+  Vec.clear cc.combine;
   A.raise_conflict e
 
 let[@inline] all_classes cc : repr Sequence.t =
@@ -251,7 +274,7 @@ let explain_loop (cc : t) : Lit.Set.t =
   while not (Vec.is_empty cc.ps_queue) do
     let a, b = Vec.pop_last cc.ps_queue in
     Log.debugf 5
-      (fun k->k "(@[cc.explain_loop at@ %a@ %a@])" N.pp a N.pp b);
+      (fun k->k "(@[cc.explain_loop.at@ %a@ =?= %a@])" N.pp a N.pp b);
     assert (N.equal (find cc a) (find cc b));
     let c = find_common_ancestor a b in
     explain_along_path cc a c;
@@ -288,6 +311,9 @@ let add_tag_n cc (n:node) (tag:int) (expl:explanation) : unit =
     n.n_tags <- Util.Int_map.add tag (n,expl) n.n_tags;
   )
 
+(* TODO: payload for set of tags *)
+(* TODO: payload for mapping an equiv class to a set of literals, for bool prop *)
+
 let relevant_subterms (t:Term.t) : Term.t Sequence.t =
   fun yield ->
     match t.term_view with
@@ -302,13 +328,11 @@ let relevant_subterms (t:Term.t) : Term.t Sequence.t =
 (* main CC algo: add terms from [pending] to the signature table,
    check for collisions *)
 let rec update_tasks (cc:t): unit =
-  (* step 2 deal with pending (parent) terms whose equiv class
-     might have changed *)
-  while not (Vec.is_empty cc.tasks) do
-    let task = Vec.pop_last cc.tasks in
-    match task with
-    | T_pending n -> task_pending_ cc n
-    | T_merge (t,u,expl) -> task_merge_ cc t u expl
+  while not (Vec.is_empty cc.pending && Vec.is_empty cc.combine) do
+    Vec.iter (task_pending_ cc) cc.pending;
+    Vec.clear cc.pending;
+    Vec.iter (task_combine_ cc) cc.combine;
+    Vec.clear cc.combine;
   done
 
 and task_pending_ cc n =
@@ -317,25 +341,24 @@ and task_pending_ cc n =
   begin match find_by_signature cc n.n_term with
     | None ->
       (* add to the signature table [sig(n) --> n] *)
-      add_signature cc n.n_term n
+      add_signature cc n
     | Some u when n == u -> ()
     | Some u ->
-      (* must combine [t] with [r] *)
-      if not @@ same_class cc n u then (
-        (* [t1] and [t2] must be applications of the same symbol to
+      (* [t1] and [t2] must be applications of the same symbol to
            arguments that are pairwise equal *)
-        assert (n != u);
-        let expl = match n.n_term.term_view, u.n_term.term_view with
-          | App_cst (f1, a1), App_cst (f2, a2) ->
-            assert (Cst.equal f1 f2);
-            assert (IArray.length a1 = IArray.length a2);
-            Explanation.mk_merges @@ IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
-          | If _, _ | App_cst _, _ | Bool _, _
-            -> assert false
-        in
-        push_combine cc n u expl
-      )
+      assert (n != u);
+      let expl = lazy (
+        match n.n_term.term_view, u.n_term.term_view with
+        | App_cst (f1, a1), App_cst (f2, a2) ->
+          assert (Cst.equal f1 f2);
+          assert (IArray.length a1 = IArray.length a2);
+          Explanation.mk_merges @@ IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
+        | If _, _ | App_cst _, _ | Bool _, _
+          -> assert false
+      ) in
+      push_combine cc n u expl
   end;
+  (* TODO: evaluate [(= t u) := true] when [find t==find u] *)
   (* FIXME: when to actually evaluate?
      eval_pending cc;
   *)
@@ -343,15 +366,34 @@ and task_pending_ cc n =
 
 (* main CC algo: merge equivalence classes in [st.combine].
    @raise Exn_unsat if merge fails *)
-and task_merge_ cc a b e_ab : unit =
+and task_combine_ cc (a,b,e_ab) : unit =
   let ra = find cc a in
   let rb = find cc b in
   if not (N.equal ra rb) then (
     assert (is_root_ ra);
     assert (is_root_ rb);
+    let lazy e_ab = e_ab in
     (* We will merge [r_from] into [r_into].
-       we try to ensure that [size ra <= size rb] in general *)
-    let r_from, r_into = if size_ ra > size_ rb then rb, ra else ra, rb in
+       we try to ensure that [size ra <= size rb] in general, but always
+       keep values as representative *)
+    let r_from, r_into =
+      if Term.is_value ra.n_term then rb, ra
+      else if Term.is_value rb.n_term then ra, rb
+      else if size_ ra > size_ rb then rb, ra
+      else ra, rb
+    in
+    (* check we're not merging [true] and [false] *)
+    if (N.equal ra cc.true_ && N.equal rb cc.false_) ||
+       (N.equal rb cc.true_ && N.equal ra cc.false_) then (
+      Log.debugf 5
+        (fun k->k "(@[<hv>cc.merge.true_false_conflict@ @[:r1 %a@]@ @[:r2 %a@]@ :e_ab %a@])"
+          N.pp ra N.pp rb Explanation.pp e_ab);
+      let lits = explain_unfold cc e_ab in
+      let lits = explain_eq_n ~init:lits cc a ra in
+      let lits = explain_eq_n ~init:lits cc b rb in
+      raise_conflict cc @@ Lit.Set.elements lits
+    );
+    (* update set of tags the new node cannot be equal to *)
     let new_tags =
       Util.Int_map.union
         (fun _i (n1,e1) (n2,e2) ->
@@ -370,33 +412,48 @@ and task_merge_ cc a b e_ab : unit =
            raise_conflict cc @@ Lit.Set.elements lits)
         ra.n_tags rb.n_tags
     in
-    (* remove [ra.parents] from signature, put them into [st.pending] *)
-    begin
-      Bag.to_seq r_from.n_parents
-        (fun parent -> push_pending cc parent)
-    end;
-    (* perform [union ra rb] *)
+    (* perform [union r_from r_into] *)
     Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" N.pp r_from N.pp r_into);
     begin
-      let r_into_old_parents = r_into.n_parents in
+      (* for each node in [r_from]'s class:
+         - make it point to [r_into]
+         - push it into [st.pending] *)
+      iter_class_ r_from
+        (fun u ->
+           assert (u.n_root == r_from);
+           on_backtrack cc (fun () -> u.n_root <- r_from);
+           u.n_root <- r_into;
+           Bag.to_seq u.n_parents
+             (fun parent -> push_pending cc parent));
+      (* now merge the classes *)
       let r_into_old_tags = r_into.n_tags in
+      let r_into_old_next = r_into.n_next in
+      let r_from_old_next = r_from.n_next in
       on_backtrack cc
         (fun () ->
            Log.debugf 15
-             (fun k->k "(@[cc.undo_merge@ :of %a :into %a@])"
+             (fun k->k "(@[cc.undo_merge@ :from %a :into %a@])"
                  Term.pp r_from.n_term Term.pp r_into.n_term);
-           r_from.n_root <- r_from;
-           r_into.n_tags <- r_into_old_tags;
-           r_into.n_parents <- r_into_old_parents);
-      r_from.n_root <- r_into;
+           r_into.n_next <- r_into_old_next;
+           r_from.n_next <- r_from_old_next;
+           r_into.n_tags <- r_into_old_tags);
       r_into.n_tags <- new_tags;
-      r_from.n_parents <- Bag.append r_into_old_parents r_from.n_parents;
+      r_into.n_next <- r_from_old_next;
+      r_from.n_next <- r_into_old_next;
     end;
-    (* update explanations (a -> b), arbitrarily *)
+    (* update explanations (a -> b), arbitrarily.
+       Note that here we merge the classes by adding a bridge between [a]
+       and [b], not their roots. *)
     begin
       reroot_expl cc a;
       assert (a.n_expl = E_none);
-      on_backtrack cc (fun () -> a.n_expl <- E_none);
+      (* on backtracking, link may be inverted, but we delete the one
+         that bridges between [a] and [b] *)
+      on_backtrack cc
+        (fun () -> match a.n_expl, b.n_expl with
+           | E_some e, _ when N.equal e.next b -> a.n_expl <- E_none
+           | _, E_some e when N.equal e.next a -> b.n_expl <- E_none
+           | _ -> assert false);
       a.n_expl <- E_some {next=b; expl=e_ab};
     end;
     (* notify listeners of the merge *)
@@ -421,7 +478,6 @@ and add_new_term_ cc (t:term) : node =
     let old_parents = sub.n_parents in
     on_backtrack cc (fun () -> sub.n_parents <- old_parents);
     sub.n_parents <- Bag.cons n sub.n_parents;
-    push_pending cc sub
   in
   (* add sub-term to [cc], and register [n] to its parents *)
   let add_sub_t (u:term) : unit =
@@ -446,6 +502,43 @@ and[@inline] add_ cc t : node =
   try Term.Tbl.find cc.tbl t
   with Not_found -> add_new_term_ cc t
 
+let check_invariants_ (cc:t) =
+  Log.debug 5 "(cc.check-invariants)";
+  Log.debugf 15 (fun k-> k "%a" pp_full cc);
+  assert (Term.equal (Term.true_ cc.tst) cc.true_.n_term);
+  assert (Term.equal (Term.false_ cc.tst) cc.false_.n_term);
+  assert (not @@ same_class cc cc.true_ cc.false_);
+  assert (Vec.is_empty cc.combine);
+  assert (Vec.is_empty cc.pending);
+  (* check that subterms are internalized *)
+  Term.Tbl.iter
+    (fun t n ->
+       assert (Term.equal t n.n_term);
+       assert (not @@ N.get_field N.field_is_pending n);
+       relevant_subterms t
+         (fun u -> assert (Term.Tbl.mem cc.tbl u));
+       assert (N.equal n.n_root n.n_next.n_root);
+       (* check proper signature.
+          note that some signatures in the sig table can be obsolete (they
+          were not removed) but there must be a valid, up-to-date signature for
+          each term *)
+       begin match signature cc t with
+         | None -> ()
+         | Some s ->
+           Log.debugf 15 (fun k->k "(@[cc.check-sig@ %a@ :sig %a@])" Term.pp t Signature.pp s);
+           (* add, but only if not present already *)
+           begin match Sig_tbl.find cc.signatures_tbl s with
+             | exception Not_found -> assert false
+             | repr_s -> assert (same_class cc n repr_s)
+           end
+       end;
+    )
+    cc.tbl;
+  ()
+
+let[@inline] check_invariants (cc:t) : unit =
+  if Util._CHECK_INVARIANTS then check_invariants_ cc
+
 let add cc t : node =
   let n = add_ cc t in
   update_tasks cc;
@@ -468,14 +561,14 @@ let assert_lit cc lit : unit =
      basically, just have [n] point to true/false and thus acquire
      the corresponding value, so its superterms (like [ite]) can evaluate
      properly *)
-  push_combine cc n rhs (E_lit lit);
+  push_combine cc n rhs (Lazy.from_val @@ E_lit lit);
   update_tasks cc
 
 let assert_eq cc (t:term) (u:term) e : unit =
   let n1 = add_ cc t in
   let n2 = add_ cc u in
   if not (same_class cc n1 n2) then (
-    let e = Explanation.E_lits e in
+    let e = Lazy.from_val @@ Explanation.E_lits e in
     push_combine cc n1 n2 e;
   );
   update_tasks cc
@@ -510,36 +603,22 @@ let create ?(size=2048) ~actions (tst:Term.state) : t =
     acts=actions;
     tbl = Term.Tbl.create size;
     signatures_tbl = Sig_tbl.create size;
-    tasks=Vec.make_empty (T_pending N.dummy);
+    pending=Vec.make_empty N.dummy;
+    combine=Vec.make_empty (N.dummy,N.dummy,Lazy.from_val Explanation.dummy);
     ps_lits=Lit.Set.empty;
     on_backtrack=A.on_backtrack;
     ps_queue=Vec.make_empty (nd,nd);
     true_ = N.dummy;
     false_ = N.dummy;
   } in
-  cc.true_ <- add cc (Term.true_ tst);
-  cc.false_ <- add cc (Term.false_ tst);
+  cc.true_ <- add_ cc (Term.true_ tst);
+  cc.false_ <- add_ cc (Term.false_ tst);
+  update_tasks cc;
   cc
 
 let final_check cc : unit =
   Log.debug 5 "(CC.final_check)";
   update_tasks cc
-
-let pp_full out (cc:t) : unit =
-  let pp_next out n =
-    if n==n.n_root then Fmt.string out " :is-root"
-    else Fmt.fprintf out "@ :next %a" N.pp n.n_root in
-  let pp_root out n =
-    let u = find cc n in if n==u||n.n_root==u then () else Fmt.fprintf out "@ :root %a" N.pp u in
-  let pp_n out n =
-    Fmt.fprintf out "(@[%a%a%a@])" Term.pp n.n_term pp_next n pp_root n
-  and pp_sig_e out (s,n) =
-    Fmt.fprintf out "(@[<1>%a@ -> %a%a%a@])" Signature.pp s N.pp n pp_next n pp_root n
-  in
-  Fmt.fprintf out
-    "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig@ %a@])@])"
-    (Util.pp_seq ~sep:" " pp_n) (Term.Tbl.values cc.tbl)
-    (Util.pp_seq ~sep:" " pp_sig_e) (Sig_tbl.to_seq cc.signatures_tbl)
 
 (* model: map each uninterpreted equiv class to some ID *)
 let mk_model (cc:t) (m:Model.t) : Model.t =
@@ -621,34 +700,3 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
       funs
   in
   Model.add_funs funs m
-
-let check_invariants_ (cc:t) =
-  Log.debug 5 "(cc.check-invariants)";
-  Log.debugf 15 (fun k-> k "%a" pp_full cc);
-  assert (Term.equal (Term.true_ cc.tst) cc.true_.n_term);
-  assert (Term.equal (Term.false_ cc.tst) cc.false_.n_term);
-  assert (Vec.is_empty cc.tasks);
-  (* check that subterms are internalized *)
-  Term.Tbl.iter
-    (fun t n ->
-       assert (Term.equal t n.n_term);
-       assert (not @@ N.get_field N.field_is_pending n);
-       relevant_subterms t
-         (fun u -> assert (Term.Tbl.mem cc.tbl u));
-       (* check proper signature *)
-       begin match signature cc t with
-         | None -> ()
-         | Some s ->
-           Log.debugf 15 (fun k->k "(@[cc.check-sig@ %a@ :sig %a@])" Term.pp t Signature.pp s);
-           (* add, but only if not present already *)
-           begin match Sig_tbl.find cc.signatures_tbl s with
-             | exception Not_found -> assert false
-             | repr_s -> assert (same_class cc n repr_s)
-           end
-       end;
-    )
-    cc.tbl;
-  ()
-
-let[@inline] check_invariants (cc:t) : unit =
-  if Util._CHECK_INVARIANTS then check_invariants_ cc

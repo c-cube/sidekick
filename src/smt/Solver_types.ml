@@ -26,30 +26,32 @@ and 'a term_view =
 
     If there is a normal form in the congruence class, then the
     representative is a normal form *)
-and cc_node = {
+and equiv_class = {
   n_term: term;
   mutable n_bits: Node_bits.t; (* bitfield for various properties *)
-  mutable n_parents: cc_node Bag.t; (* parent terms of the whole equiv class *)
-  mutable n_root: cc_node; (* representative of congruence class (itself if a representative) *)
+  mutable n_parents: equiv_class Bag.t; (* parent terms of this node *)
+  mutable n_root: equiv_class; (* representative of congruence class (itself if a representative) *)
+  mutable n_next: equiv_class; (* pointer to next element of congruence class *)
+  mutable n_size: int; (* size of the class *)
   mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
-  mutable n_payload: cc_node_payload list; (* list of theory payloads *)
-  mutable n_tags: (cc_node * explanation) Util.Int_map.t; (* "distinct" tags (i.e. set of `(distinct t1…tn)` terms this belongs to *)
+  mutable n_payload: equiv_class_payload list; (* list of theory payloads *)
+  mutable n_tags: (equiv_class * explanation) Util.Int_map.t; (* "distinct" tags (i.e. set of `(distinct t1…tn)` terms this belongs to *)
 }
 
 (** Theory-extensible payloads *)
-and cc_node_payload = ..
+and equiv_class_payload = ..
 
 and explanation_forest_link =
   | E_none
   | E_some of {
-      next: cc_node;
+      next: equiv_class;
       expl: explanation;
     }
 
 (* atomic explanation in the congruence closure *)
 and explanation =
   | E_reduction (* by pure reduction, tautologically equal *)
-  | E_merges of (cc_node * cc_node) IArray.t (* caused by these merges *)
+  | E_merges of (equiv_class * equiv_class) IArray.t (* caused by these merges *)
   | E_lit of lit (* because of this literal *)
   | E_lits of lit list (* because of this (true) conjunction *)
 

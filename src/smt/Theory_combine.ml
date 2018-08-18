@@ -91,7 +91,7 @@ let assume_real (self:t) (slice:Lit.t Sat_solver.slice_actions) =
 let add_formula (self:t) (lit:Lit.t) =
   let t = Lit.view lit in
   let lazy cc = self.cc in
-  ignore (C_clos.add cc t : cc_node)
+  ignore (C_clos.add cc t : Equiv_class.t)
 
 (* propagation from the bool solver *)
 let assume (self:t) (slice:_ Sat_solver.slice_actions) =

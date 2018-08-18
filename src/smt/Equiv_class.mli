@@ -20,8 +20,8 @@ open Solver_types
     merged, to detect conflicts and solve equations à la Shostak.
 *)
 
-type t = cc_node
-type payload = cc_node_payload = ..
+type t = equiv_class
+type payload = equiv_class_payload = ..
 
 val field_is_active : Node_bits.field
 (** The term is needed for evaluation. We must try to evaluate it

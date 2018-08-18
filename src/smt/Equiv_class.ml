@@ -1,8 +1,8 @@
 
 open Solver_types
 
-type t = cc_node
-type payload = cc_node_payload = ..
+type t = equiv_class
+type payload = equiv_class_payload = ..
 
 let field_is_active = Node_bits.mk_field()
 let field_is_pending = Node_bits.mk_field()
@@ -22,6 +22,8 @@ let make (t:term) : t =
     n_root=n;
     n_expl=E_none;
     n_payload=[];
+    n_next=n;
+    n_size=1;
     n_tags=Util.Int_map.empty;
   } in
   n
@@ -64,7 +66,7 @@ let[@inline] get_field f t = Node_bits.get f t.n_bits
 let[@inline] set_field f b t = t.n_bits <- Node_bits.set f b t.n_bits
 
 module Tbl = CCHashtbl.Make(struct
-    type t = cc_node
+    type t = equiv_class
     let equal = equal
     let hash = hash
   end)
