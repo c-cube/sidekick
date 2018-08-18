@@ -1426,7 +1426,7 @@ module Make (Th : Theory_intf.S) = struct
   (* remove some learnt clauses
      NOTE: so far we do not forget learnt clauses. We could, as long as
      lemmas from the theory itself are kept. *)
-  let reduce_db () = ()
+  let reduce_db (_:t) = ()
 
   (* Decide on a new literal, and enqueue it into the trail *)
   let rec pick_branch_aux st atom : unit =
@@ -1450,11 +1450,18 @@ module Make (Th : Theory_intf.S) = struct
         | exception Not_found -> raise Sat
       end
 
+  let[@inline] check_invariants (st:t) =
+    if Util._CHECK_INVARIANTS then (
+      Th.check_invariants @@ theory st;
+      (* TODO: also check internal invariants? *)
+    )
+
   (* do some amount of search, until the number of conflicts or clause learnt
      reaches the given parameters *)
   let search (st:t) n_of_conflicts n_of_learnts : unit =
     let conflictC = ref 0 in
     while true do
+      check_invariants st;
       match propagate st with
       | Some confl -> (* Conflict *)
         incr conflictC;
@@ -1472,8 +1479,9 @@ module Make (Th : Theory_intf.S) = struct
         (* if decision_level() = 0 then simplify (); *)
 
         if n_of_learnts >= 0 &&
-           Vec.size st.clauses - Vec.size st.trail >= n_of_learnts
-        then reduce_db();
+           Vec.size st.clauses - Vec.size st.trail >= n_of_learnts then (
+          reduce_db st;
+        );
 
         pick_branch_lit st
     done

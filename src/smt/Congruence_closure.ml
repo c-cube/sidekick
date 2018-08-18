@@ -373,6 +373,7 @@ and task_merge_ cc a b e_ab : unit =
         (fun parent -> push_pending cc parent)
     end;
     (* perform [union ra rb] *)
+    Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" Equiv_class.pp r_from Equiv_class.pp r_into);
     begin
       let r_into_old_parents = r_into.n_parents in
       let r_into_old_tags = r_into.n_tags in
@@ -606,3 +607,49 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
       funs
   in
   Model.add_funs funs m
+
+let pp_full out (cc:t) : unit =
+  let pp_n out n =
+    let pp_next out n =
+      if n==n.n_root then () else Fmt.fprintf out "@ :next %a" Equiv_class.pp n.n_root in
+    let pp_root out n =
+      let u = find cc n in if n==u||n.n_root==u then () else Fmt.fprintf out "@ :root %a" Equiv_class.pp u in
+    Fmt.fprintf out "(@[%a%a%a@])" Term.pp n.n_term pp_next n pp_root n
+  and pp_sig_e out (s,n) =
+    Fmt.fprintf out "(@[<1>%a@ -> %a@])" Signature.pp s Equiv_class.pp n
+  in
+  Fmt.fprintf out
+    "(@[cc.state@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig@ %a@])@])"
+    (Util.pp_seq ~sep:" " pp_n) (Term.Tbl.values cc.tbl)
+    (Util.pp_seq ~sep:" " pp_sig_e) (Sig_tbl.to_seq cc.signatures_tbl)
+
+let check_invariants_ (cc:t) =
+  Log.debug 5 "(cc.check-invariants)";
+  Log.debugf 15 (fun k-> k "%a" pp_full cc);
+  assert (Term.equal (Term.true_ cc.tst) cc.true_.n_term);
+  assert (Term.equal (Term.false_ cc.tst) cc.false_.n_term);
+  assert (Vec.is_empty cc.tasks);
+  (* check that subterms are internalized *)
+  Term.Tbl.iter
+    (fun t n ->
+       assert (Term.equal t n.n_term);
+       assert (not @@ Equiv_class.get_field Equiv_class.field_is_pending n);
+       relevant_subterms t
+         (fun u -> assert (Term.Tbl.mem cc.tbl u));
+       (* check proper signature *)
+       begin match signature cc t with
+         | None -> ()
+         | Some s ->
+           Log.debugf 15 (fun k->k "(@[cc.check-sig@ %a@ :sig %a@])" Term.pp t Signature.pp s);
+           (* add, but only if not present already *)
+           begin match Sig_tbl.find cc.signatures_tbl s with
+             | exception Not_found -> assert false
+             | repr_s -> assert (same_class cc n repr_s)
+           end
+       end;
+    )
+    cc.tbl;
+  ()
+
+let[@inline] check_invariants (cc:t) : unit =
+  if Util._CHECK_INVARIANTS then check_invariants_ cc

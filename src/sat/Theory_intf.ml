@@ -130,5 +130,9 @@ module type S = sig
   val if_sat : t -> formula slice_actions -> (formula, proof) res
   (** Called at the end of the search in case a model has been found. If no new clause is
       pushed, then 'sat' is returned, else search is resumed. *)
+
+  (**/**)
+  val check_invariants : t -> unit
+  (**/**)
 end
 

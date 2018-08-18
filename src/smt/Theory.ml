@@ -86,6 +86,7 @@ let make ~name ~make () : t = {name;make}
 
 let make_st
   (type st)
+    ?(check_invariants=fun _ -> ())
     ?(on_merge=fun _ _ _ _ -> ())
     ?(on_assert=fun _ _ -> ())
     ?(mk_model=fun _ _ -> Model.empty)
@@ -99,5 +100,6 @@ let make_st
     let on_assert = on_assert
     let final_check = final_check
     let mk_model = mk_model
+    let check_invariants = check_invariants
   end in
   (module A : STATE)

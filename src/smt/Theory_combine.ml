@@ -193,6 +193,11 @@ let act_add_persistent_axiom self c : unit =
   let (module A) = self.cdcl_acts in
   A.push_persistent c Proof.default
 
+let check_invariants (self:t) =
+  if Util._CHECK_INVARIANTS then (
+    Congruence_closure.check_invariants (cc self);
+  )
+
 let mk_theory_actions (self:t) : Theory.actions =
   let (module A) = self.cdcl_acts in
   let module R = struct
