@@ -769,12 +769,13 @@ module Make (Th : Theory_intf.S) = struct
     if not (Var.in_heap v) && Var.level v < 0 then (
       (* new variable that is not assigned, add to heap and to theory. *)
       H.insert st.order v;
-      Th.add_formula (Lazy.force st.th) v.v_pa.lit;
-      Th.add_formula (Lazy.force st.th) v.v_na.lit;
     )
 
   (* attach an atom by deciding on its variable, if needed *)
-  let[@inline] attach_atom (st:t) (a:atom) : unit = insert_var_order st a.var
+  let attach_atom (st:t) (a:atom) : unit =
+    insert_var_order st a.var;
+    Th.add_formula (Lazy.force st.th) a.lit;
+    Th.add_formula (Lazy.force st.th) a.neg.lit
 
   (* Rather than iterate over all the heap when we want to decrease all the
      variables/literals activity, we instead increase the value by which
@@ -1557,6 +1558,7 @@ module Make (Th : Theory_intf.S) = struct
         call_solve()
       | exception Sat ->
         assert (st.elt_head = Vec.size st.trail);
+        check_invariants st;
         begin match Th.if_sat (theory st) (full_slice st) with
           | Theory_intf.Sat ->
             (* if no propagation is to be done, exit;
