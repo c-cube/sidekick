@@ -999,12 +999,14 @@ module Make (Th : Theory_intf.S) = struct
       a.(j) <- tmp;
     )
 
-  (* move atoms that are not assigned first,
+  (* move true atoms first,
+     else move atoms that are not assigned first,
      else put atoms assigned at high levels first *)
   let put_high_level_atoms_first (arr:atom array) : unit =
     (* move [a] in front of [b]? *)
     let[@inline] put_before a b =
-      if Atom.level a < 0 then Atom.level b >= 0
+      if Atom.is_true a then not (Atom.is_true b) || Atom.level a>Atom.level b
+      else if Atom.level a < 0 then Atom.level b >= 0
       else (Atom.level b >= 0 && Atom.level a > Atom.level b)
     in
     Array.iteri
