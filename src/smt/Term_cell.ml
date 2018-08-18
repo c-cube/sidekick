@@ -14,6 +14,7 @@ module type ARG = sig
   type t
   val hash : t -> int
   val equal : t -> t -> bool
+  val pp : t Fmt.printer
 end
 
 module Make_eq(A : ARG) = struct
@@ -35,12 +36,15 @@ module Make_eq(A : ARG) = struct
       sub_eq a1 a2 && sub_eq b1 b2 && sub_eq c1 c2
     | Bool _, _ | App_cst _, _ | If _, _
       -> false
+
+  let pp = Solver_types.pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:A.pp
 end[@@inline]
 
 include Make_eq(struct
     type t = term
     let equal (t1:t) t2 = t1==t2
     let hash (t:term): int = t.term_id
+    let pp = pp_term
   end)
 
 let true_ = Bool true
@@ -52,8 +56,6 @@ let const c = App_cst (c, IArray.empty)
 let if_ a b c =
   assert (Ty.equal b.term_ty c.term_ty);
   If (a,b,c)
-
-let pp = pp_term_view
 
 let ty (t:t): Ty.t = match t with
   | Bool _ -> Ty.prop

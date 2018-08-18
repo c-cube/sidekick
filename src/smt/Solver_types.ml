@@ -197,7 +197,7 @@ let rec pp_ty out t = match t.ty_view with
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args
   | Ty_atomic {def=Ty_def def; args; _} -> def.pp pp_ty out args
 
-let pp_term_view ~pp_id ~pp_t out = function
+let pp_term_view_gen ~pp_id ~pp_t out = function
   | Bool true -> Fmt.string out "true"
   | Bool false -> Fmt.string out "false"
   | App_cst ({cst_view=Cst_def {pp=Some pp_custom;_};_},l) -> pp_custom pp_t out l
@@ -212,12 +212,12 @@ let pp_term_top ~ids out t =
   let rec pp out t =
     pp_rec out t;
     (* FIXME if Config.pp_hashcons then Format.fprintf out "/%d" t.term_id; *)
-  and pp_rec out t = pp_term_view ~pp_id ~pp_t:pp_rec out t.term_view
+  and pp_rec out t = pp_term_view_gen ~pp_id ~pp_t:pp_rec out t.term_view
   and pp_id = if ids then ID.pp else ID.pp_name in
   pp out t
 
 let pp_term = pp_term_top ~ids:false
-let pp_term_view = pp_term_view ~pp_id:ID.pp_name ~pp_t:pp_term
+let pp_term_view = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:pp_term
 
 let pp_lit out l =
   if l.lit_sign then pp_term out l.lit_term

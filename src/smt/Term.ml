@@ -20,6 +20,9 @@ let equal = term_equal_
 let hash = term_hash_
 let compare a b = CCInt.compare a.term_id b.term_id
 
+(* TODO: when GC is implemented, add a field for recycling IDs
+   that have been free'd, so we can keep the ID space dense. *)
+
 type state = {
   tbl : term Term_cell.Tbl.t;
   mutable n: int;

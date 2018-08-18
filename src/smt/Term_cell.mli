@@ -28,9 +28,11 @@ module type ARG = sig
   type t
   val hash : t -> int
   val equal : t -> t -> bool
+  val pp : t Fmt.printer
 end
 
 module Make_eq(X : ARG) : sig
   val equal : X.t view -> X.t view -> bool
   val hash : X.t view -> int
+  val pp : X.t view Fmt.printer
 end
