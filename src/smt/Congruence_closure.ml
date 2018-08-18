@@ -525,8 +525,25 @@ let final_check cc : unit =
   Log.debug 5 "(CC.final_check)";
   update_tasks cc
 
+let pp_full out (cc:t) : unit =
+  let pp_next out n =
+    if n==n.n_root then Fmt.string out " :is-root"
+    else Fmt.fprintf out "@ :next %a" N.pp n.n_root in
+  let pp_root out n =
+    let u = find cc n in if n==u||n.n_root==u then () else Fmt.fprintf out "@ :root %a" N.pp u in
+  let pp_n out n =
+    Fmt.fprintf out "(@[%a%a%a@])" Term.pp n.n_term pp_next n pp_root n
+  and pp_sig_e out (s,n) =
+    Fmt.fprintf out "(@[<1>%a@ -> %a%a%a@])" Signature.pp s N.pp n pp_next n pp_root n
+  in
+  Fmt.fprintf out
+    "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig@ %a@])@])"
+    (Util.pp_seq ~sep:" " pp_n) (Term.Tbl.values cc.tbl)
+    (Util.pp_seq ~sep:" " pp_sig_e) (Sig_tbl.to_seq cc.signatures_tbl)
+
 (* model: map each uninterpreted equiv class to some ID *)
 let mk_model (cc:t) (m:Model.t) : Model.t =
+  Log.debugf 15 (fun k->k "(@[cc.mk_model@ %a@])" pp_full cc);
   (* populate [repr -> value] table *)
   let t_tbl = N.Tbl.create 32 in
   (* type -> default value *)
@@ -604,22 +621,6 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
       funs
   in
   Model.add_funs funs m
-
-let pp_full out (cc:t) : unit =
-  let pp_next out n =
-    if n==n.n_root then Fmt.string out " :is-root"
-    else Fmt.fprintf out "@ :next %a" N.pp n.n_root in
-  let pp_root out n =
-    let u = find cc n in if n==u||n.n_root==u then () else Fmt.fprintf out "@ :root %a" N.pp u in
-  let pp_n out n =
-    Fmt.fprintf out "(@[%a%a%a@])" Term.pp n.n_term pp_next n pp_root n
-  and pp_sig_e out (s,n) =
-    Fmt.fprintf out "(@[<1>%a@ -> %a%a%a@])" Signature.pp s N.pp n pp_next n pp_root n
-  in
-  Fmt.fprintf out
-    "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig@ %a@])@])"
-    (Util.pp_seq ~sep:" " pp_n) (Term.Tbl.values cc.tbl)
-    (Util.pp_seq ~sep:" " pp_sig_e) (Sig_tbl.to_seq cc.signatures_tbl)
 
 let check_invariants_ (cc:t) =
   Log.debug 5 "(cc.check-invariants)";
