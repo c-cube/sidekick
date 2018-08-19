@@ -64,6 +64,8 @@ val assert_distinct : t -> term list -> neq:term -> Lit.t -> unit
 
 val final_check : t -> unit
 
+val post_backtrack : t -> unit
+
 val mk_model : t -> Model.t -> Model.t
 (** Enrich a model by mapping terms to their representative's value,
     if any. Otherwise map the representative to a fresh value *)

@@ -31,6 +31,12 @@ module type STATE = sig
 
   val mk_model : t -> Lit.t Sequence.t -> Model.t
   (** Make a model for this theory's terms *)
+
+  val post_backtrack : t -> unit
+
+  (**/**)
+  val check_invariants : t -> unit
+  (**/**)
 end
 
 
@@ -90,6 +96,7 @@ let make_st
     ?(on_merge=fun _ _ _ _ -> ())
     ?(on_assert=fun _ _ -> ())
     ?(mk_model=fun _ _ -> Model.empty)
+    ?(post_backtrack=fun _ -> ())
     ~final_check
     ~st
     () : state =
@@ -100,6 +107,7 @@ let make_st
     let on_assert = on_assert
     let final_check = final_check
     let mk_model = mk_model
+    let post_backtrack = post_backtrack
     let check_invariants = check_invariants
   end in
   (module A : STATE)

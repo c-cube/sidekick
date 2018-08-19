@@ -204,3 +204,7 @@ let add_theory (self:t) (th:Theory.t) : unit =
   self.theories <- th_s :: self.theories
 
 let add_theory_l self = List.iter (add_theory self)
+
+let post_backtrack self =
+  C_clos.post_backtrack (cc self);
+  theories self (fun (module Th) -> Th.post_backtrack Th.state)

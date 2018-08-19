@@ -131,6 +131,10 @@ module type S = sig
   (** Called at the end of the search in case a model has been found. If no new clause is
       pushed, then 'sat' is returned, else search is resumed. *)
 
+  val post_backtrack : t -> unit
+  (** After backtracking, this is called (can be used to invalidate
+      caches, reset task lists, etc.) *)
+
   (**/**)
   val check_invariants : t -> unit
   (**/**)

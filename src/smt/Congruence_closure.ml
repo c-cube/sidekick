@@ -73,6 +73,10 @@ let[@inline] size_ (r:repr) = r.n_size
    Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
 let[@inline] mem (cc:t) (t:term): bool = Term.Tbl.mem cc.tbl t
 
+let[@inline] post_backtrack cc =
+  Vec.clear cc.pending;
+  Vec.clear cc.combine
+
 (* find representative, recursively *)
 let rec find_rec cc (n:node) : repr =
   if n==n.n_root then (
@@ -412,6 +416,13 @@ and task_combine_ cc (a,b,e_ab) : unit =
            raise_conflict cc @@ Lit.Set.elements lits)
         ra.n_tags rb.n_tags
     in
+    (* when merging terms with [true] or [false], possibly propagate them to SAT *)
+    let merge_bool r1 t1 r2 t2 =
+      if N.equal r1 cc.true_ then propagate_bools cc r2 t2 r1 t1 e_ab true
+      else if N.equal r1 cc.false_ then propagate_bools cc r2 t2 r1 t1 e_ab false
+    in
+    merge_bool ra a rb b;
+    merge_bool rb b ra a;
     (* perform [union r_from r_into] *)
     Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" N.pp r_from N.pp r_into);
     begin
@@ -459,6 +470,32 @@ and task_combine_ cc (a,b,e_ab) : unit =
     (* notify listeners of the merge *)
     notify_merge cc r_from ~into:r_into e_ab;
   )
+
+(* we are merging [r1] with [r2==Bool(sign)], so propagate each term [u1]
+   in the equiv class of [r1] that is a known literal back to the SAT solver
+   and which is not the one initially merged.
+   We can explain the propagation with [u1 = t1 =e= t2 = r2==bool] *)
+and propagate_bools cc r1 t1 r2 t2 (e_12:explanation) sign : unit =
+  let (module A) = cc.acts in
+  (* explanation for [t1 =e= t2 = r2] *)
+  let half_expl = lazy (
+    let expl = explain_unfold cc e_12 in
+    explain_eq_n ~init:expl cc r2 t2
+  ) in
+  iter_class_ r1
+    (fun u1 ->
+       (* propagate if:
+          - [u1] is a proper literal
+          - [t2 != r2], because that can only happen
+            after an explicit merge (no way to obtain that by propagation)
+       *)
+       if N.get_field N.field_is_literal u1 && not (N.equal r2 t2) then (
+         let lit = Lit.atom ~sign u1.n_term in
+         Log.debugf 5 (fun k->k "(@[cc.bool_propagate@ %a@])" Lit.pp lit);
+         (* complete explanation with the [u1=t1] chunk *)
+         let expl = explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1 in
+         A.propagate lit (Lit.Set.to_list expl)
+       ))
 
 (* Checks if [ra] and [~into] have compatible normal forms and can
    be merged w.r.t. the theories.

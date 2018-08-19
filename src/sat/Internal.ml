@@ -863,10 +863,14 @@ module Make (Th : Theory_intf.S) = struct
      To be called only from [cancel_until] *)
   let backtrack_down_to (st:t) (lvl:int): unit =
     Log.debugf 2 (fun k->k "(@[@{<Yellow>sat.backtrack@} now at stack depth %d@])" lvl);
+    let done_sth = Vec.size st.backtrack > lvl in
     while Vec.size st.backtrack > lvl do
       let f = Vec.pop_last st.backtrack in
       f()
     done;
+    if done_sth then (
+      Th.post_backtrack (theory st);
+    );
     (* now re-do permanent actions that were backtracked *)
     while not (Vec.is_empty st.to_redo_after_backtrack) do
       let f = Vec.pop_last st.to_redo_after_backtrack in

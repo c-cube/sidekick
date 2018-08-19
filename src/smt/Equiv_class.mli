@@ -30,6 +30,9 @@ val field_is_active : Node_bits.field
 val field_is_pending : Node_bits.field
 (** true iff the node is in the [cc.pending] queue *)
 
+val field_is_literal : Node_bits.field
+(** This term is a boolean literal, subject to propagations *)
+
 (** {2 basics} *)
 
 val term : t -> term

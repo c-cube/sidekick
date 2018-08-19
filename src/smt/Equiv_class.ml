@@ -6,6 +6,7 @@ type payload = equiv_class_payload = ..
 
 let field_is_active = Node_bits.mk_field()
 let field_is_pending = Node_bits.mk_field()
+let field_is_literal = Node_bits.mk_field()
 let () = Node_bits.freeze()
 
 let[@inline] equal (n1:t) n2 = n1==n2
