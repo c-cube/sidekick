@@ -378,6 +378,8 @@ module Make (Th : Theory_intf.S) = struct
 
     let debug_a out vec =
       Array.iteri (fun i a -> if i>0 then Format.fprintf out "@ "; debug out a) vec
+
+    module Set = CCSet.Make(struct type t = atom let compare = compare end)
   end
 
   module Clause = struct
@@ -485,14 +487,14 @@ module Make (Th : Theory_intf.S) = struct
     let fresh_pcl_name () = incr _c; "R" ^ (string_of_int !_c)
 
     (* Compute resolution of 2 clauses *)
-    let resolve l =
+    let resolve (l:atom list) : atom list * atom list =
       let rec aux resolved acc = function
         | [] -> resolved, acc
         | [a] -> resolved, a :: acc
         | a :: b :: r ->
           if equal_atoms a b then
             aux resolved (a :: acc) r
-          else if equal_atoms (a.neg) b then
+          else if equal_atoms a.neg b then
             aux ((a.var.v_pa) :: resolved) acc r
           else
             aux resolved (a :: acc) (b :: r)
@@ -500,20 +502,20 @@ module Make (Th : Theory_intf.S) = struct
       let resolved, new_clause = aux [] [] l in
       resolved, List.rev new_clause
 
-    (* Compute the set of doublons of a clause *)
-    let list c = List.sort Atom.compare (Array.to_list (c.atoms))
+    let to_list c = List.sort Atom.compare @@ Array.to_list c.atoms
 
-    let analyze cl =
+    (* TODO: use sets instead of lists, simplify this *)
+    let analyze (cl:atom list) =
       let rec aux duplicates free = function
         | [] -> duplicates, free
         | [ x ] -> duplicates, x :: free
         | x :: ((y :: r) as l) ->
-          if x == y then
+          if Atom.equal x y then
             count duplicates (x :: free) x [y] r
           else
             aux duplicates (x :: free) l
       and count duplicates free x acc = function
-        | (y :: r) when x == y ->
+        | (y :: r) when Atom.equal x y ->
           count duplicates free x (y :: acc) r
         | l ->
           aux (acc :: duplicates) free l
@@ -521,29 +523,10 @@ module Make (Th : Theory_intf.S) = struct
       let doublons, acc = aux [] [] cl in
       doublons, List.rev acc
 
-    let to_list c =
-      let cl = list c in
-      let doublons, l = analyze cl in
-      let conflicts, _ = resolve l in
-      if doublons <> [] then
-        Log.debug 5 "Input clause has redundancies";
-      if conflicts <> [] then
-        Log.debug 5 "Input clause is a tautology";
-      cl
 
     (* Comparison of clauses *)
     let cmp_cl c d =
-      let rec aux = function
-        | [], [] -> 0
-        | a :: r, a' :: r' ->
-          begin match compare_atoms a a' with
-            | 0 -> aux (r, r')
-            | x -> x
-          end
-        | _ :: _ , [] -> -1
-        | [], _ :: _ -> 1
-      in
-      aux (c, d)
+      Atom.Set.compare (Atom.Set.of_list c) (Atom.Set.of_list d)
 
     let[@inline] prove conclusion =
       assert (conclusion.c_premise <> History []);
@@ -595,23 +578,25 @@ module Make (Th : Theory_intf.S) = struct
     let rec chain_res (c, cl) = function
       | d :: r ->
         Log.debugf 5
-          (fun k -> k "  Resolving clauses : @[%a@\n%a@]" Clause.debug c Clause.debug d);
+          (fun k -> k "(@[sat.proof.resolving@ :c1 %a@ :c2 %a@])" Clause.debug c Clause.debug d);
         let dl = to_list d in
         begin match resolve (merge cl dl) with
-          | [ a ], l ->
+          | [a], res ->
             begin match r with
-              | [] -> (l, c, d, a)
+              | [] -> res, c, d, a
               | _ ->
-                let new_clause = Clause.make_l l (History [c; d]) in
-                chain_res (new_clause, l) r
+                let new_clause = Clause.make_l res (History [c; d]) in
+                chain_res (new_clause, res) r
             end
-          | _ ->
+          | pivots, _ ->
             Log.debugf 1
-              (fun k -> k "While resolving clauses:@[<hov>%a@\n%a@]"
-                  Clause.debug c Clause.debug d);
+              (fun k -> k "(@[err While resolving clauses:@ %a@ %a@ :pivots %a@])"
+                  Clause.debug c Clause.debug d (CCFormat.Dump.list Atom.debug) pivots);
             raise (Resolution_error "Clause mismatch")
         end
-      | _ ->
+      | [] ->
+        Log.debugf 1
+          (fun k -> k "*@[err While resolving clause:@ %a@])" Clause.debug c);
         raise (Resolution_error "Bad history")
 
     let[@inline] conclusion (p:proof) : clause = p
@@ -626,9 +611,10 @@ module Make (Th : Theory_intf.S) = struct
       | History [] ->
         Log.debugf 1 (fun k -> k "(@[proof.empty_history@ %a@]" Clause.debug conclusion);
         raise (Resolution_error "Empty history")
-      | Simplified c ->
-        let duplicates, res = analyze (list c) in
-        assert (cmp_cl res (list conclusion) = 0);
+      | Simplified c
+      | History ([c]) ->
+        let duplicates, res = analyze (to_list c) in
+        assert (cmp_cl res (to_list conclusion) = 0);
         { conclusion; step = Duplicate (c, List.concat duplicates) }
       | History ( c :: ([_] as r)) ->
         let (l, c', d', a) = chain_res (c, to_list c) r in
