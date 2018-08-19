@@ -39,4 +39,4 @@ module Int_map = CCMap.Make(CCInt)
 module Int_tbl = CCHashtbl.Make(CCInt)
 
 (* NOTE: if true, can have a big impact on performance *)
-let _CHECK_INVARIANTS = true
+let _CHECK_INVARIANTS = false
