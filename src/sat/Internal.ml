@@ -1292,21 +1292,22 @@ module Make (Th : Theory_intf.S) = struct
 
   let act_propagate (st:t) f causes proof : unit =
     let l = List.rev_map (Atom.make st) causes in
-    if List.for_all Atom.is_true l then (
-      let p = Atom.make st f in
-      let c = Clause.make_l (p :: List.map Atom.neg l) (Lemma proof) in
-      if p.is_true then (
-      ) else if p.neg.is_true then (
-        (* propagate other lits in the clause *)
-        add_clause ~permanent:false st c;
-      ) else (
-        insert_var_order st p.var;
-        enqueue_bool st p (Bcp c);
-      )
+    assert (
+      if not @@ List.for_all Atom.is_true l then (
+        Error.errorf "(@[sat.act_propagate.invalid_guard@ :guard %a@ \
+                      :1 all lits are not true@])"
+          (Util.pp_list Atom.debug) l
+      ); true);
+    let p = Atom.make st f in
+    if p.is_true then (
+    ) else if p.neg.is_true then (
+      (* we got ourself a wee conflict clause *)
+      let c = Clause.make_l (p :: List.rev_map Atom.neg l) (Lemma proof) in
+      raise (Conflict c)
     ) else (
-      Error.errorf "(@[sat.act_propagate.invalid_guard@ :guard %a@ \
-                   :1 all lits are not true@])"
-        (Util.pp_list Atom.debug) l
+      let c = Clause.make_l (p :: List.rev_map Atom.neg l) (Lemma proof) in
+      insert_var_order st p.var;
+      enqueue_bool st p (Bcp c);
     )
 
   let current_slice st head : formula Theory_intf.slice_actions =
