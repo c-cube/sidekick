@@ -22,7 +22,7 @@ For the development version, use:
 
 ### Manual installation
 
-You will need jbuilder. The command is:
+You will need dune . The command is:
 
     make install
 

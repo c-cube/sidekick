@@ -1,27 +1,25 @@
-opam-version: "1.2"
+opam-version: "2.0"
 name: "sidekick"
 license: "Apache"
+synopsis: "SMT solver based on msat, based on CDCL(T)"
 version: "dev"
-author: ["Simon Cruanes" "Guillaume Bury" "Sylvain Conchon" "Alain Mebsout" "Stephane Lecuyer"]
+author: ["Simon Cruanes" "Guillaume Bury"]
 maintainer: ["simon.cruanes.2007@m4x.org"]
-build: ["jbuilder" "build" "@install" "-p" name]
-build-doc: ["jbuilder" "build" "@doc" "-p" name]
+build: [
+  ["dune" "build" "@install" "-p" name "-j" jobs]
+  ["dune" "build" "@doc" "-p" name] {with-doc}
+  # ["dune" "runtest" "-p" name] {with-test}
+]
 depends: [
-  "ocamlfind" {build}
-  "jbuilder" {build}
+  "dune" {build}
   "containers"
   "sequence"
   "zarith"
   "menhir"
-]
-depopts: [
-  "dolmen"
-]
-available: [
-  ocaml-version >= "4.03.0"
+  "ocaml" { >= "4.03" } 
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
-dev-repo: "https://github.com/c-cube/sidekick.git"
+dev-repo: "git+https://github.com/c-cube/sidekick.git"
 bug-reports: "https://github.com/c-cube/sidekick/issues/"
 

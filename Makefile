@@ -7,13 +7,18 @@ J?=3
 TIMEOUT?=30
 OPTS= -j $(J)
 
+dev: build-dev
+
+# TODO: repair tests
+#dev: build-dev test
+
 build-install:
-	jbuilder build $(OPTS) @install
+	@dune build $(OPTS) @install --profile=release
 
 build: build-install
 
 build-dev:
-	jbuilder build $(OPTS) --dev
+	@dune build $(OPTS)
 
 enable_log:
 	cd src/core; ln -sf log_real.ml log.ml
@@ -22,17 +27,19 @@ disable_log:
 	cd src/core; ln -sf log_dummy.ml log.ml
 
 clean:
-	jbuilder clean
+	@dune clean
+
+test:
+	@dune runtest
 
 install: build-install
-	jbuilder install
+	@dune install
 
 uninstall:
-	jbuilder uninstall
+	@dune uninstall
 
 doc:
-	jbuilder build $(OPTS) @doc
-
+	@dune build $(OPTS) @doc
 
 reinstall: | uninstall install
 
@@ -48,9 +55,7 @@ reindent: ocp-indent
 
 WATCH=build
 watch:
-	while find src/ -print0 | xargs -0 inotifywait -e delete_self -e modify ; do \
-		echo "============ at `date` ==========" ; \
-		make $(WATCH); \
-	done
+	@dune build @install -w
+	#@dune build @all -w # TODO: once tests pass
 
 .PHONY: clean doc all bench install uninstall remove reinstall enable_log disable_log bin test

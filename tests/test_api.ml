@@ -6,9 +6,9 @@ Copyright 2014 Simon Cruanes
 
 (* Tests that require the API *)
 
-open CDCL
+open Sidekick_sat
 
-module Th = CDCL_sat.Th
+module Th = Sidekick_th_sat.Th
 module F = CDCL_tseitin.Make(Th)
 
 let (|>) x f = f x

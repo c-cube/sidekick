@@ -172,6 +172,7 @@ val asserting : term -> term -> term
 val num_z : Ty.t -> Z.t -> term
 val num_q : Ty.t -> Q.t -> term
 val num_str : Ty.t -> string -> term (** parses int + {!num} *)
+
 val arith : Ty.t -> arith_op -> term list -> term
 
 (** {2 helpers} *)
