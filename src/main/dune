@@ -4,8 +4,7 @@
   (name main)
   (public_name sidekick)
   (package sidekick)
-  (libraries containers sequence result
-             sidekick.sat sidekick.smt sidekick.smtlib sidekick.backend
+  (libraries containers sequence result msat sidekick.smt sidekick.smtlib
              sidekick.dimacs)
   (flags :standard -w +a-4-42-44-48-50-58-32-60@8
          -safe-string -color always -open Sidekick_util)

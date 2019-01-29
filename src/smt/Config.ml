@@ -3,9 +3,9 @@
 
 type 'a sequence = ('a -> unit) -> unit
 
-module Key = Het_map.Key
+module Key = CCHet.Key
 
-type pair = Het_map.pair =
+type pair = CCHet.pair =
   | Pair : 'a Key.t * 'a -> pair
 
-include Het_map.Map
+include CCHet.Map

@@ -59,7 +59,3 @@ val get_field : Node_bits.field -> t -> bool
 val set_field : Node_bits.field -> bool -> t -> unit
 
 module Tbl : CCHashtbl.S with type key = t
-
-(**/**)
-val dummy : t
-(**/**)

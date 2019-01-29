@@ -5,8 +5,8 @@
 
     The solving algorithm, based on MCSat *)
 
-module Sat_solver : Sidekick_sat.S
-      with type formula = Lit.t
+module Sat_solver : Msat.S
+      with module Formula = Lit
        and type theory = Theory_combine.t
        and type lemma = Theory_combine.proof
 

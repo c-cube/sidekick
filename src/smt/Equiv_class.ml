@@ -38,21 +38,14 @@ let set_payload ?(can_erase=fun _->false) n e =
   n.n_payload <- aux n.n_payload
 
 let payload_find ~f:p n =
-  begin match n.n_payload with
+  let[@unroll 2] rec aux = function
     | [] -> None
     | e1 :: tail ->
-      match p e1, tail with
-        | Some _ as res, _ -> res
-        | None, [] -> None
-        | None, e2 :: tail2 ->
-          match p e2, tail2 with
-            | Some _ as res, _ -> res
-            | None, [] -> None
-            | None, e3 :: tail3 ->
-              match p e3 with
-                | Some _ as res -> res
-                | None -> CCList.find_map p tail3
-  end
+      match p e1 with
+      | Some _ as res -> res
+      | None -> aux tail
+  in
+  aux n.n_payload
 
 let payload_pred ~f:p n =
   begin match n.n_payload with
@@ -71,5 +64,3 @@ module Tbl = CCHashtbl.Make(struct
     let equal = equal
     let hash = hash
   end)
-
-let dummy = make Term.dummy

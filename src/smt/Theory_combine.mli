@@ -4,16 +4,22 @@
 (** Combine the congruence closure with a number of plugins *)
 
 module Proof : sig
-  type t = Proof
+  type t = Solver_types.proof (* dummy proofs, for now *)
 end
 
-include Sidekick_sat.Theory_intf.S
-  with type formula = Lit.t
+include Msat.Solver_intf.PLUGIN_CDCL_T
+  with module Formula = Lit
    and type proof = Proof.t
+
+val create : unit -> t
 
 val cc : t -> Congruence_closure.t
 val tst : t -> Term.state
-val theories : t -> Theory.state Sequence.t
+
+type theory_state =
+  | Th_state : ('a Theory.t1 * 'a) -> theory_state
+
+val theories : t -> theory_state Sequence.t
 
 val mk_model : t -> Lit.t Sequence.t -> Model.t
 

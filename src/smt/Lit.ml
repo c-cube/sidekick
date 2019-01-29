@@ -6,16 +6,13 @@ type t = lit = {
   lit_sign : bool
 }
 
-let neg l = {l with lit_sign=not l.lit_sign}
-
+let[@inline] neg l = {l with lit_sign=not l.lit_sign}
 let[@inline] sign t = t.lit_sign
 let[@inline] view (t:t): term = t.lit_term
 
 let[@inline] abs t: t = {t with lit_sign=true}
 
 let make ~sign t = {lit_sign=sign; lit_term=t}
-
-let dummy = make ~sign:true Term.dummy
 
 let atom ?(sign=true) (t:term) : t =
   let t, sign' = Term.abs t in
@@ -31,7 +28,7 @@ let pp = pp_lit
 let print = pp
 
 let norm l =
-  if l.lit_sign then l, Sidekick_sat.Same_sign else neg l, Sidekick_sat.Negated
+  if l.lit_sign then l, Msat.Solver_intf.Same_sign else neg l, Msat.Solver_intf.Negated
 
 module Set = CCSet.Make(struct type t = lit let compare=compare end)
 module Tbl = CCHashtbl.Make(struct type t = lit let equal=equal let hash=hash end)

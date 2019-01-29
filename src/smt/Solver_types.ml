@@ -1,4 +1,7 @@
 
+module Vec = Msat.Vec
+module Log = Msat.Log
+
 module Fmt = CCFormat
 module Node_bits = CCBitField.Make(struct end)
 
@@ -134,6 +137,10 @@ and value =
     } (** Custom value *)
 
 and value_custom_view = ..
+
+type proof = Proof_default
+
+type sat_actions = (Msat.void, lit, value, proof) Msat.acts
 
 let[@inline] term_equal_ (a:term) b = a==b
 let[@inline] term_hash_ a = a.term_id

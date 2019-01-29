@@ -113,9 +113,3 @@ let as_cst_undef (t:term): (cst * Ty.Fun.t) option =
   | _ -> None
 
 let pp = Solver_types.pp_term
-
-let dummy : t = {
-  term_id= -1;
-  term_ty=Ty.prop;
-  term_view=Term_cell.true_;
-}

@@ -56,7 +56,3 @@ val as_cst_undef : t -> (cst * Ty.Fun.t) option
 
 module Tbl : CCHashtbl.S with type key = t
 module Map : CCMap.S with type key = t
-
-(**/**)
-val dummy : t
-(**/**)

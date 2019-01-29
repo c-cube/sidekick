@@ -9,7 +9,7 @@ module E = CCResult
 module A = Ast
 module Form = Sidekick_th_bool
 module Fmt = CCFormat
-module Dot = Sidekick_backend.Dot.Simple(Solver.Sat_solver)
+module Dot = Msat_backend.Dot.Simple(Solver.Sat_solver)
 
 module Subst = struct
   type 'a t = 'a ID.Map.t

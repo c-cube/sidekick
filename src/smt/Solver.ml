@@ -11,10 +11,10 @@ let get_time : unit -> float = Sys.time
 
 (** {2 The Main Solver} *)
 
-module Sat_solver = Sidekick_sat.Make(Theory_combine)
+module Sat_solver = Msat.Make_cdcl_t(Theory_combine)
 
 let[@inline] clause_of_mclause (c:Sat_solver.clause): Lit.t IArray.t =
-  Sat_solver.Clause.forms c
+  Sat_solver.Clause.atoms c |> Array.map Sat_solver.Atom.formula |> IArray.of_array_unsafe
 
 module Proof = struct
   type t = Sat_solver.Proof.t
@@ -59,13 +59,14 @@ let stats self = self.stat
 let[@inline] tst self = Theory_combine.tst (th_combine self)
 
 let create ?size ?(config=Config.empty) ~theories () : t =
+  let th_combine = Theory_combine.create() in
   let self = {
-    solver=Sat_solver.create ?size ();
+    solver=Sat_solver.create ?size th_combine;
     stat=Stat.create ();
     config;
   } in
   (* now add the theories *)
-  Theory_combine.add_theory_l (th_combine self) theories;
+  Theory_combine.add_theory_l th_combine theories;
   self
 
 (** {2 Sat Solver} *)
@@ -193,8 +194,8 @@ let do_on_exit ~on_exit =
 
 let assume (self:t) (c:Lit.t IArray.t) : unit =
   let sat = solver self in
-  let c = Sat_solver.Clause.make (IArray.to_array_map (Sat_solver.Atom.make sat) c) in
-  Sat_solver.add_clause ~permanent:true sat c
+  let c = IArray.to_array_map (Sat_solver.make_atom sat) c in
+  Sat_solver.add_clause_a sat c Proof_default
 
 let[@inline] assume_eq self t u expl : unit =
   Congruence_closure.assert_eq (cc self) t u [expl]
@@ -202,18 +203,22 @@ let[@inline] assume_eq self t u expl : unit =
 let[@inline] assume_distinct self l ~neq lit : unit =
   Congruence_closure.assert_distinct (cc self) l lit ~neq
 
-let check_model (s:t) : unit =
+let check_model (_s:t) : unit =
   Log.debug 1 "(smt.solver.check-model)";
+  (* TODO
   Sat_solver.check_model s.solver
+  *)
+  ()
 
 (* TODO: main loop with iterative deepening of the unrolling  limit
    (not the value depth limit) *)
-let solve ?restarts ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
-  let r = Sat_solver.solve ?restarts ~assumptions (solver self) () in
+let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
+  let r = Sat_solver.solve ~assumptions (solver self) in
   match r with
-  | Sat_solver.Sat (Sidekick_sat.Sat_state st) ->
+  | Sat_solver.Sat st ->
     Log.debugf 0 (fun k->k "SAT");
-    let m = Theory_combine.mk_model (th_combine self) st.iter_trail in
+    let lits f = st.iter_trail f (fun _ -> ()) in
+    let m = Theory_combine.mk_model (th_combine self) lits in
     Sat m
     (*
     let env = Ast.env_empty in
@@ -221,7 +226,7 @@ let solve ?restarts ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res 
        …
     Unknown U_incomplete (* TODO *)
     *)
-  | Sat_solver.Unsat (Sidekick_sat.Unsat_state us) ->
+  | Sat_solver.Unsat us ->
     let pr = us.get_proof () in
     Unsat pr
 

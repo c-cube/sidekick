@@ -1,6 +1,4 @@
 
-module Vec = Sidekick_sat.Vec
-module Log = Sidekick_sat.Log
 open Solver_types
 
 module N = Equiv_class
@@ -18,27 +16,14 @@ end
 
 module Sig_tbl = CCHashtbl.Make(Signature)
 
-module type ACTIONS = sig
-  val on_backtrack: (unit -> unit) -> unit
-  (** Register a callback to be invoked upon backtracking below the current level *)
-
-  val on_merge: repr -> repr -> explanation -> unit
-  (** Call this when two classes are merged *)
-
-  val raise_conflict: conflict -> 'a
-  (** Report a conflict *)
-
-  val propagate: Lit.t -> Lit.t list -> unit
-  (** Propagate a literal *)
-end
-
-type actions = (module ACTIONS)
-
 type explanation_thunk = explanation lazy_t
+
+type combine_task =
+  | CT_merge of node * node * explanation_thunk
+  | CT_distinct of node list * int * explanation
 
 type t = {
   tst: Term.state;
-  acts: actions;
   tbl: node Term.Tbl.t;
   (* internalization [term -> node] *)
   signatures_tbl : node Sig_tbl.t;
@@ -50,14 +35,15 @@ type t = {
      that have the same "shape" (including head symbol)
      have the same signature *)
   pending: node Vec.t;
-  combine: (node * node * explanation_thunk) Vec.t;
-  on_backtrack:(unit->unit)->unit;
+  combine: combine_task Vec.t;
+  undo: (unit -> unit) Backtrack_stack.t;
+  on_merge: (repr -> repr -> explanation -> unit) option;
   mutable ps_lits: Lit.Set.t;
   (* proof state *)
   ps_queue: (node*node) Vec.t;
   (* pairs to explain *)
-  mutable true_ : node;
-  mutable false_ : node;
+  true_ : node lazy_t;
+  false_ : node lazy_t;
 }
 (* TODO: an additional union-find to keep track, for each term,
    of the terms they are known to be equal to, according
@@ -65,17 +51,17 @@ type t = {
    several times.
    See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
 
-let[@inline] on_backtrack cc f : unit = cc.on_backtrack f
 let[@inline] is_root_ (n:node) : bool = n.n_root == n
 let[@inline] size_ (r:repr) = r.n_size
+let[@inline] true_ cc = Lazy.force cc.true_
+let[@inline] false_ cc = Lazy.force cc.false_
+
+let[@inline] on_backtrack cc f : unit =
+  Backtrack_stack.push_if_nonzero_level cc.undo f
 
 (* check if [t] is in the congruence closure.
    Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
 let[@inline] mem (cc:t) (t:term): bool = Term.Tbl.mem cc.tbl t
-
-let[@inline] post_backtrack cc =
-  Vec.clear cc.pending;
-  Vec.clear cc.combine
 
 (* find representative, recursively *)
 let rec find_rec cc (n:node) : repr =
@@ -94,9 +80,6 @@ let iter_class_ (n:node) : node Sequence.t =
       if u.n_next != n then aux u.n_next
     in
     aux n
-
-let[@inline] true_ cc = cc.true_
-let[@inline] false_ cc = cc.false_
 
 (* get term that should be there *)
 let[@inline] get_ cc (t:term) : node =
@@ -179,7 +162,7 @@ let push_combine cc t u e : unit =
   Log.debugf 5
     (fun k->k "(@[<hv1>cc.push_combine@ :t1 %a@ :t2 %a@ :expl %a@])"
       N.pp t N.pp u Explanation.pp (Lazy.force e));
-  Vec.push cc.combine (t,u,e)
+  Vec.push cc.combine @@ CT_merge (t,u,e)
 
 (* re-root the explanation tree of the equivalence class of [n]
    so that it points to [n].
@@ -194,13 +177,12 @@ let rec reroot_expl (cc:t) (n:node): unit =
       n.n_expl <- E_none;
   end
 
-let raise_conflict (cc:t) (e:conflict): _ =
-  let (module A) = cc.acts in
+let raise_conflict (cc:t) (acts:sat_actions) (e:conflict): _ =
   (* clear tasks queue *)
   Vec.iter (N.set_field N.field_is_pending false) cc.pending;
   Vec.clear cc.pending;
   Vec.clear cc.combine;
-  A.raise_conflict e
+  acts.Msat.acts_raise_conflict e Proof_default
 
 let[@inline] all_classes cc : repr Sequence.t =
   Term.Tbl.values cc.tbl
@@ -240,11 +222,6 @@ let find_common_ancestor (a:node) (b:node) : node =
 let[@inline] ps_add_obligation (cc:t) a b = Vec.push cc.ps_queue (a,b)
 let[@inline] ps_add_lit ps l = ps.ps_lits <- Lit.Set.add l ps.ps_lits
 
-and ps_add_obligation_t cc (t1:term) (t2:term) =
-  let n1 = get_ cc t1 in
-  let n2 = get_ cc t2 in
-  ps_add_obligation cc n1 n2
-
 let ps_clear (cc:t) =
   cc.ps_lits <- Lit.Set.empty;
   Vec.clear cc.ps_queue;
@@ -276,7 +253,7 @@ let rec explain_along_path ps (a:node) (parent_a:node) : unit =
 (* find explanation *)
 let explain_loop (cc : t) : Lit.Set.t =
   while not (Vec.is_empty cc.ps_queue) do
-    let a, b = Vec.pop_last cc.ps_queue in
+    let a, b = Vec.pop cc.ps_queue in
     Log.debugf 5
       (fun k->k "(@[cc.explain_loop.at@ %a@ =?= %a@])" N.pp a N.pp b);
     assert (N.equal (find cc a) (find cc b));
@@ -290,12 +267,6 @@ let explain_eq_n ?(init=Lit.Set.empty) cc (n1:node) (n2:node) : Lit.Set.t =
   ps_clear cc;
   cc.ps_lits <- init;
   ps_add_obligation cc n1 n2;
-  explain_loop cc
-
-let explain_eq_t ?(init=Lit.Set.empty) cc (t1:term) (t2:term) : Lit.Set.t =
-  ps_clear cc;
-  cc.ps_lits <- init;
-  ps_add_obligation_t cc t1 t2;
   explain_loop cc
 
 let explain_unfold ?(init=Lit.Set.empty) cc (e:explanation) : Lit.Set.t =
@@ -329,13 +300,22 @@ let relevant_subterms (t:Term.t) : Term.t Sequence.t =
       yield b;
       yield c
 
+(* Checks if [ra] and [~into] have compatible normal forms and can
+   be merged w.r.t. the theories.
+   Side effect: also pushes sub-tasks *)
+let notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
+  assert (is_root_ rb);
+  match cc.on_merge with
+  | Some f -> f ra rb e
+  | None -> ()
+
 (* main CC algo: add terms from [pending] to the signature table,
    check for collisions *)
-let rec update_tasks (cc:t): unit =
+let rec update_tasks (cc:t) (acts:sat_actions) : unit =
   while not (Vec.is_empty cc.pending && Vec.is_empty cc.combine) do
     Vec.iter (task_pending_ cc) cc.pending;
     Vec.clear cc.pending;
-    Vec.iter (task_combine_ cc) cc.combine;
+    Vec.iter (task_combine_ cc acts) cc.combine;
     Vec.clear cc.combine;
   done
 
@@ -356,7 +336,7 @@ and task_pending_ cc n =
         | App_cst (f1, a1), App_cst (f2, a2) ->
           assert (Cst.equal f1 f2);
           assert (IArray.length a1 = IArray.length a2);
-          Explanation.mk_merges @@ IArray.map2 (fun u1 u2 -> add_ cc u1, add_ cc u2) a1 a2
+          Explanation.mk_merges @@ IArray.map2 (fun u1 u2 -> add_term_rec_ cc u1, add_term_rec_ cc u2) a1 a2
         | If _, _ | App_cst _, _ | Bool _, _
           -> assert false
       ) in
@@ -368,9 +348,13 @@ and task_pending_ cc n =
   *)
   ()
 
+and[@inline] task_combine_ cc acts = function
+  | CT_merge (a,b,e_ab) -> task_merge_ cc acts a b e_ab
+  | CT_distinct (l,tag,e) -> task_distinct_ cc acts l tag e
+
 (* main CC algo: merge equivalence classes in [st.combine].
    @raise Exn_unsat if merge fails *)
-and task_combine_ cc (a,b,e_ab) : unit =
+and task_merge_ cc acts a b e_ab : unit =
   let ra = find cc a in
   let rb = find cc b in
   if not (N.equal ra rb) then (
@@ -387,15 +371,15 @@ and task_combine_ cc (a,b,e_ab) : unit =
       else ra, rb
     in
     (* check we're not merging [true] and [false] *)
-    if (N.equal ra cc.true_ && N.equal rb cc.false_) ||
-       (N.equal rb cc.true_ && N.equal ra cc.false_) then (
+    if (N.equal ra (true_ cc) && N.equal rb (false_ cc)) ||
+       (N.equal rb (true_ cc) && N.equal ra (false_ cc)) then (
       Log.debugf 5
         (fun k->k "(@[<hv>cc.merge.true_false_conflict@ @[:r1 %a@]@ @[:r2 %a@]@ :e_ab %a@])"
           N.pp ra N.pp rb Explanation.pp e_ab);
       let lits = explain_unfold cc e_ab in
       let lits = explain_eq_n ~init:lits cc a ra in
       let lits = explain_eq_n ~init:lits cc b rb in
-      raise_conflict cc @@ Lit.Set.elements lits
+      raise_conflict cc acts @@ Lit.Set.elements lits
     );
     (* update set of tags the new node cannot be equal to *)
     let new_tags =
@@ -413,13 +397,16 @@ and task_combine_ cc (a,b,e_ab) : unit =
            let lits = explain_unfold ~init:lits cc e_ab in
            let lits = explain_eq_n ~init:lits cc a n1 in
            let lits = explain_eq_n ~init:lits cc b n2 in
-           raise_conflict cc @@ Lit.Set.elements lits)
+           raise_conflict cc acts @@ Lit.Set.elements lits)
         ra.n_tags rb.n_tags
     in
     (* when merging terms with [true] or [false], possibly propagate them to SAT *)
     let merge_bool r1 t1 r2 t2 =
-      if N.equal r1 cc.true_ then propagate_bools cc r2 t2 r1 t1 e_ab true
-      else if N.equal r1 cc.false_ then propagate_bools cc r2 t2 r1 t1 e_ab false
+      if N.equal r1 (true_ cc) then (
+        propagate_bools cc acts r2 t2 r1 t1 e_ab true
+      ) else if N.equal r1 (false_ cc) then (
+        propagate_bools cc acts r2 t2 r1 t1 e_ab false
+      )
     in
     merge_bool ra a rb b;
     merge_bool rb b ra a;
@@ -471,12 +458,28 @@ and task_combine_ cc (a,b,e_ab) : unit =
     notify_merge cc r_from ~into:r_into e_ab;
   )
 
+and task_distinct_ cc acts (l:node list) tag expl : unit =
+  let l = List.map (fun n -> n, find cc n) l in
+  let coll =
+    Sequence.diagonal_l l
+    |> Sequence.find_pred (fun ((_,r1),(_,r2)) -> N.equal r1 r2)
+  in
+  begin match coll with
+    | Some ((n1,_r1),(n2,_r2)) ->
+      (* two classes are already equal *)
+      Log.debugf 5 (fun k->k "(@[cc.distinct.conflict@ %a = %a@])" N.pp n1 N.pp n2);
+      let lits = explain_unfold cc expl in
+      acts.Msat.acts_raise_conflict (Lit.Set.to_list lits) Proof_default
+    | None ->
+      (* put a tag on all equivalence classes, that will make their merge fail *)
+      List.iter (fun (_,n) -> add_tag_n cc n tag expl) l
+  end
+
 (* we are merging [r1] with [r2==Bool(sign)], so propagate each term [u1]
    in the equiv class of [r1] that is a known literal back to the SAT solver
    and which is not the one initially merged.
    We can explain the propagation with [u1 = t1 =e= t2 = r2==bool] *)
-and propagate_bools cc r1 t1 r2 t2 (e_12:explanation) sign : unit =
-  let (module A) = cc.acts in
+and propagate_bools cc acts r1 t1 r2 t2 (e_12:explanation) sign : unit =
   (* explanation for [t1 =e= t2 = r2] *)
   let half_expl = lazy (
     let expl = explain_unfold cc e_12 in
@@ -494,16 +497,9 @@ and propagate_bools cc r1 t1 r2 t2 (e_12:explanation) sign : unit =
          Log.debugf 5 (fun k->k "(@[cc.bool_propagate@ %a@])" Lit.pp lit);
          (* complete explanation with the [u1=t1] chunk *)
          let expl = explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1 in
-         A.propagate lit (Lit.Set.to_list expl)
+         let reason = Msat.Consequence (Lit.Set.to_list expl, Proof_default) in
+         acts.Msat.acts_propagate lit reason
        ))
-
-(* Checks if [ra] and [~into] have compatible normal forms and can
-   be merged w.r.t. the theories.
-   Side effect: also pushes sub-tasks *)
-and notify_merge cc (ra:repr) ~into:(rb:repr) (e:explanation): unit =
-  assert (is_root_ rb);
-  let (module A) = cc.acts in
-  A.on_merge ra rb e
 
 (* add [t] to [cc] when not present already *)
 and add_new_term_ cc (t:term) : node =
@@ -518,7 +514,7 @@ and add_new_term_ cc (t:term) : node =
   in
   (* add sub-term to [cc], and register [n] to its parents *)
   let add_sub_t (u:term) : unit =
-    let n_u = add_ cc u in
+    let n_u = add_term_rec_ cc u in
     add_to_parents_of_sub_node n_u
   in
   (* register sub-terms, add [t] to their parent list *)
@@ -535,16 +531,16 @@ and add_new_term_ cc (t:term) : node =
   n
 
 (* add a term *)
-and[@inline] add_ cc t : node =
+and[@inline] add_term_rec_ cc t : node =
   try Term.Tbl.find cc.tbl t
   with Not_found -> add_new_term_ cc t
 
 let check_invariants_ (cc:t) =
   Log.debug 5 "(cc.check-invariants)";
   Log.debugf 15 (fun k-> k "%a" pp_full cc);
-  assert (Term.equal (Term.true_ cc.tst) cc.true_.n_term);
-  assert (Term.equal (Term.false_ cc.tst) cc.false_.n_term);
-  assert (not @@ same_class cc cc.true_ cc.false_);
+  assert (Term.equal (Term.true_ cc.tst) (true_ cc).n_term);
+  assert (Term.equal (Term.false_ cc.tst) (false_ cc).n_term);
+  assert (not @@ same_class cc (true_ cc) (false_ cc));
   assert (Vec.is_empty cc.combine);
   assert (Vec.is_empty cc.pending);
   (* check that subterms are internalized *)
@@ -576,15 +572,23 @@ let check_invariants_ (cc:t) =
 let[@inline] check_invariants (cc:t) : unit =
   if Util._CHECK_INVARIANTS then check_invariants_ cc
 
-let add cc t : node =
-  let n = add_ cc t in
-  update_tasks cc;
-  n
+let[@inline] add cc t : node = add_term_rec_ cc t
 
 let add_seq cc seq =
-  seq (fun t -> ignore @@ add_ cc t);
-  update_tasks cc
+  seq (fun t -> ignore @@ add_term_rec_ cc t);
+  ()
 
+let[@inline] push_level (self:t) : unit =
+  Backtrack_stack.push_level self.undo
+
+let pop_levels (self:t) n : unit =
+  Backtrack_stack.pop_levels self.undo n ~f:(fun f -> f());
+  Vec.clear self.pending;
+  Vec.clear self.combine;
+  ()
+
+(* TODO: if a lit is [= a b], merge [a] and [b];
+   if it's [distinct a1…an], make them distinct, etc. etc. *)
 (* assert that this boolean literal holds *)
 let assert_lit cc lit : unit =
   let t = Lit.view lit in
@@ -593,69 +597,59 @@ let assert_lit cc lit : unit =
   let sign = Lit.sign lit in
   (* equate t and true/false *)
   let rhs = if sign then true_ cc else false_ cc in
-  let n = add_ cc t in
+  let n = add_term_rec_ cc t in
   (* TODO: ensure that this is O(1).
      basically, just have [n] point to true/false and thus acquire
      the corresponding value, so its superterms (like [ite]) can evaluate
      properly *)
-  push_combine cc n rhs (Lazy.from_val @@ E_lit lit);
-  update_tasks cc
+  push_combine cc n rhs (Lazy.from_val @@ E_lit lit)
+
+let[@inline] assert_lits cc lits : unit =
+  Sequence.iter (assert_lit cc) lits
 
 let assert_eq cc (t:term) (u:term) e : unit =
-  let n1 = add_ cc t in
-  let n2 = add_ cc u in
+  let n1 = add_term_rec_ cc t in
+  let n2 = add_term_rec_ cc u in
   if not (same_class cc n1 n2) then (
     let e = Lazy.from_val @@ Explanation.E_lits e in
     push_combine cc n1 n2 e;
-  );
-  update_tasks cc
+  )
 
 let assert_distinct cc (l:term list) ~neq (lit:Lit.t) : unit =
   assert (match l with[] | [_] -> false | _ -> true);
   let tag = Term.id neq in
   Log.debugf 5
     (fun k->k "(@[cc.assert_distinct@ (@[%a@])@ :tag %d@])" (Util.pp_list Term.pp) l tag);
-  let l = List.map (fun t -> t, add cc t |> find cc) l in
-  let coll =
-    Sequence.diagonal_l l
-    |> Sequence.find_pred (fun ((_,n1),(_,n2)) -> N.equal n1 n2)
-  in
-  begin match coll with
-    | Some ((t1,_n1),(t2,_n2)) ->
-      (* two classes are already equal *)
-      Log.debugf 5 (fun k->k "(@[cc.assert_distinct.conflict@ %a = %a@])" Term.pp t1 Term.pp t2);
-      let lits = Lit.Set.singleton lit in
-      let lits = explain_eq_t ~init:lits cc t1 t2 in
-      raise_conflict cc @@ Lit.Set.to_list lits
-    | None ->
-      (* put a tag on all equivalence classes, that will make their merge fail *)
-      List.iter (fun (_,n) -> add_tag_n cc n tag @@ Explanation.lit lit) l
-  end
+  let l = List.map (add cc) l in
+  Vec.push cc.combine @@ CT_distinct (l, tag, Explanation.lit lit)
 
-let create ?(size=2048) ~actions (tst:Term.state) : t =
-  let nd = N.dummy in
-  let (module A : ACTIONS) = actions in
-  let cc = {
+let create ?on_merge ?(size=`Big) (tst:Term.state) : t =
+  let size = match size with `Small -> 128 | `Big -> 2048 in
+  let rec cc = {
     tst;
-    acts=actions;
     tbl = Term.Tbl.create size;
     signatures_tbl = Sig_tbl.create size;
-    pending=Vec.make_empty N.dummy;
-    combine=Vec.make_empty (N.dummy,N.dummy,Lazy.from_val Explanation.dummy);
+    on_merge;
+    pending=Vec.create();
+    combine=Vec.create();
     ps_lits=Lit.Set.empty;
-    on_backtrack=A.on_backtrack;
-    ps_queue=Vec.make_empty (nd,nd);
-    true_ = N.dummy;
-    false_ = N.dummy;
-  } in
-  cc.true_ <- add_ cc (Term.true_ tst);
-  cc.false_ <- add_ cc (Term.false_ tst);
-  update_tasks cc;
+    undo=Backtrack_stack.create();
+    ps_queue=Vec.create();
+    true_;
+    false_;
+  } and true_ = lazy (
+      add_term_rec_ cc (Term.true_ tst)
+    ) and false_ = lazy (
+      add_term_rec_ cc (Term.false_ tst)
+    )
+  in
+  ignore (Lazy.force true_ : node);
+  ignore (Lazy.force false_ : node);
   cc
 
-let final_check cc : unit =
-  Log.debug 5 "(CC.final_check)";
-  update_tasks cc
+let[@inline] check cc acts : unit =
+  Log.debug 5 "(CC.check)";
+  update_tasks cc acts
 
 (* model: map each uninterpreted equiv class to some ID *)
 let mk_model (cc:t) (m:Model.t) : Model.t =
@@ -671,8 +665,8 @@ let mk_model (cc:t) (m:Model.t) : Model.t =
          let v = match Model.eval m t with
            | Some v -> v
            | None ->
-             if same_class cc r cc.true_ then Value.true_
-             else if same_class cc r cc.false_ then Value.false_
+             if same_class cc r (true_ cc) then Value.true_
+             else if same_class cc r (false_ cc) then Value.false_
              else (
                Value.mk_elt
                  (ID.makef "v_%d" @@ Term.id t)

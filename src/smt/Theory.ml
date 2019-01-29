@@ -1,5 +1,5 @@
 
-module Clause : sig
+module Th_clause : sig
   type t = Lit.t IArray.t
   val pp : t CCFormat.printer
 end = struct
@@ -13,35 +13,6 @@ end = struct
         (Util.pp_iarray ~sep:" ∨ " Lit.pp) c
     )
 end
-
-module type STATE = sig
-  type t
-
-  val state : t
-
-  val on_merge: t -> Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit
-  (** Called when two classes are merged *)
-
-  val on_assert: t -> Lit.t -> unit
-  (** Called when a literal becomes true *)
-
-  val final_check: t -> Lit.t Sequence.t -> unit
-  (** Final check, must be complete (i.e. must raise a conflict
-      if the set of literals is not satisfiable) *)
-
-  val mk_model : t -> Lit.t Sequence.t -> Model.t
-  (** Make a model for this theory's terms *)
-
-  val post_backtrack : t -> unit
-
-  (**/**)
-  val check_invariants : t -> unit
-  (**/**)
-end
-
-
-(** Runtime state of a theory, with all the operations it provides. *)
-type state = (module STATE)
 
 (** Unsatisfiable conjunction.
     Its negation will become a conflict clause *)
@@ -83,31 +54,63 @@ end
 
 type actions = (module ACTIONS)
 
-type t = {
-  name: string;
-  make: Term.state -> actions -> state;
-}
+module type S = sig
+  type t
 
-let make ~name ~make () : t = {name;make}
+  val name : string
+  (** Name of the theory *)
 
-let make_st
+  val create : Term.state -> t
+  (** Instantiate the theory's state *)
+
+  val on_merge: t -> actions -> Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit
+  (** Called when two classes are merged *)
+
+  val partial_check : t -> actions -> Lit.t Sequence.t -> unit
+  (** Called when a literal becomes true *)
+
+  val final_check: t -> actions -> Lit.t Sequence.t -> unit
+  (** Final check, must be complete (i.e. must raise a conflict
+      if the set of literals is not satisfiable) *)
+
+  val mk_model : t -> Lit.t Sequence.t -> Model.t
+  (** Make a model for this theory's terms *)
+
+  val push_level : t -> unit
+
+  val pop_levels : t -> int -> unit
+
+  (**/**)
+  val check_invariants : t -> unit
+  (**/**)
+end
+
+type t = (module S)
+
+type 'a t1 = (module S with type t = 'a)
+
+let make
   (type st)
     ?(check_invariants=fun _ -> ())
-    ?(on_merge=fun _ _ _ _ -> ())
-    ?(on_assert=fun _ _ -> ())
+    ?(on_merge=fun _ _ _ _ _ -> ())
+    ?(partial_check=fun _ _ _ -> ())
     ?(mk_model=fun _ _ -> Model.empty)
-    ?(post_backtrack=fun _ -> ())
+    ?(push_level=fun _ -> ())
+    ?(pop_levels=fun _ _ -> ())
+    ~name
     ~final_check
-    ~st
-    () : state =
+    ~create
+    () : t =
   let module A = struct
     type nonrec t = st
-    let state = st
+    let name = name
+    let create = create
     let on_merge = on_merge
-    let on_assert = on_assert
+    let partial_check = partial_check
     let final_check = final_check
     let mk_model = mk_model
-    let post_backtrack = post_backtrack
     let check_invariants = check_invariants
+    let push_level = push_level
+    let pop_levels = pop_levels
   end in
-  (module A : STATE)
+  (module A : S)

@@ -17,7 +17,6 @@ let mk_lit l : t = E_lit l
 let mk_lits = function [x] -> mk_lit x | l -> E_lits l
 let mk_reduction : t = E_reduction
 
-let dummy = E_lit Lit.dummy
 let[@inline] lit l : t = E_lit l
 
 module Set = CCSet.Make(struct

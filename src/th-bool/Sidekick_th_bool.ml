@@ -4,8 +4,6 @@
 open Sidekick_smt
 open Solver_types
 
-module Fmt = CCFormat
-
 type term = Term.t
 
 (* TODO (long term): relevancy propagation *)
@@ -168,12 +166,11 @@ end
 
 type t = {
   tst: Term.state;
-  acts: Theory.actions;
 }
 
-let tseitin (self:t) (lit:Lit.t) (lit_t:term) (v:term view) : unit =
+let tseitin (_self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term view) : unit =
+  let (module A) = acts in
   Log.debugf 5 (fun k->k "(@[th_bool.tseitin@ %a@])" Lit.pp lit);
-  let (module A) = self.acts in
   match v with
   | B_atom _ -> ()
   | B_not _ -> assert false (* normalized *)
@@ -236,23 +233,21 @@ let tseitin (self:t) (lit:Lit.t) (lit_t:term) (v:term view) : unit =
         guard
     )
 
-let on_assert (self:t) (lit:Lit.t) =
-  let t = Lit.view lit in
-  begin match view t with
-    | B_atom _ -> ()
-    | v -> tseitin self lit t v
-  end
+let partial_check (self:t) acts (lits:Lit.t Sequence.t) =
+  lits
+    (fun lit ->
+       let t = Lit.view lit in
+       match view t with
+       | B_atom _ -> ()
+       | v -> tseitin self acts lit t v)
 
-let final_check _ _ : unit = ()
+let final_check _ _ _ : unit = ()
 
 let th =
-  let make tst acts =
-    let st = {tst;acts} in
-    Theory.make_st
-      ~on_assert
-      ~final_check
-      ?mk_model:None (* entirely interpreted *)
-      ~st
-      ()
-  in
-  Theory.make ~name:"boolean" ~make ()
+  Theory.make
+    ~partial_check
+    ~final_check
+    ~name:"boolean"
+    ~create:(fun tst -> {tst})
+    ?mk_model:None (* entirely interpreted *)
+    ()
