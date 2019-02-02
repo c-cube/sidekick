@@ -184,7 +184,8 @@ let raise_conflict (cc:t) (acts:sat_actions) (e:conflict): _ =
   Vec.iter (N.set_field N.field_is_pending false) cc.pending;
   Vec.clear cc.pending;
   Vec.clear cc.combine;
-  acts.Msat.acts_raise_conflict e Proof_default
+  let c = List.map Lit.neg e in
+  acts.Msat.acts_raise_conflict c Proof_default
 
 let[@inline] all_classes cc : repr Sequence.t =
   Term.Tbl.values cc.tbl
@@ -585,9 +586,10 @@ let[@inline] push_level (self:t) : unit =
   Backtrack_stack.push_level self.undo
 
 let pop_levels (self:t) n : unit =
-  Backtrack_stack.pop_levels self.undo n ~f:(fun f -> f());
+  Vec.iter (N.set_field N.field_is_pending false) self.pending;
   Vec.clear self.pending;
   Vec.clear self.combine;
+  Backtrack_stack.pop_levels self.undo n ~f:(fun f -> f());
   ()
 
 (* TODO: if a lit is [= a b], merge [a] and [b];
@@ -655,7 +657,7 @@ let[@inline] find_t cc t : repr =
   find cc n
 
 let[@inline] check cc acts : unit =
-  Log.debug 5 "(CC.check)";
+  Log.debug 5 "(cc.check)";
   update_tasks cc acts
 
 (* model: map each uninterpreted equiv class to some ID *)
