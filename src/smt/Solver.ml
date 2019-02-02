@@ -72,6 +72,12 @@ let create ?size ?(config=Config.empty) ~theories () : t =
   } in
   (* now add the theories *)
   Theory_combine.add_theory_l th_combine theories;
+  (* assert [true] and [not false] *)
+  let tst = tst self in
+  Sat_solver.assume self.solver [
+    [Lit.atom @@ Term.true_ tst];
+    [Lit.atom ~sign:false @@ Term.false_ tst];
+  ] Proof_default;
   self
 
 (** {2 Sat Solver} *)
