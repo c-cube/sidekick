@@ -20,9 +20,6 @@ type conflict = Lit.t list
 
 (** Actions available to a theory during its lifetime *)
 module type ACTIONS = sig
-  val on_backtrack: (unit -> unit) -> unit
-  (** Register an action to do when we backtrack *)
-
   val raise_conflict: conflict -> 'a
   (** Give a conflict clause to the solver *)
 
@@ -36,11 +33,11 @@ module type ACTIONS = sig
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val add_local_axiom: Lit.t IArray.t -> unit
+  val add_local_axiom: Lit.t list -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
-  val add_persistent_axiom: Lit.t IArray.t -> unit
+  val add_persistent_axiom: Lit.t list -> unit
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 

@@ -6,13 +6,15 @@
     The solving algorithm, based on MCSat *)
 
 module Sat_solver : Msat.S
-      with module Formula = Lit
+      with type Formula.t = Lit.t
        and type theory = Theory_combine.t
        and type lemma = Theory_combine.proof
 
 (** {2 Result} *)
 
 type model = Model.t
+
+module Atom = Sat_solver.Atom
 
 module Proof : sig
   type t = Sat_solver.Proof.t
@@ -49,16 +51,18 @@ val cc : t -> Congruence_closure.t
 val stats : t -> Stat.t
 val tst : t -> Term.state
 
+val mk_atom_lit : t -> Lit.t -> Atom.t
+val mk_atom_t : t -> ?sign:bool -> Term.t -> Atom.t
+
 val assume : t -> Lit.t IArray.t -> unit
 
 val assume_eq : t -> Term.t -> Term.t -> Lit.t -> unit
 val assume_distinct : t -> Term.t list -> neq:Term.t -> Lit.t -> unit
 
 val solve :
-  ?restarts:bool ->
   ?on_exit:(unit -> unit) list ->
   ?check:bool ->
-  assumptions:Lit.t list ->
+  assumptions:Atom.t list ->
   t ->
   res
 (** [solve s] checks the satisfiability of the statement added so far to [s]

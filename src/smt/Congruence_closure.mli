@@ -29,6 +29,10 @@ val add : t -> term -> node
 (** Add the term to the congruence closure, if not present already.
     Will be backtracked. *)
 
+val find_t : t -> term -> repr
+(** Current representative of the term.
+    @raise Not_found if the term is not already {!add}-ed. *)
+
 val add_seq : t -> term Sequence.t -> unit
 (** Add a sequence of terms to the congruence closure *)
 

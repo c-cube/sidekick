@@ -16,6 +16,7 @@ module Sat_solver = Msat.Make_cdcl_t(Theory_combine)
 let[@inline] clause_of_mclause (c:Sat_solver.clause): Lit.t IArray.t =
   Sat_solver.Clause.atoms c |> Array.map Sat_solver.Atom.formula |> IArray.of_array_unsafe
 
+module Atom = Sat_solver.Atom
 module Proof = struct
   type t = Sat_solver.Proof.t
 
@@ -41,7 +42,6 @@ module Proof = struct
       () p;
     Format.fprintf out "@])";
     ()
-
 end
 
 (* main solver state *)
@@ -57,6 +57,11 @@ let[@inline] add_theory self th = Theory_combine.add_theory (th_combine self) th
 let[@inline] cc self = Theory_combine.cc (th_combine self)
 let stats self = self.stat
 let[@inline] tst self = Theory_combine.tst (th_combine self)
+
+let[@inline] mk_atom_lit self lit : Atom.t = Sat_solver.make_atom self.solver lit
+let[@inline] mk_atom_t self ?sign t : Atom.t =
+  let lit = Lit.atom ?sign t in
+  mk_atom_lit self lit
 
 let create ?size ?(config=Config.empty) ~theories () : t =
   let th_combine = Theory_combine.create() in
@@ -212,13 +217,14 @@ let check_model (_s:t) : unit =
 
 (* TODO: main loop with iterative deepening of the unrolling  limit
    (not the value depth limit) *)
-let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
+let solve ?(on_exit=[]) ?check:(_=true) ~assumptions (self:t) : res =
   let r = Sat_solver.solve ~assumptions (solver self) in
   match r with
   | Sat_solver.Sat st ->
     Log.debugf 0 (fun k->k "SAT");
     let lits f = st.iter_trail f (fun _ -> ()) in
     let m = Theory_combine.mk_model (th_combine self) lits in
+    do_on_exit ~on_exit;
     Sat m
     (*
     let env = Ast.env_empty in
@@ -228,6 +234,7 @@ let solve ?on_exit:(_=[]) ?check:(_=true) ~assumptions (self:t) : res =
     *)
   | Sat_solver.Unsat us ->
     let pr = us.get_proof () in
+    do_on_exit ~on_exit;
     Unsat pr
 
 (* FIXME:

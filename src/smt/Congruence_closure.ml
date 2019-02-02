@@ -68,6 +68,8 @@ let rec find_rec cc (n:node) : repr =
   if n==n.n_root then (
     n
   ) else (
+    (* TODO: path compression, assuming backtracking restores equiv classes
+       properly *)
     let root = find_rec cc n.n_root in
     root
   )
@@ -127,7 +129,7 @@ let signature cc (t:term): node Term.view option =
     | App_cst (f, a) -> Some (App_cst (f, IArray.map find a)) (* FIXME: relevance? *)
     | Bool _ | If _
       -> None (* no congruence for these *)
-   end
+  end
 
 (* find whether the given (parent) term corresponds to some signature
    in [signatures_] *)
@@ -193,6 +195,7 @@ let[@inline][@unroll 2] rec distance_to_root (n:node): int = match n.n_expl with
   | E_none -> 0
   | E_some {next=t'; _} -> 1 + distance_to_root t'
 
+(* TODO: bool flag on nodes +  stepwise progress + cleanup *)
 (* find the closest common ancestor of [a] and [b] in the proof forest *)
 let find_common_ancestor (a:node) (b:node) : node =
   let d_a = distance_to_root a in
@@ -646,6 +649,10 @@ let create ?on_merge ?(size=`Big) (tst:Term.state) : t =
   ignore (Lazy.force true_ : node);
   ignore (Lazy.force false_ : node);
   cc
+
+let[@inline] find_t cc t : repr =
+  let n = Term.Tbl.find cc.tbl t in
+  find cc n
 
 let[@inline] check cc acts : unit =
   Log.debug 5 "(CC.check)";

@@ -9,7 +9,7 @@ module E = CCResult
 module A = Ast
 module Form = Sidekick_th_bool
 module Fmt = CCFormat
-module Dot = Msat_backend.Dot.Simple(Solver.Sat_solver)
+module Dot = Msat_backend.Dot.Make(Solver.Sat_solver)(Msat_backend.Dot.Default(Solver.Sat_solver))
 
 module Subst = struct
   type 'a t = 'a ID.Map.t
@@ -222,19 +222,18 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
   Log.debug 1 "(smt.check-smt-model)";
   let open Solver_types in
   let module S = Solver.Sat_solver in
-  let check_atom (lit:Lit.t) : bool option =
+  let check_atom (lit:Lit.t) : Msat.lbool =
     Log.debugf 5 (fun k->k "(@[smt.check-smt-model.atom@ %a@])" Lit.pp lit);
-    let a = S.Atom.make solver lit in
-    let is_true = S.Atom.is_true a in
-    let is_false = S.Atom.is_true (S.Atom.neg a) in
-    let sat_value = if is_true then Some true else if is_false then Some false else None in
+    let a = S.make_atom solver lit in
+    let sat_value = S.eval_atom solver a in
     let t, sign = Lit.as_atom lit in
     begin match Model.eval m t with
       | Some (V_bool b) ->
         let b = if sign then b else not b in
-        if (is_true || is_false) && ((b && is_false) || (not b && is_true)) then (
-          Error.errorf "(@[check-model.error@ :atom %a@ :model-val %B@ :sat-val %B@])"
-            S.Atom.pp a b (if is_true then true else not is_false)
+        if (sat_value <> Msat.L_undefined) &&
+           ((b && sat_value=Msat.L_false) || (not b && sat_value=Msat.L_true)) then (
+          Error.errorf "(@[check-model.error@ :atom %a@ :model-val %B@ :sat-val %a@])"
+            S.Atom.pp a b Msat.pp_lbool sat_value
         ) else (
           Log.debugf 5
             (fun k->k "(@[check-model@ :atom %a@ :model-val %B@ :no-sat-val@])" S.Atom.pp a b);
@@ -243,18 +242,18 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
         Error.errorf "(@[check-model.error@ :atom %a@ :non-bool-value %a@])"
           S.Atom.pp a Value.pp v
       | None ->
-        if is_true || is_false then (
-          Error.errorf "(@[check-model.error@ :atom %a@ :no-smt-value@ :sat-val %B@])"
-            S.Atom.pp a is_true
+        if sat_value <> Msat.L_undefined then (
+          Error.errorf "(@[check-model.error@ :atom %a@ :no-smt-value@ :sat-val %a@])"
+            S.Atom.pp a Msat.pp_lbool sat_value
         );
     end;
     sat_value
   in
   let check_c c =
     let bs = List.map check_atom c in
-    if List.for_all (function Some true -> false | _ -> true) bs then (
+    if List.for_all (function Msat.L_true -> false | _ -> true) bs then (
       Error.errorf "(@[check-model.error.none-true@ :clause %a@ :vals %a@])"
-        (Fmt.Dump.list Lit.pp) c Fmt.(Dump.list @@ Dump.option bool) bs
+        (Fmt.Dump.list Lit.pp) c Fmt.(Dump.list @@ Msat.pp_lbool) bs
     );
   in
   Vec.iter check_c hyps
@@ -262,7 +261,7 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
 (* call the solver to check-sat *)
 let solve
     ?gc:_
-    ?restarts
+    ?restarts:_
     ?dot_proof
     ?(pp_model=false)
     ?(check=false)
@@ -272,7 +271,7 @@ let solve
     s : unit =
   let t1 = Sys.time() in
   let res =
-    Solver.solve ?restarts ~assumptions s
+    Solver.solve ~assumptions s
     (* ?gc ?restarts ?time ?memory ?progress *)
   in
   let t2 = Sys.time () in
@@ -297,7 +296,7 @@ let solve
               (fun oc ->
                  Log.debugf 1 (fun k->k "write proof into `%s`" file);
                  let fmt = Format.formatter_of_out_channel oc in
-                 Dot.print fmt p;
+                 Dot.pp fmt p;
                  Format.pp_print_flush fmt (); flush oc)
         end
       );

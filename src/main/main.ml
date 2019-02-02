@@ -12,6 +12,7 @@ module Term = Sidekick_smt.Term
 module Ast = Sidekick_smt.Ast
 module Solver = Sidekick_smt.Solver
 module Process = Sidekick_smtlib.Process
+module Vec = Msat.Vec
 
 type 'a or_error = ('a, string) E.t
 
@@ -78,7 +79,7 @@ let argspec = Arg.align [
     "-no-p", Arg.Clear p_progress, " no progress bar";
     "-size", Arg.String (int_arg size_limit), " <s>[kMGT] sets the size limit for the sat solver";
     "-time", Arg.String (int_arg time_limit), " <t>[smhd] sets the time limit for the sat solver";
-    "-v", Arg.Int Sidekick_sat.Log.set_debug, "<lvl> sets the debug verbose level";
+    "-v", Arg.Int Sidekick_smt.Log.set_debug, "<lvl> sets the debug verbose level";
   ]
 
 type syntax =
@@ -123,7 +124,7 @@ let main () =
   (* process statements *)
   let res =
     try
-      let hyps = Vec.make_empty [] in
+      let hyps = Vec.create() in
       E.fold_l
         (fun () ->
            Process.process_stmt
@@ -160,6 +161,9 @@ let () = match main() with
       | Out_of_space ->
         Format.printf "Spaceout@.";
         exit 3
+      | Invalid_argument e ->
+        Format.printf "invalid argument:\n%s@." e;
+        exit 127
       | _ -> raise e
     end;
     if Printexc.backtrace_status () then (

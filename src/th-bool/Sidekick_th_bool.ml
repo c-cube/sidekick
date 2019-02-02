@@ -200,14 +200,14 @@ let tseitin (_self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term vie
       (* propagate [¬lit => ∨_i ¬ subs_i] *)
       let subs = IArray.to_list subs in
       let c = Lit.neg lit :: List.map (Lit.atom ~sign:false) subs in
-      A.add_local_axiom (IArray.of_list c)
+      A.add_local_axiom c
     )
   | B_or subs ->
     if Lit.sign lit then (
       (* propagate [lit => ∨_i subs_i] *)
       let subs = IArray.to_list subs in
       let c = Lit.neg lit :: List.map (Lit.atom ~sign:true) subs in
-      A.add_local_axiom (IArray.of_list c)
+      A.add_local_axiom c
     ) else (
       (* propagate [¬lit => ¬subs_i] *)
       IArray.iter
@@ -221,7 +221,7 @@ let tseitin (_self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term vie
       (* propagate [lit => ∨_i ¬guard_i ∨ concl] *)
       let guard = IArray.to_list guard in
       let c = Lit.atom concl :: Lit.neg lit :: List.map (Lit.atom ~sign:false) guard in
-      A.add_local_axiom (IArray.of_list c)
+      A.add_local_axiom c
     ) else (
       (* propagate [¬lit => ¬concl] *)
       A.propagate (Lit.atom ~sign:false concl) [lit];
