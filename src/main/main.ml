@@ -151,22 +151,25 @@ let () = match main() with
     exit 1
   | exception e ->
     let b = Printexc.get_backtrace () in
+    let exit_ n =
+      if Printexc.backtrace_status () then (
+        Format.fprintf Format.std_formatter "%s@." b
+      );
+      Pervasives.exit n
+    in
     begin match e with
       | Error.Error msg ->
         Format.printf "@{<Red>Error@}: %s@." msg;
-        ignore @@ exit 1
+        ignore @@ exit_ 1
       | Out_of_time ->
         Format.printf "Timeout@.";
-        exit 2
+        exit_ 2
       | Out_of_space ->
         Format.printf "Spaceout@.";
-        exit 3
+        exit_ 3
       | Invalid_argument e ->
         Format.printf "invalid argument:\n%s@." e;
-        exit 127
+        exit_ 127
       | _ -> raise e
-    end;
-    if Printexc.backtrace_status () then (
-      Format.fprintf Format.std_formatter "%s@." b
-    )
+    end
 
