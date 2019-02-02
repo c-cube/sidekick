@@ -18,6 +18,9 @@ depends: [
   "menhir"
   "ocaml" { >= "4.03" } 
 ]
+pin-depends: [
+  ["msat" "https://github.com/Gbury/mSAT.git#wip-refactor"]
+]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
 dev-repo: "git+https://github.com/c-cube/sidekick.git"
