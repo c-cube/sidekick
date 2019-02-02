@@ -471,9 +471,9 @@ and task_distinct_ cc acts (l:node list) tag expl : unit =
   begin match coll with
     | Some ((n1,_r1),(n2,_r2)) ->
       (* two classes are already equal *)
-      Log.debugf 5 (fun k->k "(@[cc.distinct.conflict@ %a = %a@])" N.pp n1 N.pp n2);
+      Log.debugf 5 (fun k->k "(@[cc.distinct.conflict@ %a = %a@ :expl %a@])" N.pp n1 N.pp n2 Explanation.pp expl);
       let lits = explain_unfold cc expl in
-      acts.Msat.acts_raise_conflict (Lit.Set.to_list lits) Proof_default
+      raise_conflict cc acts (Lit.Set.to_list lits)
     | None ->
       (* put a tag on all equivalence classes, that will make their merge fail *)
       List.iter (fun (_,n) -> add_tag_n cc n tag expl) l
