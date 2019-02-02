@@ -32,5 +32,5 @@ let pop_levels (self:_ t) (n:int) ~f : unit =
       let x = Vec.pop self.vec in
       f x
     done;
-    Vec.shrink self.lvls i
+    Vec.shrink self.lvls new_lvl
   )
