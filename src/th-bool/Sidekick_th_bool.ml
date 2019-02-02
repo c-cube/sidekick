@@ -108,22 +108,24 @@ let as_id id (t:Term.t) : Term.t IArray.t option =
   | _ -> None
 
 (* flatten terms of the given ID *)
-let flatten_id id (l:Term.t list) : Term.t list =
+let flatten_id op sign (l:Term.t list) : Term.t list =
   CCList.flat_map
-    (fun t -> match as_id id t with
+    (fun t -> match as_id op t with
        | Some args -> IArray.to_list args
+       | None when (sign && Term.is_true t) || (not sign && Term.is_false t) ->
+         [] (* idempotent *)
        | None -> [t])
     l
 
 let and_l st l =
-  match flatten_id id_and l with
+  match flatten_id id_and true l with
   | [] -> Term.true_ st
   | l when List.exists Term.is_false l -> Term.false_ st
   | [x] -> x
   | args -> Term.app_cst st C.and_ (IArray.of_list args)
 
 let or_l st l =
-  match flatten_id id_or l with
+  match flatten_id id_or false l with
   | [] -> Term.false_ st
   | l when List.exists Term.is_true l -> Term.true_ st
   | [x] -> x
@@ -133,8 +135,9 @@ let and_ st a b = and_l st [a;b]
 let or_ st a b = or_l st [a;b]
 
 let eq st a b =
-  if Term.equal a b then Term.true_ st
-  else (
+  if Term.equal a b then (
+    Term.true_ st
+  ) else (
     let a,b = if Term.id a > Term.id b then b, a else a, b in
     Term.app_cst st C.eq (IArray.doubleton a b)
   )
