@@ -589,6 +589,8 @@ let pop_levels (self:t) n : unit =
   Vec.iter (N.set_field N.field_is_pending false) self.pending;
   Vec.clear self.pending;
   Vec.clear self.combine;
+  Log.debugf 15
+    (fun k->k "(@[cc.pop-levels %d@ :n-lvls %d@])" n (Backtrack_stack.n_levels self.undo));
   Backtrack_stack.pop_levels self.undo n ~f:(fun f -> f());
   ()
 
