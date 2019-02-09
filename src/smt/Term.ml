@@ -86,6 +86,13 @@ let[@inline] is_const t = match view t with
   | App_cst (_, a) -> IArray.is_empty a
   | _ -> false
 
+let cc_view (t:t) =
+  let module C = Mini_cc in
+  match view t with
+  | Bool b -> C.Bool b
+  | App_cst (f,args) -> C.App (f, IArray.to_seq args)
+  | If (a,b,c) -> C.If (a,b,c)
+
 module As_key = struct
     type t = term
     let compare = compare
@@ -113,3 +120,4 @@ let as_cst_undef (t:term): (cst * Ty.Fun.t) option =
   | _ -> None
 
 let pp = Solver_types.pp_term
+

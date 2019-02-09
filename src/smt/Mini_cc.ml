@@ -1,9 +1,9 @@
  
 module H = CCHash
 
-type ('f, 't) view = ('f, 't) Mini_cc_intf.view =
+type ('f, 't, 'ts) view = ('f, 't, 'ts) Mini_cc_intf.view =
   | Bool of bool
-  | App of 'f * 't list
+  | App of 'f * 'ts
   | If of 't * 't * 't
 
 type res = Mini_cc_intf.res =
@@ -29,7 +29,7 @@ module Make(A: ARG) = struct
     mutable n_root: node;
   }
 
-  type signature = (fun_, node) view
+  type signature = (fun_, node, node list) view
 
   module Node = struct
     type t = node
@@ -106,8 +106,8 @@ module Make(A: ARG) = struct
 
   let sub_ t k : unit =
     match T.view t with
-    | Bool _ | App (_, []) -> ()
-    | App (_, l) -> List.iter k l
+    | Bool _ -> ()
+    | App (_, args) -> args k
     | If(a,b,c) -> k a; k b; k c
 
   let rec add_t (self:t) (t:term) : node =
@@ -166,8 +166,10 @@ module Make(A: ARG) = struct
         Sig_tbl.add self.sig_tbl s n
     in
     match T.view n.n_t with
-    | Bool _ | App (_, []) -> ()
-    | App (f, l) -> aux @@ App (f, List.map (find_t_ self) l)
+    | Bool _ -> ()
+    | App (f, args) ->
+      let args = args |> Sequence.map (find_t_ self) |> Sequence.to_list in
+      aux @@ App (f, args)
     | If (a,b,c) -> aux @@ If(find_t_ self a, find_t_ self b, find_t_ self c)
 
   (* merge the two classes *)

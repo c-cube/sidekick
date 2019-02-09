@@ -1,8 +1,12 @@
 
-type ('f, 't) view =
+type ('f, 't, 'ts) view =
   | Bool of bool
-  | App of 'f * 't list
+  | App of 'f * 'ts
   | If of 't * 't * 't
+
+(* TODO: also HO app, Eq, Distinct cases?
+   -> then API that just adds boolean terms and does the right thing in case of
+   Eq/Distinct *)
 
 type res =
   | Sat
@@ -20,8 +24,10 @@ module type ARG = sig
     type t
     val equal : t -> t -> bool
     val hash : t -> int
-    val view : t -> (Fun.t, t) view
     val pp : t Fmt.printer
+
+    (** View the term through the lens of the congruence closure *)
+    val view : t -> (Fun.t, t, t Sequence.t) view
   end
 end
 

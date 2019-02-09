@@ -1,9 +1,9 @@
 
 (** {1 Mini congruence closure} *)
 
-type ('f, 't) view = ('f, 't) Mini_cc_intf.view =
+type ('f, 't, 'ts) view = ('f, 't, 'ts) Mini_cc_intf.view =
   | Bool of bool
-  | App of 'f * 't list
+  | App of 'f * 'ts
   | If of 't * 't * 't
 
 type res = Mini_cc_intf.res =

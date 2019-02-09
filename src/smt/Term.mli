@@ -49,6 +49,8 @@ val is_true : t -> bool
 val is_false : t -> bool
 val is_const : t -> bool
 
+val cc_view : t -> (cst,t,t Sequence.t) Mini_cc.view
+
 (* return [Some] iff the term is an undefined constant *)
 val as_cst_undef : t -> (cst * Ty.Fun.t) option
 
