@@ -1,7 +1,7 @@
 
 open Solver_types
 
-module N = Equiv_class
+module N = Eq_class
 
 type node = N.t
 type repr = N.t

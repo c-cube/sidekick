@@ -41,10 +41,10 @@ module type ACTIONS = sig
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
-  val find: Term.t -> Equiv_class.t
+  val find: Term.t -> Eq_class.t
   (** Find representative of this term *)
 
-  val all_classes: Equiv_class.t Sequence.t
+  val all_classes: Eq_class.t Sequence.t
   (** All current equivalence classes
       (caution: linear in the number of terms existing in the solver) *)
 end
@@ -60,7 +60,7 @@ module type S = sig
   val create : Term.state -> t
   (** Instantiate the theory's state *)
 
-  val on_merge: t -> actions -> Equiv_class.t -> Equiv_class.t -> Explanation.t -> unit
+  val on_merge: t -> actions -> Eq_class.t -> Eq_class.t -> Explanation.t -> unit
   (** Called when two classes are merged *)
 
   val partial_check : t -> actions -> Lit.t Sequence.t -> unit

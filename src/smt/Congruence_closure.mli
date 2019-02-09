@@ -5,10 +5,10 @@ open Solver_types
 type t
 (** Global state of the congruence closure *)
 
-type node = Equiv_class.t
+type node = Eq_class.t
 (** Node in the congruence closure *)
 
-type repr = Equiv_class.t
+type repr = Eq_class.t
 (** Node that is currently a representative *)
 
 type conflict = Theory.conflict

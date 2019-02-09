@@ -28,7 +28,7 @@ type t = {
   (** congruence closure *)
   mutable theories : theory_state list;
   (** Set of theories *)
-  new_merges: (Equiv_class.t * Equiv_class.t * explanation) Vec.t;
+  new_merges: (Eq_class.t * Eq_class.t * explanation) Vec.t;
 }
 
 let[@inline] cc (t:t) = Lazy.force t.cc
@@ -86,7 +86,7 @@ let add_formula (self:t) (lit:Lit.t) =
   let t = Lit.view lit in
   let lazy cc = self.cc in
   let n = C_clos.add cc t in
-  Equiv_class.set_field Equiv_class.field_is_literal true n;
+  Eq_class.set_field Eq_class.field_is_literal true n;
   ()
 
 (* propagation from the bool solver *)
