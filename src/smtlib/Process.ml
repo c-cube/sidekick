@@ -236,7 +236,8 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
             S.Atom.pp a b Msat.pp_lbool sat_value
         ) else (
           Log.debugf 5
-            (fun k->k "(@[check-model@ :atom %a@ :model-val %B@ :no-sat-val@])" S.Atom.pp a b);
+            (fun k->k "(@[check-model@ :atom %a@ :model-val %B@ :sat-val %a@])"
+                S.Atom.pp a b Msat.pp_lbool sat_value);
         )
       | Some v ->
         Error.errorf "(@[check-model.error@ :atom %a@ :non-bool-value %a@])"
