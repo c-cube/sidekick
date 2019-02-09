@@ -68,3 +68,6 @@ val mk_model : t -> Model.t -> Model.t
 val check_invariants : t -> unit
 val pp_full : t Fmt.printer
 (**/**)
+
+module T_arg : Mini_cc_intf.ARG with type Fun.t = cst and type Term.t = Term.t
+module Mini_cc : module type of Mini_cc.Make(T_arg)
