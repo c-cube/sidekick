@@ -43,6 +43,16 @@ module type S = sig
     val hash : t -> int
     val pp : t Fmt.printer
 
+    val is_root : t -> bool
+
+    val iter_class : t -> t Sequence.t
+    (** Traverse the congruence class.
+        Invariant: [is_root n] (see {!find} below) *)
+
+    val iter_parents : t -> t Sequence.t
+    (** Traverse the parents of the class.
+        Invariant: [is_root n] (see {!find} below) *)
+
     type nonrec payload = payload = ..
 
     val payload_find: f:(payload -> 'a option) -> t -> 'a option
