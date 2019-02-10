@@ -853,16 +853,16 @@ module Make(A: ARG) = struct
     let n2 = add_term cc t2 in
     push_combine cc n1 n2 expl
 
-  let assert_distinct cc (l:term list) ~neq (lit:lit) : unit =
+  (* generative tag used to annotate classes that can't be merged *)
+  let distinct_tag_ = ref 0
+
+  let assert_distinct cc (l:term list) ~neq:_ (lit:lit) : unit =
     assert (match l with[] | [_] -> false | _ -> true);
-    assert false
-    (* FIXME
-    let tag = Term.id neq in
+    let tag = CCRef.get_then_incr distinct_tag_ in
     Log.debugf 5
-      (fun k->k "(@[cc.assert_distinct@ (@[%a@])@ :tag %d@])" (Util.pp_list Term.pp) l tag);
-    let l = List.map (add cc) l in
-    Vec.push cc.combine @@ CT_distinct (l, tag, Expl.lit lit)
-       *)
+      (fun k->k "(@[cc.assert_distinct@ (@[%a@])@ :tag %d@])" (Util.pp_list T.pp) l tag);
+    let l = List.map (add_term cc) l in
+    Vec.push cc.combine @@ CT_distinct (l, tag, Expl.mk_lit lit)
 
   let create ?on_merge ?(size=`Big) (tst:term_state) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
