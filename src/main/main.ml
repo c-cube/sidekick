@@ -90,6 +90,16 @@ let syntax_of_file file =
   if CCString.suffix ~suf:".cnf" file then Dimacs
   else Smtlib
 
+(* Limits alarm *)
+let check_limits () =
+  let t = Sys.time () in
+  let heap_size = (Gc.quick_stat ()).Gc.heap_words in
+  let s = float heap_size *. float Sys.word_size /. 8. in
+  if t > !time_limit then
+    raise Out_of_time
+  else if s > !size_limit then
+    raise Out_of_space
+
 let main () =
   CCFormat.set_color_default true;
   (* Administrative duties *)
@@ -98,6 +108,7 @@ let main () =
     Arg.usage argspec usage;
     exit 2
   );
+  let al = Gc.create_alarm check_limits in
   let syn = syntax_of_file !file in
   Util.setup_gc();
   let solver =
@@ -142,6 +153,7 @@ let main () =
   if !p_gc_stat then (
     Printf.printf "(gc_stats\n%t)\n" Gc.print_stat;
   );
+  Gc.delete_alarm al;
   res
 
 let () = match main() with
