@@ -15,7 +15,6 @@ let id_not = ID.make "not"
 let id_and = ID.make "and"
 let id_or = ID.make "or"
 let id_imply = ID.make "=>"
-let id_eq = ID.make "="
 let id_distinct = ID.make "distinct"
 
 type 'a view =
@@ -32,8 +31,6 @@ exception Not_a_th_term
 let view_id cst_id args =
   if ID.equal cst_id id_not && IArray.length args=1 then (
     B_not (IArray.get args 0)
-  ) else if ID.equal cst_id id_eq && IArray.length args=2 then (
-    B_eq (IArray.get args 0, IArray.get args 1)
   ) else if ID.equal cst_id id_and then (
     B_and args
   ) else if ID.equal cst_id id_or then (
@@ -45,22 +42,20 @@ let view_id cst_id args =
   ) else if ID.equal cst_id id_distinct then (
     B_distinct args
   ) else (
-    raise Not_a_th_term
+    raise_notrace Not_a_th_term
   )
 
 let view (t:Term.t) : term view =
   match Term.view t with
+  | Eq (a,b) -> B_eq (a,b)
   | App_cst ({cst_id; _}, args) ->
-    (try view_id cst_id args with Not_a_th_term -> B_atom t)
+    begin try view_id cst_id args with Not_a_th_term -> B_atom t end
   | _ -> B_atom t
 
 
 module C = struct
 
   let get_ty _ _ = Ty.prop
-
-  (* no congruence closure, except for `=` *)
-  let relevant id _ _ = ID.equal id_eq id
 
   let abs ~self _a =
     match Term.view self with
@@ -89,6 +84,9 @@ module C = struct
     | B_not _ | B_and _ | B_or _ | B_imply _
         -> Error.errorf "non boolean value in boolean connective"
 
+  (* no congruence closure for boolean terms *)
+  let relevant _id _ _ = false
+
   let mk_cst ?(do_cc=false) id : Cst.t =
     {cst_id=id;
      cst_view=Cst_def {
@@ -98,7 +96,6 @@ module C = struct
   let and_ = mk_cst id_and
   let or_ = mk_cst id_or
   let imply = mk_cst id_imply
-  let eq = mk_cst ~do_cc:true id_eq
   let distinct = mk_cst id_distinct
 end
 
@@ -134,13 +131,7 @@ let or_l st l =
 let and_ st a b = and_l st [a;b]
 let or_ st a b = or_l st [a;b]
 
-let eq st a b =
-  if Term.equal a b then (
-    Term.true_ st
-  ) else (
-    let a,b = if Term.id a > Term.id b then b, a else a, b in
-    Term.app_cst st C.eq (IArray.doubleton a b)
-  )
+let eq = Term.eq
 
 let not_ st a =
   match as_id id_not a, Term.view a with
@@ -164,7 +155,7 @@ let distinct st = function
 module Lit = struct
   include Lit
   let eq tst a b = Lit.atom ~sign:true (eq tst a b)
-  let neq tst a b = Lit.atom ~sign:false (neq tst a b)
+  let neq tst a b = neg @@ eq tst a b
 end
 
 type t = {
@@ -175,14 +166,8 @@ let tseitin (_self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term vie
   let (module A) = acts in
   Log.debugf 5 (fun k->k "(@[th_bool.tseitin@ %a@])" Lit.pp lit);
   match v with
-  | B_atom _ -> ()
   | B_not _ -> assert false (* normalized *)
-  | B_eq (t,u) ->
-    if Lit.sign lit then (
-      A.propagate_eq t u [lit]
-    ) else (
-      A.propagate_distinct [t;u] ~neq:lit_t lit
-    )
+  | B_atom _ | B_eq _ -> () (* CC will manage *)
   | B_distinct l ->
     let l = IArray.to_list l in
     if Lit.sign lit then (
@@ -197,7 +182,7 @@ let tseitin (_self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term vie
       IArray.iter
         (fun sub ->
            let sublit = Lit.atom sub in
-           A.propagate sublit [lit])
+           A.add_local_axiom [Lit.neg lit; sublit])
         subs
     ) else (
       (* propagate [¬lit => ∨_i ¬ subs_i] *)
@@ -216,7 +201,7 @@ let tseitin (_self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term vie
       IArray.iter
         (fun sub ->
            let sublit = Lit.atom ~sign:false sub in
-           A.propagate sublit [lit])
+           A.add_local_axiom [Lit.neg lit; sublit])
         subs
     )
   | B_imply (guard,concl) ->
@@ -239,7 +224,7 @@ let tseitin (_self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term vie
 let partial_check (self:t) acts (lits:Lit.t Sequence.t) =
   lits
     (fun lit ->
-       let t = Lit.view lit in
+       let t = Lit.term lit in
        match view t with
        | B_atom _ -> ()
        | v -> tseitin self acts lit t v)

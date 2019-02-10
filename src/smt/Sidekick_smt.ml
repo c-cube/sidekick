@@ -20,7 +20,6 @@ module Solver = Solver
 module Solver_types = Solver_types
 
 (**/**)
-module Bag = Bag
 module Vec = Msat.Vec
 module Log = Msat.Log
 (**/**)

@@ -9,3 +9,4 @@ module Backtrack_stack = Backtrack_stack
 module Error = Error
 module IArray = IArray
 module Intf = Intf
+module Bag = Bag

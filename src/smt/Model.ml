@@ -58,6 +58,24 @@ let empty : t = {
   funs=Cst.Map.empty;
 }
 
+(* FIXME: ues this to allocate a default value for each sort
+    (* get or make a default value for this type *)
+    let rec get_ty_default (ty:Ty.t) : Value.t =
+      match Ty.view ty with
+      | Ty_prop -> Value.true_
+      | Ty_atomic { def = Ty_uninterpreted _;_} ->
+        (* domain element *)
+        Ty_tbl.get_or_add ty_tbl ~k:ty
+          ~f:(fun ty -> Value.mk_elt (ID.makef "ty_%d" @@ Ty.id ty) ty)
+      | Ty_atomic { def = Ty_def d; args; _} ->
+        (* ask the theory for a default value *)
+        Ty_tbl.get_or_add ty_tbl ~k:ty
+          ~f:(fun _ty ->
+            let vals = List.map get_ty_default args in
+            d.default_val vals)
+    in
+   *)
+
 let[@inline] mem t m = Term.Map.mem t m.values
 let[@inline] find t m = Term.Map.get t m.values
 
@@ -102,9 +120,9 @@ let add_funs fs m : t = merge {values=Term.Map.empty; funs=fs} m
 
 let pp out {values; funs} =
   let module FI = Fun_interpretation in
-  let pp_tv out (t,v) = Fmt.fprintf out "(@[%a@ %a@])" Term.pp t Value.pp v in
+  let pp_tv out (t,v) = Fmt.fprintf out "(@[%a@ := %a@])" Term.pp t Value.pp v in
   let pp_fun_entry out (vals,ret) =
-    Format.fprintf out "(@[%a@ %a@])" (Fmt.Dump.list Value.pp) vals Value.pp ret
+    Format.fprintf out "(@[%a@ := %a@])" (Fmt.Dump.list Value.pp) vals Value.pp ret
   in
   let pp_fun out (c, fi: Cst.t * FI.t) =
     Format.fprintf out "(@[<hov>%a :default %a@ %a@])"
@@ -127,6 +145,10 @@ let eval (m:t) (t:Term.t) : Value.t option =
         | V_bool false -> aux c
         | v -> Error.errorf "@[Model: wrong value@ for boolean %a@ %a@]" Term.pp a Value.pp v
       end
+    | Eq(a,b) ->
+      let a = aux a in
+      let b = aux b in
+      if Value.equal a b then Value.true_ else Value.false_
     | App_cst (c, args) ->
       begin try Term.Map.find t m.values
         with Not_found ->

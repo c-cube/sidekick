@@ -37,10 +37,6 @@ val empty : t
 
 val add : Term.t -> Value.t -> t -> t
 
-val add_fun : Cst.t -> Fun_interpretation.t -> t -> t
-
-val add_funs : Fun_interpretation.t Cst.Map.t -> t -> t
-
 val mem : Term.t -> t -> bool
 
 val find : Term.t -> t -> Value.t option

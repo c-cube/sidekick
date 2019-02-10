@@ -3,7 +3,6 @@
 
 (** Combine the congruence closure with a number of plugins *)
 
-module C_clos = Congruence_closure
 open Solver_types
 
 module Proof = struct
@@ -12,6 +11,8 @@ module Proof = struct
 end
 
 module Formula = Lit
+module Eq_class = CC.N
+module Expl = CC.Expl
 
 type formula = Lit.t
 type proof = Proof.t
@@ -24,11 +25,11 @@ type theory_state =
 type t = {
   tst: Term.state;
   (** state for managing terms *)
-  cc: C_clos.t lazy_t;
+  cc: CC.t lazy_t;
   (** congruence closure *)
   mutable theories : theory_state list;
   (** Set of theories *)
-  new_merges: (Eq_class.t * Eq_class.t * explanation) Vec.t;
+  new_merges: (Eq_class.t * Eq_class.t * Expl.t) Vec.t;
 }
 
 let[@inline] cc (t:t) = Lazy.force t.cc
@@ -41,24 +42,28 @@ let[@inline] theories (self:t) : theory_state Sequence.t =
 (* handle a literal assumed by the SAT solver *)
 let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
   Msat.Log.debugf 2
-    (fun k->k "(@[<1>@{<green>th_combine.assume_lits@}@ @[%a@]@])" (Fmt.seq Lit.pp) lits);
+    (fun k->k "(@[<hv1>@{<green>th_combine.assume_lits@}@ %a@])"
+        (Util.pp_seq ~sep:";" Lit.pp) lits);
   (* transmit to CC *)
   Vec.clear self.new_merges;
   let cc = cc self in
-  C_clos.assert_lits cc lits;
+  if not final then (
+    CC.assert_lits cc lits;
+  );
   (* transmit to theories. *)
-  C_clos.check cc acts;
+  CC.check cc acts;
   let module A = struct
     let[@inline] raise_conflict c : 'a = acts.Msat.acts_raise_conflict c Proof_default
-    let[@inline] propagate_eq t u expl : unit = C_clos.assert_eq cc t u expl
-    let propagate_distinct ts ~neq expl = C_clos.assert_distinct cc ts ~neq expl
+    let[@inline] propagate_eq t u expl : unit = CC.assert_eq cc t u expl
+    let propagate_distinct ts ~neq expl = CC.assert_distinct cc ts ~neq expl
     let[@inline] propagate p cs : unit = acts.Msat.acts_propagate p (Msat.Consequence (cs, Proof_default))
     let[@inline] add_local_axiom lits : unit =
       acts.Msat.acts_add_clause ~keep:false lits Proof_default
     let[@inline] add_persistent_axiom lits : unit =
       acts.Msat.acts_add_clause ~keep:true lits Proof_default
-    let[@inline] find t = C_clos.find_t cc t
-    let all_classes = C_clos.all_classes cc
+    let[@inline] cc_add_term t = CC.add_term cc t
+    let[@inline] cc_find t = CC.find cc t
+    let cc_all_classes = CC.all_classes cc
   end in
   let acts = (module A : Theory.ACTIONS) in
   theories self
@@ -83,10 +88,10 @@ let check_ ~final (self:t) (acts:_ Msat.acts) =
   assert_lits_ ~final self acts iter
 
 let add_formula (self:t) (lit:Lit.t) =
-  let t = Lit.view lit in
+  let t = Lit.term lit in
   let lazy cc = self.cc in
-  let n = C_clos.add cc t in
-  Eq_class.set_field Eq_class.field_is_literal true n;
+  let n = CC.add_term cc t in
+  CC.set_as_lit cc n (Lit.abs lit);
   ()
 
 (* propagation from the bool solver *)
@@ -98,21 +103,21 @@ let[@inline] final_check (self:t) (acts:_ Msat.acts) : unit =
   check_ ~final:true self acts
 
 let push_level (self:t) : unit =
-  C_clos.push_level (cc self);
+  CC.push_level (cc self);
   theories self (fun (Th_state ((module Th), st)) -> Th.push_level st)
 
 let pop_levels (self:t) n : unit =
-  C_clos.pop_levels (cc self) n;
+  CC.pop_levels (cc self) n;
   theories self (fun (Th_state ((module Th), st)) -> Th.pop_levels st n)
 
 let mk_model (self:t) lits : Model.t =
   let m =
     Sequence.fold
-      (fun m (Th_state ((module Th),st)) -> Model.merge m (Th.mk_model st lits))
+      (fun m (Th_state ((module Th),st)) -> Th.mk_model st lits m)
       Model.empty (theories self)
   in
   (* now complete model using CC *)
-  Congruence_closure.mk_model (cc self) m
+  CC.mk_model (cc self) m
 
 (** {2 Interface to Congruence Closure} *)
 
@@ -131,16 +136,16 @@ let create () : t =
     cc = lazy (
       (* lazily tie the knot *)
       let on_merge = on_merge_from_cc self in
-      C_clos.create ~on_merge ~size:`Big self.tst;
+      CC.create ~on_merge ~size:`Big self.tst;
     );
     theories = [];
   } in
-  ignore (Lazy.force @@ self.cc : C_clos.t);
+  ignore (Lazy.force @@ self.cc : CC.t);
   self
 
 let check_invariants (self:t) =
   if Util._CHECK_INVARIANTS then (
-    Congruence_closure.check_invariants (cc self);
+    CC.check_invariants (cc self);
   )
 
 let add_theory (self:t) (th:Theory.t) : unit =

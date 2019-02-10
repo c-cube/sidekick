@@ -4,6 +4,7 @@ open Solver_types
 type 'a view = 'a Solver_types.term_view =
   | Bool of bool
   | App_cst of cst * 'a IArray.t
+  | Eq of 'a * 'a
   | If of 'a * 'a * 'a
 
 type t = term view
@@ -15,6 +16,7 @@ val true_ : t
 val false_ : t
 val const : cst -> t
 val app_cst : cst -> term IArray.t -> t
+val eq : term -> term -> t
 val if_ : term -> term -> term -> t
 
 val is_value : t -> bool

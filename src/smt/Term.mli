@@ -10,6 +10,7 @@ type t = term = {
 type 'a view = 'a term_view =
   | Bool of bool
   | App_cst of cst * 'a IArray.t
+  | Eq of 'a * 'a
   | If of 'a * 'a * 'a
 
 val id : t -> int
@@ -26,8 +27,10 @@ val create : ?size:int -> unit -> state
 val make : state -> t view -> t
 val true_ : state -> t
 val false_ : state -> t
+val bool : state -> bool -> t
 val const : state -> cst -> t
 val app_cst : state -> cst -> t IArray.t -> t
+val eq : state -> t -> t -> t
 val if_: state -> t -> t -> t -> t
 val and_eager : state -> t -> t -> t (* evaluate left argument first *)
 
@@ -49,7 +52,7 @@ val is_true : t -> bool
 val is_false : t -> bool
 val is_const : t -> bool
 
-val cc_view : t -> (cst,t,t Sequence.t) Mini_cc.view
+val cc_view : t -> (cst,t,t Sequence.t) Sidekick_cc.view
 
 (* return [Some] iff the term is an undefined constant *)
 val as_cst_undef : t -> (cst * Ty.Fun.t) option

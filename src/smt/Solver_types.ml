@@ -3,7 +3,6 @@ module Vec = Msat.Vec
 module Log = Msat.Log
 
 module Fmt = CCFormat
-module Node_bits = CCBitField.Make(struct end)
 
 (* for objects that are expanded on demand only *)
 type 'a lazily_expanded =
@@ -21,42 +20,8 @@ type term = {
 and 'a term_view =
   | Bool of bool
   | App_cst of cst * 'a IArray.t (* full, first-order application *)
+  | Eq of 'a * 'a
   | If of 'a * 'a * 'a
-
-(** A node of the congruence closure.
-    An equivalence class is represented by its "root" element,
-    the representative.
-
-    If there is a normal form in the congruence class, then the
-    representative is a normal form *)
-and equiv_class = {
-  n_term: term;
-  mutable n_bits: Node_bits.t; (* bitfield for various properties *)
-  mutable n_parents: equiv_class Bag.t; (* parent terms of this node *)
-  mutable n_root: equiv_class; (* representative of congruence class (itself if a representative) *)
-  mutable n_next: equiv_class; (* pointer to next element of congruence class *)
-  mutable n_size: int; (* size of the class *)
-  mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
-  mutable n_payload: equiv_class_payload list; (* list of theory payloads *)
-  mutable n_tags: (equiv_class * explanation) Util.Int_map.t; (* "distinct" tags (i.e. set of `(distinct t1…tn)` terms this belongs to *)
-}
-
-(** Theory-extensible payloads *)
-and equiv_class_payload = ..
-
-and explanation_forest_link =
-  | E_none
-  | E_some of {
-      next: equiv_class;
-      expl: explanation;
-    }
-
-(* atomic explanation in the congruence closure *)
-and explanation =
-  | E_reduction (* by pure reduction, tautologically equal *)
-  | E_merges of (equiv_class * equiv_class) IArray.t (* caused by these merges *)
-  | E_lit of lit (* because of this literal *)
-  | E_lits of lit list (* because of this (true) conjunction *)
 
 (* boolean literal *)
 and lit = {
@@ -157,23 +122,6 @@ let hash_lit a =
   let sign = a.lit_sign in
   Hash.combine3 2 (Hash.bool sign) (term_hash_ a.lit_term)
 
-let cmp_cc_node a b = term_cmp_ a.n_term b.n_term
-
-let cmp_exp a b =
-  let toint = function
-    | E_merges _ -> 0 | E_lit _ -> 1
-    | E_reduction -> 2 | E_lits _ -> 3
-  in
-  begin match a, b with
-    | E_merges l1, E_merges l2 ->
-      IArray.compare (CCOrd.pair cmp_cc_node cmp_cc_node) l1 l2
-    | E_reduction, E_reduction -> 0
-    | E_lit l1, E_lit l2 -> cmp_lit l1 l2
-    | E_lits l1, E_lits l2 -> CCList.compare cmp_lit l1 l2
-    | E_merges _, _ | E_lit _, _ | E_lits _, _ | E_reduction, _
-      -> CCInt.compare (toint a)(toint b)
-  end
-
 let pp_cst out a = ID.pp out a.cst_id
 let id_of_cst a = a.cst_id
 
@@ -215,6 +163,7 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
     pp_id out (id_of_cst c)
   | App_cst (f,l) ->
     Fmt.fprintf out "(@[<1>%a@ %a@])" pp_id (id_of_cst f) (Util.pp_iarray pp_t) l
+  | Eq (a,b) -> Fmt.fprintf out "(@[<hv>=@ %a@ %a@])" pp_t a pp_t b
   | If (a, b, c) ->
     Fmt.fprintf out "(@[if %a@ %a@ %a@])" pp_t a pp_t b pp_t c
 
@@ -233,14 +182,5 @@ let pp_lit out l =
   if l.lit_sign then pp_term out l.lit_term
   else Format.fprintf out "(@[@<1>¬@ %a@])" pp_term l.lit_term
 
-let pp_cc_node out n = pp_term out n.n_term
-
-let pp_explanation out (e:explanation) = match e with
-  | E_reduction -> Fmt.string out "reduction"
-  | E_lit lit -> pp_lit out lit
-  | E_lits l -> CCFormat.Dump.list pp_lit out l
-  | E_merges l ->
-    Format.fprintf out "(@[<hv1>merges@ %a@])"
-      Fmt.(seq ~sep:(return "@ ") @@ within "[" "]" @@ hvbox @@
-        pair ~sep:(return "@ <-> ") pp_cc_node pp_cc_node)
-      (IArray.to_seq l)
+let pp_proof out = function
+  | Proof_default -> Fmt.fprintf out "<default proof>"

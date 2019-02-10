@@ -15,6 +15,8 @@ val is_bool : t -> bool
 val is_true : t -> bool
 val is_false : t -> bool
 
+val fresh : Term.t -> t
+
 include Intf.EQ with type t := t
 include Intf.HASH with type t := t
 include Intf.PRINT with type t := t

@@ -208,11 +208,9 @@ let assume (self:t) (c:Lit.t IArray.t) : unit =
   let c = IArray.to_array_map (Sat_solver.make_atom sat) c in
   Sat_solver.add_clause_a sat c Proof_default
 
-let[@inline] assume_eq self t u expl : unit =
-  Congruence_closure.assert_eq (cc self) t u [expl]
-
+(* TODO: remove? use a special constant + micro theory instead? *)
 let[@inline] assume_distinct self l ~neq lit : unit =
-  Congruence_closure.assert_distinct (cc self) l lit ~neq
+  CC.assert_distinct (cc self) l lit ~neq
 
 let check_model (_s:t) : unit =
   Log.debug 1 "(smt.solver.check-model)";

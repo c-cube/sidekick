@@ -10,7 +10,7 @@ type t = lit = {
 val neg : t -> t
 val abs : t -> t
 val sign : t -> bool
-val view : t -> term
+val term : t -> term
 val as_atom : t -> term * bool
 val atom : ?sign:bool -> term -> t
 val hash : t -> int

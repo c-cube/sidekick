@@ -19,3 +19,5 @@ let equal = eq_value
 let hash = hash_value
 let pp = pp_value
 
+let fresh (t:term) : t =
+  mk_elt (ID.makef "v_%d" t.term_id) t.term_ty

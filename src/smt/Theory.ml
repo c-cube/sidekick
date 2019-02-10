@@ -18,6 +18,9 @@ end
     Its negation will become a conflict clause *)
 type conflict = Lit.t list
 
+module CC_eq_class = CC.N
+module CC_expl = CC.Expl
+
 (** Actions available to a theory during its lifetime *)
 module type ACTIONS = sig
   val raise_conflict: conflict -> 'a
@@ -41,12 +44,15 @@ module type ACTIONS = sig
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
-  val find: Term.t -> Eq_class.t
-  (** Find representative of this term *)
+  val cc_add_term: Term.t -> CC_eq_class.t
+  (** add/get term to the congruence closure *)
 
-  val all_classes: Eq_class.t Sequence.t
+  val cc_find: CC_eq_class.t -> CC_eq_class.t
+  (** Find representative of this in the congruence closure *)
+
+  val cc_all_classes: CC_eq_class.t Sequence.t
   (** All current equivalence classes
-      (caution: linear in the number of terms existing in the solver) *)
+      (caution: linear in the number of terms existing in the congruence closure) *)
 end
 
 type actions = (module ACTIONS)
@@ -60,7 +66,7 @@ module type S = sig
   val create : Term.state -> t
   (** Instantiate the theory's state *)
 
-  val on_merge: t -> actions -> Eq_class.t -> Eq_class.t -> Explanation.t -> unit
+  val on_merge: t -> actions -> CC_eq_class.t -> CC_eq_class.t -> CC_expl.t -> unit
   (** Called when two classes are merged *)
 
   val partial_check : t -> actions -> Lit.t Sequence.t -> unit
@@ -70,7 +76,7 @@ module type S = sig
   (** Final check, must be complete (i.e. must raise a conflict
       if the set of literals is not satisfiable) *)
 
-  val mk_model : t -> Lit.t Sequence.t -> Model.t
+  val mk_model : t -> Lit.t Sequence.t -> Model.t -> Model.t
   (** Make a model for this theory's terms *)
 
   val push_level : t -> unit
@@ -91,7 +97,7 @@ let make
     ?(check_invariants=fun _ -> ())
     ?(on_merge=fun _ _ _ _ _ -> ())
     ?(partial_check=fun _ _ _ -> ())
-    ?(mk_model=fun _ _ -> Model.empty)
+    ?(mk_model=fun _ _ m -> m)
     ?(push_level=fun _ -> ())
     ?(pop_levels=fun _ _ -> ())
     ~name

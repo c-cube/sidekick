@@ -8,7 +8,7 @@ type t = lit = {
 
 let[@inline] neg l = {l with lit_sign=not l.lit_sign}
 let[@inline] sign t = t.lit_sign
-let[@inline] view (t:t): term = t.lit_term
+let[@inline] term (t:t): term = t.lit_term
 
 let[@inline] abs t: t = {t with lit_sign=true}
 

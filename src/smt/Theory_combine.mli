@@ -13,7 +13,7 @@ include Msat.Solver_intf.PLUGIN_CDCL_T
 
 val create : unit -> t
 
-val cc : t -> Congruence_closure.t
+val cc : t -> CC.t
 val tst : t -> Term.state
 
 type theory_state =

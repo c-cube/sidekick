@@ -10,6 +10,7 @@ type t = term = {
 type 'a view = 'a term_view =
   | Bool of bool
   | App_cst of cst * 'a IArray.t
+  | Eq of 'a * 'a
   | If of 'a * 'a * 'a
 
 let[@inline] id t = t.term_id
@@ -47,6 +48,7 @@ let[@inline] make st (c:t term_view) : t =
 
 let[@inline] true_ st = Lazy.force st.true_
 let[@inline] false_ st = Lazy.force st.false_
+let bool st b = if b then true_ st else false_ st
 
 let create ?(size=1024) () : state =
   let rec st ={
@@ -66,9 +68,9 @@ let app_cst st f a =
   let cell = Term_cell.app_cst f a in
   make st cell
 
-let const st c = app_cst st c IArray.empty
-
-let if_ st a b c = make st (Term_cell.if_ a b c)
+let[@inline] const st c = app_cst st c IArray.empty
+let[@inline] if_ st a b c = make st (Term_cell.if_ a b c)
+let[@inline] eq st a b = make st (Term_cell.eq a b)
 
 (* "eager" and, evaluating [a] first *)
 let and_eager st a b = if_ st a b (false_ st)
@@ -87,10 +89,12 @@ let[@inline] is_const t = match view t with
   | _ -> false
 
 let cc_view (t:t) =
-  let module C = Mini_cc in
+  let module C = Sidekick_cc in
   match view t with
   | Bool b -> C.Bool b
-  | App_cst (f,args) -> C.App (f, IArray.to_seq args)
+  | App_cst (f,_) when not (Cst.do_cc f) -> C.Opaque t (* skip *)
+  | App_cst (f,args) -> C.App_fun (f, IArray.to_seq args)
+  | Eq (a,b) -> C.Eq (a, b)
   | If (a,b,c) -> C.If (a,b,c)
 
 module As_key = struct
@@ -109,6 +113,7 @@ let to_seq t yield =
     match view t with
     | Bool _ -> ()
     | App_cst (_,a) -> IArray.iter aux a
+    | Eq (a,b) -> aux a; aux b
     | If (a,b,c) -> aux a; aux b; aux c
   in
   aux t
@@ -121,3 +126,14 @@ let as_cst_undef (t:term): (cst * Ty.Fun.t) option =
 
 let pp = Solver_types.pp_term
 
+
+(* TODO 
+  module T_arg = struct
+    module Fun = Cst
+    module Term = struct
+      include Term
+      let view = cc_view
+    end
+  end
+  module Mini_cc = Mini_cc.Make(T_arg)
+   *)
