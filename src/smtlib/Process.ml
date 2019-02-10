@@ -287,20 +287,22 @@ let solve
       );
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
-    | Solver.Unsat p ->
+    | Solver.Unsat None ->
+      Format.printf "Unsat (%.3f/%.3f/-)@." t1 (t2-.t1);
+    | Solver.Unsat (Some p) ->
       if check then (
         Solver.Proof.check p;
-        begin match dot_proof with
-          | None ->  ()
-          | Some file ->
-            CCIO.with_out file
-              (fun oc ->
-                 Log.debugf 1 (fun k->k "write proof into `%s`" file);
-                 let fmt = Format.formatter_of_out_channel oc in
-                 Dot.pp fmt p;
-                 Format.pp_print_flush fmt (); flush oc)
-        end
       );
+      begin match dot_proof with
+        | None ->  ()
+        | Some file ->
+          CCIO.with_out file
+            (fun oc ->
+               Log.debugf 1 (fun k->k "write proof into `%s`" file);
+               let fmt = Format.formatter_of_out_channel oc in
+               Dot.pp fmt p;
+               Format.pp_print_flush fmt (); flush oc)
+      end;
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
     | Solver.Unknown reas ->

@@ -107,7 +107,7 @@ let main () =
       | Smtlib ->
         [Sidekick_th_bool.th] (* TODO: more theories *)
     in
-    Sidekick_smt.Solver.create ~theories ()
+    Sidekick_smt.Solver.create ~store_proof:!check ~theories ()
   in
   let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
   begin match syn with

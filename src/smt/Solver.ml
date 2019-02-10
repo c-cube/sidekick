@@ -63,10 +63,10 @@ let[@inline] mk_atom_t self ?sign t : Atom.t =
   let lit = Lit.atom ?sign t in
   mk_atom_lit self lit
 
-let create ?size ?(config=Config.empty) ~theories () : t =
+let create ?size ?(config=Config.empty) ?store_proof ~theories () : t =
   let th_combine = Theory_combine.create() in
   let self = {
-    solver=Sat_solver.create ?size th_combine;
+    solver=Sat_solver.create ?store_proof ?size th_combine;
     stat=Stat.create ();
     config;
   } in
@@ -168,7 +168,7 @@ let pp_model = Model.pp
 
 type res =
   | Sat of model
-  | Unsat of Proof.t
+  | Unsat of Proof.t option
   | Unknown of unknown
 
 (** {2 Main} *)
@@ -221,7 +221,7 @@ let check_model (_s:t) : unit =
 
 (* TODO: main loop with iterative deepening of the unrolling  limit
    (not the value depth limit) *)
-let solve ?(on_exit=[]) ?check:(_=true) ~assumptions (self:t) : res =
+let solve ?(on_exit=[]) ?(check=true) ~assumptions (self:t) : res =
   let r = Sat_solver.solve ~assumptions (solver self) in
   match r with
   | Sat_solver.Sat st ->
@@ -237,7 +237,13 @@ let solve ?(on_exit=[]) ?check:(_=true) ~assumptions (self:t) : res =
     Unknown U_incomplete (* TODO *)
     *)
   | Sat_solver.Unsat us ->
-    let pr = us.get_proof () in
+    let pr =
+      try
+        let pr = us.get_proof () in
+        if check then Sat_solver.Proof.check pr;
+        Some pr
+      with Msat.Solver_intf.No_proof -> None
+    in
     do_on_exit ~on_exit;
     Unsat pr
 

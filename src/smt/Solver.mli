@@ -30,7 +30,7 @@ type unknown =
 
 type res =
   | Sat of Model.t
-  | Unsat of Proof.t
+  | Unsat of Proof.t option
   | Unknown of unknown
 
 (** {2 Main} *)
@@ -41,6 +41,7 @@ type t
 val create :
   ?size:[`Big | `Tiny | `Small] ->
   ?config:Config.t ->
+  ?store_proof:bool ->
   theories:Theory.t list ->
   unit -> t
 
