@@ -842,9 +842,9 @@ module Make(A: ARG) = struct
     let sign = A.Lit.sign lit in
     begin match T.cc_view t with
       | Eq (a,b) when sign ->
-        (* merge [a] and [b] *)
         let a = add_term cc a in
         let b = add_term cc b in
+        (* merge [a] and [b] *)
         push_combine cc a b (Expl.mk_lit lit)
       | _ ->
         (* equate t and true/false *)

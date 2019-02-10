@@ -42,8 +42,8 @@ let[@inline] theories (self:t) : theory_state Sequence.t =
 (* handle a literal assumed by the SAT solver *)
 let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
   Msat.Log.debugf 2
-    (fun k->k "(@[<hv1>@{<green>th_combine.assume_lits@}@ %a@])"
-        (Util.pp_seq ~sep:";" Lit.pp) lits);
+    (fun k->k "(@[<hv1>@{<green>th_combine.assume_lits@}%s@ %a@])"
+        (if final then "[final]" else "") (Util.pp_seq ~sep:"; " Lit.pp) lits);
   (* transmit to CC *)
   Vec.clear self.new_merges;
   let cc = cc self in
