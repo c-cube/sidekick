@@ -160,6 +160,7 @@ end
 
 type t = {
   tst: Term.state;
+  expanded: unit Term.Tbl.t; (* set of literals already expanded *)
 }
 
 let pp_c out c = Fmt.fprintf out "(@[<hv>%a@])" (Util.pp_list Lit.pp) c
@@ -167,6 +168,11 @@ let pp_c out c = Fmt.fprintf out "(@[<hv>%a@])" (Util.pp_list Lit.pp) c
 let tseitin ~final (self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:term view) : unit =
   let (module A) = acts in
   Log.debugf 5 (fun k->k "(@[th_bool.tseitin@ %a@])" Lit.pp lit);
+  let expanded () = Term.Tbl.mem self.expanded lit_t in
+  let add_axiom c =
+    Term.Tbl.replace self.expanded lit_t ();
+    A.add_persistent_axiom c
+  in
   match v with
   | B_not _ -> assert false (* normalized *)
   | B_atom _ | B_eq _ -> () (* CC will manage *)
@@ -174,7 +180,7 @@ let tseitin ~final (self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:te
     let l = IArray.to_list l in
     if Lit.sign lit then (
       A.propagate_distinct l ~neq:lit_t lit
-    ) else if final then (
+    ) else if final && not @@ expanded () then (
       (* add clause [distinct t1…tn ∨ ∨_{i,j>i} t_i=j] *)
       let c =
         Sequence.diagonal_l l
@@ -183,7 +189,7 @@ let tseitin ~final (self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:te
       in
       let c = Lit.neg lit :: c in
       Log.debugf 5 (fun k->k "(@[tseitin.distinct.case-split@ %a@])" pp_c c);
-      A.add_local_axiom c
+      add_axiom c
     )
   | B_and subs ->
     if Lit.sign lit then (
@@ -193,11 +199,11 @@ let tseitin ~final (self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:te
            let sublit = Lit.atom sub in
            A.propagate sublit [lit])
         subs
-    ) else if final then (
+    ) else if final && not @@ expanded () then (
       (* axiom [¬lit => ∨_i ¬ subs_i] *)
       let subs = IArray.to_list subs in
       let c = Lit.neg lit :: List.map (Lit.atom ~sign:false) subs in
-      A.add_local_axiom c
+      add_axiom c
     )
   | B_or subs ->
     if not @@ Lit.sign lit then (
@@ -207,18 +213,18 @@ let tseitin ~final (self:t) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (v:te
            let sublit = Lit.atom ~sign:false sub in
            A.add_local_axiom [Lit.neg lit; sublit])
         subs
-    ) else if final then (
+    ) else if final && not @@ expanded () then (
       (* axiom [lit => ∨_i subs_i] *)
       let subs = IArray.to_list subs in
       let c = Lit.neg lit :: List.map (Lit.atom ~sign:true) subs in
-      A.add_local_axiom c
+      add_axiom c
     )
   | B_imply (guard,concl) ->
-    if Lit.sign lit && final then (
+    if Lit.sign lit && final && not @@ expanded () then (
       (* axiom [lit => ∨_i ¬guard_i ∨ concl] *)
       let guard = IArray.to_list guard in
       let c = Lit.atom concl :: Lit.neg lit :: List.map (Lit.atom ~sign:false) guard in
-      A.add_local_axiom c
+      add_axiom c
     ) else if not @@ Lit.sign lit then (
       (* propagate [¬lit => ¬concl] *)
       A.propagate (Lit.atom ~sign:false concl) [lit];
@@ -249,6 +255,6 @@ let th =
     ~partial_check
     ~final_check
     ~name:"boolean"
-    ~create:(fun tst -> {tst})
+    ~create:(fun tst -> {tst; expanded=Term.Tbl.create 24})
     ?mk_model:None (* entirely interpreted *)
     ()
