@@ -225,7 +225,7 @@ let solve ?(on_exit=[]) ?(check=true) ~assumptions (self:t) : res =
   let r = Sat_solver.solve ~assumptions (solver self) in
   match r with
   | Sat_solver.Sat st ->
-    Log.debugf 0 (fun k->k "SAT");
+    Log.debugf 1 (fun k->k "SAT");
     let lits f = st.iter_trail f (fun _ -> ()) in
     let m = Theory_combine.mk_model (th_combine self) lits in
     do_on_exit ~on_exit;

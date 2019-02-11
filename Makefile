@@ -32,6 +32,17 @@ clean:
 test:
 	@dune runtest
 
+TESTOPTS ?= -j $(J)
+TESTTOOL=logitest
+DATE=$(shell date +%FT%H:%M)
+
+logitest-quick:
+	@mkdir -p snapshots
+	$(TESTTOOL) run -c tests/conf.toml tests/ $(TESTOPTS) \
+	  --meta `git rev-parse HEAD` --summary snapshots/quick-$(DATE).txt \
+	  --csv snapshots/quick-$(DATE).csv
+
+
 install: build-install
 	@dune install
 

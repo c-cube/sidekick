@@ -1,0 +1,30 @@
+
+provers = [ "sidekick", "read-status" ]
+default_expect = "sat"
+
+[sidekick]
+
+binary = "./sidekick"
+cmd = "./sidekick -no-check -time $timeout $file"
+unsat = "Unsat"
+sat = "Sat"
+unknown = "Timeout|Unknown"
+version = "git:."
+
+[read-status]
+
+cmd = "grep :status $file"
+unsat = ":status unsat"
+sat = ":status sat"
+
+[test]
+
+timeout=10
+problems = ".*\\.(smt2|cnf)"
+provers = [ "sidekick", ]
+dir = [ "." ]
+
+expect = "program:read-status"
+
+
+
