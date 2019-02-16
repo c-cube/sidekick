@@ -114,9 +114,10 @@ let main () =
   let solver =
     let theories = match syn with
       | Dimacs ->
-        [Sidekick_th_bool.th]
+        (* TODO: eager CNF conversion *)
+        [Sidekick_th_bool.th_dynamic_tseitin]
       | Smtlib ->
-        [Sidekick_th_bool.th] (* TODO: more theories *)
+        [Sidekick_th_bool.th_dynamic_tseitin] (* TODO: more theories *)
     in
     Sidekick_smt.Solver.create ~store_proof:!check ~theories ()
   in
