@@ -18,9 +18,7 @@ module Atom = Sat_solver.Atom
 
 module Proof : sig
   type t = Sat_solver.Proof.t
-
   val check : t -> unit
-  val pp : t CCFormat.printer
 end
 
 type unknown =

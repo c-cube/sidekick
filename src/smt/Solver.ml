@@ -17,32 +17,7 @@ let[@inline] clause_of_mclause (c:Sat_solver.clause): Lit.t IArray.t =
   Sat_solver.Clause.atoms c |> Array.map Sat_solver.Atom.formula |> IArray.of_array_unsafe
 
 module Atom = Sat_solver.Atom
-module Proof = struct
-  type t = Sat_solver.Proof.t
-
-  let check = Sat_solver.Proof.check
-
-  let pp out (p:t) : unit =
-    let pp_step_res out p =
-      let {Sat_solver.Proof.conclusion; _ } = Sat_solver.Proof.expand p in
-      Sat_solver.Clause.pp out conclusion
-    in
-    let pp_step out = function
-      | Sat_solver.Proof.Lemma _ -> Format.fprintf out "(@[<1>lemma@ ()@])"
-      | Sat_solver.Proof.Resolution (p1, p2, _) ->
-        Format.fprintf out "(@[<1>resolution@ %a@ %a@])"
-          pp_step_res p1 pp_step_res p2
-      | _ -> Fmt.string out "<other>"
-    in
-    Format.fprintf out "(@[<v>";
-    Sat_solver.Proof.fold
-      (fun () {Sat_solver.Proof.conclusion; step } ->
-         Format.fprintf out "(@[<hv1>step@ %a@ @[<1>from:@ %a@]@])@,"
-           Sat_solver.Clause.pp conclusion pp_step step)
-      () p;
-    Format.fprintf out "@])";
-    ()
-end
+module Proof = Sat_solver.Proof
 
 (* main solver state *)
 type t = {
