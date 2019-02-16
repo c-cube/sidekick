@@ -24,8 +24,6 @@ val ty : t -> Ty.t
 
 val pp : t Fmt.printer
 
-module Tbl : CCHashtbl.S with type key = t
-
 module type ARG = sig
   type t
   val hash : t -> int

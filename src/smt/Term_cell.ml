@@ -46,7 +46,7 @@ end[@@inline]
 include Make_eq(struct
     type t = term
     let equal (t1:t) t2 = t1==t2
-    let hash (t:term): int = t.term_id
+    let hash (t:term): int = CCHash.int t.term_id
     let pp = pp_term
   end)
 

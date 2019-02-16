@@ -34,7 +34,7 @@ val eq : state -> t -> t -> t
 val if_: state -> t -> t -> t -> t
 val and_eager : state -> t -> t -> t (* evaluate left argument first *)
 
-(* TODO: remove *)
+(** Obtain unsigned version of [t], + the sign as a boolean *)
 val abs : t -> t * bool
 
 val to_seq : t -> t Sequence.t

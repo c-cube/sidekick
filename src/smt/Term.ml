@@ -21,30 +21,29 @@ let equal = term_equal_
 let hash = term_hash_
 let compare a b = CCInt.compare a.term_id b.term_id
 
-(* TODO: when GC is implemented, add a field for recycling IDs
-   that have been free'd, so we can keep the ID space dense. *)
+module H = Hashcons.Make(struct
+    type t = term
+    let equal t1 t2 = Term_cell.equal t1.term_view t2.term_view
+    let hash t = Term_cell.hash t.term_view
+    let set_id t id =
+      assert (t.term_id < 0);
+      t.term_id <- id
+  end)
 
 type state = {
-  tbl : term Term_cell.Tbl.t;
+  tbl : H.t;
   mutable n: int;
   true_ : t lazy_t;
   false_ : t lazy_t;
 }
 
-let mk_real_ st c : t =
-  let term_ty = Term_cell.ty c in
-  let t = {
-    term_id= st.n;
-    term_ty;
-    term_view=c;
-  } in
-  st.n <- 1 + st.n;
-  Term_cell.Tbl.add st.tbl c t;
-  t
-
 let[@inline] make st (c:t term_view) : t =
-  try Term_cell.Tbl.find st.tbl c
-  with Not_found -> mk_real_ st c
+  let t = {term_id= -1; term_ty=Ty.prop; term_view=c} in
+  let t' = H.hashcons st.tbl t in
+  if t == t' then (
+    t'.term_ty <- Term_cell.ty c;
+  );
+  t'
 
 let[@inline] true_ st = Lazy.force st.true_
 let[@inline] false_ st = Lazy.force st.false_
@@ -53,7 +52,7 @@ let bool st b = if b then true_ st else false_ st
 let create ?(size=1024) () : state =
   let rec st ={
     n=2;
-    tbl=Term_cell.Tbl.create size;
+    tbl=H.create ~size ();
     true_ = lazy (make st Term_cell.true_);
     false_ = lazy (make st Term_cell.false_);
   } in
