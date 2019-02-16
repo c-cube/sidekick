@@ -39,12 +39,7 @@ val abs : t -> t * bool
 
 val to_seq : t -> t Sequence.t
 
-val all_terms : state -> t Sequence.t
-
 val pp : t Fmt.printer
-
-val is_value : t -> bool
-(** Values are special terms that behave specially wrt congruence/equality *)
 
 (** {6 Views} *)
 

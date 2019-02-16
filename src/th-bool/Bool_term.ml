@@ -86,7 +86,7 @@ module C = struct
   let mk_cst ?(do_cc=false) id : cst =
     {cst_id=id;
      cst_view=Cst_def {
-         pp=None; abs; ty=get_ty; relevant; is_value=false; do_cc; eval=eval id; }; }
+         pp=None; abs; ty=get_ty; relevant; do_cc; eval=eval id; }; }
 
   let not = mk_cst id_not
   let and_ = mk_cst id_and
