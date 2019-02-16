@@ -9,6 +9,12 @@ module Bits = CCBitField.Make()
 let field_is_pending = Bits.mk_field()
 (** true iff the node is in the [cc.pending] queue *)
 
+let field_usr1 = Bits.mk_field()
+(** General purpose *)
+
+let field_usr2 = Bits.mk_field()
+(** General purpose *)
+
 let () = Bits.freeze()
 
 type payload = Congruence_closure_intf.payload = ..
@@ -39,7 +45,7 @@ module Make(A: ARG) = struct
     mutable n_root: node; (* representative of congruence class (itself if a representative) *)
     mutable n_next: node; (* pointer to next element of congruence class *)
     mutable n_size: int; (* size of the class *)
-    mutable n_as_lit: lit option;
+    mutable n_as_lit: lit option; (* TODO: put into payload? and only in root? *)
     mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
     mutable n_payload: payload list; (* list of theory payloads *)
     (* TODO: make a micro theory and move this inside *)
@@ -149,26 +155,6 @@ module Make(A: ARG) = struct
 
   module Expl = struct
     type t = explanation
-
-    let equal (a:t) b =
-      match a, b with
-      | E_merges l1, E_merges l2 ->
-        CCList.equal (CCPair.equal N.equal N.equal) l1 l2
-      | E_reduction, E_reduction -> true
-      | E_lit l1, E_lit l2 -> A.Lit.equal l1 l2
-      | E_lits l1, E_lits l2 -> CCList.equal A.Lit.equal l1 l2
-      | E_merges _, _ | E_lit _, _ | E_lits _, _ | E_reduction, _
-        -> false
-
-    let hash (a:t) : int =
-      let module H = CCHash in
-      match a with
-      | E_lit lit -> H.combine2 10 (A.Lit.hash lit)
-      | E_lits l ->
-        H.combine2 20 (H.list A.Lit.hash l)
-      | E_merges l ->
-        H.combine2 30 (H.list (H.pair N.hash N.hash) l)
-      | E_reduction -> H.int 40
 
     let pp out (e:explanation) = match e with
       | E_reduction -> Fmt.string out "reduction"
