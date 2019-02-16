@@ -18,7 +18,7 @@ module Make(Term : ARG) = struct
 
   module Lit = struct
     include Sidekick_smt.Lit
-    let eq tst a b = atom ~sign:true (Term.make tst (B_eq (a,b)))
+    let eq tst a b = atom tst ~sign:true @@ Term.make tst (B_eq (a,b))
     let neq tst a b = neg @@ eq tst a b
   end
 
@@ -60,13 +60,13 @@ module Make(Term : ARG) = struct
         (* propagate [lit => subs_i] *)
         IArray.iter
           (fun sub ->
-             let sublit = Lit.atom sub in
+             let sublit = Lit.atom self.tst sub in
              A.propagate sublit [lit])
           subs
       ) else if final && not @@ expanded () then (
         (* axiom [¬lit => ∨_i ¬ subs_i] *)
         let subs = IArray.to_list subs in
-        let c = Lit.neg lit :: List.map (Lit.atom ~sign:false) subs in
+        let c = Lit.neg lit :: List.map (Lit.atom self.tst ~sign:false) subs in
         add_axiom c
       )
     | B_or subs ->
@@ -74,28 +74,28 @@ module Make(Term : ARG) = struct
         (* propagate [¬lit => ¬subs_i] *)
         IArray.iter
           (fun sub ->
-             let sublit = Lit.atom ~sign:false sub in
+             let sublit = Lit.atom self.tst ~sign:false sub in
              A.add_local_axiom [Lit.neg lit; sublit])
           subs
       ) else if final && not @@ expanded () then (
         (* axiom [lit => ∨_i subs_i] *)
         let subs = IArray.to_list subs in
-        let c = Lit.neg lit :: List.map (Lit.atom ~sign:true) subs in
+        let c = Lit.neg lit :: List.map (Lit.atom self.tst ~sign:true) subs in
         add_axiom c
       )
     | B_imply (guard,concl) ->
       if Lit.sign lit && final && not @@ expanded () then (
         (* axiom [lit => ∨_i ¬guard_i ∨ concl] *)
         let guard = IArray.to_list guard in
-        let c = Lit.atom concl :: Lit.neg lit :: List.map (Lit.atom ~sign:false) guard in
+        let c = Lit.atom self.tst concl :: Lit.neg lit :: List.map (Lit.atom self.tst ~sign:false) guard in
         add_axiom c
       ) else if not @@ Lit.sign lit then (
         (* propagate [¬lit => ¬concl] *)
-        A.propagate (Lit.atom ~sign:false concl) [lit];
+        A.propagate (Lit.atom self.tst ~sign:false concl) [lit];
         (* propagate [¬lit => ∧_i guard_i] *)
         IArray.iter
           (fun sub ->
-             let sublit = Lit.atom ~sign:true sub in
+             let sublit = Lit.atom self.tst ~sign:true sub in
              A.propagate sublit [lit])
           guard
       )

@@ -35,7 +35,7 @@ val if_: state -> t -> t -> t -> t
 val and_eager : state -> t -> t -> t (* evaluate left argument first *)
 
 (** Obtain unsigned version of [t], + the sign as a boolean *)
-val abs : t -> t * bool
+val abs : state -> t -> t * bool
 
 val to_seq : t -> t Sequence.t
 

@@ -14,8 +14,8 @@ let[@inline] abs t: t = {t with lit_sign=true}
 
 let make ~sign t = {lit_sign=sign; lit_term=t}
 
-let atom ?(sign=true) (t:term) : t =
-  let t, sign' = Term.abs t in
+let atom tst ?(sign=true) (t:term) : t =
+  let t, sign' = Term.abs tst t in
   let sign = if not sign' then not sign else sign in
   make ~sign t
 

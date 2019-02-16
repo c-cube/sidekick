@@ -72,9 +72,10 @@ let[@inline] eq st a b = make st (Term_cell.eq a b)
 let and_eager st a b = if_ st a b (false_ st)
 
 (* might need to tranfer the negation from [t] to [sign] *)
-let abs t : t * bool = match view t with
+let abs tst t : t * bool = match view t with
+  | Bool false -> true_ tst, false
   | App_cst ({cst_view=Cst_def def; _}, args) ->
-    def.abs ~self:t args
+    def.abs ~self:t args (* TODO: pass state *)
   | _ -> t, true
 
 let[@inline] is_true t = match view t with Bool true -> true | _ -> false

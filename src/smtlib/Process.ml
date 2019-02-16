@@ -316,7 +316,7 @@ let mk_iatom =
   fun tst i ->
     let c = Util.Int_tbl.get_or_add tbl ~k:(abs i) 
         ~f:(fun i -> Cst.mk_undef_const (ID.makef "a_%d" i) Ty.prop) in
-    Lit.atom ~sign:(i>0) @@ Term.const tst c
+    Lit.atom tst ~sign:(i>0) @@ Term.const tst c
 
 (* process a single statement *)
 let process_stmt
@@ -370,7 +370,7 @@ let process_stmt
       if pp_cnf then (
         Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t
       );
-      let atom = Lit.atom t in
+      let atom = Lit.atom tst t in
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
       Solver.assume solver (IArray.singleton atom);
       E.return()

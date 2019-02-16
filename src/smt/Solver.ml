@@ -35,7 +35,7 @@ let[@inline] tst self = Theory_combine.tst (th_combine self)
 
 let[@inline] mk_atom_lit self lit : Atom.t = Sat_solver.make_atom self.solver lit
 let[@inline] mk_atom_t self ?sign t : Atom.t =
-  let lit = Lit.atom ?sign t in
+  let lit = Lit.atom (tst self)  ?sign t in
   mk_atom_lit self lit
 
 let create ?size ?(config=Config.empty) ?store_proof ~theories () : t =
@@ -50,17 +50,15 @@ let create ?size ?(config=Config.empty) ?store_proof ~theories () : t =
   (* assert [true] and [not false] *)
   let tst = tst self in
   Sat_solver.assume self.solver [
-    [Lit.atom @@ Term.true_ tst];
-    [Lit.atom ~sign:false @@ Term.false_ tst];
+    [Lit.atom tst @@ Term.true_ tst];
   ] Proof_default;
   self
 
 (** {2 Sat Solver} *)
 
 let print_progress (st:t) : unit =
-  Printf.printf "\r[%.2f] expanded %d | clauses %d | lemmas %d%!"
+  Printf.printf "\r[%.2f] clauses %d | lemmas %d%!"
     (get_time())
-    st.stat.Stat.num_cst_expanded
     st.stat.Stat.num_clause_push
     st.stat.Stat.num_clause_tautology
 
@@ -160,19 +158,13 @@ let pp_term_graph _out (_:t) =
 let pp_stats out (s:t) : unit =
   Format.fprintf out
     "(@[<hv1>stats@ \
-     :num_expanded %d@ \
-     :num_uty_expanded %d@ \
      :num_clause_push %d@ \
      :num_clause_tautology %d@ \
      :num_propagations %d@ \
-     :num_unif %d@ \
      @])"
-    s.stat.Stat.num_cst_expanded
-    s.stat.Stat.num_uty_expanded
     s.stat.Stat.num_clause_push
     s.stat.Stat.num_clause_tautology
     s.stat.Stat.num_propagations
-    s.stat.Stat.num_unif
 
 let do_on_exit ~on_exit =
   List.iter (fun f->f()) on_exit;

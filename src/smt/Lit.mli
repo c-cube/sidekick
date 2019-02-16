@@ -12,7 +12,7 @@ val abs : t -> t
 val sign : t -> bool
 val term : t -> term
 val as_atom : t -> term * bool
-val atom : ?sign:bool -> term -> t
+val atom : Term.state -> ?sign:bool -> term -> t
 val hash : t -> int
 val compare : t -> t -> int
 val equal : t -> t -> bool
