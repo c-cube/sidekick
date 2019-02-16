@@ -44,6 +44,7 @@ module type S = sig
     val pp : t Fmt.printer
 
     val is_root : t -> bool
+    (** Is the node a root (ie the representative of its class)? *)
 
     val iter_class : t -> t Sequence.t
     (** Traverse the congruence class.
@@ -68,6 +69,8 @@ module type S = sig
   module Expl : sig
     type t
     val pp : t Fmt.printer
+
+    (* TODO: expose constructors for micro theories to use *)
   end
 
   type node = N.t
@@ -79,6 +82,9 @@ module type S = sig
   type explanation = Expl.t
 
   type conflict = lit list
+
+  (* TODO: notion of micro theory, parametrized by [on_backtrack, find, etc]
+     and with callbacks for on_merge? *)
 
   (* TODO micro theories as parameters *)
   val create :
