@@ -9,59 +9,53 @@
 type 'a t =
   | E
   | L of 'a
-  | N of 'a t * 'a t * int (* size *)
+  | N of 'a t * 'a t (* size *)
 
 let empty = E
 
-let is_empty = function
+let[@inline] is_empty = function
   | E -> true
   | L _ | N _ -> false
 
-let size = function
-  | E -> 0
-  | L _ -> 1
-  | N (_,_,sz) -> sz
+let[@inline] return x = L x
 
-let return x = L x
-
-let append a b = match a, b with
+let[@inline] append a b = match a, b with
   | E, _ -> b
   | _, E -> a
-  | _ -> N (a, b, size a + size b)
+  | _ -> N (a, b)
 
 let cons x t = match t with
   | E -> L x
-  | L _ -> N (L x, t, 2)
-  | N (_,_,sz) -> N (L x, t, sz+1)
+  | L _ -> N (L x, t)
+  | N (_,_) -> N (L x, t)
 
 let rec fold f acc = function
   | E -> acc
   | L x -> f acc x
-  | N (a,b,_) -> fold f (fold f acc a) b
+  | N (a,b) -> fold f (fold f acc a) b
 
-let rec to_seq t yield = match t with
+let[@unroll 2] rec to_seq t yield = match t with
   | E -> ()
   | L x -> yield x
-  | N (a,b,_) -> to_seq a yield; to_seq b yield
+  | N (a,b) -> to_seq a yield; to_seq b yield
 
-let iter f t = to_seq t f
+let[@inline] iter f t = to_seq t f
 
 let equal f a b =
   let rec push x l = match x with
     | E -> l
     | L _ -> x :: l
-    | N (a,b,_) -> push a (b::l)
+    | N (a,b) -> push a (b::l)
   in
   (* same-fringe traversal, using two stacks *)
   let rec aux la lb = match la, lb with
     | [], [] -> true
     | E::_, _ | _, E::_ -> assert false
-    | N (x,y,_)::la, _ -> aux (push x (y::la)) lb
-    | _, N(x,y,_)::lb -> aux la (push x (y::lb))
+    | N (x,y)::la, _ -> aux (push x (y::la)) lb
+    | _, N(x,y)::lb -> aux la (push x (y::lb))
     | L x :: la, L y :: lb -> f x y && aux la lb
     | [], L _::_
     | L _::_, [] -> false
   in
-  size a = size b &&
   aux (push a []) (push b [])
 

@@ -9,16 +9,13 @@
 type +'a t = private
   | E
   | L of 'a
-  | N of 'a t * 'a t * int (* size *)
+  | N of 'a t * 'a t
 
 val empty : 'a t
 
 val is_empty : _ t -> bool
 
 val return : 'a -> 'a t
-
-val size : _ t -> int
-(** Constant time *)
 
 val cons : 'a -> 'a t -> 'a t
 
