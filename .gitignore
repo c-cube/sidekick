@@ -11,3 +11,6 @@ doc/index.html
 *.exe
 .merlin
 *.install
+papers/
+snapshots/
+perf.*
