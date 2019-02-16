@@ -276,13 +276,14 @@ module Make(A: ARG) = struct
   let[@inline] mem (cc:t) (t:term): bool = T_tbl.mem cc.tbl t
 
   (* find representative, recursively *)
-  let[@unroll 1] rec find_rec (n:node) : repr =
+  let[@unroll 2] rec find_rec (n:node) : repr =
     if n==n.n_root then (
       n
     ) else (
-      (* TODO: path compression, assuming backtracking restores equiv classes
-         properly *)
       let root = find_rec n.n_root in
+      if root != n.n_root then (
+        n.n_root <- root; (* path compression *)
+      );
       root
     )
 
