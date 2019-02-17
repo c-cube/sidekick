@@ -61,7 +61,7 @@ module Make(Term : ARG) = struct
         IArray.iter
           (fun sub ->
              let sublit = Lit.atom self.tst sub in
-             A.propagate sublit [lit])
+             A.propagate_l sublit [lit])
           subs
       ) else if final && not @@ expanded () then (
         (* axiom [¬lit => ∨_i ¬ subs_i] *)
@@ -91,12 +91,12 @@ module Make(Term : ARG) = struct
         add_axiom c
       ) else if not @@ Lit.sign lit then (
         (* propagate [¬lit => ¬concl] *)
-        A.propagate (Lit.atom self.tst ~sign:false concl) [lit];
+        A.propagate_l (Lit.atom self.tst ~sign:false concl) [lit];
         (* propagate [¬lit => ∧_i guard_i] *)
         IArray.iter
           (fun sub ->
              let sublit = Lit.atom self.tst ~sign:true sub in
-             A.propagate sublit [lit])
+             A.propagate_l sublit [lit])
           guard
       )
 

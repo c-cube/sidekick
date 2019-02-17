@@ -27,12 +27,17 @@ module type ACTIONS = sig
   (** Give a conflict clause to the solver *)
 
   val propagate_eq: Term.t -> Term.t -> Lit.t list -> unit
-  (** Propagate an equality [t = u] because [e] *)
+  (** Propagate an equality [t = u] because [e].
+      TODO: use [CC.Expl] instead, with lit/merge constructors *)
 
   val propagate_distinct: Term.t list -> neq:Term.t -> Lit.t -> unit
   (** Propagate a [distinct l] because [e] (where [e = neq] *)
 
-  val propagate: Lit.t -> Lit.t list -> unit
+  val propagate: Lit.t -> (unit -> Lit.t list) -> unit
+  (** Propagate a boolean using a unit clause.
+      [expl => lit] must be a theory lemma, that is, a T-tautology *)
+
+  val propagate_l: Lit.t -> Lit.t list -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 

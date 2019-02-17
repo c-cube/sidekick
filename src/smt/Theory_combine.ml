@@ -56,7 +56,9 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
     let[@inline] raise_conflict c : 'a = acts.Msat.acts_raise_conflict c Proof_default
     let[@inline] propagate_eq t u expl : unit = CC.assert_eq cc t u expl
     let propagate_distinct ts ~neq expl = CC.assert_distinct cc ts ~neq expl
-    let[@inline] propagate p cs : unit = acts.Msat.acts_propagate p (Msat.Consequence (cs, Proof_default))
+    let[@inline] propagate p cs : unit =
+      acts.Msat.acts_propagate p (Msat.Consequence (fun () -> cs(), Proof_default))
+    let[@inline] propagate_l p cs : unit = propagate p (fun()->cs)
     let[@inline] add_local_axiom lits : unit =
       acts.Msat.acts_add_clause ~keep:false lits Proof_default
     let[@inline] add_persistent_axiom lits : unit =

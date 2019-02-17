@@ -781,8 +781,10 @@ module Make(A: ARG) = struct
            let lit = if sign then lit else A.Lit.neg lit in (* apply sign *)
            Log.debugf 5 (fun k->k "(@[cc.bool_propagate@ %a@])" A.Lit.pp lit);
            (* complete explanation with the [u1=t1] chunk *)
-           let expl = explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1 in
-           let reason = Msat.Consequence (expl, A.Proof.default) in
+           let expl () =
+             let e = explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1 in
+             e, A.Proof.default in
+           let reason = Msat.Consequence expl in
            acts.Msat.acts_propagate lit reason
          | _ -> ())
 
