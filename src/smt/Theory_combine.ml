@@ -29,7 +29,6 @@ type t = {
   (** congruence closure *)
   mutable theories : theory_state list;
   (** Set of theories *)
-  new_merges: (Eq_class.t * Eq_class.t * Expl.t) Vec.t;
 }
 
 let[@inline] cc (t:t) = Lazy.force t.cc
@@ -45,7 +44,6 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
     (fun k->k "(@[<hv1>@{<green>th_combine.assume_lits@}%s@ %a@])"
         (if final then "[final]" else "") (Util.pp_seq ~sep:"; " Lit.pp) lits);
   (* transmit to CC *)
-  Vec.clear self.new_merges;
   let cc = cc self in
   if not final then (
     CC.assert_lits cc lits;
@@ -71,7 +69,6 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
   theories self
     (fun (Th_state ((module Th),st)) ->
        (* give new merges, then call {final,partial}-check *)
-       Vec.iter (fun (r1,r2,e) -> Th.on_merge st acts r1 r2 e) self.new_merges;
        if final then Th.final_check st acts lits else Th.partial_check st acts lits);
   ()
 
@@ -123,10 +120,6 @@ let mk_model (self:t) lits : Model.t =
 
 (** {2 Interface to Congruence Closure} *)
 
-(* when CC decided to merge [r1] and [r2], notify theories *)
-let[@inline] on_merge_from_cc (self:t) r1 r2 e : unit =
-  Vec.push self.new_merges (r1,r2,e)
-
 (** {2 Main} *)
 
 (* create a new theory combination *)
@@ -134,11 +127,10 @@ let create () : t =
   Log.debug 5 "th_combine.create";
   let rec self = {
     tst=Term.create ~size:1024 ();
-    new_merges=Vec.create();
     cc = lazy (
       (* lazily tie the knot *)
-      let on_merge = on_merge_from_cc self in
-      CC.create ~on_merge ~size:`Big self.tst;
+      (* TODO: pass theories *)
+      CC.create ~size:`Big self.tst;
     );
     theories = [];
   } in

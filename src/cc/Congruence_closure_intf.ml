@@ -1,7 +1,39 @@
 
 module type ARG = CC_types.FULL
 
-module type S0 = sig
+(** Data stored by a theory for its own terms.
+
+    It needs to form a commutative monoid where values can be unmerged upon
+    backtracking.
+*)
+module type THEORY_DATA = sig
+  type term
+  type t
+
+  val empty : t
+
+  val equal : t -> t -> bool
+  (** Equality. This is used to optimize backtracking info. *)
+
+  val merge : t -> t -> t
+  (** [merge d1 d2] is called when merging classes with data [d1] and [d2]
+      respectively. The theory should already have checked that the merge
+      is compatible, and this produces the combined data  for terms in the
+      merged class. *)
+end
+
+type ('t, 'a) theory_data = (module THEORY_DATA with type term = 't and type t = 'a)
+
+module type THEORY_KEY = sig
+  type ('t, 'a) t
+  (** An access key for theories that use terms ['t] and which have
+      per-class data ['a] *)
+
+  val create : ('t, 'a) theory_data -> ('t, 'a) t
+  (** Generative creation of keys for the given theory data. *)
+end
+
+module type S = sig
   type term_state
   type term
   type fun_
@@ -9,12 +41,11 @@ module type S0 = sig
   type proof
   type model
 
-  (** Actions available to the theory *)
-  type sat_actions = (Msat.void, lit, Msat.void, proof) Msat.acts
+  (** Implementation of theory keys *)
+  module Key : THEORY_KEY
 
   type t
   (** Global state of the congruence closure *)
-
 
   (** An equivalence class is a set of terms that are currently equal
       in the partial model built by the solver.
@@ -74,18 +105,9 @@ module type S0 = sig
 
   type conflict = lit list
 
-  (* TODO: notion of micro theory, parametrized by [on_backtrack, find, etc]
-     and with callbacks for on_merge? *)
+  (** Accessors *)
 
-  (* TODO micro theories as parameters *)
-  val create :
-    ?on_merge:(repr -> repr -> explanation -> unit) ->
-    ?size:[`Small | `Big] ->
-    term_state ->
-    t
-  (** Create a new congruence closure.
-      @param on_merge callback to be called on every merge
-  *)
+  val term_state : t -> term_state
 
   val find : t -> node -> repr
   (** Current representative *)
@@ -94,11 +116,40 @@ module type S0 = sig
   (** Add the term to the congruence closure, if not present already.
       Will be backtracked. *)
 
+  (** Actions available to the theory *)
+  type sat_actions = (Msat.void, lit, Msat.void, proof) Msat.acts
+
+  val create :
+    ?on_merge:(t -> repr -> repr -> explanation -> unit) list ->
+    ?on_new_term:(t -> repr -> term -> unit) list ->
+    ?size:[`Small | `Big] ->
+    term_state ->
+    t
+  (** Create a new congruence closure. *)
+
+  val on_merge : t -> (t -> repr -> repr -> explanation -> unit) -> unit
+  (** Add a callback, to be called whenever two classes are merged *)
+
+  val on_new_term : t -> (t -> repr -> term -> unit) -> unit
+  (** Add a callback, to be called whenever a node is added *)
+
+  val merge_classes : t -> node -> node -> explanation -> unit
+  (** Merge the two given nodes with given explanation.
+      It must be a theory tautology that [expl ==> n1 = n2] *)
+
+  val th_data_get : t -> N.t -> (term, 'a) Key.t -> 'a option
+  (** Get data information for this particular representative *)
+
+  val th_data_add : t -> N.t -> (term, 'a) Key.t -> 'a -> unit
+  (** Add the given data to this node (or rather, to its representative).
+      This will be backtracked. *)
+
+  (* TODO: merge true/false? 
+  val raise_conflict : CC.t -> CC.N.t -> CC.N.t -> Expl.t -> 'a
+     *)
+
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
-
-  val add_term' : t -> term -> unit
-  (** Same as {!add_term} but ignore the result *)
 
   val find_t : t -> term -> repr
   (** Current representative of the term.
@@ -108,17 +159,21 @@ module type S0 = sig
   (** Add a sequence of terms to the congruence closure *)
 
   val all_classes : t -> repr Sequence.t
-  (** All current classes *)
+  (** All current classes. This is costly, only use if there is no other solution *)
 
   val assert_lit : t -> lit -> unit
   (** Given a literal, assume it in the congruence closure and propagate
-      its consequences. Will be backtracked. *)
+      its consequences. Will be backtracked.
+  
+      Useful for the theory combination or the SAT solver's functor *)
 
   val assert_lits : t -> lit Sequence.t -> unit
+  (** Addition of many literals *)
 
   val assert_eq : t -> term -> term -> lit list -> unit
   (** merge the given terms with some explanations *)
 
+  (* TODO: remove and move into its own library as a micro theory *)
   val assert_distinct : t -> term list -> neq:term -> lit -> unit
   (** [assert_distinct l ~neq:u e] asserts all elements of [l] are distinct
       because [lit] is true
@@ -129,8 +184,10 @@ module type S0 = sig
       Will use the [sat_actions] to propagate literals, declare conflicts, etc. *)
 
   val push_level : t -> unit
+  (** Push backtracking level *)
 
   val pop_levels : t -> int -> unit
+  (** Restore to state [n] calls to [push_level] earlier. Used during backtracking. *)
 
   val mk_model : t -> model -> model
   (** Enrich a model by mapping terms to their representative's value,
@@ -140,11 +197,5 @@ module type S0 = sig
   val check_invariants : t -> unit
   val pp_full : t Fmt.printer
   (**/**)
-end
-
-module type S = sig
-
-  include S0
-
 
 end

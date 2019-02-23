@@ -71,8 +71,10 @@ module type S = sig
   val create : Term.state -> t
   (** Instantiate the theory's state *)
 
+  (* TODO: instead pass Congruence_closure.theory to [create] 
   val on_merge: t -> actions -> CC_eq_class.t -> CC_eq_class.t -> CC_expl.t -> unit
   (** Called when two classes are merged *)
+     *)
 
   val partial_check : t -> actions -> Lit.t Sequence.t -> unit
   (** Called when a literal becomes true *)
