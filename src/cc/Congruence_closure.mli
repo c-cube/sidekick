@@ -3,8 +3,6 @@
 module type ARG = Congruence_closure_intf.ARG
 module type S = Congruence_closure_intf.S
 
-type payload = Congruence_closure_intf.payload = ..
-
 module Make(A: ARG)
   : S with type term = A.Term.t
        and type lit = A.Lit.t

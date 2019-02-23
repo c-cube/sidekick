@@ -17,15 +17,12 @@ let field_usr2 = Bits.mk_field()
 
 let () = Bits.freeze()
 
-type payload = Congruence_closure_intf.payload = ..
-
 module Make(A: ARG) = struct
   type term = A.Term.t
   type term_state = A.Term.state
   type lit = A.Lit.t
   type fun_ = A.Fun.t
   type proof = A.Proof.t
-  type value = A.Value.t
   type model = A.Model.t
 
   (** Actions available to the theory *)
@@ -47,7 +44,6 @@ module Make(A: ARG) = struct
     mutable n_size: int; (* size of the class *)
     mutable n_as_lit: lit option; (* TODO: put into payload? and only in root? *)
     mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
-    mutable n_payload: payload list; (* list of theory payloads *)
     (* TODO: make a micro theory and move this inside *)
     mutable n_tags: (node * explanation) Util.Int_map.t;
     (* "distinct" tags (i.e. set of `(distinct t1…tn)` terms this belongs to *)
@@ -81,7 +77,6 @@ module Make(A: ARG) = struct
     let[@inline] equal (n1:t) n2 = T.equal n1.n_term n2.n_term
     let[@inline] hash n = T.hash n.n_term
     let[@inline] term n = n.n_term
-    let[@inline] payload n = n.n_payload
     let[@inline] pp out n = T.pp out n.n_term
     let[@inline] as_lit n = n.n_as_lit
 
@@ -94,7 +89,6 @@ module Make(A: ARG) = struct
         n_as_lit=None; (* TODO: provide a method to do it *)
         n_root=n;
         n_expl=FL_none;
-        n_payload=[];
         n_next=n;
         n_size=1;
         n_tags=Util.Int_map.empty;
@@ -119,35 +113,6 @@ module Make(A: ARG) = struct
     let[@inline] iter_parents (n:node) : node Sequence.t =
       assert (is_root n);
       Bag.to_seq n.n_parents
-
-    type nonrec payload = payload = ..
-
-    let set_payload ?(can_erase=fun _->false) n e =
-      let rec aux = function
-        | [] -> [e]
-        | e' :: tail when can_erase e' -> e :: tail
-        | e' :: tail -> e' :: aux tail
-      in
-      n.n_payload <- aux n.n_payload
-
-    let payload_find ~f:p n =
-      let[@unroll 2] rec aux = function
-        | [] -> None
-        | e1 :: tail ->
-          match p e1 with
-          | Some _ as res -> res
-          | None -> aux tail
-      in
-      aux n.n_payload
-
-    let payload_pred ~f:p n =
-      begin match n.n_payload with
-        | [] -> false
-        | e :: _ when p e -> true
-        | _ :: e :: _ when p e -> true
-        | _ :: _ :: e :: _ when p e -> true
-        | l -> List.exists p l
-      end
 
     let[@inline] get_field f t = Bits.get f t.n_bits
     let[@inline] set_field f b t = t.n_bits <- Bits.set f b t.n_bits

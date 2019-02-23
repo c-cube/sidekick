@@ -1,10 +1,7 @@
 
 module type ARG = CC_types.FULL
 
-(** Theory-extensible payloads in the equivalence classes *)
-type payload = ..
-
-module type S = sig
+module type S0 = sig
   type term_state
   type term
   type fun_
@@ -53,24 +50,18 @@ module type S = sig
     val iter_parents : t -> t Sequence.t
     (** Traverse the parents of the class.
         Invariant: [is_root n] (see {!find} below) *)
-
-    type nonrec payload = payload = ..
-
-    val payload_find: f:(payload -> 'a option) -> t -> 'a option
-
-    val payload_pred: f:(payload -> bool) -> t -> bool
-
-    val set_payload : ?can_erase:(payload -> bool) -> t -> payload -> unit
-    (** Add given payload
-        @param can_erase if provided, checks whether an existing value
-        is to be replaced instead of adding a new entry *)
   end
 
   module Expl : sig
     type t
     val pp : t Fmt.printer
 
-    (* TODO: expose constructors for micro theories to use *)
+    val mk_reduction : t
+    val mk_congruence : N.t -> N.t -> t
+    val mk_merge : N.t -> N.t -> t
+    val mk_merges : (N.t * N.t) list -> t
+    val mk_lit : lit -> t
+    val mk_lits : lit list -> t
   end
 
   type node = N.t
@@ -149,4 +140,11 @@ module type S = sig
   val check_invariants : t -> unit
   val pp_full : t Fmt.printer
   (**/**)
+end
+
+module type S = sig
+
+  include S0
+
+
 end

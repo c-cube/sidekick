@@ -7,8 +7,6 @@ type ('f, 't, 'ts) view = ('f, 't, 'ts) CC_types.view =
   | Eq of 't * 't
   | Opaque of 't (* do not enter *)
 
-type payload = Congruence_closure.payload = ..
-
 module CC_types = CC_types
 
 (** Parameter for the congruence closure *)
