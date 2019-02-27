@@ -150,8 +150,8 @@ let eval (m:t) (t:Term.t) : Value.t option =
       let b = aux b in
       if Value.equal a b then Value.true_ else Value.false_
     | App_cst (c, args) ->
-      begin try Term.Map.find t m.values
-        with Not_found ->
+      try Term.Map.find t m.values
+      with Not_found ->
         match Cst.view c with
         | Cst_def udef ->
           (* use builtin interpretation function *)
@@ -168,7 +168,6 @@ let eval (m:t) (t:Term.t) : Value.t option =
             | exception Not_found ->
               raise No_value (* no particular interpretation *)
           end
-      end
   in
   try Some (aux t)
   with No_value -> None

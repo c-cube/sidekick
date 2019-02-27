@@ -15,14 +15,7 @@ module Make(Term : ARG) = struct
   type term = Term.t
 
   module T_tbl = CCHashtbl.Make(Term)
-
-  module Lit = struct
-    include Sidekick_smt.Lit
-    let eq tst a b = atom tst ~sign:true @@ Term.make tst (B_eq (a,b))
-    let neq tst a b = neg @@ eq tst a b
-  end
-
-  let pp_c out c = Fmt.fprintf out "(@[<hv>%a@])" (Util.pp_list Lit.pp) c
+  module Lit = Sidekick_smt.Lit
 
   type t = {
     tst: Term.state;
@@ -39,22 +32,7 @@ module Make(Term : ARG) = struct
     in
     match v with
     | B_not _ -> assert false (* normalized *)
-    | B_atom _ | B_eq _ -> () (* CC will manage *)
-    | B_distinct l ->
-      let l = IArray.to_list l in
-      if Lit.sign lit then (
-        A.propagate_distinct l ~neq:lit_t lit
-      ) else if final && not @@ expanded () then (
-        (* add clause [distinct t1…tn ∨ ∨_{i,j>i} t_i=j] *)
-        let c =
-          Sequence.diagonal_l l
-          |> Sequence.map (fun (t,u) -> Lit.eq self.tst t u)
-          |> Sequence.to_rev_list
-        in
-        let c = Lit.neg lit :: c in
-        Log.debugf 5 (fun k->k "(@[tseitin.distinct.case-split@ %a@])" pp_c c);
-        add_axiom c
-      )
+    | B_atom _ -> () (* CC will manage *)
     | B_and subs ->
       if Lit.sign lit then (
         (* propagate [lit => subs_i] *)
@@ -105,7 +83,7 @@ module Make(Term : ARG) = struct
       (fun lit ->
          let t = Lit.term lit in
          match Term.view_as_bool t with
-         | B_atom _ | B_eq _ -> ()
+         | B_atom _ -> ()
          | v -> tseitin ~final self acts lit t v)
 
   let partial_check (self:t) acts (lits:Lit.t Sequence.t) =

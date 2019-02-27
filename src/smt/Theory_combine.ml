@@ -51,9 +51,8 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
   (* transmit to theories. *)
   CC.check cc acts;
   let module A = struct
+    let cc = cc
     let[@inline] raise_conflict c : 'a = acts.Msat.acts_raise_conflict c Proof_default
-    let[@inline] propagate_eq t u expl : unit = CC.assert_eq cc t u expl
-    let propagate_distinct ts ~neq expl = CC.assert_distinct cc ts ~neq expl
     let[@inline] propagate p cs : unit =
       acts.Msat.acts_propagate p (Msat.Consequence (fun () -> cs(), Proof_default))
     let[@inline] propagate_l p cs : unit = propagate p (fun()->cs)
@@ -61,9 +60,6 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
       acts.Msat.acts_add_clause ~keep:false lits Proof_default
     let[@inline] add_persistent_axiom lits : unit =
       acts.Msat.acts_add_clause ~keep:true lits Proof_default
-    let[@inline] cc_add_term t = CC.add_term cc t
-    let[@inline] cc_find t = CC.find cc t
-    let cc_all_classes = CC.all_classes cc
   end in
   let acts = (module A : Theory.ACTIONS) in
   theories self

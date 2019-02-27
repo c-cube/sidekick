@@ -15,8 +15,6 @@ val imply_a : state -> term IArray.t -> term -> term
 val imply_l : state -> term list -> term -> term
 val eq : state -> term -> term -> term
 val neq : state -> term -> term -> term
-val distinct : state -> term IArray.t -> term
-val distinct_l : state -> term list -> term
 val and_a : state -> term IArray.t -> term
 val and_l : state -> term list -> term
 val or_a : state -> term IArray.t -> term

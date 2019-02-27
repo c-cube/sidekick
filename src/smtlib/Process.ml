@@ -8,6 +8,7 @@ type 'a or_error = ('a, string) CCResult.t
 module E = CCResult
 module A = Ast
 module Form = Sidekick_th_bool.Bool_term
+module Distinct = Sidekick_th_distinct
 module Fmt = CCFormat
 module Dot = Msat_backend.Dot.Make(Solver.Sat_solver)(Msat_backend.Dot.Default(Solver.Sat_solver))
 
@@ -137,7 +138,7 @@ module Conv = struct
           in
           Form.and_l tst (curry_eq l)
         | A.Op (A.Distinct, l) ->
-          Form.distinct_l tst @@ List.map (aux subst) l
+          Distinct.distinct_l tst @@ List.map (aux subst) l
         | A.Not f -> Form.not_ tst (aux subst f)
         | A.Bool true -> Term.true_ tst
         | A.Bool false -> Term.false_ tst

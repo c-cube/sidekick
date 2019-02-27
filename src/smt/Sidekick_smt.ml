@@ -13,8 +13,11 @@ module Lit = Lit
 module Theory_combine = Theory_combine
 module Theory = Theory
 module Solver = Solver
+module CC = CC
 
 module Solver_types = Solver_types
+
+type theory = Theory.t
 
 (**/**)
 module Vec = Msat.Vec

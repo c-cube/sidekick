@@ -9,11 +9,9 @@ module Th_dyn_tseitin = Th_dyn_tseitin
 
 type 'a view = 'a Intf.view =
   | B_not of 'a
-  | B_eq of 'a * 'a
   | B_and of 'a IArray.t
   | B_or of 'a IArray.t
   | B_imply of 'a IArray.t * 'a
-  | B_distinct of 'a IArray.t
   | B_atom of 'a
 
 module type BOOL_TERM = Intf.BOOL_TERM

@@ -16,6 +16,7 @@ module type S = Congruence_closure.S
 
 module Mini_cc = Mini_cc
 module Congruence_closure = Congruence_closure
+module Key = Congruence_closure.Key
 
 module Make = Congruence_closure.Make
 

@@ -1,36 +1,35 @@
 
 module type ARG = CC_types.FULL
 
-(** Data stored by a theory for its own terms.
-
-    It needs to form a commutative monoid where values can be unmerged upon
-    backtracking.
-*)
-module type THEORY_DATA = sig
-  type term
-  type t
-
-  val empty : t
-
-  val equal : t -> t -> bool
-  (** Equality. This is used to optimize backtracking info. *)
-
-  val merge : t -> t -> t
-  (** [merge d1 d2] is called when merging classes with data [d1] and [d2]
-      respectively. The theory should already have checked that the merge
-      is compatible, and this produces the combined data  for terms in the
-      merged class. *)
-end
-
-type ('t, 'a) theory_data = (module THEORY_DATA with type term = 't and type t = 'a)
-
 module type THEORY_KEY = sig
-  type ('t, 'a) t
-  (** An access key for theories that use terms ['t] and which have
-      per-class data ['a] *)
+  type ('term,'lit,'a) t
+  (** An access key for theories which have per-class data ['a] *)
 
-  val create : ('t, 'a) theory_data -> ('t, 'a) t
-  (** Generative creation of keys for the given theory data. *)
+  val create :
+    ?pp:'a Fmt.printer ->
+    name:string ->
+    eq:('a -> 'a -> bool) ->
+    merge:('a -> 'a -> 'a) ->
+    unit ->
+    ('term,'lit,'a) t
+  (** Generative creation of keys for the given theory data.
+
+      @param eq : Equality. This is used to optimize backtracking info.
+
+      @param merge :
+        [merge d1 d2] is called when merging classes with data [d1] and [d2]
+        respectively. The theory should already have checked that the merge
+        is compatible, and this produces the combined data  for terms in the
+        merged class.
+      @param name name of the theory which owns this data
+      @param pp a printer for the data
+  *)
+
+  val equal : ('t,'lit,_) t -> ('t,'lit,_) t -> bool
+  (** Checks if two keys are equal (generatively) *)
+
+  val pp : _ t Fmt.printer
+  (** Prints the name of the key. *)
 end
 
 module type S = sig
@@ -87,12 +86,9 @@ module type S = sig
     type t
     val pp : t Fmt.printer
 
-    val mk_reduction : t
-    val mk_congruence : N.t -> N.t -> t
     val mk_merge : N.t -> N.t -> t
-    val mk_merges : (N.t * N.t) list -> t
     val mk_lit : lit -> t
-    val mk_lits : lit list -> t
+    val mk_list : t list -> t
   end
 
   type node = N.t
@@ -119,34 +115,52 @@ module type S = sig
   (** Actions available to the theory *)
   type sat_actions = (Msat.void, lit, Msat.void, proof) Msat.acts
 
+  module Theory : sig
+    type cc = t
+    type t
+
+    type 'a key = (term,lit,'a) Key.t
+
+    val raise_conflict : cc -> Expl.t -> unit
+    (** Raise a conflict with the given explanation
+        it must be a theory tautology that [expl ==> absurd].
+        To be used in theories. *)
+
+    val merge : cc -> N.t -> N.t -> Expl.t -> unit
+    (** Merge these two nodes given this explanation.
+        It must be a theory tautology that [expl ==> n1 = n2].
+        To be used in theories. *)
+
+    val add_term : cc -> term -> N.t
+    (** Add/retrieve node for this term.
+        To be used in theories *)
+
+    val get_data : cc -> N.t -> 'a key -> 'a option
+    (** Get data information for this particular representative *)
+
+    val add_data : cc -> N.t -> 'a key -> 'a -> unit
+    (** Add data to this particular representative. Will be backtracked. *)
+
+    val make :
+      key:'a key ->
+      on_merge:(cc -> N.t -> 'a -> N.t -> 'a -> Expl.t -> unit) ->
+      on_new_term:(cc -> term -> 'a option) ->
+      unit ->
+      t
+    (** Build a micro theory. It can use the callbacks above. *)
+  end
+
   val create :
-    ?on_merge:(t -> repr -> repr -> explanation -> unit) list ->
-    ?on_new_term:(t -> repr -> term -> unit) list ->
+    ?th:Theory.t list ->
     ?size:[`Small | `Big] ->
     term_state ->
     t
   (** Create a new congruence closure. *)
 
-  val on_merge : t -> (t -> repr -> repr -> explanation -> unit) -> unit
-  (** Add a callback, to be called whenever two classes are merged *)
-
-  val on_new_term : t -> (t -> repr -> term -> unit) -> unit
-  (** Add a callback, to be called whenever a node is added *)
-
-  val merge_classes : t -> node -> node -> explanation -> unit
-  (** Merge the two given nodes with given explanation.
-      It must be a theory tautology that [expl ==> n1 = n2] *)
-
-  val th_data_get : t -> N.t -> (term, 'a) Key.t -> 'a option
-  (** Get data information for this particular representative *)
-
-  val th_data_add : t -> N.t -> (term, 'a) Key.t -> 'a -> unit
-  (** Add the given data to this node (or rather, to its representative).
-      This will be backtracked. *)
-
-  (* TODO: merge true/false? 
-  val raise_conflict : CC.t -> CC.N.t -> CC.N.t -> Expl.t -> 'a
-     *)
+  val add_th : t -> Theory.t -> unit
+  (** Add a (micro) theory to the congruence closure.
+      @raise Error.Error if there is already a theory with
+      the same key. *)
 
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
@@ -173,11 +187,12 @@ module type S = sig
   val assert_eq : t -> term -> term -> lit list -> unit
   (** merge the given terms with some explanations *)
 
-  (* TODO: remove and move into its own library as a micro theory *)
+  (* TODO: remove and move into its own library as a micro theory
   val assert_distinct : t -> term list -> neq:term -> lit -> unit
   (** [assert_distinct l ~neq:u e] asserts all elements of [l] are distinct
       because [lit] is true
       precond: [u = distinct l] *)
+     *)
 
   val check : t -> sat_actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.

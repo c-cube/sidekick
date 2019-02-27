@@ -12,11 +12,5 @@ module type ARG = Bool_intf.BOOL_TERM
 module Make(Term : ARG) : sig
   type term = Term.t
 
-  module Lit : sig
-    type t = Sidekick_smt.Lit.t
-    val eq : Term.state -> term -> term -> t
-    val neq : Term.state -> term -> term -> t
-  end
-
   val th : Sidekick_smt.Theory.t
 end

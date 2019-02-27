@@ -55,7 +55,9 @@ val mk_atom_t : t -> ?sign:bool -> Term.t -> Atom.t
 
 val assume : t -> Lit.t IArray.t -> unit
 
+(* TODO: use the theory instead
 val assume_distinct : t -> Term.t list -> neq:Term.t -> Lit.t -> unit
+   *)
 
 val solve :
   ?on_exit:(unit -> unit) list ->

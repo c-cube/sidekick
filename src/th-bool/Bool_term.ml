@@ -18,7 +18,6 @@ let id_not = ID.make "not"
 let id_and = ID.make "and"
 let id_or = ID.make "or"
 let id_imply = ID.make "=>"
-let id_distinct = ID.make "distinct"
 
 let equal = T.equal
 let hash = T.hash
@@ -34,17 +33,14 @@ let view_id cst_id args =
     (* conclusion is stored first *)
     let len = IArray.length args in
     B_imply (IArray.sub args 1 (len-1), IArray.get args 0)
-  ) else if ID.equal cst_id id_distinct then (
-    B_distinct args
   ) else (
     raise_notrace Not_a_th_term
   )
 
 let view_as_bool (t:T.t) : T.t view =
   match T.view t with
-  | Eq (a,b) -> B_eq (a,b)
   | App_cst ({cst_id; _}, args) ->
-    begin try view_id cst_id args with Not_a_th_term -> B_atom t end
+    (try view_id cst_id args with Not_a_th_term -> B_atom t)
   | _ -> B_atom t
 
 module C = struct
@@ -69,14 +65,7 @@ module C = struct
     | B_imply (_, V_bool true) -> Value.true_
     | B_imply (a,_) when IArray.exists Value.is_false a -> Value.true_
     | B_imply (a,b) when IArray.for_all Value.is_bool a && Value.is_bool b -> Value.false_
-    | B_eq (a,b) -> Value.bool @@ Value.equal a b
     | B_atom v -> v
-    | B_distinct a ->
-      if
-        Sequence.diagonal (IArray.to_seq a)
-        |> Sequence.for_all (fun (x,y) -> not @@ Value.equal x y)
-      then Value.true_
-      else Value.false_
     | B_not _ | B_and _ | B_or _ | B_imply _
         -> Error.errorf "non boolean value in boolean connective"
 
@@ -92,7 +81,6 @@ module C = struct
   let and_ = mk_cst id_and
   let or_ = mk_cst id_or
   let imply = mk_cst id_imply
-  let distinct = mk_cst id_distinct
 end
 
 let as_id id (t:T.t) : T.t IArray.t option =
@@ -152,20 +140,9 @@ let imply_l st xs y = match xs with
 
 let imply st a b = imply_a st (IArray.singleton a) b
 
-let distinct st a =
-  if IArray.length a <= 1
-  then T.true_ st
-  else T.app_cst st C.distinct a
-
-let distinct_l st = function
-  | [] | [_] -> T.true_ st
-  | xs -> distinct st (IArray.of_list xs)
-
 let make st = function
   | B_atom t -> t
-  | B_eq (a,b) -> T.eq st a b
   | B_and l -> and_a st l
   | B_or l -> or_a st l
   | B_imply (a,b) -> imply_a st a b
   | B_not t -> not_ st t
-  | B_distinct l -> distinct st l
