@@ -88,7 +88,7 @@ module Make(A: ARG) = struct
   module T = A.Term
   module Fun = A.Fun
   module Key = Key
-  module IM = Map.Make(CCInt)
+  module IM = CCMap.Make(CCInt)
 
   (** Map for theory data associated with representatives *)
   module K_map = struct
@@ -154,7 +154,6 @@ module Make(A: ARG) = struct
     mutable n_root: node; (* representative of congruence class (itself if a representative) *)
     mutable n_next: node; (* pointer to next element of congruence class *)
     mutable n_size: int; (* size of the class *)
-    mutable n_as_lit: lit option; (* TODO: put into payload? and only in root? *)
     mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
     mutable n_th_data: K_map.t; (* theory data *)
   }
@@ -176,6 +175,17 @@ module Make(A: ARG) = struct
     | E_list of explanation list
     | E_congruence of node * node (* caused by normal congruence *)
 
+  (* annotate classes with the set of literals they map to *)
+  let k_as_lit : (term, lit, (node * lit) IM.t) Key.t =
+    let merge = IM.merge_safe
+        ~f:(fun _ pair -> match pair with
+            | `Left x | `Right x -> Some x
+            | `Both (x,_) -> Some x)
+    and eq =
+      IM.equal (fun (n1,_)(n2,_) -> n1==n2)
+    in
+    Key.create ~name:"cc-as-lit" ~eq ~merge ()
+
   type repr = node
   type conflict = lit list
 
@@ -186,7 +196,6 @@ module Make(A: ARG) = struct
     let[@inline] hash n = T.hash n.n_term
     let[@inline] term n = n.n_term
     let[@inline] pp out n = T.pp out n.n_term
-    let[@inline] as_lit n = n.n_as_lit
 
     let make (t:term) : t =
       let rec n = {
@@ -194,7 +203,6 @@ module Make(A: ARG) = struct
         n_sig0= None;
         n_bits=Bits.empty;
         n_parents=Bag.empty;
-        n_as_lit=None; (* TODO: provide a method to do it *)
         n_root=n;
         n_expl=FL_none;
         n_next=n;
@@ -641,14 +649,6 @@ module Make(A: ARG) = struct
 
   let[@inline] add_term cc t : node = add_term_rec_ cc t
 
-  let set_as_lit cc (n:node) (lit:lit) : unit =
-    match n.n_as_lit with
-    | Some _ -> ()
-    | None ->
-      Log.debugf 15 (fun k->k "(@[cc.set-as-lit@ %a@ %a@])" N.pp n A.Lit.pp lit);
-      on_backtrack cc (fun () -> n.n_as_lit <- None);
-      n.n_as_lit <- Some lit
-
   let[@inline] n_is_bool (self:t) n : bool =
     N.equal n (true_ self) || N.equal n (false_ self)
 
@@ -862,7 +862,8 @@ module Make(A: ARG) = struct
       assert (N.is_root n);
       K_map.find key n.n_th_data
 
-    (* FIXME: call micro theory here? in case of merge *)
+    (* FIXME: call micro theory here? in case of merge with existing
+       data *)
     (* update data for [n] *)
     let add_data (type a) (self:cc) (n:node) (key: a key) (v:a) : unit =
       let n = find_ n in
@@ -893,6 +894,13 @@ module Make(A: ARG) = struct
       (module Th : THEORY with type cc=cc)
 
   end
+
+(* TODO: add [as_lit] on the given repr (need a node->int function)
+   TODO: during merge with true/false, use [k_as_lit] to propagate *)
+  let set_as_lit cc (n:node) (lit:lit) : unit =
+    Log.debugf 15 (fun k->k "(@[cc.set-as-lit@ %a@ %a@])" N.pp n A.Lit.pp lit);
+    let data = IM.singleton A.Lit.
+    Theory.add_data cc n k_as_lit (n,lit)
 
   let check_invariants_ (cc:t) =
     Log.debug 5 "(cc.check-invariants)";
