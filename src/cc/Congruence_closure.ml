@@ -570,19 +570,6 @@ module Make(A: ARG) = struct
     decompose_explain cc e;
     explain_loop cc
 
-  (* FIXME remove
-  (* add [tag] to [n], indicating that [n] is distinct from all the other
-     nodes tagged with [tag]
-     precond: [n] is a representative *)
-  let add_tag_n cc (n:node) (tag:int) (expl:explanation) : unit =
-    assert (N.is_root n);
-    if not (Util.Int_map.mem tag n.n_tags) then (
-      on_backtrack cc
-        (fun () -> n.n_tags <- Util.Int_map.remove tag n.n_tags);
-      n.n_tags <- Util.Int_map.add tag (n,expl) n.n_tags;
-    )
-     *)
-
   (* add a term *)
   let [@inline] rec add_term_rec_ cc t : node =
     try T_tbl.find cc.tbl t
@@ -704,7 +691,6 @@ module Make(A: ARG) = struct
           merge_classes cc n u expl
     end
 
-  (* TODO: remove, once we have moved distinct to a theory *)
   and[@inline] task_combine_ cc acts = function
     | CT_merge (a,b,e_ab) -> task_merge_ cc acts a b e_ab
 
@@ -961,7 +947,7 @@ module Make(A: ARG) = struct
 
   (* assert that this boolean literal holds.
      if a lit is [= a b], merge [a] and [b];
-     if it's [distinct a1…an], make them distinct, etc. etc. *)
+     otherwise merge the atom with true/false *)
   let assert_lit cc lit : unit =
     let t = A.Lit.term lit in
     Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" A.Lit.pp lit);
