@@ -18,7 +18,7 @@ module type ARG = sig
     val neg : t -> t
     val sign : t -> bool
     val compare : t -> t -> int
-    val atom : T.t -> t
+    val atom : T.state -> ?sign:bool -> T.t -> t
     val pp : t Fmt.printer
   end
 end
@@ -41,6 +41,7 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
   module IM = CCMap.Make(Lit)
 
   type term = T.t
+  type term_state = T.state
   type lit = A.Lit.t
   type data = term IM.t (* "distinct" lit -> term appearing under it*)
 
@@ -96,7 +97,7 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
 
     let on_new_term _ _ = None
 
-    let m_th =
+    let th =
       CC.Theory.make ~key ~on_merge ~on_new_term ()
   end
 
@@ -131,7 +132,7 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
       let l = Sequence.to_list subs in
       let c =
         Sequence.diagonal_l l
-        |> Sequence.map (fun (t,u) -> Lit.atom @@ T.mk_eq st.tst t u)
+        |> Sequence.map (fun (t,u) -> Lit.atom st.tst @@ T.mk_eq st.tst t u)
         |> Sequence.to_rev_list
       in
       let c = Lit.neg lit :: c in
@@ -155,15 +156,9 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
       ~create ()
 end
 
-module T = struct
+module Arg = struct
   open Sidekick_smt
   open Sidekick_smt.Solver_types
-  module T = Term
-
-  type t = Term.t
-  type terms = t IArray.t
-  let compare = Term.compare
-  let to_seq = IArray.to_seq
 
   let id_distinct = ID.make "distinct"
 
@@ -171,11 +166,18 @@ module T = struct
   let get_ty _ _ = Ty.prop
   let abs ~self _a = self, true
 
-  let as_distinct t : _ option =
-    match T.view t with
-    | T.App_cst ({cst_id;_}, args) when ID.equal cst_id id_distinct ->
-      Some (IArray.to_seq args)
-    | _ -> None
+  module T = struct
+    include Term
+    let mk_eq = eq
+
+    let as_distinct t : _ option =
+      match view t with
+      | App_cst ({cst_id;_}, args) when ID.equal cst_id id_distinct ->
+        Some (IArray.to_seq args)
+      | _ -> None
+  end
+
+  module Lit = Sidekick_smt.Lit
 
   let eval args =
     let module Value = Sidekick_smt.Value in
@@ -200,7 +202,7 @@ module T = struct
     | xs -> distinct st (IArray.of_list xs)
 end
 
-let distinct = T.distinct
-let distinct_l = T.distinct_l
+let distinct = Arg.distinct
+let distinct_l = Arg.distinct_l
 
-include Make(T)
+include Make(Arg)

@@ -23,7 +23,7 @@ module type ARG = sig
     val neg : t -> t
     val sign : t -> bool
     val compare : t -> t -> int
-    val atom : T.t -> t
+    val atom : T.state -> ?sign:bool -> T.t -> t
     val pp : t Fmt.printer
   end
 end

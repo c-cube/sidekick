@@ -823,27 +823,6 @@ module Make(A: ARG) = struct
       end;
     )
 
-  (* FIXME: remove
-  and task_distinct_ cc acts (l:node list) tag expl : unit =
-    let l = List.map (fun n -> n, find_ n) l in
-    let coll =
-      Sequence.diagonal_l l
-      |> Sequence.find_pred (fun ((_,r1),(_,r2)) -> N.equal r1 r2)
-    in
-    begin match coll with
-      | Some ((n1,_r1),(n2,_r2)) ->
-        (* two classes are already equal *)
-        Log.debugf 5
-          (fun k->k "(@[cc.distinct.conflict@ %a = %a@ :expl %a@])" N.pp n1 N.pp
-              n2 Expl.pp expl);
-        let lits = explain_unfold cc expl in
-        raise_conflict cc acts lits
-      | None ->
-        (* put a tag on all equivalence classes, that will make their merge fail *)
-        List.iter (fun (_,n) -> add_tag_n cc n tag expl) l
-    end
-     *)
-
   (* we are merging [r1] with [r2==Bool(sign)], so propagate each term [u1]
      in the equiv class of [r1] that is a known literal back to the SAT solver
      and which is not the one initially merged.
@@ -881,10 +860,9 @@ module Make(A: ARG) = struct
     type 'a key = (term,lit,'a) Key.t
 
     (* raise a conflict *)
-    let raise_conflict cc _n1 _n2 expl =
+    let raise_conflict cc expl =
       Log.debugf 5
-        (fun k->k "(@[cc.theory.raise-conflict@ :n1 %a@ :n2 %a@ :expl %a@])"
-            N.pp _n1 N.pp _n2 Expl.pp expl);
+        (fun k->k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
       merge_classes cc (true_ cc) (false_ cc) expl
 
     let merge cc n1 n2 expl =
@@ -1013,19 +991,6 @@ module Make(A: ARG) = struct
     let n1 = add_term cc t1 in
     let n2 = add_term cc t2 in
     merge_classes cc n1 n2 expl
-
-  (* FIXME: remove
-  (* generative tag used to annotate classes that can't be merged *)
-  let distinct_tag_ = ref 0
-
-  let assert_distinct cc (l:term list) ~neq:_ (lit:lit) : unit =
-    assert (match l with[] | [_] -> false | _ -> true);
-    let tag = CCRef.get_then_incr distinct_tag_ in
-    Log.debugf 5
-      (fun k->k "(@[cc.assert_distinct@ (@[%a@])@ :tag %d@])" (Util.pp_list T.pp) l tag);
-    let l = List.map (add_term cc) l in
-    Vec.push cc.combine @@ CT_distinct (l, tag, Expl.mk_lit lit)
-     *)
 
   let add_th (self:t) (th:theory) : unit =
     let (module Th) = th in
