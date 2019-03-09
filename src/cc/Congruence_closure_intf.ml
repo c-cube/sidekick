@@ -144,7 +144,7 @@ module type S = sig
     val make :
       key:'a key ->
       on_merge:(cc -> N.t -> 'a -> N.t -> 'a -> Expl.t -> unit) ->
-      on_new_term:(cc -> term -> 'a option) ->
+      on_new_term:(cc -> N.t -> term -> 'a option) ->
       unit ->
       t
     (** Build a micro theory. It can use the callbacks above. *)

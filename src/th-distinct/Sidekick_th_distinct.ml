@@ -95,7 +95,7 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
         ()
       with E_exit -> ()
 
-    let on_new_term _ _ = None
+    let on_new_term _ _ _ = None
 
     let th =
       CC.Theory.make ~key ~on_merge ~on_new_term ()

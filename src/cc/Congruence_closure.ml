@@ -305,7 +305,7 @@ module Make(A: ARG) = struct
     val key_id : int
     val key : (term,lit,data) Key.t
     val on_merge : cc -> N.t -> data -> N.t -> data -> Expl.t -> unit
-    val on_new_term: cc -> term -> data option
+    val on_new_term: cc -> N.t -> term -> data option
   end
 
   type t = {
@@ -600,7 +600,7 @@ module Make(A: ARG) = struct
     let th_map =
       IM.fold
         (fun _ (module Th: THEORY with type cc=cc) th_map ->
-           match Th.on_new_term cc t with
+           match Th.on_new_term cc n t with
            | None -> th_map
            | Some v -> K_map.add Th.key v th_map)
         cc.theories K_map.empty
