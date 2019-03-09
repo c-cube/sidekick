@@ -1,0 +1,8 @@
+
+
+(library
+  (name Sidekick_th_ite)
+  (public_name sidekick.smt.th-ite)
+  (libraries containers sidekick.smt)
+  (flags :standard -open Sidekick_util))
+

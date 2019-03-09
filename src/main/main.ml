@@ -119,6 +119,7 @@ let main () =
       | Smtlib ->
         [ Sidekick_th_bool.th_dynamic_tseitin;
           Sidekick_th_distinct.th;
+          Sidekick_th_ite.th;
         ] (* TODO: more theories *)
     in
     Sidekick_smt.Solver.create ~store_proof:!check ~theories ()
