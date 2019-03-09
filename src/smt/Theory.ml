@@ -36,6 +36,10 @@ module type ACTIONS = sig
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
+  val add_lit : Lit.t -> unit
+  (** Add the given literal to the SAT solver, so it gets assigned
+      a boolean value *)
+
   val add_local_axiom: Lit.t list -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
@@ -56,10 +60,11 @@ module type S = sig
   val create : Term.state -> t
   (** Instantiate the theory's state *)
 
-  (* TODO: instead pass Congruence_closure.theory to [create] 
+  val on_new_term : t -> actions -> Term.t -> unit
+  (** Called when a new term is added *)
+
   val on_merge: t -> actions -> CC_eq_class.t -> CC_eq_class.t -> CC_expl.t -> unit
   (** Called when two classes are merged *)
-     *)
 
   val partial_check : t -> actions -> Lit.t Sequence.t -> unit
   (** Called when a literal becomes true *)
@@ -87,6 +92,7 @@ type 'a t1 = (module S with type t = 'a)
 let make
   (type st)
     ?(check_invariants=fun _ -> ())
+    ?(on_new_term=fun _ _ _ -> ())
     ?(on_merge=fun _ _ _ _ _ -> ())
     ?(partial_check=fun _ _ _ -> ())
     ?(mk_model=fun _ _ m -> m)
@@ -100,6 +106,7 @@ let make
     type nonrec t = st
     let name = name
     let create = create
+    let on_new_term = on_new_term
     let on_merge = on_merge
     let partial_check = partial_check
     let final_check = final_check

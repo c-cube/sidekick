@@ -60,6 +60,7 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
       acts.Msat.acts_add_clause ~keep:false lits Proof_default
     let[@inline] add_persistent_axiom lits : unit =
       acts.Msat.acts_add_clause ~keep:true lits Proof_default
+    let[@inline] add_lit lit : unit = acts.Msat.acts_mk_lit lit
   end in
   let acts = (module A : Theory.ACTIONS) in
   theories self

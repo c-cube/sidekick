@@ -152,6 +152,7 @@ module type S = sig
 
   val create :
     ?th:Theory.t list ->
+    ?on_merge:(t -> N.t -> N.t -> Expl.t -> unit) list ->
     ?size:[`Small | `Big] ->
     term_state ->
     t
@@ -161,6 +162,9 @@ module type S = sig
   (** Add a (micro) theory to the congruence closure.
       @raise Error.Error if there is already a theory with
       the same key. *)
+
+  val on_merge : t -> (t -> N.t -> N.t -> Expl.t -> unit) -> unit
+  (** Add a function to be called when two classes are merged *)
 
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)

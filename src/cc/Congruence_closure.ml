@@ -324,6 +324,7 @@ module Make(A: ARG) = struct
     combine: combine_task Vec.t;
     undo: (unit -> unit) Backtrack_stack.t;
     mutable theories: theory IM.t;
+    mutable on_merge: (t -> N.t -> N.t -> Expl.t -> unit) list;
     mutable ps_lits: lit list; (* TODO: thread it around instead? *)
     (* proof state *)
     ps_queue: (node*node) Vec.t;
@@ -734,6 +735,8 @@ module Make(A: ARG) = struct
       merge_bool rb b ra a;
       (* perform [union r_from r_into] *)
       Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" N.pp r_from N.pp r_into);
+      (* call [on_merge] functions *)
+      List.iter (fun f -> f cc r_into r_from e_ab) cc.on_merge;
       (* call micro theories *)
       begin
         let th_into = r_into.n_th_data in
@@ -986,13 +989,16 @@ module Make(A: ARG) = struct
     Log.debugf 3 (fun k->k "(@[@{<green>cc.add-theory@} %a@])" Key.pp Th.key);
     self.theories <- IM.add Th.key_id th self.theories
 
-  let create ?th:(theories=[]) ?(size=`Big) (tst:term_state) : t =
+  let on_merge cc f = cc.on_merge <- f :: cc.on_merge
+
+  let create ?th:(theories=[]) ?(on_merge=[]) ?(size=`Big) (tst:term_state) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
     let rec cc = {
       tst;
       tbl = T_tbl.create size;
       signatures_tbl = Sig_tbl.create size;
       theories=IM.empty;
+      on_merge;
       pending=Vec.create();
       combine=Vec.create();
       ps_lits=[];

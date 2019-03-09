@@ -102,6 +102,7 @@ module As_key = struct
 end
 
 module Map = CCMap.Make(As_key)
+module Set = CCSet.Make(As_key)
 module Tbl = CCHashtbl.Make(As_key)
 
 let to_seq t yield =
