@@ -16,10 +16,8 @@ depends: [
   "sequence"
   "zarith"
   "menhir"
+  "msat" { >= "0.8" < "0.9" }
   "ocaml" { >= "4.03" } 
-]
-pin-depends: [
-  ["msat" "https://github.com/Gbury/mSAT.git#wip-refactor"]
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
