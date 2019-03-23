@@ -80,6 +80,8 @@ module type S = sig
 
   val pop_levels : t -> int -> unit
 
+  val cc_th : t -> CC.Theory.t list
+
   (**/**)
   val check_invariants : t -> unit
   (**/**)
@@ -98,6 +100,7 @@ let make
     ?(mk_model=fun _ _ m -> m)
     ?(push_level=fun _ -> ())
     ?(pop_levels=fun _ _ -> ())
+    ?(cc_th=fun _->[])
     ~name
     ~final_check
     ~create
@@ -114,5 +117,6 @@ let make
     let check_invariants = check_invariants
     let push_level = push_level
     let pop_levels = pop_levels
+    let cc_th = cc_th
   end in
   (module A : S)

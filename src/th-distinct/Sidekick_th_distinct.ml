@@ -45,19 +45,19 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
   type lit = A.Lit.t
   type data = term IM.t (* "distinct" lit -> term appearing under it*)
 
+  let pp_data out m =
+    Fmt.fprintf out
+      "{@[%a@]}" Fmt.(seq ~sep:(return ",@ ") @@ pair Lit.pp T.pp) (IM.to_seq m)
+
   let key : (term,lit,data) Sidekick_cc.Key.t =
     let merge m1 m2 =
       IM.merge_safe m1 m2
         ~f:(fun _ pair -> match pair with
             | `Left x | `Right x -> Some x
             | `Both (x,_) -> Some x)
-    and eq = IM.equal T.equal
-    and pp out m =
-      Fmt.fprintf out
-        "{@[%a@]}" Fmt.(seq ~sep:(return ",@ ") @@ pair Lit.pp T.pp) (IM.to_seq m)
-    in
+    and eq = IM.equal T.equal in
     Sidekick_cc.Key.create
-      ~pp
+      ~pp:pp_data
       ~name:"distinct"
       ~merge ~eq ()
 
@@ -69,6 +69,9 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
     exception E_exit
 
     let on_merge cc n1 m1 n2 m2 expl12 =
+      Log.debugf 5
+        (fun k->k "(@[th_distinct.on_merge@ @[:n1 %a@ :map2 %a@]@ @[:n2 %a@ :map2 %a@]@])"
+            CC.N.pp n1 pp_data m1 CC.N.pp n2 pp_data m2);
       try
         let _i =
           IM.merge
@@ -148,11 +151,14 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
          | None -> ()
          | Some subs -> process_lit st acts lit t subs)
 
+  let cc_th = let module T = Micro(CC) in T.th
+
   let th =
     Sidekick_smt.Theory.make
       ~name:"distinct"
       ~partial_check
       ~final_check:(fun _ _ _ -> ())
+      ~cc_th:(fun _ -> [cc_th])
       ~create ()
 end
 

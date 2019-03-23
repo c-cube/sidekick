@@ -154,6 +154,8 @@ let (module Th) = th in
   Log.debugf 2
     (fun k-> k "(@[th_combine.add_th@ :name %S@])" Th.name);
   let st = Th.create self.tst in
+  (* add micro theories *)
+  List.iter (CC.add_th (cc self)) (Th.cc_th st);
   (* re-pack as a [Theory.t1] *)
   self.theories <- (Th_state ((module Th),st)) :: self.theories
 
