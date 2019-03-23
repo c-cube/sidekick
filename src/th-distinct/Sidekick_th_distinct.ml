@@ -181,6 +181,8 @@ module Arg = struct
 
   let eval args =
     let module Value = Sidekick_smt.Value in
+    Log.debugf 5
+      (fun k->k "(@[distinct.eval@ %a@])" (Fmt.seq Value.pp) (IArray.to_seq args));
     if
       Iter.diagonal (IArray.to_seq args)
       |> Iter.for_all (fun (x,y) -> not @@ Value.equal x y)

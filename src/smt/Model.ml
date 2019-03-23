@@ -155,14 +155,14 @@ let eval (m:t) (t:Term.t) : Value.t option =
       let b = aux b in
       if Value.equal a b then Value.true_ else Value.false_
     | App_cst (c, args) ->
-      try Term.Map.find t m.values
-      with Not_found ->
-        match Cst.view c with
-        | Cst_def udef ->
-          (* use builtin interpretation function *)
-          let args = IArray.map aux args in
-          udef.eval args
-        | Cst_undef _ ->
+      match Cst.view c with
+      | Cst_def udef ->
+        (* use builtin interpretation function *)
+        let args = IArray.map aux args in
+        udef.eval args
+      | Cst_undef _ ->
+        try Term.Map.find t m.values
+        with Not_found ->
           begin match Cst.Map.find c m.funs with
             | fi ->
               let args = IArray.map aux args |> IArray.to_list in
