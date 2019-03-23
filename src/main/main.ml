@@ -152,7 +152,7 @@ let main () =
       E.return()
   in
   if !p_stat then (
-    Format.printf "%a@." Sidekick_smt.Solver.pp_stats solver;
+    Format.printf "%a@." Solver.pp_stats solver;
   );
   if !p_gc_stat then (
     Printf.printf "(gc_stats\n%t)\n" Gc.print_stat;

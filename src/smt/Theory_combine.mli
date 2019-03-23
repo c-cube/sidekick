@@ -11,7 +11,7 @@ include Msat.Solver_intf.PLUGIN_CDCL_T
   with module Formula = Lit
    and type proof = Proof.t
 
-val create : unit -> t
+val create : ?stat:Stat.t -> unit -> t
 
 val cc : t -> CC.t
 val tst : t -> Term.state

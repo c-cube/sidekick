@@ -23,6 +23,8 @@ module Proof = Sat_solver.Proof
 type t = {
   solver: Sat_solver.t;
   stat: Stat.t;
+  count_clause: int Stat.counter;
+  count_solve: int Stat.counter;
   config: Config.t
 }
 
@@ -35,14 +37,16 @@ let[@inline] tst self = Theory_combine.tst (th_combine self)
 
 let[@inline] mk_atom_lit self lit : Atom.t = Sat_solver.make_atom self.solver lit
 let[@inline] mk_atom_t self ?sign t : Atom.t =
-  let lit = Lit.atom (tst self)  ?sign t in
+  let lit = Lit.atom (tst self) ?sign t in
   mk_atom_lit self lit
 
-let create ?size ?(config=Config.empty) ?store_proof ~theories () : t =
-  let th_combine = Theory_combine.create() in
+let create ?(stat=Stat.global) ?size ?(config=Config.empty) ?store_proof ~theories () : t =
+  let th_combine = Theory_combine.create ~stat () in
   let self = {
     solver=Sat_solver.create ?store_proof ?size th_combine;
-    stat=Stat.create ();
+    stat;
+    count_clause=Stat.mk_int stat "input-clauses";
+    count_solve=Stat.mk_int stat "solve";
     config;
   } in
   (* now add the theories *)
@@ -53,17 +57,6 @@ let create ?size ?(config=Config.empty) ?store_proof ~theories () : t =
     [Lit.atom tst @@ Term.true_ tst];
   ] Proof_default;
   self
-
-(** {2 Sat Solver} *)
-
-let print_progress (st:t) : unit =
-  Printf.printf "\r[%.2f] clauses %d | lemmas %d%!"
-    (get_time())
-    st.stat.Stat.num_clause_push
-    st.stat.Stat.num_clause_tautology
-
-let flush_progress (): unit =
-  Printf.printf "\r%-80d\r%!" 0
 
 (** {2 Toplevel Goals}
 
@@ -155,16 +148,8 @@ let clauses_of_unsat_core (core:Sat_solver.clause list): Lit.t IArray.t Iter.t =
 let pp_term_graph _out (_:t) =
   ()
 
-let pp_stats out (s:t) : unit =
-  Format.fprintf out
-    "(@[<hv1>stats@ \
-     :num_clause_push %d@ \
-     :num_clause_tautology %d@ \
-     :num_propagations %d@ \
-     @])"
-    s.stat.Stat.num_clause_push
-    s.stat.Stat.num_clause_tautology
-    s.stat.Stat.num_propagations
+let pp_stats out (self:t) : unit =
+  Stat.pp_all out (Stat.all @@ stats self)
 
 let do_on_exit ~on_exit =
   List.iter (fun f->f()) on_exit;
@@ -187,6 +172,7 @@ let assume (self:t) (c:Lit.t IArray.t) : unit =
   let sat = solver self in
   IArray.iter (fun lit -> add_bool_subterms_ self @@ Lit.term lit) c;
   let c = IArray.to_array_map (Sat_solver.make_atom sat) c in
+  Stat.incr self.count_clause;
   Sat_solver.add_clause_a sat c Proof_default
 
 (* TODO: remove? use a special constant + micro theory instead?
@@ -205,6 +191,7 @@ let check_model (_s:t) : unit =
    (not the value depth limit) *)
 let solve ?(on_exit=[]) ?(check=true) ~assumptions (self:t) : res =
   let r = Sat_solver.solve ~assumptions (solver self) in
+  Stat.incr self.count_solve;
   match r with
   | Sat_solver.Sat st ->
     Log.debugf 1 (fun k->k "SAT");

@@ -23,12 +23,13 @@ type theory_state =
 
 (* TODO: first-class module instead *)
 type t = {
-  tst: Term.state;
-  (** state for managing terms *)
-  cc: CC.t lazy_t;
-  (** congruence closure *)
-  mutable theories : theory_state list;
-  (** Set of theories *)
+  tst: Term.state; (** state for managing terms *)
+  cc: CC.t lazy_t; (** congruence closure *)
+  stat: Stat.t;
+  count_axiom: int Stat.counter;
+  count_conflict: int Stat.counter;
+  count_propagate: int Stat.counter;
+  mutable theories : theory_state list; (** Set of theories *)
 }
 
 let[@inline] cc (t:t) = Lazy.force t.cc
@@ -52,13 +53,18 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Iter.t) : unit =
   CC.check cc acts;
   let module A = struct
     let cc = cc
-    let[@inline] raise_conflict c : 'a = acts.Msat.acts_raise_conflict c Proof_default
+    let[@inline] raise_conflict c : 'a =
+      Stat.incr self.count_conflict;
+      acts.Msat.acts_raise_conflict c Proof_default
     let[@inline] propagate p cs : unit =
+      Stat.incr self.count_propagate;
       acts.Msat.acts_propagate p (Msat.Consequence (fun () -> cs(), Proof_default))
     let[@inline] propagate_l p cs : unit = propagate p (fun()->cs)
     let[@inline] add_local_axiom lits : unit =
+      Stat.incr self.count_axiom;
       acts.Msat.acts_add_clause ~keep:false lits Proof_default
     let[@inline] add_persistent_axiom lits : unit =
+      Stat.incr self.count_axiom;
       acts.Msat.acts_add_clause ~keep:true lits Proof_default
     let[@inline] add_lit lit : unit = acts.Msat.acts_mk_lit lit
   end in
@@ -120,7 +126,7 @@ let mk_model (self:t) lits : Model.t =
 (** {2 Main} *)
 
 (* create a new theory combination *)
-let create () : t =
+let create ?(stat=Stat.global) () : t =
   Log.debug 5 "th_combine.create";
   let rec self = {
     tst=Term.create ~size:1024 ();
@@ -130,6 +136,10 @@ let create () : t =
       CC.create ~size:`Big self.tst;
     );
     theories = [];
+    stat;
+    count_axiom = Stat.mk_int stat "th-axioms";
+    count_propagate = Stat.mk_int stat "th-propagations";
+    count_conflict = Stat.mk_int stat "th-conflicts";
   } in
   ignore (Lazy.force @@ self.cc : CC.t);
   self

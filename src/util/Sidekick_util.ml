@@ -10,3 +10,4 @@ module Error = Error
 module IArray = IArray
 module Intf = Intf
 module Bag = Bag
+module Stat = Stat

@@ -37,6 +37,7 @@ type t
 (** Solver state *)
 
 val create :
+  ?stat:Stat.t ->
   ?size:[`Big | `Tiny | `Small] ->
   ?config:Config.t ->
   ?store_proof:bool ->

@@ -334,6 +334,9 @@ module Make(A: ARG) = struct
     (* pairs to explain *)
     true_ : node lazy_t;
     false_ : node lazy_t;
+    stat: Stat.t;
+    count_conflict: int Stat.counter;
+    count_merge: int Stat.counter;
   }
   (* TODO: an additional union-find to keep track, for each term,
      of the terms they are known to be equal to, according
@@ -459,6 +462,7 @@ module Make(A: ARG) = struct
     Vec.clear cc.pending;
     Vec.clear cc.combine;
     let c = List.rev_map A.Lit.neg e in
+    Stat.incr cc.count_conflict;
     acts.Msat.acts_raise_conflict c A.Proof.default
 
   let[@inline] all_classes cc : repr Iter.t =
@@ -717,6 +721,7 @@ module Make(A: ARG) = struct
     if not @@ N.equal ra rb then (
       assert (N.is_root ra);
       assert (N.is_root rb);
+      Stat.incr cc.count_merge;
       (* check we're not merging [true] and [false] *)
       if (N.equal ra (true_ cc) && N.equal rb (false_ cc)) ||
          (N.equal rb (true_ cc) && N.equal ra (false_ cc)) then (
@@ -1005,7 +1010,8 @@ module Make(A: ARG) = struct
 
   let on_merge cc f = cc.on_merge <- f :: cc.on_merge
 
-  let create ?th:(theories=[]) ?(on_merge=[]) ?(size=`Big) (tst:term_state) : t =
+  let create ?(stat=Stat.global)
+      ?th:(theories=[]) ?(on_merge=[]) ?(size=`Big) (tst:term_state) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
     let rec cc = {
       tst;
@@ -1020,6 +1026,9 @@ module Make(A: ARG) = struct
       ps_queue=Vec.create();
       true_;
       false_;
+      stat;
+      count_conflict=Stat.mk_int stat "cc.conflicts";
+      count_merge=Stat.mk_int stat "cc.merges";
     } and true_ = lazy (
         add_term cc (T.bool tst true)
       ) and false_ = lazy (

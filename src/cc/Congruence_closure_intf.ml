@@ -151,6 +151,7 @@ module type S = sig
   end
 
   val create :
+    ?stat:Stat.t ->
     ?th:Theory.t list ->
     ?on_merge:(t -> N.t -> N.t -> Expl.t -> unit) list ->
     ?size:[`Small | `Big] ->
