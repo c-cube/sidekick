@@ -13,7 +13,7 @@ build: [
 depends: [
   "dune" {build}
   "containers"
-  "sequence"
+  "iter"
   "zarith"
   "menhir"
   "msat" { >= "0.8" < "0.9" }

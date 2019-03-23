@@ -41,7 +41,7 @@ module Fun_interpretation = struct
   }
 
   let default fi = fi.default
-  let cases_list fi = Val_map.to_seq fi.cases |> Sequence.to_rev_list
+  let cases_list fi = Val_map.to_seq fi.cases |> Iter.to_rev_list
 
   let make ~default l : t =
     let m = List.fold_left (fun m (k,v) -> Val_map.add k v m) Val_map.empty l in

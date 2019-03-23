@@ -49,7 +49,7 @@ module type TERM = sig
     val bool : state -> bool -> t
 
     (** View the term through the lens of the congruence closure *)
-    val cc_view : t -> (Fun.t, t, t Sequence.t) view
+    val cc_view : t -> (Fun.t, t, t Iter.t) view
   end
 end
 

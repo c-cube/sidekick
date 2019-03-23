@@ -73,11 +73,11 @@ module type S = sig
     val is_root : t -> bool
     (** Is the node a root (ie the representative of its class)? *)
 
-    val iter_class : t -> t Sequence.t
+    val iter_class : t -> t Iter.t
     (** Traverse the congruence class.
         Invariant: [is_root n] (see {!find} below) *)
 
-    val iter_parents : t -> t Sequence.t
+    val iter_parents : t -> t Iter.t
     (** Traverse the parents of the class.
         Invariant: [is_root n] (see {!find} below) *)
   end
@@ -173,10 +173,10 @@ module type S = sig
   (** Current representative of the term.
       @raise Not_found if the term is not already {!add}-ed. *)
 
-  val add_seq : t -> term Sequence.t -> unit
+  val add_seq : t -> term Iter.t -> unit
   (** Add a sequence of terms to the congruence closure *)
 
-  val all_classes : t -> repr Sequence.t
+  val all_classes : t -> repr Iter.t
   (** All current classes. This is costly, only use if there is no other solution *)
 
   val assert_lit : t -> lit -> unit
@@ -185,7 +185,7 @@ module type S = sig
   
       Useful for the theory combination or the SAT solver's functor *)
 
-  val assert_lits : t -> lit Sequence.t -> unit
+  val assert_lits : t -> lit Iter.t -> unit
   (** Addition of many literals *)
 
   val assert_eq : t -> term -> term -> lit list -> unit

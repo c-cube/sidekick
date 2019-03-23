@@ -2,7 +2,7 @@
 (library
   (name Sidekick_smt)
   (public_name sidekick.smt)
-  (libraries containers containers.data sequence
+  (libraries containers containers.data iter
              sidekick.util sidekick.cc msat zarith)
   (flags :standard -warn-error -a+8
          -color always -safe-string -short-paths -open Sidekick_util)

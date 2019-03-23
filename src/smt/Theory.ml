@@ -66,14 +66,14 @@ module type S = sig
   val on_merge: t -> actions -> CC_eq_class.t -> CC_eq_class.t -> CC_expl.t -> unit
   (** Called when two classes are merged *)
 
-  val partial_check : t -> actions -> Lit.t Sequence.t -> unit
+  val partial_check : t -> actions -> Lit.t Iter.t -> unit
   (** Called when a literal becomes true *)
 
-  val final_check: t -> actions -> Lit.t Sequence.t -> unit
+  val final_check: t -> actions -> Lit.t Iter.t -> unit
   (** Final check, must be complete (i.e. must raise a conflict
       if the set of literals is not satisfiable) *)
 
-  val mk_model : t -> Lit.t Sequence.t -> Model.t -> Model.t
+  val mk_model : t -> Lit.t Iter.t -> Model.t -> Model.t
   (** Make a model for this theory's terms *)
 
   val push_level : t -> unit

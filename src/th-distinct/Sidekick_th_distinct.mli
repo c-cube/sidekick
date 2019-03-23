@@ -14,7 +14,7 @@ module type ARG = sig
     val pp : t Fmt.printer
     val equal : t -> t -> bool
     val hash : t -> int
-    val as_distinct : t -> t Sequence.t option
+    val as_distinct : t -> t Iter.t option
     val mk_eq : state -> t -> t -> t
   end
   module Lit : sig

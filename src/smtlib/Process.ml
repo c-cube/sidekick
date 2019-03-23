@@ -506,7 +506,7 @@ end = struct
              let rhs = conv_term_rec env' rhs in
              let depends_on_vars =
                Term.to_seq_depth rhs
-               |> Sequence.exists
+               |> Iter.exists
                  (fun (t,k) -> match t.term_cell with
                     | DB db ->
                       DB.level db < n_vars + k (* [k]: number of intermediate binders *)
@@ -521,9 +521,9 @@ end = struct
       (* TODO: do the closedness check during conversion, above *)
       let rhs_l =
         ID.Map.values m
-        |> Sequence.map snd
-        |> Sequence.sort_uniq ~cmp:Term.compare
-        |> Sequence.to_rev_list
+        |> Iter.map snd
+        |> Iter.sort_uniq ~cmp:Term.compare
+        |> Iter.to_rev_list
       in
       begin match rhs_l with
         | [x] when not (!any_rhs_depends_vars) ->

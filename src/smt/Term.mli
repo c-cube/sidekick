@@ -42,10 +42,10 @@ val abs : state -> t -> t * bool
 module Iter_dag : sig
   type t
   val create : unit -> t
-  val iter_dag : t -> term -> term Sequence.t
+  val iter_dag : t -> term -> term Iter.t
 end
 
-val iter_dag : t -> t Sequence.t
+val iter_dag : t -> t Iter.t
 
 val pp : t Fmt.printer
 
@@ -55,7 +55,7 @@ val is_true : t -> bool
 val is_false : t -> bool
 val is_const : t -> bool
 
-val cc_view : t -> (cst,t,t Sequence.t) Sidekick_cc.view
+val cc_view : t -> (cst,t,t Iter.t) Sidekick_cc.view
 
 (* return [Some] iff the term is an undefined constant *)
 val as_cst_undef : t -> (cst * Ty.Fun.t) option

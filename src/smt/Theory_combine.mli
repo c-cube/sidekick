@@ -19,9 +19,9 @@ val tst : t -> Term.state
 type theory_state =
   | Th_state : ('a Theory.t1 * 'a) -> theory_state
 
-val theories : t -> theory_state Sequence.t
+val theories : t -> theory_state Iter.t
 
-val mk_model : t -> Lit.t Sequence.t -> Model.t
+val mk_model : t -> Lit.t Iter.t -> Model.t
 
 val add_theory : t -> Theory.t -> unit
 (** How to add new theories *)

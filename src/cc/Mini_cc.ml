@@ -183,8 +183,8 @@ module Make(A: TERM) = struct
 
   (* does this list contain a duplicate? *)
   let has_dups (l:node list) : bool =
-    Sequence.diagonal (Sequence.of_list l)
-    |> Sequence.exists (fun (n1,n2) -> Node.equal n1 n2)
+    Iter.diagonal (Iter.of_list l)
+    |> Iter.exists (fun (n1,n2) -> Node.equal n1 n2)
 
   exception E_unsat
 
@@ -205,12 +205,12 @@ module Make(A: TERM) = struct
       return @@ Eq (a,b)
     | Not u -> return @@ Not (find_t_ self u)
     | App_fun (f, args) ->
-      let args = args |> Sequence.map (find_t_ self) |> Sequence.to_list in
+      let args = args |> Iter.map (find_t_ self) |> Iter.to_list in
       if args<>[] then (
         return @@ App_fun (f, args)
       ) else None
     | App_ho (f, args) ->
-      let args = args |> Sequence.map (find_t_ self) |> Sequence.to_list in
+      let args = args |> Iter.map (find_t_ self) |> Iter.to_list in
       return @@ App_ho (find_t_ self f, args)
     | If (a,b,c) ->
       return @@ If(find_t_ self a, find_t_ self b, find_t_ self c)

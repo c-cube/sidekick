@@ -33,13 +33,13 @@ type t = {
 
 let[@inline] cc (t:t) = Lazy.force t.cc
 let[@inline] tst t = t.tst
-let[@inline] theories (self:t) : theory_state Sequence.t =
+let[@inline] theories (self:t) : theory_state Iter.t =
   fun k -> List.iter k self.theories
 
 (** {2 Interface with the SAT solver} *)
 
 (* handle a literal assumed by the SAT solver *)
-let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
+let assert_lits_ ~final (self:t) acts (lits:Lit.t Iter.t) : unit =
   Msat.Log.debugf 2
     (fun k->k "(@[<hv1>@{<green>th_combine.assume_lits@}%s@ %a@])"
         (if final then "[final]" else "") (Util.pp_seq ~sep:"; " Lit.pp) lits);
@@ -69,7 +69,7 @@ let assert_lits_ ~final (self:t) acts (lits:Lit.t Sequence.t) : unit =
        if final then Th.final_check st acts lits else Th.partial_check st acts lits);
   ()
 
-let[@inline] iter_atoms_ acts : _ Sequence.t =
+let[@inline] iter_atoms_ acts : _ Iter.t =
   fun f ->
     acts.Msat.acts_iter_assumptions
       (function
@@ -80,7 +80,7 @@ let[@inline] iter_atoms_ acts : _ Sequence.t =
 let check_ ~final (self:t) (acts:_ Msat.acts) =
   let iter = iter_atoms_ acts in
   (* TODO if Config.progress then print_progress(); *)
-  Msat.Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Sequence.length iter));
+  Msat.Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Iter.length iter));
   assert_lits_ ~final self acts iter
 
 let add_formula (self:t) (lit:Lit.t) =
@@ -108,7 +108,7 @@ let pop_levels (self:t) n : unit =
 
 let mk_model (self:t) lits : Model.t =
   let m =
-    Sequence.fold
+    Iter.fold
       (fun m (Th_state ((module Th),st)) -> Th.mk_model st lits m)
       Model.empty (theories self)
   in

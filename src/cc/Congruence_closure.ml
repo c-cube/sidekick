@@ -206,7 +206,7 @@ module Make(A: ARG) = struct
     let[@inline] is_root (n:node) : bool = n.n_root == n
 
     (* traverse the equivalence class of [n] *)
-    let iter_class_ (n:node) : node Sequence.t =
+    let iter_class_ (n:node) : node Iter.t =
       fun yield ->
         let rec aux u =
           yield u;
@@ -218,7 +218,7 @@ module Make(A: ARG) = struct
       assert (is_root n);
       iter_class_ n
 
-    let[@inline] iter_parents (n:node) : node Sequence.t =
+    let[@inline] iter_parents (n:node) : node Iter.t =
       assert (is_root n);
       Bag.to_seq n.n_parents
 
@@ -461,9 +461,9 @@ module Make(A: ARG) = struct
     let c = List.rev_map A.Lit.neg e in
     acts.Msat.acts_raise_conflict c A.Proof.default
 
-  let[@inline] all_classes cc : repr Sequence.t =
+  let[@inline] all_classes cc : repr Iter.t =
     T_tbl.values cc.tbl
-    |> Sequence.filter N.is_root
+    |> Iter.filter N.is_root
 
   (* TODO: use markers and lockstep iteration instead *)
   (* distance from [t] to its root in the proof forest *)
@@ -634,12 +634,12 @@ module Make(A: ARG) = struct
       return @@ Eq (a,b)
     | Not u -> return @@ Not (deref_sub u)
     | App_fun (f, args) ->
-      let args = args |> Sequence.map deref_sub |> Sequence.to_list in
+      let args = args |> Iter.map deref_sub |> Iter.to_list in
       if args<>[] then (
         return @@ App_fun (f, args)
       ) else None
     | App_ho (f, args) ->
-      let args = args |> Sequence.map deref_sub |> Sequence.to_list in
+      let args = args |> Iter.map deref_sub |> Iter.to_list in
       return @@ App_ho (deref_sub f, args)
     | If (a,b,c) ->
       return @@ If (deref_sub a, deref_sub b, deref_sub c)
@@ -987,7 +987,7 @@ module Make(A: ARG) = struct
     end
 
   let[@inline] assert_lits cc lits : unit =
-    Sequence.iter (assert_lit cc) lits
+    Iter.iter (assert_lit cc) lits
 
   let assert_eq cc t1 t2 (e:lit list) : unit =
     let expl = Expl.mk_list @@ List.rev_map Expl.mk_lit e in
@@ -1052,7 +1052,7 @@ module Make(A: ARG) = struct
            (* find a value in the class, if any *)
            let v =
              N.iter_class r
-             |> Sequence.find_map (fun n -> Model.eval m n.n_term)
+             |> Iter.find_map (fun n -> Model.eval m n.n_term)
            in
            let v = match v with
              | Some v -> v
@@ -1066,7 +1066,7 @@ module Make(A: ARG) = struct
     (* now map every term to its representative's value *)
     let pairs =
       T_tbl.values cc.tbl
-      |> Sequence.map
+      |> Iter.map
         (fun n ->
            let r = find_ n in
            let v =
@@ -1076,7 +1076,7 @@ module Make(A: ARG) = struct
            in
            n.n_term, v)
     in
-    let m = Sequence.fold (fun m (t,v) -> Model.add t v m) m pairs in
+    let m = Iter.fold (fun m (t,v) -> Model.add t v m) m pairs in
     Log.debugf 5 (fun k->k "(@[cc.model@ %a@])" Model.pp m);
     m
 end

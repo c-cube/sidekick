@@ -10,7 +10,7 @@ module Make(A : ARG): sig
   type t
   val create : ?size:int -> unit -> t
   val hashcons : t -> A.t -> A.t
-  val to_seq : t -> A.t Sequence.t
+  val to_seq : t -> A.t Iter.t
 end = struct
   module W = Weak.Make(A)
 

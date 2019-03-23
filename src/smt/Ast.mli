@@ -208,7 +208,7 @@ val env_empty : env
 
 val env_add_statement : env -> statement -> env
 
-val env_of_statements: statement Sequence.t -> env
+val env_of_statements: statement Iter.t -> env
 
 val env_find_def : env -> ID.t -> env_entry option
 

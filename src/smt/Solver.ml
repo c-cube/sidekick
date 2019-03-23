@@ -72,7 +72,7 @@ let flush_progress (): unit =
 
 module Top_goals: sig
   val push : term -> unit
-  val to_seq : term Sequence.t
+  val to_seq : term Iter.t
   val check: unit -> unit
 end = struct
   (* list of terms to fully evaluate *)
@@ -147,9 +147,9 @@ type res =
 (** {2 Main} *)
 
 (* convert unsat-core *)
-let clauses_of_unsat_core (core:Sat_solver.clause list): Lit.t IArray.t Sequence.t =
-  Sequence.of_list core
-  |> Sequence.map clause_of_mclause
+let clauses_of_unsat_core (core:Sat_solver.clause list): Lit.t IArray.t Iter.t =
+  Iter.of_list core
+  |> Iter.map clause_of_mclause
 
 (* print all terms reachable from watched literals *)
 let pp_term_graph _out (_:t) =
@@ -173,12 +173,12 @@ let do_on_exit ~on_exit =
 (* map boolean subterms to literals *)
 let add_bool_subterms_ (self:t) (t:Term.t) : unit =
   Term.iter_dag t
-  |> Sequence.filter (fun t -> Ty.is_prop @@ Term.ty t)
-  |> Sequence.filter
+  |> Iter.filter (fun t -> Ty.is_prop @@ Term.ty t)
+  |> Iter.filter
     (fun t -> match Term.view t with
        | Term.Not _ -> false (* will process the subterm just later *)
        | _ -> true)
-  |> Sequence.iter
+  |> Iter.iter
     (fun sub ->
        Log.debugf 5 (fun k->k  "(@[solver.map-to-lit@ :subterm %a@])" Term.pp sub);
        ignore (mk_atom_t self sub : Sat_solver.atom))
@@ -250,8 +250,8 @@ let solve ?(on_exit=[]) ?(check=true) () =
     (* assume all literals [expanded t] are false *)
     let assumptions =
       Terms_to_expand.to_seq
-      |> Sequence.map (fun {Terms_to_expand.lit; _} -> Lit.neg lit)
-      |> Sequence.to_rev_list
+      |> Iter.map (fun {Terms_to_expand.lit; _} -> Lit.neg lit)
+      |> Iter.to_rev_list
     in
     incr n_iter;
     Log.debugf 2

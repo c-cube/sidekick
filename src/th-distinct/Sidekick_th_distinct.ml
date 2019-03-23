@@ -9,7 +9,7 @@ module type ARG = sig
     val pp : t Fmt.printer
     val equal : t -> t -> bool
     val hash : t -> int
-    val as_distinct : t -> t Sequence.t option
+    val as_distinct : t -> t Iter.t option
     val mk_eq : state -> t -> t -> t
   end
   module Lit : sig
@@ -113,7 +113,7 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
 
   module CC = Sidekick_smt.CC
 
-  let process_lit (st:st) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (subs:term Sequence.t) : unit =
+  let process_lit (st:st) (acts:Theory.actions) (lit:Lit.t) (lit_t:term) (subs:term Iter.t) : unit =
     let (module A) = acts in
     Log.debugf 5 (fun k->k "(@[th_distinct.process@ %a@])" Lit.pp lit);
     let add_axiom c = A.add_persistent_axiom c in
@@ -129,11 +129,11 @@ module Make(A : ARG with type Lit.t = Sidekick_smt.Lit.t
     ) else if not @@ T_tbl.mem st.expanded lit_t then (
       (* add clause [distinct t1…tn ∨ ∨_{i,j>i} t_i=j] *)
       T_tbl.add st.expanded lit_t ();
-      let l = Sequence.to_list subs in
+      let l = Iter.to_list subs in
       let c =
-        Sequence.diagonal_l l
-        |> Sequence.map (fun (t,u) -> Lit.atom st.tst @@ T.mk_eq st.tst t u)
-        |> Sequence.to_rev_list
+        Iter.diagonal_l l
+        |> Iter.map (fun (t,u) -> Lit.atom st.tst @@ T.mk_eq st.tst t u)
+        |> Iter.to_rev_list
       in
       let c = Lit.neg lit :: c in
       Log.debugf 5 (fun k->k "(@[tseitin.distinct.case-split@ %a@])" pp_c c);
@@ -182,8 +182,8 @@ module Arg = struct
   let eval args =
     let module Value = Sidekick_smt.Value in
     if
-      Sequence.diagonal (IArray.to_seq args)
-      |> Sequence.for_all (fun (x,y) -> not @@ Value.equal x y)
+      Iter.diagonal (IArray.to_seq args)
+      |> Iter.for_all (fun (x,y) -> not @@ Value.equal x y)
     then Value.true_
     else Value.false_
 

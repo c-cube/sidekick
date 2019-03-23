@@ -86,10 +86,10 @@ module Make(Term : ARG) = struct
          | B_atom _ -> ()
          | v -> tseitin ~final self acts lit t v)
 
-  let partial_check (self:t) acts (lits:Lit.t Sequence.t) =
+  let partial_check (self:t) acts (lits:Lit.t Iter.t) =
     check_ ~final:false self acts lits
 
-  let final_check (self:t) acts (lits:Lit.t Sequence.t) =
+  let final_check (self:t) acts (lits:Lit.t Iter.t) =
     check_ ~final:true self acts lits
 
   let th =
