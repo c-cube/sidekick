@@ -7,6 +7,7 @@ type ('f, 't, 'ts) view =
   | App_ho of 't * 'ts
   | If of 't * 't * 't
   | Eq of 't * 't
+  | Not of 't
   | Opaque of 't (* do not enter *)
 
 let[@inline] map_view ~f_f ~f_t ~f_ts (v:_ view) : _ view =
@@ -14,6 +15,7 @@ let[@inline] map_view ~f_f ~f_t ~f_ts (v:_ view) : _ view =
   | Bool b -> Bool b
   | App_fun (f, args) -> App_fun (f_f f, f_ts args)
   | App_ho (f, args) -> App_ho (f_t f, f_ts args)
+  | Not t -> Not (f_t t)
   | If (a,b,c) -> If (f_t a, f_t b, f_t c)
   | Eq (a,b) -> Eq (f_t a, f_t b)
   | Opaque t -> Opaque (f_t t)
@@ -23,6 +25,7 @@ let iter_view ~f_f ~f_t ~f_ts (v:_ view) : unit =
   | Bool _ -> ()
   | App_fun (f, args) -> f_f f; f_ts args
   | App_ho (f, args) -> f_t f; f_ts args
+  | Not t -> f_t t
   | If (a,b,c) -> f_t a; f_t b; f_t c;
   | Eq (a,b) -> f_t a; f_t b
   | Opaque t -> f_t t

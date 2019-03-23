@@ -5,6 +5,7 @@ type ('f, 't, 'ts) view = ('f, 't, 'ts) CC_types.view =
   | App_ho of 't * 'ts
   | If of 't * 't * 't
   | Eq of 't * 't
+  | Not of 't
   | Opaque of 't (* do not enter *)
 
 module CC_types = CC_types

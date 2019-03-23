@@ -263,13 +263,14 @@ module Make(A: ARG) = struct
         Fun.equal f1 f2 && CCList.equal N.equal l1 l2
       | App_ho (f1,l1), App_ho (f2,l2) ->
         N.equal f1 f2 && CCList.equal N.equal l1 l2
+      | Not a, Not b -> N.equal a b
       | If (a1,b1,c1), If (a2,b2,c2) ->
         N.equal a1 a2 && N.equal b1 b2 && N.equal c1 c2
       | Eq (a1,b1), Eq (a2,b2) ->
         N.equal a1 a2 && N.equal b1 b2
       | Opaque u1, Opaque u2 -> N.equal u1 u2
       | Bool _, _ | App_fun _, _ | App_ho _, _ | If _, _
-      | Eq _, _ | Opaque _, _
+      | Eq _, _ | Opaque _, _ | Not _, _
         -> false
 
     let hash (s:t) : int =
@@ -281,6 +282,7 @@ module Make(A: ARG) = struct
       | Eq (a,b) -> H.combine3 40 (N.hash a) (N.hash b)
       | Opaque u -> H.combine2 50 (N.hash u)
       | If (a,b,c) -> H.combine4 60 (N.hash a)(N.hash b)(N.hash c)
+      | Not u -> H.combine2 70 (N.hash u)
 
     let pp out = function
       | Bool b -> Fmt.bool out b
@@ -289,6 +291,7 @@ module Make(A: ARG) = struct
       | App_ho (f, []) -> N.pp out f
       | App_ho (f, l) -> Fmt.fprintf out "(@[%a@ %a@])" N.pp f (Util.pp_list N.pp) l
       | Opaque t -> N.pp out t
+      | Not u -> Fmt.fprintf out "(@[not@ %a@])" N.pp u
       | Eq (a,b) -> Fmt.fprintf out "(@[=@ %a@ %a@])" N.pp a N.pp b
       | If (a,b,c) -> Fmt.fprintf out "(@[ite@ %a@ %a@ %a@])" N.pp a N.pp b N.pp c
   end
@@ -629,6 +632,7 @@ module Make(A: ARG) = struct
       let a = deref_sub a in
       let b = deref_sub b in
       return @@ Eq (a,b)
+    | Not u -> return @@ Not (deref_sub u)
     | App_fun (f, args) ->
       let args = args |> Sequence.map deref_sub |> Sequence.to_list in
       if args<>[] then (
@@ -674,6 +678,16 @@ module Make(A: ARG) = struct
         (* if [a=b] is now true, merge [(a=b)] and [true] *)
         if same_class a b then (
           let expl = Expl.mk_merge a b in
+          merge_classes cc n (true_ cc) expl
+        )
+      | Some (Not u) ->
+        (* [u = bool ==> not u = not bool] *)
+        let r_u = find_ u in
+        if N.equal r_u (true_ cc) then (
+          let expl = Expl.mk_merge u (true_ cc) in
+          merge_classes cc n (false_ cc) expl
+        ) else if N.equal r_u (false_ cc) then (
+          let expl = Expl.mk_merge u (false_ cc) in
           merge_classes cc n (true_ cc) expl
         )
       | Some s0 ->

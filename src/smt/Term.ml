@@ -12,6 +12,7 @@ type 'a view = 'a term_view =
   | App_cst of cst * 'a IArray.t
   | Eq of 'a * 'a
   | If of 'a * 'a * 'a
+  | Not of 'a
 
 let[@inline] id t = t.term_id
 let[@inline] ty t = t.term_ty
@@ -67,6 +68,7 @@ let app_cst st f a =
 let[@inline] const st c = app_cst st c IArray.empty
 let[@inline] if_ st a b c = make st (Term_cell.if_ a b c)
 let[@inline] eq st a b = make st (Term_cell.eq a b)
+let[@inline] not_ st a = make st (Not a)
 
 (* "eager" and, evaluating [a] first *)
 let and_eager st a b = if_ st a b (false_ st)
@@ -74,6 +76,7 @@ let and_eager st a b = if_ st a b (false_ st)
 (* might need to tranfer the negation from [t] to [sign] *)
 let abs tst t : t * bool = match view t with
   | Bool false -> true_ tst, false
+  | Not u -> u, false
   | App_cst ({cst_view=Cst_def def; _}, args) ->
     def.abs ~self:t args (* TODO: pass state *)
   | _ -> t, true
@@ -93,6 +96,7 @@ let cc_view (t:t) =
   | App_cst (f,args) -> C.App_fun (f, IArray.to_seq args)
   | Eq (a,b) -> C.Eq (a, b)
   | If (a,b,c) -> C.If (a,b,c)
+  | Not u -> C.Not u
 
 module As_key = struct
     type t = term
@@ -105,17 +109,6 @@ module Map = CCMap.Make(As_key)
 module Set = CCSet.Make(As_key)
 module Tbl = CCHashtbl.Make(As_key)
 
-let to_seq t yield =
-  let rec aux t =
-    yield t;
-    match view t with
-    | Bool _ -> ()
-    | App_cst (_,a) -> IArray.iter aux a
-    | Eq (a,b) -> aux a; aux b
-    | If (a,b,c) -> aux a; aux b; aux c
-  in
-  aux t
-
 (* return [Some] iff the term is an undefined constant *)
 let as_cst_undef (t:term): (cst * Ty.Fun.t) option =
   match view t with
@@ -124,6 +117,23 @@ let as_cst_undef (t:term): (cst * Ty.Fun.t) option =
 
 let pp = Solver_types.pp_term
 
+module Iter_dag = struct
+  type t = unit Tbl.t
+  let create () : t = Tbl.create 16
+  let iter_dag (self:t) t yield =
+    let rec aux t =
+      if not @@ Tbl.mem self t then (
+        Tbl.add self t ();
+        yield t;
+        Term_cell.iter aux (view t)
+      )
+    in
+    aux t
+end
+
+let iter_dag t yield =
+  let st = Iter_dag.create() in
+  Iter_dag.iter_dag st t yield
 
 (* TODO 
   module T_arg = struct

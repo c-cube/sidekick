@@ -12,6 +12,7 @@ type 'a view = 'a term_view =
   | App_cst of cst * 'a IArray.t
   | Eq of 'a * 'a
   | If of 'a * 'a * 'a
+  | Not of 'a
 
 val id : t -> int
 val view : t -> term view
@@ -33,11 +34,18 @@ val app_cst : state -> cst -> t IArray.t -> t
 val eq : state -> t -> t -> t
 val if_: state -> t -> t -> t -> t
 val and_eager : state -> t -> t -> t (* evaluate left argument first *)
+val not_ : state -> t -> t
 
 (** Obtain unsigned version of [t], + the sign as a boolean *)
 val abs : state -> t -> t * bool
 
-val to_seq : t -> t Sequence.t
+module Iter_dag : sig
+  type t
+  val create : unit -> t
+  val iter_dag : t -> term -> term Sequence.t
+end
+
+val iter_dag : t -> t Sequence.t
 
 val pp : t Fmt.printer
 

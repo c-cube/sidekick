@@ -22,6 +22,7 @@ and 'a term_view =
   | App_cst of cst * 'a IArray.t (* full, first-order application *)
   | Eq of 'a * 'a
   | If of 'a * 'a * 'a
+  | Not of 'a
 
 (* boolean literal *)
 and lit = {
@@ -165,6 +166,7 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
   | Eq (a,b) -> Fmt.fprintf out "(@[<hv>=@ %a@ %a@])" pp_t a pp_t b
   | If (a, b, c) ->
     Fmt.fprintf out "(@[if %a@ %a@ %a@])" pp_t a pp_t b pp_t c
+  | Not u -> Fmt.fprintf out "(@[not@ %a@])" pp_t u
 
 let pp_term_top ~ids out t =
   let rec pp out t =

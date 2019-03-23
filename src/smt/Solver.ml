@@ -170,8 +170,22 @@ let do_on_exit ~on_exit =
   List.iter (fun f->f()) on_exit;
   ()
 
+(* map boolean subterms to literals *)
+let add_bool_subterms_ (self:t) (t:Term.t) : unit =
+  Term.iter_dag t
+  |> Sequence.filter (fun t -> Ty.is_prop @@ Term.ty t)
+  |> Sequence.filter
+    (fun t -> match Term.view t with
+       | Term.Not _ -> false (* will process the subterm just later *)
+       | _ -> true)
+  |> Sequence.iter
+    (fun sub ->
+       Log.debugf 5 (fun k->k  "(@[solver.map-to-lit@ :subterm %a@])" Term.pp sub);
+       ignore (mk_atom_t self sub : Sat_solver.atom))
+
 let assume (self:t) (c:Lit.t IArray.t) : unit =
   let sat = solver self in
+  IArray.iter (fun lit -> add_bool_subterms_ self @@ Lit.term lit) c;
   let c = IArray.to_array_map (Sat_solver.make_atom sat) c in
   Sat_solver.add_clause_a sat c Proof_default
 

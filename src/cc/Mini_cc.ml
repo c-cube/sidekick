@@ -81,13 +81,14 @@ module Make(A: TERM) = struct
         Fun.equal f1 f2 && CCList.equal Node.equal l1 l2
       | App_ho (f1,l1), App_ho (f2,l2) ->
         Node.equal f1 f2 && CCList.equal Node.equal l1 l2
+      | Not n1, Not n2 -> Node.equal n1 n2
       | If (a1,b1,c1), If (a2,b2,c2) ->
         Node.equal a1 a2 && Node.equal b1 b2 && Node.equal c1 c2
       | Eq (a1,b1), Eq (a2,b2) ->
         Node.equal a1 a2 && Node.equal b1 b2
       | Opaque u1, Opaque u2 -> Node.equal u1 u2
       | Bool _, _ | App_fun _, _ | App_ho _, _ | If _, _
-      | Eq _, _ | Opaque _, _
+      | Eq _, _ | Opaque _, _ | Not _, _
         -> false
 
     let hash (s:t) : int =
@@ -99,6 +100,7 @@ module Make(A: TERM) = struct
       | Eq (a,b) -> H.combine3 40 (Node.hash a) (Node.hash b)
       | Opaque u -> H.combine2 50 (Node.hash u)
       | If (a,b,c) -> H.combine4 60 (Node.hash a)(Node.hash b)(Node.hash c)
+      | Not u -> H.combine2 70 (Node.hash u)
 
     let pp out = function
       | Bool b -> Fmt.bool out b
@@ -107,6 +109,7 @@ module Make(A: TERM) = struct
       | App_ho (f, []) -> Node.pp out f
       | App_ho (f, l) -> Fmt.fprintf out "(@[%a@ %a@])" Node.pp f (Util.pp_list Node.pp) l
       | Opaque t -> Node.pp out t
+      | Not u -> Fmt.fprintf out "(@[not@ %a@])" Node.pp u
       | Eq (a,b) -> Fmt.fprintf out "(@[=@ %a@ %a@])" Node.pp a Node.pp b
       | If (a,b,c) -> Fmt.fprintf out "(@[ite@ %a@ %a@ %a@])" Node.pp a Node.pp b Node.pp c
   end
@@ -147,6 +150,7 @@ module Make(A: TERM) = struct
     | App_fun (_, args) -> args k
     | App_ho (f, args) -> k f; args k
     | Eq (a,b) -> k a; k b
+    | Not u -> k u
     | If(a,b,c) -> k a; k b; k c
 
   let rec add_t (self:t) (t:term) : node =
@@ -199,6 +203,7 @@ module Make(A: TERM) = struct
       let a = find_t_ self a in
       let b = find_t_ self b in
       return @@ Eq (a,b)
+    | Not u -> return @@ Not (find_t_ self u)
     | App_fun (f, args) ->
       let args = args |> Sequence.map (find_t_ self) |> Sequence.to_list in
       if args<>[] then (

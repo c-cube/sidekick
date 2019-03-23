@@ -8,6 +8,7 @@ type 'a view = 'a Solver_types.term_view =
   | App_cst of cst * 'a IArray.t
   | Eq of 'a * 'a
   | If of 'a * 'a * 'a
+  | Not of 'a
 
 type t = term view
 
@@ -28,6 +29,7 @@ module Make_eq(A : ARG) = struct
       Hash.combine3 4 (Cst.hash f) (Hash.iarray sub_hash l)
     | Eq (a,b) -> Hash.combine3 12 (sub_hash a) (sub_hash b)
     | If (a,b,c) -> Hash.combine4 7 (sub_hash a) (sub_hash b) (sub_hash c)
+    | Not u -> Hash.combine2 70 (sub_hash u)
 
   (* equality that relies on physical equality of subterms *)
   let equal (a:A.t view) b : bool = match a, b with
@@ -37,7 +39,8 @@ module Make_eq(A : ARG) = struct
     | Eq(a1,b1), Eq(a2,b2) -> sub_eq a1 a2 && sub_eq b1 b2
     | If (a1,b1,c1), If (a2,b2,c2) ->
       sub_eq a1 a2 && sub_eq b1 b2 && sub_eq c1 c2
-    | Bool _, _ | App_cst _, _ | If _, _ | Eq _, _
+    | Not a, Not b -> sub_eq a b
+    | Bool _, _ | App_cst _, _ | If _, _ | Eq _, _ | Not _, _
       -> false
 
   let pp = Solver_types.pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:A.pp
@@ -64,12 +67,18 @@ let eq a b =
     Eq (a,b)
   )
 
+let not_ t =
+  match t.term_view with
+  | Bool b -> Bool (not b)
+  | Not u -> u.term_view
+  | _ -> Not t
+
 let if_ a b c =
   assert (Ty.equal b.term_ty c.term_ty);
   If (a,b,c)
 
 let ty (t:t): Ty.t = match t with
-  | Bool _ | Eq _ -> Ty.prop
+  | Bool _ | Eq _ | Not _ -> Ty.prop
   | App_cst (f, args) ->
     begin match Cst.view f with
       | Cst_undef fty -> 
@@ -94,6 +103,14 @@ let ty (t:t): Ty.t = match t with
       | Cst_def def -> def.ty f.cst_id args
     end
   | If (_,b,_) -> b.term_ty
+
+let iter f view =
+  match view with
+  | Bool _ -> ()
+  | App_cst (_,a) -> IArray.iter f a
+  | Not u -> f u
+  | Eq (a,b) -> f a; f b
+  | If (a,b,c) -> f a; f b; f c
 
 module Tbl = CCHashtbl.Make(struct
     type t = term view

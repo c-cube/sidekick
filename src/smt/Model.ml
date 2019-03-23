@@ -145,6 +145,11 @@ let eval (m:t) (t:Term.t) : Value.t option =
         | V_bool false -> aux c
         | v -> Error.errorf "@[Model: wrong value@ for boolean %a@ %a@]" Term.pp a Value.pp v
       end
+    | Not a ->
+      begin match aux a with
+        | V_bool b -> V_bool (not b)
+        | v -> Error.errorf "@[Model: wrong value@ for boolean %a@ :val %a@]" Term.pp a Value.pp v
+      end
     | Eq(a,b) ->
       let a = aux a in
       let b = aux b in

@@ -14,7 +14,6 @@ type 'a view = 'a Bool_intf.view
 
 exception Not_a_th_term
 
-let id_not = ID.make "not"
 let id_and = ID.make "and"
 let id_or = ID.make "or"
 let id_imply = ID.make "=>"
@@ -23,9 +22,7 @@ let equal = T.equal
 let hash = T.hash
 
 let view_id cst_id args =
-  if ID.equal cst_id id_not && IArray.length args=1 then (
-    B_not (IArray.get args 0)
-  ) else if ID.equal cst_id id_and then (
+  if ID.equal cst_id id_and then (
     B_and args
   ) else if ID.equal cst_id id_or then (
     B_or args
@@ -39,6 +36,7 @@ let view_id cst_id args =
 
 let view_as_bool (t:T.t) : T.t view =
   match T.view t with
+  | Not u -> B_not u
   | App_cst ({cst_id; _}, args) ->
     (try view_id cst_id args with Not_a_th_term -> B_atom t)
   | _ -> B_atom t
@@ -49,9 +47,7 @@ module C = struct
 
   let abs ~self _a =
     match T.view self with
-    | App_cst ({cst_id;_}, args) when ID.equal cst_id id_not && IArray.length args=1 ->
-      (* [not a] --> [a, false] *)
-      IArray.get args 0, false
+    | Not u -> u, false
     | _ -> self, true
 
   let eval id args =
@@ -77,7 +73,7 @@ module C = struct
      cst_view=Cst_def {
          pp=None; abs; ty=get_ty; relevant; do_cc; eval=eval id; }; }
 
-  let not = mk_cst id_not
+  let not = T.not_
   let and_ = mk_cst id_and
   let or_ = mk_cst id_or
   let imply = mk_cst id_imply
@@ -116,17 +112,8 @@ let and_ st a b = and_l st [a;b]
 let or_ st a b = or_l st [a;b]
 let and_a st a = and_l st (IArray.to_list a)
 let or_a st a = or_l st (IArray.to_list a)
-
 let eq = T.eq
-
-let not_ st a =
-  match as_id id_not a, T.view a with
-  | _, Bool false -> T.true_ st
-  | _, Bool true -> T.false_ st
-  | Some args, _ ->
-    assert (IArray.length args = 1);
-    IArray.get args 0
-  | None, _ -> T.app_cst st C.not (IArray.singleton a)
+let not_ = T.not_
 
 let neq st a b = not_ st @@ eq st a b
 
