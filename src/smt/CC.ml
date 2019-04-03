@@ -13,6 +13,6 @@ module Arg = struct
   end
 end
 
-include Sidekick_cc.Make(Arg)
+(* include Sidekick_cc.Make(Arg) *)
 
 module Mini_cc = Sidekick_cc.Mini_cc.Make(Arg)
