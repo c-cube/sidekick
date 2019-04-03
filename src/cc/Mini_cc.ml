@@ -1,9 +1,11 @@
 
+open Congruence_closure_intf
+
 type res =
   | Sat
   | Unsat
 
-module type TERM = CC_types.TERM
+module type TERM = Congruence_closure_intf.TERM
 
 module type S = sig
   type term
@@ -18,12 +20,12 @@ module type S = sig
   val distinct : t -> term list -> unit
 
   val check : t -> res
+
+  val classes : t -> term Iter.t Iter.t
 end
 
 
 module Make(A: TERM) = struct
-  open CC_types
-
   module Fun = A.Fun
   module T = A.Term
   type fun_ = A.Fun.t
@@ -47,6 +49,8 @@ module Make(A: TERM) = struct
     let[@inline] equal (n1:t) n2 = T.equal n1.n_t n2.n_t
     let[@inline] hash (n:t) = T.hash n.n_t
     let[@inline] size (n:t) = n.n_size
+    let[@inline] is_root n = n == n.n_root
+    let[@inline] term n = n.n_t
     let pp out n = T.pp out n.n_t
 
     let add_parent (self:t) ~p : unit =
@@ -171,7 +175,7 @@ module Make(A: TERM) = struct
   (* find representative *)
   let[@inline] find_ (n:node) : node =
     let r = n.n_root in
-    assert (Node.equal r.n_root r);
+    assert (Node.is_root r);
     r
 
   let find_t_ (self:t) (t:term): node =
@@ -313,4 +317,10 @@ module Make(A: TERM) = struct
       self.ok <- false;
       Unsat
 
+  let classes self : _ Iter.t =
+    T_tbl.values self.tbl
+    |> Iter.filter Node.is_root
+    |> Iter.map
+      (fun n -> Node.iter_cls n |> Iter.map Node.term)
+    
 end

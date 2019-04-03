@@ -1,35 +1,124 @@
 
-module type ARG = CC_types.FULL
+(** {1 Types used by the congruence closure} *)
 
-module type THEORY_KEY = sig
-  type ('term,'lit,'a) t
-  (** An access key for theories which have per-class data ['a] *)
+type ('f, 't, 'ts) view =
+  | Bool of bool
+  | App_fun of 'f * 'ts
+  | App_ho of 't * 'ts
+  | If of 't * 't * 't
+  | Eq of 't * 't
+  | Not of 't
+  | Opaque of 't (* do not enter *)
 
-  val create :
-    ?pp:'a Fmt.printer ->
-    name:string ->
-    eq:('a -> 'a -> bool) ->
-    merge:('a -> 'a -> 'a) ->
-    unit ->
-    ('term,'lit,'a) t
-  (** Generative creation of keys for the given theory data.
+let[@inline] map_view ~f_f ~f_t ~f_ts (v:_ view) : _ view =
+  match v with
+  | Bool b -> Bool b
+  | App_fun (f, args) -> App_fun (f_f f, f_ts args)
+  | App_ho (f, args) -> App_ho (f_t f, f_ts args)
+  | Not t -> Not (f_t t)
+  | If (a,b,c) -> If (f_t a, f_t b, f_t c)
+  | Eq (a,b) -> Eq (f_t a, f_t b)
+  | Opaque t -> Opaque (f_t t)
 
-      @param eq : Equality. This is used to optimize backtracking info.
+let iter_view ~f_f ~f_t ~f_ts (v:_ view) : unit =
+  match v with
+  | Bool _ -> ()
+  | App_fun (f, args) -> f_f f; f_ts args
+  | App_ho (f, args) -> f_t f; f_ts args
+  | Not t -> f_t t
+  | If (a,b,c) -> f_t a; f_t b; f_t c;
+  | Eq (a,b) -> f_t a; f_t b
+  | Opaque t -> f_t t
 
-      @param merge :
-        [merge d1 d2] is called when merging classes with data [d1] and [d2]
-        respectively. The theory should already have checked that the merge
-        is compatible, and this produces the combined data  for terms in the
-        merged class.
-      @param name name of the theory which owns this data
-      @param pp a printer for the data
-  *)
+module type TERM = sig
+  module Fun : sig
+    type t
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
+  end
 
-  val equal : ('t,'lit,_) t -> ('t,'lit,_) t -> bool
-  (** Checks if two keys are equal (generatively) *)
+  module Term : sig
+    type t
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
 
-  val pp : _ t Fmt.printer
-  (** Prints the name of the key. *)
+    type state
+
+    val bool : state -> bool -> t
+
+    (** View the term through the lens of the congruence closure *)
+    val cc_view : t -> (Fun.t, t, t Iter.t) view
+  end
+end
+
+module type TERM_LIT = sig
+  include TERM
+
+  module Lit : sig
+    type t
+    val neg : t -> t
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
+
+    val sign : t -> bool
+    val term : t -> Term.t
+  end
+end
+
+module type ARG = sig
+  include TERM_LIT
+
+  module Proof : sig
+    type t
+    val pp : t Fmt.printer
+
+    val default : t
+    (* TODO: to give more details
+    val cc_lemma : unit -> t
+       *)
+  end
+
+  module Ty : sig
+    type t
+
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
+  end
+
+  module Value : sig
+    type t
+
+    val pp : t Fmt.printer
+
+    val fresh : Term.t -> t
+
+    val true_ : t
+    val false_ : t
+  end
+
+  module Model : sig
+    type t
+
+    val pp : t Fmt.printer
+
+    val eval : t -> Term.t -> Value.t option
+    (** Evaluate the term in the current model *)
+
+    val add : Term.t -> Value.t -> t -> t
+  end
+
+  (** Monoid embedded in every node *)
+  module Data : sig
+    type t
+
+    val empty : t
+
+    val merge : t -> t -> t
+  end
 end
 
 module type S = sig
@@ -39,9 +128,7 @@ module type S = sig
   type lit
   type proof
   type model
-
-  (** Implementation of theory keys *)
-  module Key : THEORY_KEY
+  type th_data
 
   type t
   (** Global state of the congruence closure *)
@@ -80,6 +167,15 @@ module type S = sig
     val iter_parents : t -> t Iter.t
     (** Traverse the parents of the class.
         Invariant: [is_root n] (see {!find} below) *)
+
+    val th_data : t -> th_data
+    (** Access theory data for this node *)
+
+    val get_field_usr1 : t -> bool
+    val set_field_usr1 : t -> bool -> unit
+
+    val get_field_usr2 : t -> bool
+    val set_field_usr2 : t -> bool -> unit
   end
 
   module Expl : sig
@@ -87,6 +183,7 @@ module type S = sig
     val pp : t Fmt.printer
 
     val mk_merge : N.t -> N.t -> t
+    val mk_merge_t : term -> term -> t
     val mk_lit : lit -> t
     val mk_list : t list -> t
   end
@@ -117,9 +214,6 @@ module type S = sig
 
   module Theory : sig
     type cc = t
-    type t
-
-    type 'a key = (term,lit,'a) Key.t
 
     val raise_conflict : cc -> Expl.t -> unit
     (** Raise a conflict with the given explanation
@@ -134,38 +228,25 @@ module type S = sig
     val add_term : cc -> term -> N.t
     (** Add/retrieve node for this term.
         To be used in theories *)
-
-    val get_data : cc -> N.t -> 'a key -> 'a option
-    (** Get data information for this particular representative *)
-
-    val add_data : cc -> N.t -> 'a key -> 'a -> unit
-    (** Add data to this particular representative. Will be backtracked. *)
-
-    val make :
-      key:'a key ->
-      on_merge:(cc -> N.t -> 'a -> N.t -> 'a -> Expl.t -> unit) ->
-      on_new_term:(cc -> N.t -> term -> 'a option) ->
-      unit ->
-      t
-    (** Build a micro theory. It can use the callbacks above. *)
   end
+
+  type ev_on_merge = t -> N.t -> th_data -> N.t -> th_data -> Expl.t -> unit
+  type ev_on_new_term = t -> N.t -> term -> th_data -> th_data option
 
   val create :
     ?stat:Stat.t ->
-    ?th:Theory.t list ->
-    ?on_merge:(t -> N.t -> N.t -> Expl.t -> unit) list ->
+    ?on_merge:ev_on_merge list ->
+    ?on_new_term:ev_on_new_term list ->
     ?size:[`Small | `Big] ->
     term_state ->
     t
   (** Create a new congruence closure. *)
 
-  val add_th : t -> Theory.t -> unit
-  (** Add a (micro) theory to the congruence closure.
-      @raise Error.Error if there is already a theory with
-      the same key. *)
-
-  val on_merge : t -> (t -> N.t -> N.t -> Expl.t -> unit) -> unit
+  val on_merge : t -> ev_on_merge -> unit
   (** Add a function to be called when two classes are merged *)
+
+  val on_new_term : t -> ev_on_new_term -> unit
+  (** Add a function to be called when a new node is created *)
 
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
@@ -217,5 +298,4 @@ module type S = sig
   val check_invariants : t -> unit
   val pp_full : t Fmt.printer
   (**/**)
-
 end

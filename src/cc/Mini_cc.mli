@@ -6,11 +6,13 @@
     It just decides the satisfiability of a set of (dis)equations.
 *)
 
+open Congruence_closure_intf
+
 type res =
   | Sat
   | Unsat
 
-module type TERM = CC_types.TERM
+module type TERM = Congruence_closure_intf.TERM
 
 module type S = sig
   type term
@@ -28,6 +30,10 @@ module type S = sig
   (** [distinct cc l] asserts that all terms in [l] are distinct *)
 
   val check : t -> res
+
+  val classes : t -> term Iter.t Iter.t
+  (** Traverse the set of classes in the congruence closure.
+      This should be called only if {!check} returned [Sat]. *)
 end
 
 module Make(A: TERM)
