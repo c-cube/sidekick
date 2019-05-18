@@ -1,0 +1,6 @@
+
+(library
+  (name Sidekick_core)
+  (public_name sidekick.core)
+  (flags :standard -open Sidekick_util)
+  (libraries containers iter sidekick.util))
