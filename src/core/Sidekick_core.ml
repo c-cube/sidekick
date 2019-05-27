@@ -11,6 +11,12 @@
 
 module Fmt = CCFormat
 
+module type MERGE_PP = sig
+  type t
+  val merge : t -> t -> t
+  val pp : t Fmt.printer
+end
+
 module CC_view = struct
   type ('f, 't, 'ts) t =
     | Bool of bool
@@ -59,9 +65,14 @@ module type TERM = sig
     type state
 
     val bool : state -> bool -> t
+  end
 
-    val cc_view : t -> (Fun.t, t, t Iter.t) CC_view.t
-    (** View the term through the lens of the congruence closure *)
+  module Ty : sig
+    type t
+
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
   end
 end
 
@@ -72,6 +83,7 @@ module type TERM_LIT = sig
     type t
     val neg : t -> t
     val equal : t -> t -> bool
+    val compare : t -> t -> int
     val hash : t -> int
     val pp : t Fmt.printer
 
@@ -84,7 +96,7 @@ module type TERM_LIT = sig
   end
 end
 
-module type CC_ARG = sig
+module type TERM_LIT_PROOF = sig
   include TERM_LIT
 
   module Proof : sig
@@ -97,20 +109,19 @@ module type CC_ARG = sig
     val cc_lemma : unit -> t
        *)
   end
+end
 
-  module Ty : sig
-    type t
 
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val pp : t Fmt.printer
-  end
+module type CC_ARG = sig
+  include TERM_LIT_PROOF
+
+  val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
+  (** View the term through the lens of the congruence closure *)
 
   (** Monoid embedded in every node *)
   module Data : sig
-    type t
+    include MERGE_PP
     val empty : t
-    val merge : t -> t -> t
   end
 
   module Actions : sig
@@ -230,7 +241,7 @@ module type CC_S = sig
   end
 
   type ev_on_merge = t -> N.t -> th_data -> N.t -> th_data -> Expl.t -> unit
-  type ev_on_new_term = t -> N.t -> term -> th_data -> th_data option
+  type ev_on_new_term = t -> N.t -> term -> th_data option
 
   val create :
     ?stat:Stat.t ->
@@ -241,6 +252,7 @@ module type CC_S = sig
     t
   (** Create a new congruence closure. *)
 
+  (* TODO: remove? this is managed by the solver anyway? *)
   val on_merge : t -> ev_on_merge -> unit
   (** Add a function to be called when two classes are merged *)
 
@@ -308,7 +320,8 @@ type ('model, 'proof, 'ucore, 'unknown) solver_res =
     }
   | Unknown of 'unknown
 
-module type SOLVER = sig
+(** A view of the solver from a theory's point of view *)
+module type SOLVER_INTERNAL = sig
   module A : CC_ARG
   module CC : CC_S with module A = A
 
@@ -318,162 +331,195 @@ module type SOLVER = sig
   type term_state = A.Term.state
   type proof = A.Proof.t
 
+  (** {3 Main type for a solver} *)
+  type t
+  type solver = t
+
+  (** {3 Utils} *)
+  val tst : t -> term_state
+
+  (**/**)
+  module Debug_ : sig
+    val on_check_invariants : t -> (unit -> unit) -> unit
+    val check_model : t -> unit
+  end
+  (**/**)
+
+  module Expl = CC.Expl
+  module N = CC.N
+
   (** Unsatisfiable conjunction.
       Its negation will become a conflict clause *)
   type conflict = lit list
 
-  (** {3 Actions available to some of the theory's callbacks} *)
-  module type ACTIONS = sig
-    val cc : CC.t
+  (** {3 Storage of theory-specific data in the CC}
 
-    val raise_conflict: conflict -> 'a
-    (** Give a conflict clause to the solver *)
+      Theories can create keys to store data in each representative of the
+      congruence closure. The data will be automatically merged
+      when classes are merged.
 
-    val propagate: lit -> (unit -> lit list) -> unit
-    (** Propagate a boolean using a unit clause.
-        [expl => lit] must be a theory lemma, that is, a T-tautology *)
+      A callback must be provided, called before merging two classes
+      containing this data, to check consistency of the theory.
+  *)
+  module Key : sig
+    type 'a t
 
-    val propagate_l: lit -> lit list -> unit
-    (** Propagate a boolean using a unit clause.
-        [expl => lit] must be a theory lemma, that is, a T-tautology *)
+    type 'a ev_on_merge = solver -> CC.N.t -> 'a -> CC.N.t -> 'a -> CC.Expl.t -> unit
+    type 'a data = (module MERGE_PP with type t = 'a)
 
-    val add_lit : lit -> unit
-    (** Add the given literal to the SAT solver, so it gets assigned
-        a boolean value *)
-
-    val add_local_axiom: lit list -> unit
-    (** Add local clause to the SAT solver. This clause will be
-        removed when the solver backtracks. *)
-
-    val add_persistent_axiom: lit list -> unit
-    (** Add toplevel clause to the SAT solver. This clause will
-        not be backtracked. *)
+    val create :
+      solver ->
+      'a data ->
+      on_merge:'a ev_on_merge ->
+      'a t
+    (** Create a key for storing and accessing data of type ['a].
+        Values have to be mergeable (but only if [on_merge] does not
+        raise a conflict) *)
   end
-
-  type actions = (module ACTIONS)
-
-  (** {3 Main type for a solver} *)
-  type t
-
-  type solver = t
-
-  (** {3 A theory's state} *)
-  module type THEORY = sig
-    type t
-
-    val name : string
-    (** Name of the theory *)
-
-    val create : term_state -> t
-    (** Instantiate the theory's state for the given solver, and
-        register to callbacks, etc. *)
-
-    val setup: t -> solver -> unit
-    (** Setup the theory for the given solver, register callbacks, etc. *)
-
-    val push_level : t -> unit
-
-    val pop_levels : t -> int -> unit
-  end
-
-  type theory = (module THEORY)
-
-  (** {3 Semantic values} *)
-  module Value : sig
-    type t
-
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val ty : t -> ty
-    val pp : t Fmt.printer
-  end
-
-  module Model : sig
-    type t
-
-    val empty : t
-
-    val mem : term -> t -> bool
-
-    val find : term -> t -> Value.t option
-
-    val eval : t -> term -> Value.t option
-
-    val pp : t Fmt.printer
-  end
-
-  module Unknown : sig
-    type t
-    val pp : t CCFormat.printer
-  end
-
-  (** {3 Boolean Atoms} *)
-  module Atom : sig
-    type t
-
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val pp : t CCFormat.printer
-  end
-
-  (** {3 Main API} *)
 
   val cc : t -> CC.t
-  val stats : t -> Stat.t
-  val tst : t -> term_state
+  (** Congruence closure for this solver *)
 
-  val on_partial_check : t -> (actions -> lit Iter.t -> unit) -> unit
+  val raise_conflict: t -> conflict -> 'a
+  (** Give a conflict clause to the solver *)
+
+  val propagate: t -> lit -> (unit -> lit list) -> unit
+  (** Propagate a boolean using a unit clause.
+      [expl => lit] must be a theory lemma, that is, a T-tautology *)
+
+  val propagate_l: t -> lit -> lit list -> unit
+  (** Propagate a boolean using a unit clause.
+      [expl => lit] must be a theory lemma, that is, a T-tautology *)
+
+  val mk_lit : t -> ?sign:bool -> term -> lit
+  (** Create a literal *)
+
+  val add_lit : t -> lit -> unit
+  (** Add the given literal to the SAT solver, so it gets assigned
+      a boolean value *)
+
+  val add_lit_t : t -> ?sign:bool -> term -> unit
+  (** Add the given (signed) bool term to the SAT solver, so it gets assigned
+      a boolean value *)
+
+  val add_local_axiom: t -> lit list -> unit
+  (** Add local clause to the SAT solver. This clause will be
+      removed when the solver backtracks. *)
+
+  val add_persistent_axiom: t -> lit list -> unit
+  (** Add toplevel clause to the SAT solver. This clause will
+      not be backtracked. *)
+
+  val raise_conflict : t -> Expl.t -> unit
+  (** Raise a conflict with the given explanation
+      it must be a theory tautology that [expl ==> absurd].
+      To be used in theories. *)
+
+  val cc_merge : t -> N.t -> N.t -> Expl.t -> unit
+  (** Merge these two nodes in the congruence closure, given this explanation.
+      It must be a theory tautology that [expl ==> n1 = n2].
+      To be used in theories. *)
+
+  val cc_add_term : t -> term -> N.t
+  (** Add/retrieve congruence closure node for this term.
+      To be used in theories *)
+
+  val cc_merge_t : t -> term -> term -> Expl.t -> unit
+  (** Merge these two terms in the congruence closure, given this explanation.
+      See {!cc_merge} *)
+
+  val on_cc_merge :
+    t ->
+    k:'a Key.t ->
+    (t -> N.t -> 'a -> N.t -> 'a -> Expl.t -> unit) ->
+    unit
+  (** Callback for when two classes containing data for this key are merged *)
+
+  val on_cc_new_term :
+    t ->
+    k:'a Key.t ->
+    (t -> N.t -> term -> 'a option) ->
+    unit
+  (** Callback to add data on terms when they are added to the congruence
+      closure *)
+
+  val on_partial_check : t -> (t -> lit Iter.t -> unit) -> unit
   (** Called with the slice of literals newly added on the trail *)
 
-  val on_final_check: t -> (actions -> lit Iter.t -> unit) -> unit
+  val on_final_check: t -> (t -> lit Iter.t -> unit) -> unit
   (** Final check, must be complete (i.e. must raise a conflict
       if the set of literals is not satisfiable) *)
-
-  val create :
-    ?stat:Stat.t ->
-    ?size:[`Big | `Tiny | `Small] ->
-    (* TODO? ?config:Config.t -> *)
-    ?store_proof:bool ->
-    theories:theory list ->
-    unit -> t
-
-  val add_theory : t -> theory -> unit
-  (** Add a theory to the solver *)
-
-  val mk_atom_lit : t -> lit -> Atom.t
-
-  val mk_atom_t : t -> ?sign:bool -> term -> Atom.t
-
-  val add_clause_lits : t -> lit IArray.t -> unit
-
-  val add_clause_lits_l : t -> lit list -> unit
-
-  val add_clause : t -> Atom.t IArray.t -> unit
-
-  val add_clause_l : t -> Atom.t list -> unit
-
-  type res = (Model.t, proof, lit IArray.t, Unknown.t) solver_res
-  (** Result of solving for the current set of clauses *)
-
-  val solve :
-    ?on_exit:(unit -> unit) list ->
-    ?check:bool ->
-    assumptions:Atom.t list ->
-    t ->
-    res
-  (** [solve s] checks the satisfiability of the statement added so far to [s]
-      @param check if true, the model is checked before returning
-      @param assumptions a set of atoms held to be true. The unsat core,
-        if any, will be a subset of [assumptions].
-      @param on_exit functions to be run before this returns *)
-
-  val pp_term_graph: t CCFormat.printer
-  val pp_stats : t CCFormat.printer
 
   (* TODO?
   val on_mk_model : t -> (lit Iter.t -> Model.t -> Model.t) -> unit
   (** Update the given model *)
     *)
+end
+
+(** Public view of the solver *)
+module type SOLVER = sig
+  module Internal : SOLVER_INTERNAL
+  (** Extensive view of the solver. This should mostly be used
+      by the theories *)
+
+  module A = Internal.A
+  type t = Internal.t
+  type solver = t
+  type term = A.Term.t
+  type ty = A.Ty.t
+  type lit = A.Lit.t
+  type proof = A.Proof.t
+
+  (** {3 A theory}
+
+
+      Theories are abstracted over the concrete implementation of the solver,
+      so they can work with any implementation.
+
+      Typically a theory should be a functor taking an argument containing
+      a [SOLVER_INTERNAL] and some additional views on terms, literals, etc.
+      that are specific to the theory (e.g. to map terms to linear
+      expressions).
+      The theory can then be instantiated on any kind of solver for any
+      term representation that also satisfies the additional theory-specific
+      requirements. Instantiated theories (ie values of type {!SOLVER.theory})
+      can be added to the solver.
+  *)
+  module type THEORY = sig
+    type t
+    (** The theory's state *)
+
+    val name : string
+    (** Name of the theory *)
+
+    val create_and_setup : solver -> t
+    (** Instantiate the theory's state for the given solver,
+        register callbacks, create keys, etc. *)
+
+    val push_level : t -> unit
+    (** Push backtracking level *)
+
+    val pop_levels : t -> int -> unit
+    (** Pop backtracking levels, restoring the theory to its former state *)
+  end
+
+  type theory = (module THEORY)
+  (** A theory that can be used for this particular solver. *)
+
+  type theory_with_st = Tst : {
+      m: (module THEORY with type t = 'th);
+      st: 'th;
+    } -> theory_with_st
+  (** An instantiated theory *)
+
+  val mk_theory :
+    name:string ->
+    create_and_setup:(t -> 'th) ->
+    ?push_level:('th -> unit) ->
+    ?pop_levels:('th -> int -> unit) ->
+    unit ->
+    theory
+  (** Helper to create a theory *)
 
   (* TODO: remove?
   let make
@@ -505,19 +551,99 @@ module type SOLVER = sig
       let cc_th = cc_th
     end in
     (module A : S)
+  *)
 
+  (** {3 Boolean Atoms} *)
+  module Atom : sig
+    type t
+
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t CCFormat.printer
+  end
+
+  (** {3 Semantic values} *)
+  module Value : sig
+    type t
+
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val ty : t -> ty
+    val pp : t Fmt.printer
+  end
+
+  module Model : sig
+    type t
+
+    val empty : t
+
+    val mem : term -> t -> bool
+
+    val find : term -> t -> Value.t option
+
+    val eval : t -> term -> Value.t option
+
+    val pp : t Fmt.printer
+  end
+
+  module Unknown : sig
+    type t
+    val pp : t CCFormat.printer
+
+    (*
   type unknown =
     | U_timeout
     | U_incomplete
-
-  val pp_unknown : unknown CCFormat.printer
-
-  *)
-
-  (**/**)
-  module Debug_ : sig
-    val on_check_invariants : t -> (unit -> unit) -> unit
-    val check_model : t -> unit
+       *)
   end
-  (**/**)
+
+  (** {3 Main API} *)
+
+  val stats : t -> Stat.t
+
+  val create :
+    ?stat:Stat.t ->
+    ?size:[`Big | `Tiny | `Small] ->
+    (* TODO? ?config:Config.t -> *)
+    ?store_proof:bool ->
+    theories:theory list ->
+    unit ->
+    t
+  (** Create a new solver.
+      @param theories theories to load from the start. *)
+
+  val add_theory : t -> theory -> unit
+  (** Add a theory to the solver. This should be called before
+      any call to {!solve} or to {!add_clause} and the likes (otherwise
+      the theory will have a partial view of the problem). *)
+
+  val mk_atom_lit : t -> lit -> Atom.t
+
+  val mk_atom_t : t -> ?sign:bool -> term -> Atom.t
+
+  val add_clause_lits : t -> lit IArray.t -> unit
+
+  val add_clause_lits_l : t -> lit list -> unit
+
+  val add_clause : t -> Atom.t IArray.t -> unit
+
+  val add_clause_l : t -> Atom.t list -> unit
+
+  type res = (Model.t, proof, lit IArray.t, Unknown.t) solver_res
+  (** Result of solving for the current set of clauses *)
+
+  val solve :
+    ?on_exit:(unit -> unit) list ->
+    ?check:bool ->
+    assumptions:Atom.t list ->
+    t ->
+    res
+  (** [solve s] checks the satisfiability of the statement added so far to [s]
+      @param check if true, the model is checked before returning
+      @param assumptions a set of atoms held to be true. The unsat core,
+        if any, will be a subset of [assumptions].
+      @param on_exit functions to be run before this returns *)
+
+  val pp_term_graph: t CCFormat.printer
+  val pp_stats : t CCFormat.printer
 end
