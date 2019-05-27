@@ -2,6 +2,6 @@
 (library
   (name Sidekick_th_cstor)
   (public_name sidekick.smt.th-cstor)
-  (libraries containers sidekick.smt)
+  (libraries containers sidekick.core sidekick.util)
   (flags :standard -open Sidekick_util))
 

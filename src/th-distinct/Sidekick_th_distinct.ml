@@ -1,25 +1,10 @@
 
-module Term = Sidekick_smt.Term
-module Theory = Sidekick_smt.Theory
-
 module type ARG = sig
-  module T : sig
-    type t
-    type state
-    val pp : t Fmt.printer
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val as_distinct : t -> t Iter.t option
-    val mk_eq : state -> t -> t -> t
-  end
-  module Lit : sig
-    type t
-    val term : t -> T.t
-    val neg : t -> t
-    val sign : t -> bool
-    val compare : t -> t -> int
-    val atom : T.state -> ?sign:bool -> T.t -> t
-    val pp : t Fmt.printer
+  include Sidekick_core.TERM_LIT
+
+  module Arg_distinct : sig
+    val as_distinct : Term.t -> Term.t Iter.t option
+    val mk_eq : Term.state -> Term.t -> Term.t -> Term.t
   end
 end
   
@@ -28,8 +13,12 @@ module type S = sig
   type term_state
   type lit
 
-  type data
-  val key : (term, lit, data) Sidekick_cc.Key.t
+  module Data : sig
+    type t
+    val empty : t
+    val merge : t -> t -> t
+  end
+
   val th : Sidekick_smt.Theory.t
 end
 

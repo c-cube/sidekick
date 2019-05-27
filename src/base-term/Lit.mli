@@ -1,6 +1,6 @@
 (** {2 Literals} *)
 
-open Solver_types
+open Base_types
 
 type t = lit = {
   lit_term: term;
@@ -18,7 +18,8 @@ val compare : t -> t -> int
 val equal : t -> t -> bool
 val print : t Fmt.printer
 val pp : t Fmt.printer
-val norm : t -> t * Msat.Solver_intf.negated
+val apply_sign : t -> bool -> t
+val norm_sign : t -> t * bool
 module Set : CCSet.S with type elt = t
 module Tbl : CCHashtbl.S with type key = t
 

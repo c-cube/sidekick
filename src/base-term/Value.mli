@@ -3,7 +3,7 @@
 
     Semantic value *)
 
-type t = Solver_types.value
+type t = Base_types.value
 
 val true_ : t
 val false_ : t

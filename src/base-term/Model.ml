@@ -3,7 +3,7 @@
 
 (** {1 Model} *)
 
-open Solver_types
+open Base_types
 
 module Val_map = struct
   module M = CCIntMap
@@ -176,3 +176,45 @@ let eval (m:t) (t:Term.t) : Value.t option =
   in
   try Some (aux t)
   with No_value -> None
+
+(* TODO: get model from each theory, then complete it as follows based on types
+  let mk_model (cc:t) (m:A.Model.t) : A.Model.t =
+    let module Model = A.Model in
+    let module Value = A.Value in
+    Log.debugf 15 (fun k->k "(@[cc.mk-model@ %a@])" pp_full cc);
+    let t_tbl = N_tbl.create 32 in
+    (* populate [repr -> value] table *)
+    T_tbl.values cc.tbl
+      (fun r ->
+         if N.is_root r then (
+           (* find a value in the class, if any *)
+           let v =
+             N.iter_class r
+             |> Iter.find_map (fun n -> Model.eval m n.n_term)
+           in
+           let v = match v with
+             | Some v -> v
+             | None ->
+               if same_class r (true_ cc) then Value.true_
+               else if same_class r (false_ cc) then Value.false_
+               else Value.fresh r.n_term
+           in
+           N_tbl.add t_tbl r v
+         ));
+    (* now map every term to its representative's value *)
+    let pairs =
+      T_tbl.values cc.tbl
+      |> Iter.map
+        (fun n ->
+           let r = find_ n in
+           let v =
+             try N_tbl.find t_tbl r
+             with Not_found ->
+               Error.errorf "didn't allocate a value for repr %a" N.pp r
+           in
+           n.n_term, v)
+    in
+    let m = Iter.fold (fun m (t,v) -> Model.add t v m) m pairs in
+    Log.debugf 5 (fun k->k "(@[cc.model@ %a@])" Model.pp m);
+    m
+   *)

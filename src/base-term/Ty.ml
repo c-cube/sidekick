@@ -1,9 +1,9 @@
 
-open Solver_types
+open Base_types
 
 type t = ty
-type view = Solver_types.ty_view
-type def = Solver_types.ty_def
+type view = Base_types.ty_view
+type def = Base_types.ty_def
 
 let[@inline] id t = t.ty_id
 let[@inline] view t = t.ty_view

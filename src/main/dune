@@ -4,8 +4,9 @@
   (name main)
   (public_name sidekick)
   (package sidekick)
-  (libraries containers iter result msat sidekick.smt sidekick.smtlib
-             sidekick.smt.th-ite sidekick.dimacs)
+  (libraries containers iter result msat sidekick.core
+   sidekick.base-term sidekick.msat-solver sidekick.smtlib
+   sidekick.smt.th-ite sidekick.dimacs)
   (flags :standard -w +a-4-42-44-48-50-58-32-60@8
          -safe-string -color always -open Sidekick_util)
   (ocamlopt_flags :standard -O3 -color always

@@ -6,13 +6,12 @@
     It just decides the satisfiability of a set of (dis)equations.
 *)
 
-open Congruence_closure_intf
-
 type res =
   | Sat
   | Unsat
 
-module type TERM = Congruence_closure_intf.TERM
+module CC_view = Sidekick_core.CC_view
+module type TERM = Sidekick_core.TERM
 
 module type S = sig
   type term

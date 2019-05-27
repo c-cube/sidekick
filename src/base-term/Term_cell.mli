@@ -1,7 +1,7 @@
 
-open Solver_types
+open Base_types
 
-type 'a view = 'a Solver_types.term_view =
+type 'a view = 'a Base_types.term_view =
   | Bool of bool
   | App_cst of cst * 'a IArray.t
   | Eq of 'a * 'a

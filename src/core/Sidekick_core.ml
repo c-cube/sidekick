@@ -75,8 +75,12 @@ module type TERM_LIT = sig
     val hash : t -> int
     val pp : t Fmt.printer
 
-    val sign : t -> bool
     val term : t -> Term.t
+    val sign : t -> bool
+    val abs : t -> t
+    val apply_sign : t -> bool -> t
+    val norm_sign : t -> t * bool
+    (** Invariant: if [u, sign = norm_sign t] then [apply_sign u sign = t] *)
   end
 end
 
@@ -88,7 +92,8 @@ module type CC_ARG = sig
     val pp : t Fmt.printer
 
     val default : t
-    (* TODO: to give more details
+    (* TODO: to give more details? or make this extensible?
+       or have a generative function for new proof cstors?
     val cc_lemma : unit -> t
        *)
   end
@@ -104,44 +109,17 @@ module type CC_ARG = sig
   (** Monoid embedded in every node *)
   module Data : sig
     type t
-
     val empty : t
-
     val merge : t -> t -> t
   end
 
   module Actions : sig
     type t
 
-    val raise_conflict : t -> Lit.t list -> 'a
+    val raise_conflict : t -> Lit.t list -> Proof.t -> 'a
 
-    val propagate : t -> Lit.t -> reason:Lit.t Iter.t -> unit
+    val propagate : t -> Lit.t -> reason:Lit.t Iter.t -> Proof.t -> unit
   end
-
-  (* TODO: instead, provide model as a `equiv_class Iter.t`, for the
-     benefit of $whatever_theory_combination_method? 
-  module Value : sig
-    type t
-
-    val pp : t Fmt.printer
-
-    val fresh : Term.t -> t
-
-    val true_ : t
-    val false_ : t
-  end
-
-  module Model : sig
-    type t
-
-    val pp : t Fmt.printer
-
-    val eval : t -> Term.t -> Value.t option
-    (** Evaluate the term in the current model *)
-
-    val add : Term.t -> Value.t -> t -> t
-  end
-     *)
 end
 
 module type CC_S = sig

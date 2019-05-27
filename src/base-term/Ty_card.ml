@@ -1,5 +1,5 @@
 
-open Solver_types
+open Base_types
 
 type t = ty_card
 

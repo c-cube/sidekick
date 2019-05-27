@@ -1,5 +1,5 @@
 
-open Solver_types
+open Base_types
 
 type view = cst_view
 type t = cst

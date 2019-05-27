@@ -1,9 +1,9 @@
 
-open Solver_types
+open Base_types
 
 (* TODO: normalization of {!term_cell} for use in signatures? *)
 
-type 'a view = 'a Solver_types.term_view =
+type 'a view = 'a Base_types.term_view =
   | Bool of bool
   | App_cst of cst * 'a IArray.t
   | Eq of 'a * 'a
@@ -43,7 +43,7 @@ module Make_eq(A : ARG) = struct
     | Bool _, _ | App_cst _, _ | If _, _ | Eq _, _ | Not _, _
       -> false
 
-  let pp = Solver_types.pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:A.pp
+  let pp = Base_types.pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:A.pp
 end[@@inline]
 
 include Make_eq(struct

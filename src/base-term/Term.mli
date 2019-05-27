@@ -1,5 +1,5 @@
 
-open Solver_types
+open Base_types
 
 type t = term = {
   mutable term_id : int;
@@ -55,7 +55,7 @@ val is_true : t -> bool
 val is_false : t -> bool
 val is_const : t -> bool
 
-val cc_view : t -> (cst,t,t Iter.t) Sidekick_cc.view
+val cc_view : t -> (cst,t,t Iter.t) Sidekick_core.CC_view.t
 
 (* return [Some] iff the term is an undefined constant *)
 val as_cst_undef : t -> (cst * Ty.Fun.t) option

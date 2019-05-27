@@ -1,11 +1,10 @@
 
-open Congruence_closure_intf
-
 type res =
   | Sat
   | Unsat
 
-module type TERM = Congruence_closure_intf.TERM
+module CC_view = Sidekick_core.CC_view
+module type TERM = Sidekick_core.TERM
 
 module type S = sig
   type term
@@ -26,6 +25,8 @@ end
 
 
 module Make(A: TERM) = struct
+  open CC_view
+
   module Fun = A.Fun
   module T = A.Term
   type fun_ = A.Fun.t
@@ -42,7 +43,7 @@ module Make(A: TERM) = struct
     mutable n_root: node;
   }
 
-  type signature = (fun_, node, node list) view
+  type signature = (fun_, node, node list) CC_view.t
 
   module Node = struct
     type t = node

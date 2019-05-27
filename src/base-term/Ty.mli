@@ -1,11 +1,11 @@
 
 (** {1 Hashconsed Types} *)
 
-open Solver_types
+open Base_types
 
-type t = Solver_types.ty
-type view = Solver_types.ty_view
-type def = Solver_types.ty_def
+type t = Base_types.ty
+type view = Base_types.ty_view
+type def = Base_types.ty_def
 
 val id : t -> int
 val view : t -> view

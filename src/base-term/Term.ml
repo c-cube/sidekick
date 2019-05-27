@@ -1,5 +1,5 @@
 
-open Solver_types
+open Base_types
 
 type t = term = {
   mutable term_id : int;
@@ -89,7 +89,7 @@ let[@inline] is_const t = match view t with
   | _ -> false
 
 let cc_view (t:t) =
-  let module C = Sidekick_cc in
+  let module C = Sidekick_core.CC_view in
   match view t with
   | Bool b -> C.Bool b
   | App_cst (f,_) when not (Cst.do_cc f) -> C.Opaque t (* skip *)
@@ -115,7 +115,7 @@ let as_cst_undef (t:term): (cst * Ty.Fun.t) option =
   | App_cst (c, a) when IArray.is_empty a -> Cst.as_undefined c
   | _ -> None
 
-let pp = Solver_types.pp_term
+let pp = Base_types.pp_term
 
 module Iter_dag = struct
   type t = unit Tbl.t

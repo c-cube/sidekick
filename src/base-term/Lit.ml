@@ -1,5 +1,5 @@
 
-open Solver_types
+open Base_types
 
 type t = lit = {
   lit_term: term;
@@ -27,8 +27,8 @@ let[@inline] equal a b = compare a b = 0
 let pp = pp_lit
 let print = pp
 
-let norm l =
-  if l.lit_sign then l, Msat.Solver_intf.Same_sign else neg l, Msat.Solver_intf.Negated
+let apply_sign t s = if s then t else neg t
+let norm_sign l = if l.lit_sign then l, true else neg l, false
 
 module Set = CCSet.Make(struct type t = lit let compare=compare end)
 module Tbl = CCHashtbl.Make(struct type t = lit let equal=equal let hash=hash end)

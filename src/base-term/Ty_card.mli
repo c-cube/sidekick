@@ -1,7 +1,7 @@
 
 (** {1 Type Cardinality} *)
 
-type t = Solver_types.ty_card
+type t = Base_types.ty_card
 
 val (+) : t -> t -> t
 val ( * ) : t -> t -> t

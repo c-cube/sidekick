@@ -1,0 +1,7 @@
+
+(library
+  (name Sidekick_msat_solver)
+  (public_name sidekick.msat-solver)
+  (libraries containers containers.data iter
+             sidekick.core sidekick.util sidekick.cc msat zarith)
+  (flags :standard -open Sidekick_util))

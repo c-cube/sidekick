@@ -4,11 +4,6 @@ module Log = Msat.Log
 
 module Fmt = CCFormat
 
-(* for objects that are expanded on demand only *)
-type 'a lazily_expanded =
-  | Lazy_some of 'a
-  | Lazy_none
-
 (* main term cell. *)
 type term = {
   mutable term_id: int; (* unique ID *)
