@@ -93,6 +93,9 @@ module type TERM_LIT = sig
     val apply_sign : t -> bool -> t
     val norm_sign : t -> t * bool
     (** Invariant: if [u, sign = norm_sign t] then [apply_sign u sign = t] *)
+
+
+    val atom : Term.state -> ?sign:bool -> Term.t -> t
   end
 end
 
@@ -111,7 +114,6 @@ module type TERM_LIT_PROOF = sig
   end
 end
 
-
 module type CC_ARG = sig
   include TERM_LIT_PROOF
 
@@ -120,7 +122,9 @@ module type CC_ARG = sig
 
   (** Monoid embedded in every node *)
   module Data : sig
-    include MERGE_PP
+    type t
+    val merge : t -> t -> t
+    val pp : t Fmt.printer
     val empty : t
   end
 
@@ -335,9 +339,6 @@ module type SOLVER_INTERNAL = sig
   type t
   type solver = t
 
-  (** {3 Utils} *)
-  val tst : t -> term_state
-
   (**/**)
   module Debug_ : sig
     val on_check_invariants : t -> (unit -> unit) -> unit
@@ -364,18 +365,16 @@ module type SOLVER_INTERNAL = sig
   module Key : sig
     type 'a t
 
-    type 'a ev_on_merge = solver -> CC.N.t -> 'a -> CC.N.t -> 'a -> CC.Expl.t -> unit
     type 'a data = (module MERGE_PP with type t = 'a)
 
-    val create :
-      solver ->
-      'a data ->
-      on_merge:'a ev_on_merge ->
-      'a t
+    val create : solver -> 'a data -> 'a t
     (** Create a key for storing and accessing data of type ['a].
-        Values have to be mergeable (but only if [on_merge] does not
-        raise a conflict) *)
+        Values have to be mergeable. *)
   end
+
+  (** {3 Actions available to theories} *)
+
+  val tst : t -> term_state
 
   val cc : t -> CC.t
   (** Congruence closure for this solver *)
@@ -410,10 +409,13 @@ module type SOLVER_INTERNAL = sig
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
-  val raise_conflict : t -> Expl.t -> unit
+  val raise_conflict : t -> Expl.t -> 'a
   (** Raise a conflict with the given explanation
       it must be a theory tautology that [expl ==> absurd].
       To be used in theories. *)
+
+  val cc_find : t -> N.t -> N.t
+  (** Find representative of the node *)
 
   val cc_merge : t -> N.t -> N.t -> Expl.t -> unit
   (** Merge these two nodes in the congruence closure, given this explanation.
@@ -423,6 +425,13 @@ module type SOLVER_INTERNAL = sig
   val cc_add_term : t -> term -> N.t
   (** Add/retrieve congruence closure node for this term.
       To be used in theories *)
+
+  val cc_data : t -> k:'a Key.t -> N.t -> 'a option
+  (** Theory specific data for the given node *)
+
+  val cc_add_data : t -> k:'a Key.t -> N.t -> 'a -> unit
+  (** Add data for this node. This might trigger a conflict if the class
+      already contains data that is not compatible. *)
 
   val cc_merge_t : t -> term -> term -> Expl.t -> unit
   (** Merge these two terms in the congruence closure, given this explanation.
@@ -435,6 +444,9 @@ module type SOLVER_INTERNAL = sig
     unit
   (** Callback for when two classes containing data for this key are merged *)
 
+  val on_cc_merge_all : t -> (t -> N.t -> N.t -> Expl.t -> unit) -> unit
+  (** Callback for when any two classes are merged *)
+
   val on_cc_new_term :
     t ->
     k:'a Key.t ->
@@ -444,26 +456,28 @@ module type SOLVER_INTERNAL = sig
       closure *)
 
   val on_partial_check : t -> (t -> lit Iter.t -> unit) -> unit
-  (** Called with the slice of literals newly added on the trail *)
+  (** Register callbacked to be called with the slice of literals
+      newly added on the trail.
+
+      This is called very often and should be efficient. It doesn't have
+      to be complete, only correct. It's given only the slice of
+      the trail consisting in new literals. *)
 
   val on_final_check: t -> (t -> lit Iter.t -> unit) -> unit
-  (** Final check, must be complete (i.e. must raise a conflict
-      if the set of literals is not satisfiable) *)
+  (** Register callback to be called during the final check.
 
-  (* TODO?
-  val on_mk_model : t -> (lit Iter.t -> Model.t -> Model.t) -> unit
-  (** Update the given model *)
-    *)
+      Must be complete (i.e. must raise a conflict if the set of literals is
+      not satisfiable) and can be expensive. The function
+      is given the whole trail. *)
 end
 
 (** Public view of the solver *)
 module type SOLVER = sig
-  module Internal : SOLVER_INTERNAL
-  (** Extensive view of the solver. This should mostly be used
-      by the theories *)
+  module Solver_internal : SOLVER_INTERNAL
+  (** Internal solver, available to theories.  *)
 
-  module A = Internal.A
-  type t = Internal.t
+  module A = Solver_internal.A
+  type t
   type solver = t
   type term = A.Term.t
   type ty = A.Ty.t
@@ -492,8 +506,8 @@ module type SOLVER = sig
     val name : string
     (** Name of the theory *)
 
-    val create_and_setup : solver -> t
-    (** Instantiate the theory's state for the given solver,
+    val create_and_setup : Solver_internal.t -> t
+    (** Instantiate the theory's state for the given (internal) solver,
         register callbacks, create keys, etc. *)
 
     val push_level : t -> unit
@@ -514,44 +528,12 @@ module type SOLVER = sig
 
   val mk_theory :
     name:string ->
-    create_and_setup:(t -> 'th) ->
+    create_and_setup:(Solver_internal.t -> 'th) ->
     ?push_level:('th -> unit) ->
     ?pop_levels:('th -> int -> unit) ->
     unit ->
     theory
   (** Helper to create a theory *)
-
-  (* TODO: remove?
-  let make
-    (type st)
-      ?(check_invariants=fun _ -> ())
-      ?(on_new_term=fun _ _ _ -> ())
-      ?(on_merge=fun _ _ _ _ _ -> ())
-      ?(partial_check=fun _ _ _ -> ())
-      ?(mk_model=fun _ _ m -> m)
-      ?(push_level=fun _ -> ())
-      ?(pop_levels=fun _ _ -> ())
-      ?(cc_th=fun _->[])
-      ~name
-      ~final_check
-      ~create
-      () : t =
-    let module A = struct
-      type nonrec t = st
-      let name = name
-      let create = create
-      let on_new_term = on_new_term
-      let on_merge = on_merge
-      let partial_check = partial_check
-      let final_check = final_check
-      let mk_model = mk_model
-      let check_invariants = check_invariants
-      let push_level = push_level
-      let pop_levels = pop_levels
-      let cc_th = cc_th
-    end in
-    (module A : S)
-  *)
 
   (** {3 Boolean Atoms} *)
   module Atom : sig
@@ -591,9 +573,9 @@ module type SOLVER = sig
     val pp : t CCFormat.printer
 
     (*
-  type unknown =
-    | U_timeout
-    | U_incomplete
+    type unknown =
+      | U_timeout
+      | U_incomplete
        *)
   end
 
@@ -607,6 +589,7 @@ module type SOLVER = sig
     (* TODO? ?config:Config.t -> *)
     ?store_proof:bool ->
     theories:theory list ->
+    A.Term.state ->
     unit ->
     t
   (** Create a new solver.

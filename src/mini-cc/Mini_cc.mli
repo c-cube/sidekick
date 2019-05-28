@@ -11,7 +11,12 @@ type res =
   | Unsat
 
 module CC_view = Sidekick_core.CC_view
-module type TERM = Sidekick_core.TERM
+
+module type ARG = sig
+  include Sidekick_core.TERM
+
+  val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
+end
 
 module type S = sig
   type term
@@ -35,7 +40,7 @@ module type S = sig
       This should be called only if {!check} returned [Sat]. *)
 end
 
-module Make(A: TERM)
+module Make(A: ARG)
   : S with type term = A.Term.t
        and type fun_ = A.Fun.t
        and type term_state = A.Term.state

@@ -4,4 +4,4 @@
   (synopsis "Basic term definitions for the standalone SMT solver")
   (libraries containers containers.data
              sidekick.core sidekick.util zarith)
-  (flags :standard -open Sidekick_util))
+  (flags :standard -w -32 -open Sidekick_util))

@@ -245,7 +245,7 @@ module Make(A: ARG) = struct
      See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
 
   and ev_on_merge = t -> N.t -> th_data -> N.t -> th_data -> Expl.t -> unit
-  and ev_on_new_term = t -> N.t -> term -> th_data -> th_data option
+  and ev_on_new_term = t -> N.t -> term -> th_data option
 
   let[@inline] size_ (r:repr) = r.n_size
   let[@inline] true_ cc = Lazy.force cc.true_
@@ -505,9 +505,9 @@ module Make(A: ARG) = struct
     let th_data =
       List.fold_left
         (fun data f ->
-           match f cc n t data with
+           match f cc n t with
            | None -> data
-           | Some d -> d)
+           | Some d -> A.Data.merge data d)
       A.Data.empty cc.on_new_term
     in
     n.n_th_data <- th_data;
@@ -527,7 +527,7 @@ module Make(A: ARG) = struct
       sub
     in
     let[@inline] return x = Some x in
-    match T.cc_view n.n_term with
+    match A.cc_view n.n_term with
     | Bool _ | Opaque _ -> None
     | Eq (a,b) ->
       let a = deref_sub a in
@@ -820,7 +820,7 @@ module Make(A: ARG) = struct
     let t = A.Lit.term lit in
     Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" A.Lit.pp lit);
     let sign = A.Lit.sign lit in
-    begin match T.cc_view t with
+    begin match A.cc_view t with
       | Eq (a,b) when sign ->
         let a = add_term cc a in
         let b = add_term cc b in
@@ -850,7 +850,8 @@ module Make(A: ARG) = struct
   let on_new_term cc f = cc.on_new_term <- f :: cc.on_new_term
 
   let create ?(stat=Stat.global)
-      ?(on_merge=[]) ?(on_new_term=[]) ?(size=`Big) (tst:term_state) : t =
+      ?(on_merge=[]) ?(on_new_term=[]) ?(size=`Big)
+      (tst:term_state) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
     let rec cc = {
       tst;

@@ -4,7 +4,12 @@ type res =
   | Unsat
 
 module CC_view = Sidekick_core.CC_view
-module type TERM = Sidekick_core.TERM
+
+module type ARG = sig
+  include Sidekick_core.TERM
+
+  val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
+end
 
 module type S = sig
   type term
@@ -23,8 +28,7 @@ module type S = sig
   val classes : t -> term Iter.t Iter.t
 end
 
-
-module Make(A: TERM) = struct
+module Make(A: ARG) = struct
   open CC_view
 
   module Fun = A.Fun
@@ -150,7 +154,7 @@ module Make(A: TERM) = struct
     self
 
   let sub_ t k : unit =
-    match T.cc_view t with
+    match A.cc_view t with
     | Bool _ | Opaque _ -> ()
     | App_fun (_, args) -> args k
     | App_ho (f, args) -> k f; args k
@@ -202,7 +206,7 @@ module Make(A: TERM) = struct
 
   let compute_sig (self:t) (n:node) : Signature.t option =
     let[@inline] return x = Some x in
-    match T.cc_view n.n_t with
+    match A.cc_view n.n_t with
     | Bool _ | Opaque _ -> None
     | Eq (a,b) ->
       let a = find_t_ self a in
@@ -293,7 +297,7 @@ module Make(A: TERM) = struct
   (* API *)
 
   let add_lit (self:t) (p:T.t) (sign:bool) : unit =
-    match T.cc_view p with
+    match A.cc_view p with
     | Eq (t1,t2) when sign ->
       let n1 = add_t self t1 in
       let n2 = add_t self t2 in
