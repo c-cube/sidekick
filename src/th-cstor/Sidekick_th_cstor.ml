@@ -19,11 +19,11 @@ end
 
 module Make(A : ARG) : S with module A = A = struct
   module A = A
-  module Solver = A.S.Internal
+  module SI = A.S.Solver_internal
   module T = A.S.A.Term
-  module N = Solver.N
+  module N = SI.N
   module Fun = A.S.A.Fun
-  module Expl = Solver.Expl
+  module Expl = SI.Expl
 
   type data = {
     t: T.t;
@@ -39,10 +39,10 @@ module Make(A : ARG) : S with module A = A = struct
   end
 
   type t = {
-    k: data Solver.Key.t;
+    k: data SI.Key.t;
   }
 
-  let on_merge (solver:Solver.t) n1 tc1 n2 tc2 e_n1_n2 : unit =
+  let on_merge (solver:SI.t) n1 tc1 n2 tc2 e_n1_n2 : unit =
     Log.debugf 5
       (fun k->k "(@[th-cstor.on_merge@ @[:c1 %a@ (term %a)@]@ @[:c2 %a@ (term %a)@]@])"
           N.pp n1 T.pp tc1.t N.pp n2 T.pp tc2.t); 
@@ -54,11 +54,11 @@ module Make(A : ARG) : S with module A = A = struct
         (* same function: injectivity *)
         assert (List.length l1 = List.length l2);
         List.iter2
-          (fun u1 u2 -> Solver.cc_merge_t solver u1 u2 expl)
+          (fun u1 u2 -> SI.cc_merge_t solver u1 u2 expl)
           l1 l2
       ) else (
         (* different function: disjointness *)
-        Solver.raise_conflict solver expl
+        SI.raise_conflict solver expl
       )
     | _ -> assert false
 
@@ -68,10 +68,10 @@ module Make(A : ARG) : S with module A = A = struct
     | T_cstor _ -> Some {t;n}
     | _ -> None
 
-  let create_and_setup (solver:Solver.t) : t =
-    let k = Solver.Key.create solver ~on_merge (module Data) in
-    Solver.on_cc_merge solver ~k on_merge;
-    Solver.on_cc_new_term solver ~k on_new_term;
+  let create_and_setup (solver:SI.t) : t =
+    let k = SI.Key.create solver (module Data) in
+    SI.on_cc_merge solver ~k on_merge;
+    SI.on_cc_new_term solver ~k on_new_term;
     {k}
 
   let theory = A.S.mk_theory ~name ~create_and_setup ()

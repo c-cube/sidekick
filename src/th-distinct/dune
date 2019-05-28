@@ -1,7 +1,7 @@
 
 (library
   (name Sidekick_th_distinct)
-  (public_name sidekick.smt.th-distinct)
+  (public_name sidekick.th-distinct)
   (libraries containers sidekick.core sidekick.util)
   (flags :standard -open Sidekick_util))
 

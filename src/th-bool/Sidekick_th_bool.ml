@@ -35,9 +35,9 @@ module Make_dyn_tseitin(A : ARG)
     --> maybe, cache the clause inside the literal *)
 
   module A = A
-  module Solver = A.S.Internal
-  module T = Solver.A.Term
-  module Lit = Solver.A.Lit
+  module SI = A.S.Solver_internal
+  module T = SI.A.Term
+  module Lit = SI.A.Lit
 
   type term = T.t
 
@@ -47,12 +47,12 @@ module Make_dyn_tseitin(A : ARG)
     expanded: unit T_tbl.t; (* set of literals already expanded *)
   }
 
-  let tseitin ~final (self:t) (solver:Solver.t) (lit:Lit.t) (lit_t:term) (v:term View.t) : unit =
+  let tseitin ~final (self:t) (solver:SI.t) (lit:Lit.t) (lit_t:term) (v:term View.t) : unit =
     Log.debugf 5 (fun k->k "(@[th_bool.tseitin@ %a@])" Lit.pp lit);
     let expanded () = T_tbl.mem self.expanded lit_t in
     let add_axiom c =
       T_tbl.replace self.expanded lit_t ();
-      Solver.add_persistent_axiom solver c
+      SI.add_persistent_axiom solver c
     in
     match v with
     | B_not _ -> assert false (* normalized *)
@@ -62,13 +62,13 @@ module Make_dyn_tseitin(A : ARG)
         (* propagate [lit => subs_i] *)
         IArray.iter
           (fun sub ->
-             let sublit = Solver.mk_lit solver sub in
-             Solver.propagate_l solver sublit [lit])
+             let sublit = SI.mk_lit solver sub in
+             SI.propagate_l solver sublit [lit])
           subs
       ) else if final && not @@ expanded () then (
         (* axiom [¬lit => ∨_i ¬ subs_i] *)
         let subs = IArray.to_list subs in
-        let c = Lit.neg lit :: List.map (Solver.mk_lit solver ~sign:false) subs in
+        let c = Lit.neg lit :: List.map (SI.mk_lit solver ~sign:false) subs in
         add_axiom c
       )
     | B_or subs ->
@@ -76,13 +76,13 @@ module Make_dyn_tseitin(A : ARG)
         (* propagate [¬lit => ¬subs_i] *)
         IArray.iter
           (fun sub ->
-             let sublit = Solver.mk_lit solver ~sign:false sub in
-             Solver.add_local_axiom solver [Lit.neg lit; sublit])
+             let sublit = SI.mk_lit solver ~sign:false sub in
+             SI.add_local_axiom solver [Lit.neg lit; sublit])
           subs
       ) else if final && not @@ expanded () then (
         (* axiom [lit => ∨_i subs_i] *)
         let subs = IArray.to_list subs in
-        let c = Lit.neg lit :: List.map (Solver.mk_lit solver ~sign:true) subs in
+        let c = Lit.neg lit :: List.map (SI.mk_lit solver ~sign:true) subs in
         add_axiom c
       )
     | B_imply (guard,concl) ->
@@ -90,17 +90,17 @@ module Make_dyn_tseitin(A : ARG)
         (* axiom [lit => ∨_i ¬guard_i ∨ concl] *)
         let guard = IArray.to_list guard in
         let c =
-          Solver.mk_lit solver concl :: Lit.neg lit ::
-          List.map (Solver.mk_lit solver ~sign:false) guard in
+          SI.mk_lit solver concl :: Lit.neg lit ::
+          List.map (SI.mk_lit solver ~sign:false) guard in
         add_axiom c
       ) else if not @@ Lit.sign lit then (
         (* propagate [¬lit => ¬concl] *)
-        Solver.propagate_l solver (Solver.mk_lit solver ~sign:false concl) [lit];
+        SI.propagate_l solver (SI.mk_lit solver ~sign:false concl) [lit];
         (* propagate [¬lit => ∧_i guard_i] *)
         IArray.iter
           (fun sub ->
-             let sublit = Solver.mk_lit solver ~sign:true sub in
-             Solver.propagate_l solver sublit [lit])
+             let sublit = SI.mk_lit solver ~sign:true sub in
+             SI.propagate_l solver sublit [lit])
           guard
       )
 
@@ -118,10 +118,10 @@ module Make_dyn_tseitin(A : ARG)
   let final_check (self:t) acts (lits:Lit.t Iter.t) =
     check_ ~final:true self acts lits
 
-  let create_and_setup (solver:Solver.t) : t =
+  let create_and_setup (solver:SI.t) : t =
     let self = {expanded=T_tbl.create 24} in
-    Solver.on_final_check solver (final_check self);
-    Solver.on_partial_check solver (partial_check self);
+    SI.on_final_check solver (final_check self);
+    SI.on_partial_check solver (partial_check self);
     self
 
   let theory =
