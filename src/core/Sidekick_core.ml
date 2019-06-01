@@ -56,23 +56,29 @@ module type TERM = sig
     val pp : t Fmt.printer
   end
 
-  module Term : sig
-    type t
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val pp : t Fmt.printer
-
-    type state
-
-    val bool : state -> bool -> t
-  end
-
   module Ty : sig
     type t
 
     val equal : t -> t -> bool
     val hash : t -> int
     val pp : t Fmt.printer
+
+    val is_bool : t -> bool
+  end
+
+  module Term : sig
+    type t
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
+    val ty : t -> Ty.t
+
+    val iter_dag : t -> t Iter.t
+    (** Iterate over the subterms, using sharing *)
+
+    type state
+
+    val bool : state -> bool -> t
   end
 end
 
@@ -94,13 +100,22 @@ module type TERM_LIT = sig
     val norm_sign : t -> t * bool
     (** Invariant: if [u, sign = norm_sign t] then [apply_sign u sign = t] *)
 
-
     val atom : Term.state -> ?sign:bool -> Term.t -> t
   end
 end
 
-module type TERM_LIT_PROOF = sig
+module type CORE_TYPES = sig
   include TERM_LIT
+
+  (** {3 Semantic values} *)
+  module Value : sig
+    type t
+
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val ty : t -> Ty.t
+    val pp : t Fmt.printer
+  end
 
   module Proof : sig
     type t
@@ -115,7 +130,8 @@ module type TERM_LIT_PROOF = sig
 end
 
 module type CC_ARG = sig
-  include TERM_LIT_PROOF
+  module A : CORE_TYPES
+  open A
 
   val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
@@ -138,14 +154,15 @@ module type CC_ARG = sig
 end
 
 module type CC_S = sig
-  module A : CC_ARG
+  module A : CORE_TYPES
+  module CC_A : CC_ARG with module A=A
   type term_state = A.Term.state
   type term = A.Term.t
   type fun_ = A.Fun.t
   type lit = A.Lit.t
   type proof = A.Proof.t
-  type th_data = A.Data.t
-  type actions = A.Actions.t
+  type th_data = CC_A.Data.t
+  type actions = CC_A.Actions.t
 
   type t
   (** Global state of the congruence closure *)
@@ -326,8 +343,9 @@ type ('model, 'proof, 'ucore, 'unknown) solver_res =
 
 (** A view of the solver from a theory's point of view *)
 module type SOLVER_INTERNAL = sig
-  module A : CC_ARG
-  module CC : CC_S with module A = A
+  module A : CORE_TYPES
+  module CC : CC_S with module A=A
+  module CC_A = CC.CC_A
 
   type ty = A.Ty.t
   type lit = A.Lit.t
@@ -367,7 +385,7 @@ module type SOLVER_INTERNAL = sig
 
     type 'a data = (module MERGE_PP with type t = 'a)
 
-    val create : solver -> 'a data -> 'a t
+    val create : 'a data -> 'a t
     (** Create a key for storing and accessing data of type ['a].
         Values have to be mergeable. *)
   end
@@ -473,16 +491,17 @@ end
 
 (** Public view of the solver *)
 module type SOLVER = sig
-  module Solver_internal : SOLVER_INTERNAL
+  module A : CORE_TYPES
+  module Solver_internal : SOLVER_INTERNAL with module A = A
   (** Internal solver, available to theories.  *)
 
-  module A = Solver_internal.A
   type t
   type solver = t
   type term = A.Term.t
   type ty = A.Ty.t
   type lit = A.Lit.t
   type proof = A.Proof.t
+  type value = A.Value.t
 
   (** {3 A theory}
 
@@ -520,12 +539,6 @@ module type SOLVER = sig
   type theory = (module THEORY)
   (** A theory that can be used for this particular solver. *)
 
-  type theory_with_st = Tst : {
-      m: (module THEORY with type t = 'th);
-      st: 'th;
-    } -> theory_with_st
-  (** An instantiated theory *)
-
   val mk_theory :
     name:string ->
     create_and_setup:(Solver_internal.t -> 'th) ->
@@ -544,16 +557,6 @@ module type SOLVER = sig
     val pp : t CCFormat.printer
   end
 
-  (** {3 Semantic values} *)
-  module Value : sig
-    type t
-
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val ty : t -> ty
-    val pp : t Fmt.printer
-  end
-
   module Model : sig
     type t
 
@@ -561,9 +564,9 @@ module type SOLVER = sig
 
     val mem : term -> t -> bool
 
-    val find : term -> t -> Value.t option
+    val find : term -> t -> value option
 
-    val eval : t -> term -> Value.t option
+    val eval : t -> term -> value option
 
     val pp : t Fmt.printer
   end

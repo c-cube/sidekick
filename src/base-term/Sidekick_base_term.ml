@@ -10,8 +10,6 @@ module Value = Value
 module Term_cell = Term_cell
 module Ty = Ty
 module Lit = Lit
-module Value = Value
-
 
 module Arg
   : Sidekick_core.TERM_LIT

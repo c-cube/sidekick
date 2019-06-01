@@ -26,15 +26,16 @@ let field_usr2 = Bits.mk_field()
 
 let () = Bits.freeze()
 
-module Make(A: ARG) = struct
-  module A = A
+module Make(CC_A: ARG) = struct
+  module A = CC_A.A
+  module CC_A = CC_A
   type term = A.Term.t
   type term_state = A.Term.state
   type lit = A.Lit.t
   type fun_ = A.Fun.t
   type proof = A.Proof.t
-  type th_data = A.Data.t
-  type actions = A.Actions.t
+  type th_data = CC_A.Data.t
+  type actions = CC_A.Actions.t
 
   module T = A.Term
   module Fun = A.Fun
@@ -97,7 +98,7 @@ module Make(A: ARG) = struct
         n_expl=FL_none;
         n_next=n;
         n_size=1;
-        n_th_data=A.Data.empty;
+        n_th_data=CC_A.Data.empty;
       } in
       n
 
@@ -357,7 +358,7 @@ module Make(A: ARG) = struct
     Vec.clear cc.pending;
     Vec.clear cc.combine;
     Stat.incr cc.count_conflict;
-    A.Actions.raise_conflict acts e A.Proof.default
+    CC_A.Actions.raise_conflict acts e A.Proof.default
 
   let[@inline] all_classes cc : repr Iter.t =
     T_tbl.values cc.tbl
@@ -507,8 +508,8 @@ module Make(A: ARG) = struct
         (fun data f ->
            match f cc n t with
            | None -> data
-           | Some d -> A.Data.merge data d)
-      A.Data.empty cc.on_new_term
+           | Some d -> CC_A.Data.merge data d)
+      CC_A.Data.empty cc.on_new_term
     in
     n.n_th_data <- th_data;
     n
@@ -527,7 +528,7 @@ module Make(A: ARG) = struct
       sub
     in
     let[@inline] return x = Some x in
-    match A.cc_view n.n_term with
+    match CC_A.cc_view n.n_term with
     | Bool _ | Opaque _ -> None
     | Eq (a,b) ->
       let a = deref_sub a in
@@ -655,7 +656,7 @@ module Make(A: ARG) = struct
       begin
         let th_into = r_into.n_th_data in
         let th_from = r_from.n_th_data in
-        let new_data = A.Data.merge th_into th_from in
+        let new_data = CC_A.Data.merge th_into th_from in
         (* restore old data, if it changed *)
         if new_data != th_into then (
           on_backtrack cc (fun () -> r_into.n_th_data <- th_into);
@@ -739,7 +740,7 @@ module Make(A: ARG) = struct
              let e = explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1 in
              List.iter yield e
            in
-           A.Actions.propagate acts lit ~reason A.Proof.default
+           CC_A.Actions.propagate acts lit ~reason A.Proof.default
          | _ -> ())
 
   module Theory = struct
@@ -820,7 +821,7 @@ module Make(A: ARG) = struct
     let t = A.Lit.term lit in
     Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" A.Lit.pp lit);
     let sign = A.Lit.sign lit in
-    begin match A.cc_view t with
+    begin match CC_A.cc_view t with
       | Eq (a,b) when sign ->
         let a = add_term cc a in
         let b = add_term cc b in
