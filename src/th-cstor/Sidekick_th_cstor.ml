@@ -38,9 +38,9 @@ module Make(A : ARG) : S with module A = A = struct
     let merge x _ = x
   end
 
-  type t = {
-    k: data SI.Key.t;
-  }
+  let k = SI.Key.create (module Data)
+
+  type t = unit
 
   let on_merge (solver:SI.t) n1 tc1 n2 tc2 e_n1_n2 : unit =
     Log.debugf 5
@@ -69,10 +69,9 @@ module Make(A : ARG) : S with module A = A = struct
     | _ -> None
 
   let create_and_setup (solver:SI.t) : t =
-    let k = SI.Key.create solver (module Data) in
     SI.on_cc_merge solver ~k on_merge;
     SI.on_cc_new_term solver ~k on_new_term;
-    {k}
+    ()
 
   let theory = A.S.mk_theory ~name ~create_and_setup ()
 end

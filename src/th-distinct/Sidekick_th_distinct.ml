@@ -62,9 +62,11 @@ module Make(A : ARG) : S with module A = A = struct
         m1 m2
     in ()
 
+  let k = SI.Key.create (module Data)
+
   module T_tbl = CCHashtbl.Make(T)
+
   type t = {
-    k: Data.t SI.Key.t;
     expanded: unit T_tbl.t; (* negative "distinct" that have been case-split on *)
   }
 
@@ -79,7 +81,7 @@ module Make(A : ARG) : S with module A = A = struct
       subs
         (fun sub ->
           let n = SI.cc_add_term solver sub in
-          SI.cc_add_data solver n ~k:self.k (IM.singleton lit sub));
+          SI.cc_add_data solver n ~k (IM.singleton lit sub));
     ) else if not @@ T_tbl.mem self.expanded lit_t then (
       (* add clause [distinct t1…tn ∨ ∨_{i,j>i} t_i=j] *)
       T_tbl.add self.expanded lit_t ();
@@ -104,8 +106,7 @@ module Make(A : ARG) : S with module A = A = struct
          | Some subs -> process_lit st solver lit t subs)
 
   let create_and_setup (solver:SI.t) : t =
-    let k = SI.Key.create solver (module Data) in
-    let self = { expanded=T_tbl.create 8; k; } in
+    let self = { expanded=T_tbl.create 8; } in
     SI.on_cc_merge solver ~k on_merge;
     SI.on_final_check solver (partial_check self);
     self

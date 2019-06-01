@@ -42,16 +42,16 @@ module Make(A : ARG)
     let merge = A.T_set.union
   end
 
-  type t = {
-    k: Data.t Solver.Key.t;
-  }
+  let k = Solver.Key.create (module Data)
 
-  let on_merge (self:t) (solver:Solver.t) n1 n2 e_n1_n2 : unit =
+  type t = unit
+
+  let on_merge (solver:Solver.t) n1 n2 e_n1_n2 : unit =
     Log.debugf 5
       (fun k->k "(@[th-ite.on_merge@ :c1 %a@ :c2 %a@])" N.pp n1 N.pp n2); 
     (* check if [n1] has some [ite] parents, and if [n2] is true/false *)
     let check_ n1 n2 =
-      match Solver.cc_data solver ~k:self.k n1, A.view_as_ite (N.term n2) with
+      match Solver.cc_data solver ~k n1, A.view_as_ite (N.term n2) with
       | Some set, T_bool n2_true ->
         assert (not @@ A.T_set.is_empty set);
         A.T_set.iter
@@ -77,21 +77,19 @@ module Make(A : ARG)
     check_ n2 n1;
     ()
 
-  let on_new_term (self:t) (solver:Solver.t) _n (t:T.t) =
+  let on_new_term (solver:Solver.t) _n (t:T.t) =
     match A.view_as_ite t with
     | T_ite (a,_,_) ->
       (* add [t] to parents of [a] *)
       let n_a = Solver.cc_find solver @@ Solver.cc_add_term solver a in
-      Solver.cc_add_data solver n_a ~k:self.k (A.T_set.singleton t);
+      Solver.cc_add_data solver n_a ~k (A.T_set.singleton t);
       None
     | _ -> None
 
   let create_and_setup (solver:Solver.t) : t =
-    let k = Solver.Key.create solver (module Data) in
-    let self = {k} in
-    Solver.on_cc_merge_all solver (on_merge self);
-    Solver.on_cc_new_term solver ~k (on_new_term self);
-    self
+    Solver.on_cc_merge_all solver on_merge;
+    Solver.on_cc_new_term solver ~k on_new_term;
+    ()
 
   let theory = A.S.mk_theory ~name:"ite" ~create_and_setup ()
 end
