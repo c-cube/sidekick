@@ -39,7 +39,7 @@ type state = {
 }
 
 let[@inline] make st (c:t term_view) : t =
-  let t = {term_id= -1; term_ty=Ty.prop; term_view=c} in
+  let t = {term_id= -1; term_ty=Ty.bool; term_view=c} in
   let t' = H.hashcons st.tbl t in
   if t == t' then (
     t'.term_ty <- Term_cell.ty c;

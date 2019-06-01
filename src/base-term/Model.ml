@@ -62,7 +62,7 @@ let empty : t = {
     (* get or make a default value for this type *)
     let rec get_ty_default (ty:Ty.t) : Value.t =
       match Ty.view ty with
-      | Ty_prop -> Value.true_
+      | Ty_bool -> Value.true_
       | Ty_atomic { def = Ty_uninterpreted _;_} ->
         (* domain element *)
         Ty_tbl.get_or_add ty_tbl ~k:ty

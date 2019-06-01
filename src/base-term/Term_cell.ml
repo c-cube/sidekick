@@ -78,7 +78,7 @@ let if_ a b c =
   If (a,b,c)
 
 let ty (t:t): Ty.t = match t with
-  | Bool _ | Eq _ | Not _ -> Ty.prop
+  | Bool _ | Eq _ | Not _ -> Ty.bool
   | App_cst (f, args) ->
     begin match Cst.view f with
       | Cst_undef fty -> 

@@ -61,7 +61,7 @@ and ty = {
 }
 
 and ty_view =
-  | Ty_prop
+  | Ty_bool
   | Ty_atomic of {
       def: ty_def;
       args: ty list;
@@ -139,7 +139,7 @@ let pp_value out = function
 let pp_db out (i,_) = Format.fprintf out "%%%d" i
 
 let rec pp_ty out t = match t.ty_view with
-  | Ty_prop -> Fmt.string out "prop"
+  | Ty_bool -> Fmt.string out "prop"
   | Ty_atomic {def=Ty_uninterpreted id; args=[]; _} -> ID.pp out id
   | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args

@@ -21,14 +21,14 @@ let equal_def d1 d2 = match d1, d2 with
 module H = Hashcons.Make(struct
     type t = ty
     let equal a b = match a.ty_view, b.ty_view with
-      | Ty_prop, Ty_prop -> true
+      | Ty_bool, Ty_bool -> true
       | Ty_atomic a1, Ty_atomic a2 ->
         equal_def a1.def a2.def && CCList.equal equal a1.args a2.args
-      | Ty_prop, _ | Ty_atomic _, _
+      | Ty_bool, _ | Ty_atomic _, _
        -> false
 
     let hash t = match t.ty_view with
-      | Ty_prop -> 1
+      | Ty_bool -> 1
       | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
         Hash.combine3 10 (ID.hash id) (Hash.list hash args)
       | Ty_atomic {def=Ty_def d; args; _} ->
@@ -47,10 +47,10 @@ let make_ : ty_view -> t =
     H.hashcons tbl ty
 
 let card t = match view t with
-  | Ty_prop -> Finite
+  | Ty_bool -> Finite
   | Ty_atomic {card=lazy c; _} -> c
 
-let prop = make_ Ty_prop
+let bool = make_ Ty_bool
 
 let atomic def args : t =
   let card = lazy (
@@ -63,8 +63,8 @@ let atomic def args : t =
 
 let atomic_uninterpreted id = atomic (Ty_uninterpreted id) []
 
-let is_prop t =
-  match t.ty_view with | Ty_prop -> true | _ -> false
+let is_bool t =
+  match t.ty_view with | Ty_bool -> true | _ -> false
 
 let is_uninterpreted t =
   match t.ty_view with | Ty_atomic {def=Ty_uninterpreted _; _} -> true | _ -> false
