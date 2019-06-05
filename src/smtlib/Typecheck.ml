@@ -1,14 +1,13 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** {1 Preprocessing AST} *)
 
-module ID = Sidekick_smt.ID
+open Sidekick_base_term
 module Loc = Locations
 module Fmt = CCFormat
 module Log = Msat.Log
 
-module A = Sidekick_smt.Ast
+module A = Ast
 module PA = Parse_ast
 
 type 'a or_error = ('a, string) CCResult.t

@@ -1,8 +1,0 @@
-
-
-(library
-  (name Sidekick_th_ite)
-  (public_name sidekick.th-ite)
-  (libraries containers sidekick.core)
-  (flags :standard -open Sidekick_util))
-

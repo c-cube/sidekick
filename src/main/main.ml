@@ -8,9 +8,9 @@ open CCResult.Infix
 
 module E = CCResult
 module Fmt = CCFormat
-module Term = Sidekick_smt.Term
-module Ast = Sidekick_smt.Ast
-module Solver = Sidekick_smt.Solver
+module Term = Sidekick_base_term.Term
+module Ast = Sidekick_smtlib.Ast
+module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
 module Vec = Msat.Vec
 
@@ -79,7 +79,7 @@ let argspec = Arg.align [
     "-no-p", Arg.Clear p_progress, " no progress bar";
     "-size", Arg.String (int_arg size_limit), " <s>[kMGT] sets the size limit for the sat solver";
     "-time", Arg.String (int_arg time_limit), " <t>[smhd] sets the time limit for the sat solver";
-    "-v", Arg.Int Sidekick_smt.Log.set_debug, "<lvl> sets the debug verbose level";
+    "-v", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
   ]
 
 type syntax =
@@ -111,18 +111,16 @@ let main () =
   let al = Gc.create_alarm check_limits in
   let syn = syntax_of_file !file in
   Util.setup_gc();
+  let tst = Term.create ~size:4_096 () in
   let solver =
     let theories = match syn with
       | Dimacs ->
-        (* TODO: eager CNF conversion *)
-        [Sidekick_th_bool.th_dynamic_tseitin]
+        [Process.th_bool ]
       | Smtlib ->
-        [ Sidekick_th_bool.th_dynamic_tseitin;
-          Sidekick_th_distinct.th;
-          Sidekick_th_ite.th;
+        [Process.th_bool ;
         ] (* TODO: more theories *)
     in
-    Sidekick_smt.Solver.create ~store_proof:!check ~theories ()
+    Process.Solver.create ~store_proof:!check ~theories tst ()
   in
   let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
   begin match syn with

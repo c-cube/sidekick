@@ -1,4 +1,3 @@
-
 (** {1 Theory of Booleans} *)
 
 (** {2 Signatures for booleans} *)

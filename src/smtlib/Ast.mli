@@ -1,7 +1,8 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** {1 Preprocessing AST} *)
+
+open Sidekick_base_term
 
 type 'a or_error = ('a, string) CCResult.t
 

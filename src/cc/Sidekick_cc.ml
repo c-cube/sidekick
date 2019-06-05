@@ -1,4 +1,3 @@
-
 module View = Sidekick_core.CC_view
 
 type ('f, 't, 'ts) view = ('f, 't, 'ts) View.t =
@@ -13,31 +12,25 @@ type ('f, 't, 'ts) view = ('f, 't, 'ts) View.t =
 module type ARG = Sidekick_core.CC_ARG
 module type S = Sidekick_core.CC_S
 
-module Bits = CCBitField.Make()
-
-let field_is_pending = Bits.mk_field()
-(** true iff the node is in the [cc.pending] queue *)
-
-let field_usr1 = Bits.mk_field()
-(** General purpose *)
-
-let field_usr2 = Bits.mk_field()
-(** General purpose *)
-
-let () = Bits.freeze()
-
-module Make(A: ARG) = struct
-  module A = A
+module Make(CC_A: ARG) = struct
+  module CC_A = CC_A
+  module A = CC_A.A
   type term = A.Term.t
   type term_state = A.Term.state
   type lit = A.Lit.t
   type fun_ = A.Fun.t
   type proof = A.Proof.t
-  type th_data = A.Data.t
-  type actions = A.Actions.t
+  type actions = CC_A.Actions.t
 
   module T = A.Term
   module Fun = A.Fun
+  module Lit = A.Lit
+
+  module Bits = CCBitField.Make()
+  (* TODO: give theories the possibility to allocate new bits in nodes *)
+
+  let field_is_pending = Bits.mk_field()
+  (** true iff the node is in the [cc.pending] queue *)
 
   (** A node of the congruence closure.
       An equivalence class is represented by its "root" element,
@@ -52,7 +45,6 @@ module Make(A: ARG) = struct
     mutable n_size: int; (* size of the class *)
     mutable n_as_lit: lit option; (* TODO: put into payload? and only in root? *)
     mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
-    mutable n_th_data: th_data; (* theory data *)
   }
 
   and signature = (fun_, node, node list) view
@@ -84,7 +76,6 @@ module Make(A: ARG) = struct
     let[@inline] term n = n.n_term
     let[@inline] pp out n = T.pp out n.n_term
     let[@inline] as_lit n = n.n_as_lit
-    let[@inline] th_data n = n.n_th_data
 
     let make (t:term) : t =
       let rec n = {
@@ -97,7 +88,6 @@ module Make(A: ARG) = struct
         n_expl=FL_none;
         n_next=n;
         n_size=1;
-        n_th_data=A.Data.empty;
       } in
       n
 
@@ -122,11 +112,6 @@ module Make(A: ARG) = struct
 
     let[@inline] get_field f t = Bits.get f t.n_bits
     let[@inline] set_field f b t = t.n_bits <- Bits.set f b t.n_bits
-
-    let[@inline] get_field_usr1 t = get_field field_usr1 t
-    let[@inline] set_field_usr1 t b = set_field field_usr1 b t
-    let[@inline] get_field_usr2 t = get_field field_usr2 t
-    let[@inline] set_field_usr2 t b = set_field field_usr2 b t
   end
 
   module N_tbl = CCHashtbl.Make(N)
@@ -136,7 +121,7 @@ module Make(A: ARG) = struct
 
     let rec pp out (e:explanation) = match e with
       | E_reduction -> Fmt.string out "reduction"
-      | E_lit lit -> A.Lit.pp out lit
+      | E_lit lit -> Lit.pp out lit
       | E_congruence (n1,n2) -> Fmt.fprintf out "(@[congruence@ %a@ %a@])" N.pp n1 N.pp n2
       | E_merge (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" N.pp a N.pp b
       | E_merge_t (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" T.pp a T.pp b
@@ -244,8 +229,8 @@ module Make(A: ARG) = struct
      several times.
      See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
 
-  and ev_on_merge = t -> N.t -> th_data -> N.t -> th_data -> Expl.t -> unit
-  and ev_on_new_term = t -> N.t -> term -> th_data option
+  and ev_on_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
+  and ev_on_new_term = t -> N.t -> term -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
   let[@inline] true_ cc = Lazy.force cc.true_
@@ -357,7 +342,7 @@ module Make(A: ARG) = struct
     Vec.clear cc.pending;
     Vec.clear cc.combine;
     Stat.incr cc.count_conflict;
-    A.Actions.raise_conflict acts e A.Proof.default
+    CC_A.Actions.raise_conflict acts e A.Proof.default
 
   let[@inline] all_classes cc : repr Iter.t =
     T_tbl.values cc.tbl
@@ -501,16 +486,7 @@ module Make(A: ARG) = struct
       (* [n] might be merged with other equiv classes *)
       push_pending cc n;
     );
-    (* initial theory data *)
-    let th_data =
-      List.fold_left
-        (fun data f ->
-           match f cc n t with
-           | None -> data
-           | Some d -> A.Data.merge data d)
-      A.Data.empty cc.on_new_term
-    in
-    n.n_th_data <- th_data;
+    List.iter (fun f -> f cc n t) cc.on_new_term;
     n
 
   (* compute the initial signature of the given node *)
@@ -527,7 +503,7 @@ module Make(A: ARG) = struct
       sub
     in
     let[@inline] return x = Some x in
-    match A.cc_view n.n_term with
+    match CC_A.cc_view n.n_term with
     | Bool _ | Opaque _ -> None
     | Eq (a,b) ->
       let a = deref_sub a in
@@ -551,7 +527,7 @@ module Make(A: ARG) = struct
     match n.n_as_lit with
     | Some _ -> ()
     | None ->
-      Log.debugf 15 (fun k->k "(@[cc.set-as-lit@ %a@ %a@])" N.pp n A.Lit.pp lit);
+      Log.debugf 15 (fun k->k "(@[cc.set-as-lit@ %a@ %a@])" N.pp n Lit.pp lit);
       on_backtrack cc (fun () -> n.n_as_lit <- None);
       n.n_as_lit <- Some lit
 
@@ -653,17 +629,9 @@ module Make(A: ARG) = struct
       Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" N.pp r_from N.pp r_into);
       (* call [on_merge] functions, and merge theory data items *)
       begin
-        let th_into = r_into.n_th_data in
-        let th_from = r_from.n_th_data in
-        let new_data = A.Data.merge th_into th_from in
-        (* restore old data, if it changed *)
-        if new_data != th_into then (
-          on_backtrack cc (fun () -> r_into.n_th_data <- th_into);
-        );
-        r_into.n_th_data <- new_data;
         (* explanation is [a=ra & e_ab & b=rb] *)
         let expl = Expl.mk_list [e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb] in
-        List.iter (fun f -> f cc r_into th_into r_from th_from expl) cc.on_merge;
+        List.iter (fun f -> f cc acts r_into r_from expl) cc.on_merge;
       end;
       begin
         (* parents might have a different signature, check for collisions *)
@@ -732,32 +700,15 @@ module Make(A: ARG) = struct
          *)
          match N.as_lit u1 with
          | Some lit when not (N.equal r2 t2) ->
-           let lit = if sign then lit else A.Lit.neg lit in (* apply sign *)
-           Log.debugf 5 (fun k->k "(@[cc.bool_propagate@ %a@])" A.Lit.pp lit);
+           let lit = if sign then lit else Lit.neg lit in (* apply sign *)
+           Log.debugf 5 (fun k->k "(@[cc.bool_propagate@ %a@])" Lit.pp lit);
            (* complete explanation with the [u1=t1] chunk *)
-           let reason yield =
-             let e = explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1 in
-             List.iter yield e
+           let reason =
+             let e = lazy (explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1) in
+             fun () -> Lazy.force e
            in
-           A.Actions.propagate acts lit ~reason A.Proof.default
+           CC_A.Actions.propagate acts lit ~reason CC_A.A.Proof.default
          | _ -> ())
-
-  module Theory = struct
-    type cc = t
-
-    (* raise a conflict *)
-    let raise_conflict cc expl =
-      Log.debugf 5
-        (fun k->k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
-      merge_classes cc (true_ cc) (false_ cc) expl
-
-    let merge cc n1 n2 expl =
-      Log.debugf 5
-        (fun k->k "(@[cc.theory.merge@ :n1 %a@ :n2 %a@ :expl %a@])" N.pp n1 N.pp n2 Expl.pp expl);
-      merge_classes cc n1 n2 expl
-
-    let add_term = add_term
-  end
 
   let check_invariants_ (cc:t) =
     Log.debug 5 "(cc.check-invariants)";
@@ -813,14 +764,18 @@ module Make(A: ARG) = struct
     Backtrack_stack.pop_levels self.undo n ~f:(fun f -> f());
     ()
 
+  (* TODO:
+      CC.set_as_lit cc n (Lit.abs lit);
+     *)
+
   (* assert that this boolean literal holds.
      if a lit is [= a b], merge [a] and [b];
      otherwise merge the atom with true/false *)
   let assert_lit cc lit : unit =
-    let t = A.Lit.term lit in
-    Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" A.Lit.pp lit);
-    let sign = A.Lit.sign lit in
-    begin match A.cc_view t with
+    let t = Lit.term lit in
+    Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);
+    let sign = Lit.sign lit in
+    begin match CC_A.cc_view t with
       | Eq (a,b) when sign ->
         let a = add_term cc a in
         let b = add_term cc b in
@@ -840,10 +795,18 @@ module Make(A: ARG) = struct
   let[@inline] assert_lits cc lits : unit =
     Iter.iter (assert_lit cc) lits
 
-  let assert_eq cc t1 t2 (e:lit list) : unit =
-    let expl = Expl.mk_list @@ List.rev_map Expl.mk_lit e in
-    let n1 = add_term cc t1 in
-    let n2 = add_term cc t2 in
+  (* raise a conflict *)
+  let raise_conflict_from_expl cc (acts:actions) expl =
+    Log.debugf 5
+      (fun k->k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
+    ps_clear cc;
+    decompose_explain cc expl;
+    let lits = cc.ps_lits in
+    CC_A.Actions.raise_conflict acts lits A.Proof.default
+
+  let merge cc n1 n2 expl =
+    Log.debugf 5
+      (fun k->k "(@[cc.theory.merge@ :n1 %a@ :n2 %a@ :expl %a@])" N.pp n1 N.pp n2 Expl.pp expl);
     merge_classes cc n1 n2 expl
 
   let on_merge cc f = cc.on_merge <- f :: cc.on_merge

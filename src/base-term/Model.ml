@@ -1,4 +1,3 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** {1 Model} *)
@@ -50,12 +49,12 @@ end
 
 type t = {
   values: Value.t Term.Map.t;
-  funs: Fun_interpretation.t Cst.Map.t;
+  funs: Fun_interpretation.t Fun.Map.t;
 }
 
 let empty : t = {
   values=Term.Map.empty;
-  funs=Cst.Map.empty;
+  funs=Fun.Map.empty;
 }
 
 (* FIXME: ues this to allocate a default value for each sort
@@ -91,10 +90,10 @@ let add t v m : t =
     {m with values=Term.Map.add t v m.values}
 
 let add_fun c v m : t =
-  match Cst.Map.find c m.funs with
-  | _ -> Error.errorf "@[Model: function %a already has an interpretation@]" Cst.pp c
+  match Fun.Map.find c m.funs with
+  | _ -> Error.errorf "@[Model: function %a already has an interpretation@]" Fun.pp c
   | exception Not_found ->
-    {m with funs=Cst.Map.add c v m.funs}
+    {m with funs=Fun.Map.add c v m.funs}
 
 (* merge two models *)
 let merge m1 m2 : t =
@@ -108,11 +107,11 @@ let merge m1 m2 : t =
               Term.pp t Value.pp v1 Value.pp v2
           ))
   and funs =
-    Cst.Map.merge_safe m1.funs m2.funs
+    Fun.Map.merge_safe m1.funs m2.funs
       ~f:(fun c o -> match o with
         | `Left v | `Right v -> Some v
         | `Both _ ->
-          Error.errorf "cannot merge the two interpretations of function %a" Cst.pp c)
+          Error.errorf "cannot merge the two interpretations of function %a" Fun.pp c)
   in
   {values; funs}
 
@@ -124,14 +123,14 @@ let pp out {values; funs} =
   let pp_fun_entry out (vals,ret) =
     Format.fprintf out "(@[%a@ := %a@])" (Fmt.Dump.list Value.pp) vals Value.pp ret
   in
-  let pp_fun out (c, fi: Cst.t * FI.t) =
+  let pp_fun out (c, fi: Fun.t * FI.t) =
     Format.fprintf out "(@[<hov>%a :default %a@ %a@])"
-      Cst.pp c Value.pp fi.FI.default
+      Fun.pp c Value.pp fi.FI.default
       (Fmt.list ~sep:(Fmt.return "@ ") pp_fun_entry) (FI.cases_list fi) 
   in
   Fmt.fprintf out "(@[model@ @[:terms (@[<hv>%a@])@]@ @[:funs (@[<hv>%a@])@]@])"
     (Fmt.seq ~sep:Fmt.(return "@ ") pp_tv) (Term.Map.to_seq values)
-    (Fmt.seq ~sep:Fmt.(return "@ ") pp_fun) (Cst.Map.to_seq funs)
+    (Fmt.seq ~sep:Fmt.(return "@ ") pp_fun) (Fun.Map.to_seq funs)
 
 exception No_value
 
@@ -139,12 +138,6 @@ let eval (m:t) (t:Term.t) : Value.t option =
   let module FI = Fun_interpretation in
   let rec aux t = match Term.view t with
     | Bool b -> Value.bool b
-    | If (a,b,c) ->
-      begin match aux a with
-        | V_bool true -> aux b
-        | V_bool false -> aux c
-        | v -> Error.errorf "@[Model: wrong value@ for boolean %a@ %a@]" Term.pp a Value.pp v
-      end
     | Not a ->
       begin match aux a with
         | V_bool b -> V_bool (not b)
@@ -154,16 +147,16 @@ let eval (m:t) (t:Term.t) : Value.t option =
       let a = aux a in
       let b = aux b in
       if Value.equal a b then Value.true_ else Value.false_
-    | App_cst (c, args) ->
-      match Cst.view c with
-      | Cst_def udef ->
+    | App_fun (c, args) ->
+      match Fun.view c with
+      | Fun_def udef ->
         (* use builtin interpretation function *)
         let args = IArray.map aux args in
         udef.eval args
-      | Cst_undef _ ->
+      | Fun_undef _ ->
         try Term.Map.find t m.values
         with Not_found ->
-          begin match Cst.Map.find c m.funs with
+          begin match Fun.Map.find c m.funs with
             | fi ->
               let args = IArray.map aux args |> IArray.to_list in
               begin match Val_map.find args fi.FI.cases with

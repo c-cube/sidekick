@@ -1,7 +1,8 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** {1 Model} *)
+
+open Base_types
 
 module Val_map : sig
   type key = Value.t list
@@ -30,7 +31,7 @@ end
 
 type t = {
   values: Value.t Term.Map.t;
-  funs: Fun_interpretation.t Cst.Map.t;
+  funs: Fun_interpretation.t Fun.Map.t;
 }
 
 val empty : t

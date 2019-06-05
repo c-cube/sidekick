@@ -1,4 +1,3 @@
-
 (** {1 Main Environment}
 
     Theories and concrete solvers rely on an environment that defines
@@ -56,6 +55,17 @@ module type TERM = sig
     val pp : t Fmt.printer
   end
 
+  module Ty : sig
+    type t
+
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
+
+    val bool : t
+    val is_bool : t -> bool
+  end
+
   module Term : sig
     type t
     val equal : t -> t -> bool
@@ -64,15 +74,13 @@ module type TERM = sig
 
     type state
 
-    val bool : state -> bool -> t
-  end
+    val ty : t -> Ty.t
+    val bool : state -> bool -> t (* build true/false *)
+    val as_bool : t -> bool option
 
-  module Ty : sig
-    type t
+    val iter_dag : t -> (t -> unit) -> unit
 
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val pp : t Fmt.printer
+    module Tbl : Hashtbl.S with type key = t
   end
 end
 
@@ -115,37 +123,29 @@ module type TERM_LIT_PROOF = sig
 end
 
 module type CC_ARG = sig
-  include TERM_LIT_PROOF
+  module A : TERM_LIT_PROOF
 
-  val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
+  val cc_view : A.Term.t -> (A.Fun.t, A.Term.t, A.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
-
-  (** Monoid embedded in every node *)
-  module Data : sig
-    type t
-    val merge : t -> t -> t
-    val pp : t Fmt.printer
-    val empty : t
-  end
 
   module Actions : sig
     type t
 
-    val raise_conflict : t -> Lit.t list -> Proof.t -> 'a
+    val raise_conflict : t -> A.Lit.t list -> A.Proof.t -> 'a
 
-    val propagate : t -> Lit.t -> reason:Lit.t Iter.t -> Proof.t -> unit
+    val propagate : t -> A.Lit.t -> reason:(unit -> A.Lit.t list) -> A.Proof.t -> unit
   end
 end
 
 module type CC_S = sig
-  module A : CC_ARG
+  module CC_A : CC_ARG
+  module A = CC_A.A
   type term_state = A.Term.state
   type term = A.Term.t
   type fun_ = A.Fun.t
   type lit = A.Lit.t
   type proof = A.Proof.t
-  type th_data = A.Data.t
-  type actions = A.Actions.t
+  type actions = CC_A.Actions.t
 
   type t
   (** Global state of the congruence closure *)
@@ -184,15 +184,6 @@ module type CC_S = sig
     val iter_parents : t -> t Iter.t
     (** Traverse the parents of the class.
         Precondition: [is_root n] (see {!find} below) *)
-
-    val th_data : t -> th_data
-    (** Access theory data for this node *)
-
-    val get_field_usr1 : t -> bool
-    val set_field_usr1 : t -> bool -> unit
-
-    val get_field_usr2 : t -> bool
-    val set_field_usr2 : t -> bool -> unit
   end
 
   module Expl : sig
@@ -226,26 +217,8 @@ module type CC_S = sig
   (** Add the term to the congruence closure, if not present already.
       Will be backtracked. *)
 
-  module Theory : sig
-    type cc = t
-
-    val raise_conflict : cc -> Expl.t -> unit
-    (** Raise a conflict with the given explanation
-        it must be a theory tautology that [expl ==> absurd].
-        To be used in theories. *)
-
-    val merge : cc -> N.t -> N.t -> Expl.t -> unit
-    (** Merge these two nodes given this explanation.
-        It must be a theory tautology that [expl ==> n1 = n2].
-        To be used in theories. *)
-
-    val add_term : cc -> term -> N.t
-    (** Add/retrieve node for this term.
-        To be used in theories *)
-  end
-
-  type ev_on_merge = t -> N.t -> th_data -> N.t -> th_data -> Expl.t -> unit
-  type ev_on_new_term = t -> N.t -> term -> th_data option
+  type ev_on_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
+  type ev_on_new_term = t -> N.t -> term -> unit
 
   val create :
     ?stat:Stat.t ->
@@ -285,15 +258,15 @@ module type CC_S = sig
   val assert_lits : t -> lit Iter.t -> unit
   (** Addition of many literals *)
 
-  val assert_eq : t -> term -> term -> lit list -> unit
-  (** merge the given terms with some explanations *)
+  val raise_conflict_from_expl : t -> actions -> Expl.t -> 'a
+  (** Raise a conflict with the given explanation
+      it must be a theory tautology that [expl ==> absurd].
+      To be used in theories. *)
 
-  (* TODO: remove and move into its own library as a micro theory
-  val assert_distinct : t -> term list -> neq:term -> lit -> unit
-  (** [assert_distinct l ~neq:u e] asserts all elements of [l] are distinct
-      because [lit] is true
-      precond: [u = distinct l] *)
-     *)
+  val merge : t -> N.t -> N.t -> Expl.t -> unit
+  (** Merge these two nodes given this explanation.
+      It must be a theory tautology that [expl ==> n1 = n2].
+      To be used in theories. *)
 
   val check : t -> actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
@@ -316,18 +289,11 @@ module type CC_S = sig
   (**/**)
 end
 
-type ('model, 'proof, 'ucore, 'unknown) solver_res =
-  | Sat of 'model
-  | Unsat of {
-      proof: 'proof option;
-      unsat_core: 'ucore;
-    }
-  | Unknown of 'unknown
-
 (** A view of the solver from a theory's point of view *)
 module type SOLVER_INTERNAL = sig
-  module A : CC_ARG
-  module CC : CC_S with module A = A
+  module A : TERM_LIT_PROOF 
+  module CC_A : CC_ARG with module A = A
+  module CC : CC_S with module CC_A = CC_A
 
   type ty = A.Ty.t
   type lit = A.Lit.t
@@ -339,38 +305,12 @@ module type SOLVER_INTERNAL = sig
   type t
   type solver = t
 
-  (**/**)
-  module Debug_ : sig
-    val on_check_invariants : t -> (unit -> unit) -> unit
-    val check_model : t -> unit
-  end
-  (**/**)
-
   module Expl = CC.Expl
   module N = CC.N
 
   (** Unsatisfiable conjunction.
       Its negation will become a conflict clause *)
   type conflict = lit list
-
-  (** {3 Storage of theory-specific data in the CC}
-
-      Theories can create keys to store data in each representative of the
-      congruence closure. The data will be automatically merged
-      when classes are merged.
-
-      A callback must be provided, called before merging two classes
-      containing this data, to check consistency of the theory.
-  *)
-  module Key : sig
-    type 'a t
-
-    type 'a data = (module MERGE_PP with type t = 'a)
-
-    val create : solver -> 'a data -> 'a t
-    (** Create a key for storing and accessing data of type ['a].
-        Values have to be mergeable. *)
-  end
 
   (** {3 Actions available to theories} *)
 
@@ -379,83 +319,72 @@ module type SOLVER_INTERNAL = sig
   val cc : t -> CC.t
   (** Congruence closure for this solver *)
 
-  val raise_conflict: t -> conflict -> 'a
+  (** {3 hooks for the theory} *)
+
+  type actions
+
+  val propagate : t -> actions -> lit -> reason:(unit -> lit list) -> A.Proof.t -> unit
+
+  val raise_conflict : t -> actions -> lit list -> A.Proof.t -> 'a
   (** Give a conflict clause to the solver *)
 
-  val propagate: t -> lit -> (unit -> lit list) -> unit
+  val propagate: t -> actions -> lit -> (unit -> lit list) -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val propagate_l: t -> lit -> lit list -> unit
+  val propagate_l: t -> actions -> lit -> lit list -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val mk_lit : t -> ?sign:bool -> term -> lit
-  (** Create a literal *)
 
-  val add_lit : t -> lit -> unit
-  (** Add the given literal to the SAT solver, so it gets assigned
-      a boolean value *)
-
-  val add_lit_t : t -> ?sign:bool -> term -> unit
-  (** Add the given (signed) bool term to the SAT solver, so it gets assigned
-      a boolean value *)
-
-  val add_local_axiom: t -> lit list -> unit
+  val add_clause_temp : t -> actions -> lit list -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
-  val add_persistent_axiom: t -> lit list -> unit
+  val add_clause_permanent : t -> actions -> lit list -> unit
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
-  val raise_conflict : t -> Expl.t -> 'a
-  (** Raise a conflict with the given explanation
+  val mk_lit : t -> actions -> ?sign:bool -> term -> lit
+  (** Create a literal *)
+
+  val add_lit : t -> actions -> lit -> unit
+  (** Add the given literal to the SAT solver, so it gets assigned
+      a boolean value *)
+
+  val add_lit_t : t -> actions -> ?sign:bool -> term -> unit
+  (** Add the given (signed) bool term to the SAT solver, so it gets assigned
+      a boolean value *)
+
+  val cc_raise_conflict_expl : t -> actions -> Expl.t -> 'a
+  (** Raise a conflict with the given congruence closure explanation.
       it must be a theory tautology that [expl ==> absurd].
       To be used in theories. *)
 
   val cc_find : t -> N.t -> N.t
   (** Find representative of the node *)
 
-  val cc_merge : t -> N.t -> N.t -> Expl.t -> unit
+  val cc_merge : t -> actions -> N.t -> N.t -> Expl.t -> unit
   (** Merge these two nodes in the congruence closure, given this explanation.
       It must be a theory tautology that [expl ==> n1 = n2].
       To be used in theories. *)
+
+  val cc_merge_t : t -> actions -> term -> term -> Expl.t -> unit
+  (** Merge these two terms in the congruence closure, given this explanation.
+      See {!cc_merge} *)
 
   val cc_add_term : t -> term -> N.t
   (** Add/retrieve congruence closure node for this term.
       To be used in theories *)
 
-  val cc_data : t -> k:'a Key.t -> N.t -> 'a option
-  (** Theory specific data for the given node *)
-
-  val cc_add_data : t -> k:'a Key.t -> N.t -> 'a -> unit
-  (** Add data for this node. This might trigger a conflict if the class
-      already contains data that is not compatible. *)
-
-  val cc_merge_t : t -> term -> term -> Expl.t -> unit
-  (** Merge these two terms in the congruence closure, given this explanation.
-      See {!cc_merge} *)
-
-  val on_cc_merge :
-    t ->
-    k:'a Key.t ->
-    (t -> N.t -> 'a -> N.t -> 'a -> Expl.t -> unit) ->
-    unit
+  val on_cc_merge : t -> (CC.t -> actions -> N.t -> N.t -> Expl.t -> unit) -> unit
   (** Callback for when two classes containing data for this key are merged *)
 
-  val on_cc_merge_all : t -> (t -> N.t -> N.t -> Expl.t -> unit) -> unit
-  (** Callback for when any two classes are merged *)
-
-  val on_cc_new_term :
-    t ->
-    k:'a Key.t ->
-    (t -> N.t -> term -> 'a option) ->
-    unit
+  val on_cc_new_term : t -> (CC.t -> N.t -> term -> unit) -> unit
   (** Callback to add data on terms when they are added to the congruence
       closure *)
 
-  val on_partial_check : t -> (t -> lit Iter.t -> unit) -> unit
+  val on_partial_check : t -> (t -> actions -> lit Iter.t -> unit) -> unit
   (** Register callbacked to be called with the slice of literals
       newly added on the trail.
 
@@ -463,7 +392,7 @@ module type SOLVER_INTERNAL = sig
       to be complete, only correct. It's given only the slice of
       the trail consisting in new literals. *)
 
-  val on_final_check: t -> (t -> lit Iter.t -> unit) -> unit
+  val on_final_check: t -> (t -> actions -> lit Iter.t -> unit) -> unit
   (** Register callback to be called during the final check.
 
       Must be complete (i.e. must raise a conflict if the set of literals is
@@ -473,16 +402,17 @@ end
 
 (** Public view of the solver *)
 module type SOLVER = sig
-  module Solver_internal : SOLVER_INTERNAL
+  module A : TERM_LIT_PROOF
+  module CC_A : CC_ARG with module A = A
+  module Solver_internal : SOLVER_INTERNAL with module A = A and module CC_A = CC_A
   (** Internal solver, available to theories.  *)
 
-  module A = Solver_internal.A
   type t
   type solver = t
   type term = A.Term.t
   type ty = A.Ty.t
   type lit = A.Lit.t
-  type proof = A.Proof.t
+  type lemma = A.Proof.t
 
   (** {3 A theory}
 
@@ -519,12 +449,6 @@ module type SOLVER = sig
 
   type theory = (module THEORY)
   (** A theory that can be used for this particular solver. *)
-
-  type theory_with_st = Tst : {
-      m: (module THEORY with type t = 'th);
-      st: 'th;
-    } -> theory_with_st
-  (** An instantiated theory *)
 
   val mk_theory :
     name:string ->
@@ -579,9 +503,17 @@ module type SOLVER = sig
        *)
   end
 
+  module Proof : sig
+    type t
+    val check : t -> unit
+    val pp_dot : t Fmt.printer
+  end
+  type proof = Proof.t
+
   (** {3 Main API} *)
 
   val stats : t -> Stat.t
+  val tst : t -> A.Term.state
 
   val create :
     ?stat:Stat.t ->
@@ -612,8 +544,14 @@ module type SOLVER = sig
 
   val add_clause_l : t -> Atom.t list -> unit
 
-  type res = (Model.t, proof, lit IArray.t, Unknown.t) solver_res
-  (** Result of solving for the current set of clauses *)
+  type res =
+    | Sat of Model.t
+    | Unsat of {
+        proof: proof option;
+        unsat_core: Atom.t list lazy_t;
+      }
+    | Unknown of Unknown.t
+    (** Result of solving for the current set of clauses *)
 
   val solve :
     ?on_exit:(unit -> unit) list ->
@@ -629,4 +567,10 @@ module type SOLVER = sig
 
   val pp_term_graph: t CCFormat.printer
   val pp_stats : t CCFormat.printer
+
+  (**/**)
+  module Debug_ : sig
+    val check_invariants : t -> unit
+  end
+  (**/**)
 end

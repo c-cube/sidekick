@@ -20,12 +20,6 @@ build: build-install
 build-dev:
 	@dune build $(OPTS)
 
-enable_log:
-	cd src/core; ln -sf log_real.ml log.ml
-
-disable_log:
-	cd src/core; ln -sf log_dummy.ml log.ml
-
 clean:
 	@dune clean
 
@@ -42,7 +36,6 @@ logitest-quick:
 	  --meta `git rev-parse HEAD` --summary snapshots/quick-$(DATE).txt \
 	  --csv snapshots/quick-$(DATE).csv
 
-
 install: build-install
 	@dune install
 
@@ -54,19 +47,13 @@ doc:
 
 reinstall: | uninstall install
 
-ocp-indent:
-	@which ocp-indent > /dev/null || { \
-	  	echo 'ocp-indent not found; please run `opam install ocp-indent`'; \
-		exit 1 ; \
-	  }
-
 reindent: ocp-indent
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 echo "reindenting: "
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 ocp-indent -i
 
-WATCH=build
+WATCH=@install
 watch:
-	@dune build @install -w
+	@dune build $(WATCH) -w
 	#@dune build @all -w # TODO: once tests pass
 
-.PHONY: clean doc all bench install uninstall remove reinstall enable_log disable_log bin test
+.PHONY: clean doc all bench install uninstall remove reinstall bin test

@@ -1,11 +1,12 @@
-
 (** {1 Process Statements} *)
 
+module ID = Sidekick_base_term.ID
 module Fmt = CCFormat
-module Ast = Sidekick_base_term.Ast
+module Ast = Ast
 module E = CCResult
 module Loc = Locations
 module Process = Process
+module Solver = Process.Solver
 
 module Proof = struct
   type t = Proof_default
@@ -19,10 +20,6 @@ module Parse = struct
     let lexbuf = Lexing.from_channel ic in
     Loc.set_file lexbuf filename;
     Parser.parse_list Lexer.token lexbuf
-
-  let parse_chan ?filename ic =
-    try Result.Ok (parse_chan_exn ?filename ic)
-    with e -> Result.Error (Printexc.to_string e)
 
   let parse_file_exn file : Parse_ast.statement list =
     CCIO.with_in file (parse_chan_exn ~filename:file)
@@ -50,8 +47,9 @@ module Parse = struct
     with e -> Result.Error (Printexc.to_string e)
 end
 
+(* TODO: remove
 module Term_bool : sig
-  open Sidekick_th_bool
+  open Sidekick_th_bool_dyn
   type 'a view = 'a Bool_intf.view
 
   type term = Sidekick_smt.Term.t
@@ -208,66 +206,10 @@ end = struct
     | B_imply (a,b) -> imply_a st a b
     | B_not t -> not_ st t
 end
-
-module Term_distinct = struct
-  open Sidekick_base_term
-
-  let id_distinct = ID.make "distinct"
-
-  let relevant _id _ _ = true
-  let get_ty _ _ = Ty.prop
-  let abs ~self _a = self, true
-
-  module T = struct
-    include Term
-    let mk_eq = eq
-
-    let as_distinct t : _ option =
-      match view t with
-      | App_cst ({cst_id;_}, args) when ID.equal cst_id id_distinct ->
-        Some (IArray.to_seq args)
-      | _ -> None
-  end
-
-  module Lit = Sidekick_smt.Lit
-
-  let eval args =
-    let module Value = Sidekick_smt.Value in
-    Log.debugf 5
-      (fun k->k "(@[distinct.eval@ %a@])" (Fmt.seq Value.pp) (IArray.to_seq args));
-    if
-      Iter.diagonal (IArray.to_seq args)
-      |> Iter.for_all (fun (x,y) -> not @@ Value.equal x y)
-    then Value.true_
-    else Value.false_
-
-  let c_distinct =
-    {cst_id=id_distinct;
-     cst_view=Cst_def {
-         pp=None; abs; ty=get_ty; relevant; do_cc=true; eval; }; }
-
-  let distinct st a =
-    if IArray.length a <= 1
-    then T.true_ st
-    else T.app_cst st c_distinct a
-
-  let distinct_l st = function
-    | [] | [_] -> T.true_ st
-    | xs -> distinct st (IArray.of_list xs)
-end
-
-module Term_ite = struct
-  open Sidekick_base_term
-
-  let[@inline] view_as_ite t = match Term.view t with
-    | If (a,b,c) -> T_ite (a,b,c)
-    | Bool b -> T_bool b
-    | _ -> T_other t
-end
-
-module Solver = Sidekick_msat_solver.Solver
+   *)
 
 module Theories = struct
+  (* TODO
   module Th_cstor = Sidekick_th_cstor.Make(struct
       module Solver = Solver
       module T = Solver.A.Term
@@ -280,6 +222,7 @@ module Theories = struct
       end
 
     end)
+     *)
 end
 
 let parse = Parse.parse

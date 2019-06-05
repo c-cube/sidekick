@@ -1,4 +1,3 @@
-
 (** {1 Theory for constructors} *)
 
 type ('c,'t) cstor_view =
@@ -25,21 +24,20 @@ module Make(A : ARG) : S with module A = A = struct
   module Fun = A.S.A.Fun
   module Expl = SI.Expl
 
-  type data = {
+  type cstor_repr = {
     t: T.t;
     n: N.t;
   }
   (* associate to each class a unique constructor term in the class (if any) *)
 
-  module Data = struct
-    type t = data
-    let pp out x = T.pp out x.t
-    (* let equal x y = T.equal x.t y.t *)
-    let merge x _ = x
-  end
+  (* TODO 
+  module N_tbl = Backtrackable_tbl.Make(N)
+     *)
+  module N_tbl = CCHashtbl.Make(N)
 
   type t = {
-    k: data SI.Key.t;
+    cstors: T.t N_tbl.t; (* repr -> cstor for the class *)
+    (* TODO: also allocate a bit in CC to filter out quickly classes without cstors *)
   }
 
   let on_merge (solver:SI.t) n1 tc1 n2 tc2 e_n1_n2 : unit =
@@ -58,7 +56,7 @@ module Make(A : ARG) : S with module A = A = struct
           l1 l2
       ) else (
         (* different function: disjointness *)
-        SI.raise_conflict solver expl
+        SI.cc_raise_conflict solver expl
       )
     | _ -> assert false
 
@@ -68,11 +66,15 @@ module Make(A : ARG) : S with module A = A = struct
     | T_cstor _ -> Some {t;n}
     | _ -> None
 
-  let create_and_setup (solver:SI.t) : t =
-    let k = SI.Key.create solver (module Data) in
-    SI.on_cc_merge solver ~k on_merge;
-    SI.on_cc_new_term solver ~k on_new_term;
-    {k}
+  let create_and_setup (_solver:SI.t) : t =
+    let self = {
+      cstors=N_tbl.create 32;
+    } in
+    (* TODO
+    SI.on_cc_merge solver on_merge;
+    SI.on_cc_new_term solver on_new_term;
+       *)
+    self
 
   let theory = A.S.mk_theory ~name ~create_and_setup ()
 end

@@ -1,6 +1,6 @@
 (library
-  (name Sidekick_th_bool)
-  (public_name sidekick.th-bool)
+  (name Sidekick_th_bool_dyn)
+  (public_name sidekick.th-bool-dyn)
   (libraries containers sidekick.core sidekick.util)
   (flags :standard -open Sidekick_util))
 
