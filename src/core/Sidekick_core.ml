@@ -117,7 +117,7 @@ module type CORE_TYPES = sig
     val pp : t Fmt.printer
   end
 
-  module Proof : sig
+  module Lemma : sig
     type t
     val pp : t Fmt.printer
 
@@ -136,20 +136,12 @@ module type CC_ARG = sig
   val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
 
-  (** Monoid embedded in every node *)
-  module Data : sig
-    type t
-    val merge : t -> t -> t
-    val pp : t Fmt.printer
-    val empty : t
-  end
-
   module Actions : sig
     type t
 
-    val raise_conflict : t -> Lit.t list -> Proof.t -> 'a
+    val raise_conflict : t -> Lit.t list -> Lemma.t -> 'a
 
-    val propagate : t -> Lit.t -> reason:Lit.t Iter.t -> Proof.t -> unit
+    val propagate : t -> Lit.t -> reason:Lit.t Iter.t -> Lemma.t -> unit
   end
 end
 
@@ -160,8 +152,7 @@ module type CC_S = sig
   type term = A.Term.t
   type fun_ = A.Fun.t
   type lit = A.Lit.t
-  type proof = A.Proof.t
-  type th_data = CC_A.Data.t
+  type lemma = A.Lemma.t
   type actions = CC_A.Actions.t
 
   type t
@@ -197,19 +188,6 @@ module type CC_S = sig
     val iter_class : t -> t Iter.t
     (** Traverse the congruence class.
         Precondition: [is_root n] (see {!find} below) *)
-
-    val iter_parents : t -> t Iter.t
-    (** Traverse the parents of the class.
-        Precondition: [is_root n] (see {!find} below) *)
-
-    val th_data : t -> th_data
-    (** Access theory data for this node *)
-
-    val get_field_usr1 : t -> bool
-    val set_field_usr1 : t -> bool -> unit
-
-    val get_field_usr2 : t -> bool
-    val set_field_usr2 : t -> bool -> unit
   end
 
   module Expl : sig
@@ -261,8 +239,8 @@ module type CC_S = sig
         To be used in theories *)
   end
 
-  type ev_on_merge = t -> N.t -> th_data -> N.t -> th_data -> Expl.t -> unit
-  type ev_on_new_term = t -> N.t -> term -> th_data option
+  type ev_on_merge = t -> N.t -> N.t -> Expl.t -> unit
+  type ev_on_new_term = t -> N.t -> term -> unit
 
   val create :
     ?stat:Stat.t ->
@@ -351,7 +329,7 @@ module type SOLVER_INTERNAL = sig
   type lit = A.Lit.t
   type term = A.Term.t
   type term_state = A.Term.state
-  type proof = A.Proof.t
+  type lemma = A.Lemma.t
 
   (** {3 Main type for a solver} *)
   type t
@@ -500,7 +478,7 @@ module type SOLVER = sig
   type term = A.Term.t
   type ty = A.Ty.t
   type lit = A.Lit.t
-  type proof = A.Proof.t
+  type lemma = A.Lemma.t
   type value = A.Value.t
 
   (** {3 A theory}
@@ -581,6 +559,14 @@ module type SOLVER = sig
       | U_incomplete
        *)
   end
+
+  module Proof : sig
+    type t
+    (* TODO: expose more? *)
+
+  end
+
+  type proof = Proof.t
 
   (** {3 Main API} *)
 

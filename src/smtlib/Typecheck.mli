@@ -16,7 +16,7 @@ module Ctx : sig
 end
 
 module PA = Parse_ast
-module A = Sidekick_smt.Ast
+module A = Sidekick_base_term.Ast
 
 val conv_term : Ctx.t -> PA.term -> A.term
 

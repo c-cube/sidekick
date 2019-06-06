@@ -3,12 +3,12 @@
 
 (** {1 Preprocessing AST} *)
 
-module ID = Sidekick_smt.ID
+module ID = Sidekick_base_term.ID
 module Loc = Locations
 module Fmt = CCFormat
 module Log = Msat.Log
 
-module A = Sidekick_smt.Ast
+module A = Sidekick_base_term.Ast
 module PA = Parse_ast
 
 type 'a or_error = ('a, string) CCResult.t
