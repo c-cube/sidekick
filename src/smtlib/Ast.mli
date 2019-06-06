@@ -130,7 +130,6 @@ type statement =
   | Decl of ID.t * Ty.t
   | Define of definition list
   | Assert of term
-  | Assert_bool of int list
   | Goal of var list * term
   | CheckSat
   | Exit

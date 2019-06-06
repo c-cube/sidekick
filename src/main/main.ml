@@ -82,14 +82,6 @@ let argspec = Arg.align [
     "-v", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
   ]
 
-type syntax =
-  | Dimacs
-  | Smtlib
-
-let syntax_of_file file =
-  if CCString.suffix ~suf:".cnf" file then Dimacs
-  else Smtlib
-
 (* Limits alarm *)
 let check_limits () =
   let t = Sys.time () in
@@ -109,31 +101,17 @@ let main () =
     exit 2
   );
   let al = Gc.create_alarm check_limits in
-  let syn = syntax_of_file !file in
   Util.setup_gc();
   let tst = Term.create ~size:4_096 () in
   let solver =
-    let theories = match syn with
-      | Dimacs ->
-        [Process.th_bool ]
-      | Smtlib ->
-        [Process.th_bool ;
-        ] (* TODO: more theories *)
+    let theories = [
+      Process.th_bool ;
+    ] (* TODO: more theories *)
     in
     Process.Solver.create ~store_proof:!check ~theories tst ()
   in
   let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
-  begin match syn with
-    | Smtlib ->
-      (* parse pb *)
-      Sidekick_smtlib.parse !file
-    | Dimacs ->
-      Sidekick_dimacs.parse !file >|= fun cs ->
-      List.rev_append
-        (List.rev_map (fun c -> Ast.Assert_bool c) cs)
-        [Ast.CheckSat]
-  end
-  >>= fun input ->
+  Sidekick_smtlib.parse !file >>= fun input ->
   (* process statements *)
   let res =
     try

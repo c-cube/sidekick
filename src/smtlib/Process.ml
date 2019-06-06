@@ -510,13 +510,6 @@ let solve
 
 (* NOTE: hack for testing with dimacs. Proper treatment should go into
    scoping in Ast, or having theory-specific state in `Term.state` *)
-let mk_iatom =
-  let tbl = Util.Int_tbl.create 6 in (* for atoms *)
-  fun tst i ->
-    let c = Util.Int_tbl.get_or_add tbl ~k:(abs i) 
-        ~f:(fun i -> Fun.mk_undef_const (ID.makef "a_%d" i) Ty.bool) in
-    Lit.atom tst ~sign:(i>0) @@ Term.const tst c
-
 (* process a single statement *)
 let process_stmt
     ?hyps
@@ -573,11 +566,6 @@ let process_stmt
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
       Solver.add_clause_lits solver (IArray.singleton atom);
       E.return()
-    | A.Assert_bool l ->
-      let c = List.rev_map (mk_iatom tst) l in
-      CCOpt.iter (fun h -> Vec.push h c) hyps;
-      Solver.add_clause_lits_l solver c;
-      E.return ()
     | A.Goal (_, _) ->
       Error.errorf "cannot deal with goals yet"
     | A.Data _ ->
