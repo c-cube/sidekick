@@ -35,6 +35,7 @@ module Form =  struct
 
   let view_as_bool (t:T.t) : T.t bool_view =
     match T.view t with
+    | Bool b -> B_bool b
     | Not u -> B_not u
     | Eq (a, b) when Ty.is_bool (T.ty a) -> B_equiv (a,b)
     | App_fun ({fun_id; _}, args) ->
@@ -57,6 +58,7 @@ module Form =  struct
     let eval id args =
       let open Value in
       match view_id id args with
+      | B_bool b -> Value.bool b
       | B_not (V_bool b) -> Value.bool (not b)
       | B_and a when IArray.for_all Value.is_true a -> Value.true_
       | B_and a when IArray.exists Value.is_false a -> Value.false_
@@ -156,6 +158,7 @@ module Form =  struct
       and_l tst cs
 
   let mk_bool st = function
+    | B_bool b -> T.bool st b
     | B_atom t -> t
     | B_and l -> and_a st l
     | B_or l -> or_a st l
@@ -164,19 +167,6 @@ module Form =  struct
     | B_equiv (a,b) -> equiv st a b
     | B_eq (a,b) -> T.eq st a b
     | B_not t -> not_ st t
-
-  let view_as_non_bool t =
-    match T.view t with
-    | T.App_fun (f, args) ->
-      begin match view_id (Fun.id f) args with
-        | exception Not_a_th_term ->
-          NB_functor(args, fun tst args -> T.app_fun tst f args)
-        | B_ite (a,b,c) -> NB_ite(a,b,c)
-        | _ -> NB_bool t
-      end
-    | T.Bool _ | T.Eq _ | T.Not _ -> NB_bool t
-
-  let mk_ite = ite
 
   module Gensym = struct
     type t = {
@@ -508,8 +498,6 @@ let solve
       Format.printf "Unknown (:reason %a)" Solver.Unknown.pp reas
   end
 
-(* NOTE: hack for testing with dimacs. Proper treatment should go into
-   scoping in Ast, or having theory-specific state in `Term.state` *)
 (* process a single statement *)
 let process_stmt
     ?hyps

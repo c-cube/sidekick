@@ -78,6 +78,9 @@ module type TERM = sig
     val bool : state -> bool -> t (* build true/false *)
     val as_bool : t -> bool option
 
+    val map_shallow : state -> (t -> t) -> t -> t
+    (** Map function on immediate subterms *)
+
     val iter_dag : t -> (t -> unit) -> unit
 
     module Tbl : Hashtbl.S with type key = t
@@ -312,12 +315,36 @@ module type SOLVER_INTERNAL = sig
       Its negation will become a conflict clause *)
   type conflict = lit list
 
-  (** {3 Actions available to theories} *)
-
   val tst : t -> term_state
 
   val cc : t -> CC.t
   (** Congruence closure for this solver *)
+
+  (** {3 Simplifiers} *)
+
+  module Simplify : sig
+    type t
+
+    val tst : t -> term_state
+
+    val clear : t -> unit
+    (** Reset internal cache, etc. *)
+
+    type hook = t -> term -> term option
+    (** Given a term, try to simplify it. Return [None] if it didn't change.
+        Can also add clauses to the simplifier. *)
+
+    val normalize : t -> term -> term
+    (** Normalize a term using all the hooks. *)
+  end
+
+  type simplify_hook = Simplify.hook
+
+  val add_simplifier : t -> Simplify.hook -> unit
+
+  val simplifier : t -> Simplify.t
+
+  val simp_t : t -> term -> term
 
   (** {3 hooks for the theory} *)
 
@@ -398,6 +425,17 @@ module type SOLVER_INTERNAL = sig
       Must be complete (i.e. must raise a conflict if the set of literals is
       not satisfiable) and can be expensive. The function
       is given the whole trail. *)
+
+  (** {3 Preprocessors}
+      These preprocessors turn mixed, raw literals (possibly simplified) into
+      literals suitable for reasoning.
+      Typically some clauses are also added to the solver. *)
+
+  type preprocess_hook = t -> actions -> term -> term option
+  (** Given a term, try to preprocess it. Return [None] if it didn't change.
+      Can also add clauses to define new terms. *)
+
+  val add_preprocess : t -> preprocess_hook -> unit
 end
 
 (** Public view of the solver *)

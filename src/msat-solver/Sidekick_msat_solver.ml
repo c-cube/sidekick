@@ -67,6 +67,43 @@ module Make(A : ARG)
 
     type actions = msat_acts
 
+    module Simplify = struct
+      type t = {
+        tst: term_state;
+        mutable hooks: hook list;
+        cache: T.t T.Tbl.t;
+      }
+      and hook = t -> term -> term option
+
+      let create tst : t = {tst; hooks=[]; cache=T.Tbl.create 32;}
+      let[@inline] tst self = self.tst
+      let add_hook self f = self.hooks <- f :: self.hooks
+      let clear self = T.Tbl.clear self.cache
+
+      let normalize (self:t) (t:T.t) : T.t =
+        (* compute and cache normal form of [t] *)
+        let rec aux t =
+          match T.Tbl.find self.cache t with
+          | u -> u
+          | exception Not_found ->
+            let u = aux_rec t self.hooks in
+            T.Tbl.add self.cache t u;
+            u
+        (* try each function in [hooks] successively, and rewrite subterms *)
+        and aux_rec t hooks = match hooks with
+          | [] ->
+            let u = T.map_shallow self.tst aux t in
+            if T.equal t u then t else aux u
+          | h :: hooks_tl ->
+            match h self t with
+            | None -> aux_rec t hooks_tl
+            | Some u when T.equal t u -> aux_rec t hooks_tl
+            | Some u -> aux u
+        in
+        aux t
+    end
+    type simplify_hook = Simplify.hook
+
     type t = {
       tst: T.state; (** state for managing terms *)
       cc: CC.t lazy_t; (** congruence closure *)
@@ -74,10 +111,15 @@ module Make(A : ARG)
       count_axiom: int Stat.counter;
       count_conflict: int Stat.counter;
       count_propagate: int Stat.counter;
+      simp: Simplify.t;
+      mutable preprocess: preprocess_hook list;
+      preprocess_cache: T.t T.Tbl.t;
       mutable th_states : th_states; (** Set of theories *)
       mutable on_partial_check: (t -> actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> actions -> lit Iter.t -> unit) list;
     }
+    and preprocess_hook = t -> actions -> term -> term option
+
     type solver = t
 
     module Formula = struct
@@ -95,6 +137,12 @@ module Make(A : ARG)
     let[@inline] cc (t:t) = Lazy.force t.cc
     let[@inline] tst t = t.tst
 
+    let simplifier self = self.simp
+    let simp_t self (t:T.t) : T.t = Simplify.normalize self.simp t
+    let add_simplifier (self:t) f : unit = Simplify.add_hook self.simp f
+
+    let add_preprocess self f = self.preprocess <- f :: self.preprocess
+
     let[@inline] raise_conflict self acts c : 'a =
       Stat.incr self.count_conflict;
       acts.Msat.acts_raise_conflict c A.Proof.default
@@ -110,7 +158,31 @@ module Make(A : ARG)
       Stat.incr self.count_axiom;
       acts.Msat.acts_add_clause ~keep lits A.Proof.default
 
-    let[@inline] mk_lit self _acts ?sign t = Lit.atom self.tst ?sign t
+    let preprocess_lit_ (self:t) (acts:actions) (lit:lit) : lit =
+      (* compute and cache normal form of [t] *)
+      let rec aux t =
+        match T.Tbl.find self.preprocess_cache t with
+        | u -> u
+        | exception Not_found ->
+          (* first, map subterms *)
+          let u = T.map_shallow self.tst aux t in
+          (* then rewrite *)
+          let u = aux_rec u self.preprocess in
+          T.Tbl.add self.preprocess_cache t u;
+          u
+      (* try each function in [hooks] successively *)
+      and aux_rec t hooks = match hooks with
+        | [] -> t
+        | h :: hooks_tl ->
+          match h self acts t with
+          | None -> aux_rec t hooks_tl
+          | Some u -> aux u
+      in
+      let t = aux (Lit.term lit) in
+      Lit.atom self.tst ~sign:(Lit.sign lit) t
+
+    let[@inline] mk_lit self acts ?sign t =
+      preprocess_lit_ self acts @@ Lit.atom self.tst ?sign t
 
     let[@inline] add_clause_temp self acts lits : unit =
       add_sat_clause_ self acts ~keep:false lits
@@ -118,8 +190,7 @@ module Make(A : ARG)
     let[@inline] add_clause_permanent self acts lits : unit =
       add_sat_clause_ self acts ~keep:true lits
 
-    let[@inline] add_lit _self acts lit : unit =
-      acts.Msat.acts_mk_lit lit
+    let add_lit _self acts lit : unit = acts.Msat.acts_mk_lit lit
 
     let add_lit_t self acts ?sign t = add_lit self acts (mk_lit self acts ?sign t)
 
@@ -215,6 +286,9 @@ module Make(A : ARG)
         );
         th_states=Ths_nil;
         stat;
+        simp=Simplify.create tst;
+        preprocess=[];
+        preprocess_cache=T.Tbl.create 32;
         count_axiom = Stat.mk_int stat "th-axioms";
         count_propagate = Stat.mk_int stat "th-propagations";
         count_conflict = Stat.mk_int stat "th-conflicts";

@@ -594,6 +594,8 @@ module Term : sig
 
   val iter_dag : t -> t Iter.t
 
+  val map_shallow : state -> (t -> t) -> t -> t
+
   val pp : t Fmt.printer
 
   (** {6 Views} *)
@@ -745,6 +747,13 @@ end = struct
   let iter_dag t yield =
     let st = Iter_dag.create() in
     Iter_dag.iter_dag st t yield
+
+  let map_shallow (tst:state) f (t:t) : t =
+    match view t with
+    | Bool _ -> t
+    | App_fun (hd, a) -> app_fun tst hd (IArray.map f a)
+    | Not u -> not_ tst (f u)
+    | Eq (a,b) -> eq tst (f a) (f b)
 end
 
 module Lit : sig
