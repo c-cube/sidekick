@@ -5,7 +5,7 @@ default_expect = "sat"
 [sidekick]
 
 binary = "./sidekick"
-cmd = "./sidekick -no-check -time $timeout $file"
+cmd = "./sidekick --no-check --time $timeout $file"
 unsat = "Unsat"
 sat = "Sat"
 unknown = "Timeout|Unknown"
