@@ -12,7 +12,7 @@ end
 module type S = Sidekick_core.SOLVER
 
 module Make(A : ARG)
-(*   : S with module A = A *)
+  : S with module A = A
 = struct
   module A = A
   module T = A.Term
@@ -21,7 +21,7 @@ module Make(A : ARG)
   type ty = Ty.t
   type lemma = A.Proof.t
 
-  module Lit = struct
+  module Lit_ = struct
     type t = {
       lit_term: term;
       lit_sign : bool
@@ -61,15 +61,15 @@ module Make(A : ARG)
     let norm l = let l, sign = norm_sign l in l, if sign then Msat.Same_sign else Msat.Negated
   end
 
-  type lit = Lit.t
+  type lit = Lit_.t
 
   (* actions from msat *)
-  type msat_acts = (Msat.void, Lit.t, Msat.void, A.Proof.t) Msat.acts
+  type msat_acts = (Msat.void, lit, Msat.void, A.Proof.t) Msat.acts
 
   (* the full argument to the congruence closure *)
   module CC_A = struct
     module A = A
-    module Lit = Lit
+    module Lit = Lit_
     let cc_view = A.cc_view
 
     module Actions = struct
@@ -90,7 +90,7 @@ module Make(A : ARG)
   module Solver_internal = struct
     module A = A
     module CC_A = CC_A
-    module Lit = Lit
+    module Lit = Lit_
     module CC = CC
     module N = CC.N
     type term = T.t
@@ -360,6 +360,7 @@ module Make(A : ARG)
       ignore (Lazy.force @@ self.cc : CC.t);
       self
   end
+  module Lit = Solver_internal.Lit
 
   (** the parametrized SAT Solver *)
   module Sat_solver = Msat.Make_cdcl_t(Solver_internal)
