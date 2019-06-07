@@ -251,7 +251,7 @@ module Make(CC_A: ARG) = struct
   (* non-recursive, inlinable function for [find] *)
   let[@inline] find_ (n:node) : repr =
     let n2 = n.n_root in
-    assert (n2.n_root == n2);
+    assert (N.is_root n2);
     n2
 
   let[@inline] same_class (n1:node)(n2:node): bool =
@@ -292,17 +292,13 @@ module Make(CC_A: ARG) = struct
   let[@inline] find_signature cc (s:signature) : repr option =
     Sig_tbl.get cc.signatures_tbl s
 
+  (* add to signature table. Assume it's not present already *)
   let add_signature cc (s:signature) (n:node) : unit =
-    (* add, but only if not present already *)
-    match Sig_tbl.find cc.signatures_tbl s with
-    | exception Not_found ->
-      Log.debugf 15
-        (fun k->k "(@[cc.add-sig@ %a@ ~~> %a@])" Signature.pp s N.pp n);
-      on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
-      Sig_tbl.add cc.signatures_tbl s n;
-    | r' ->
-      assert (same_class n r');
-      ()
+    assert (not @@ Sig_tbl.mem cc.signatures_tbl s);
+    Log.debugf 15
+      (fun k->k "(@[cc.add-sig@ %a@ ~~> %a@])" Signature.pp s N.pp n);
+    on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
+    Sig_tbl.add cc.signatures_tbl s n
 
   let push_pending cc t : unit =
     if not @@ N.get_field field_is_pending t then (
@@ -343,7 +339,15 @@ module Make(CC_A: ARG) = struct
     T_tbl.values cc.tbl
     |> Iter.filter N.is_root
 
-  (* find the closest common ancestor of [a] and [b] in the proof forest *)
+  (* find the closest common ancestor of [a] and [b] in the proof forest.
+
+     Precond:
+     - [a] and [b] are in the same class
+     - no node has the flag [field_marked_explain] on
+     Invariants:
+     - if [n] is marked, then all the predecessors of [n]
+       from [a] or [b] are marked too.
+  *)
   let find_common_ancestor (a:node) (b:node) : node =
     (* catch up to the other node *)
     let rec find1 a =
@@ -369,7 +373,7 @@ module Make(CC_A: ARG) = struct
       )
 
     in
-    (* cleanup tags on nodes traversed in [find_] *)
+    (* cleanup tags on nodes traversed in [find2] *)
     let rec cleanup_ n =
       if N.get_field field_marked_explain n then (
         N.set_field field_marked_explain false n;
@@ -471,14 +475,17 @@ module Make(CC_A: ARG) = struct
 
   (* compute the initial signature of the given node *)
   and compute_sig0 (self:t) (n:node) : Signature.t option =
-    (* add sub-term to [cc], and register [n] to its parents *)
+    (* add sub-term to [cc], and register [n] to its parents.
+       Note that we return the exact sub-term, to get proper
+       explanations, but we add to the sub-term's root's parent list. *)
     let deref_sub (u:term) : node =
-      let sub = find_ @@ add_term_rec_ self u in
+      let sub = add_term_rec_ self u in
       (* add [n] to [sub.root]'s parent list *)
       begin
-        let old_parents = sub.n_parents in
-        on_backtrack self (fun () -> sub.n_parents <- old_parents);
-        sub.n_parents <- Bag.cons n sub.n_parents;
+        let sub_r = find_ sub in
+        let old_parents = sub_r.n_parents in
+        on_backtrack self (fun () -> sub_r.n_parents <- old_parents);
+        sub_r.n_parents <- Bag.cons n sub_r.n_parents;
       end;
       sub
     in
@@ -535,6 +542,8 @@ module Make(CC_A: ARG) = struct
         (* if [a=b] is now true, merge [(a=b)] and [true] *)
         if same_class a b then (
           let expl = Expl.mk_merge a b in
+          Log.debugf 5 
+            (fun k->k "(pending.eq@ %a@ :r1 %a@ :r2 %a@])" N.pp n N.pp a N.pp b);
           merge_classes cc n (true_ cc) expl
         )
       | Some (Not u) ->
@@ -554,7 +563,7 @@ module Make(CC_A: ARG) = struct
         | None ->
           (* add to the signature table [sig(n) --> n] *)
           add_signature cc s n
-        | Some u when n == u -> ()
+        | Some u when N.equal n u -> ()
         | Some u ->
           (* [t1] and [t2] must be applications of the same symbol to
                arguments that are pairwise equal *)
@@ -579,8 +588,9 @@ module Make(CC_A: ARG) = struct
       if (N.equal ra (true_ cc) && N.equal rb (false_ cc)) ||
          (N.equal rb (true_ cc) && N.equal ra (false_ cc)) then (
         Log.debugf 5
-          (fun k->k "(@[<hv>cc.merge.true_false_conflict@ @[:r1 %a@]@ @[:r2 %a@]@ :e_ab %a@])"
-            N.pp ra N.pp rb Expl.pp e_ab);
+          (fun k->k "(@[<hv>cc.merge.true_false_conflict@ \
+                     @[:r1 %a@ :t1 %a@]@ @[:r2 %a@ :t2 %a@]@ :e_ab %a@])"
+            N.pp ra N.pp a N.pp rb N.pp b Expl.pp e_ab);
         let lits = explain_decompose cc [] e_ab in
         let lits = explain_pair cc lits a ra in
         let lits = explain_pair cc lits b rb in
