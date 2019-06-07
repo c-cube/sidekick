@@ -221,12 +221,14 @@ module type CC_S = sig
   type ev_on_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
   type ev_on_new_term = t -> N.t -> term -> unit
   type ev_on_conflict = t -> lit list -> unit
+  type ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
 
   val create :
     ?stat:Stat.t ->
     ?on_merge:ev_on_merge list ->
     ?on_new_term:ev_on_new_term list ->
     ?on_conflict:ev_on_conflict list ->
+    ?on_propagate:ev_on_propagate list ->
     ?size:[`Small | `Big] ->
     term_state ->
     t
@@ -241,6 +243,9 @@ module type CC_S = sig
 
   val on_conflict : t -> ev_on_conflict -> unit
   (** Called when the congruence closure finds a conflict *)
+
+  val on_propagate : t -> ev_on_propagate -> unit
+  (** Called when the congruence closure propagates a literal *)
 
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
@@ -411,6 +416,9 @@ module type SOLVER_INTERNAL = sig
 
   val on_cc_conflict : t -> (CC.t -> lit list -> unit) -> unit
   (** Callback called on every CC conflict *)
+
+  val on_cc_propagate : t -> (CC.t -> lit -> (unit -> lit list) -> unit) -> unit
+  (** Callback called on every CC propagation *)
 
   val on_partial_check : t -> (t -> actions -> lit Iter.t -> unit) -> unit
   (** Register callbacked to be called with the slice of literals
