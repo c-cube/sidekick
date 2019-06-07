@@ -20,7 +20,7 @@ sat = ":status sat"
 [test]
 
 timeout=10
-problems = ".*\\.(smt2|cnf)"
+problems = ".*\\.smt2"
 provers = [ "sidekick", ]
 dir = [ "." ]
 
