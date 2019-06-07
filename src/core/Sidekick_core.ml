@@ -83,7 +83,7 @@ module type TERM = sig
 
     val iter_dag : t -> (t -> unit) -> unit
 
-    module Tbl : Hashtbl.S with type key = t
+    module Tbl : CCHashtbl.S with type key = t
   end
 end
 
