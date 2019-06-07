@@ -4,7 +4,7 @@ import sys, csv, argparse
 
 def read_csv(f):
     with open(f) as fd:
-        content = fd.readlines()[1:]
+        content = fd.readlines()
     return list(csv.DictReader(content)) 
 
 def analyze_file(f, potential_errors=False):

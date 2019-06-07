@@ -1,6 +1,0 @@
-(library
-  (name Sidekick_th_bool)
-  (public_name sidekick.smt.th-bool)
-  (libraries containers sidekick.smt)
-  (flags :standard -open Sidekick_util))
-

@@ -1,4 +1,3 @@
-
 (* This file is free software, copyright Simon Cruanes. See file "LICENSE" for more details. *)
 
 (** {1 Locations} *)

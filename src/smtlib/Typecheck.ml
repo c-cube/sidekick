@@ -1,14 +1,13 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** {1 Preprocessing AST} *)
 
-module ID = Sidekick_smt.ID
+open Sidekick_base_term
 module Loc = Locations
 module Fmt = CCFormat
 module Log = Msat.Log
 
-module A = Sidekick_smt.Ast
+module A = Ast
 module PA = Parse_ast
 
 type 'a or_error = ('a, string) CCResult.t
@@ -17,11 +16,7 @@ let pp_loc_opt = Loc.pp_opt
 
 (** {2 Parsing} *)
 
-module StrTbl = CCHashtbl.Make(struct
-    type t = string
-    let equal = CCString.equal
-    let hash = CCString.hash
-  end)
+module StrTbl = CCHashtbl.Make(CCString)
 
 module Ctx = struct
   type kind =
@@ -324,13 +319,6 @@ let rec conv_term ctx (t:PA.term) : A.term = match t with
     t
   | _ ->
     errorf_ctx ctx "unsupported term %a" PA.pp_term t
-
-let find_file_ name ~dir : string option =
-  Log.debugf 2 (fun k->k "search %s in %s" name dir);
-  let abs_path = Filename.concat dir name in
-  if Sys.file_exists abs_path
-  then Some abs_path
-  else None
 
 let conv_fun_decl ctx f : string * A.Ty.t =
   if f.PA.fun_ty_vars <> [] then (

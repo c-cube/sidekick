@@ -5,7 +5,7 @@ default_expect = "sat"
 [sidekick]
 
 binary = "./sidekick"
-cmd = "./sidekick -no-check -time $timeout $file"
+cmd = "./sidekick --no-check --time $timeout $file"
 unsat = "Unsat"
 sat = "Sat"
 unknown = "Timeout|Unknown"
@@ -20,7 +20,7 @@ sat = ":status sat"
 [test]
 
 timeout=10
-problems = ".*\\.(smt2|cnf)"
+problems = ".*\\.smt2"
 provers = [ "sidekick", ]
 dir = [ "." ]
 

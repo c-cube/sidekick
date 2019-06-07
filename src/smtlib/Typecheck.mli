@@ -1,4 +1,3 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** {1 Preprocessing AST} *)
@@ -16,7 +15,7 @@ module Ctx : sig
 end
 
 module PA = Parse_ast
-module A = Sidekick_smt.Ast
+module A = Ast
 
 val conv_term : Ctx.t -> PA.term -> A.term
 
