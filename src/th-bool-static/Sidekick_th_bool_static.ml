@@ -127,8 +127,7 @@ module Make(A : ARG) : S with module A = A = struct
     Lit.atom self.tst t
 
   (* TODO: polarity? *)
-  let cnf (self:state) (solver:SI.t) (acts:SI.actions) (t:T.t) : T.t option =
-    let add_clause lits = SI.add_clause_permanent solver acts lits in
+  let cnf (self:state) (_solver:SI.t) ~add_clause (t:T.t) : T.t option =
     let rec get_lit (t:T.t) : Lit.t =
       match A.view_as_bool t with
       | B_bool b -> Lit.atom self.tst ~sign:b (T.bool self.tst true)
@@ -172,6 +171,8 @@ module Make(A : ARG) : S with module A = A = struct
     in
     let lit = get_lit t in
     let u = Lit.term lit in
+    (* put sign back as a "not" *)
+    let u = if Lit.sign lit then u else A.mk_bool self.tst (B_not u) in
     if T.equal u t then None else Some u
 
   let create_and_setup si =

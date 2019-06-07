@@ -26,7 +26,7 @@ module CC_view = struct
     | Not of 't
     | Opaque of 't (* do not enter *)
 
-  let[@inline] map_view ~f_f ~f_t ~f_ts (v:_ t) : _ t =
+  let map_view ~f_f ~f_t ~f_ts (v:_ t) : _ t =
     match v with
     | Bool b -> Bool b
     | App_fun (f, args) -> App_fun (f_f f, f_ts args)
@@ -431,7 +431,7 @@ module type SOLVER_INTERNAL = sig
       literals suitable for reasoning.
       Typically some clauses are also added to the solver. *)
 
-  type preprocess_hook = t -> actions -> term -> term option
+  type preprocess_hook = t -> add_clause:(lit list -> unit) -> term -> term option
   (** Given a term, try to preprocess it. Return [None] if it didn't change.
       Can also add clauses to define new terms. *)
 

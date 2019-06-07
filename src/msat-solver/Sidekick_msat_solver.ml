@@ -118,7 +118,7 @@ module Make(A : ARG)
       mutable on_partial_check: (t -> actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> actions -> lit Iter.t -> unit) list;
     }
-    and preprocess_hook = t -> actions -> term -> term option
+    and preprocess_hook = t -> add_clause:(lit list -> unit) -> term -> term option
 
     type solver = t
 
@@ -158,7 +158,7 @@ module Make(A : ARG)
       Stat.incr self.count_axiom;
       acts.Msat.acts_add_clause ~keep lits A.Proof.default
 
-    let preprocess_lit_ (self:t) (acts:actions) (lit:lit) : lit =
+    let preprocess_lit_ (self:t) ~add_clause (lit:lit) : lit =
       (* compute and cache normal form of [t] *)
       let rec aux t =
         match T.Tbl.find self.preprocess_cache t with
@@ -174,15 +174,22 @@ module Make(A : ARG)
       and aux_rec t hooks = match hooks with
         | [] -> t
         | h :: hooks_tl ->
-          match h self acts t with
+          match h self ~add_clause t with
           | None -> aux_rec t hooks_tl
-          | Some u -> aux u
+          | Some u ->
+            Log.debugf 30 
+              (fun k->k "(@[msat-solver.preprocess.step@ :from %a@ :to %a@])"
+                  T.pp t T.pp u);
+            aux u
       in
       let t = aux (Lit.term lit) in
+      Log.debugf 10
+        (fun k->k "(@[msat-solver.preprocess@ :lit %a@ :into %a@])" Lit.pp lit T.pp t);
       Lit.atom self.tst ~sign:(Lit.sign lit) t
 
     let[@inline] mk_lit self acts ?sign t =
-      preprocess_lit_ self acts @@ Lit.atom self.tst ?sign t
+      let add_clause lits = add_sat_clause_ self acts ~keep:true lits in
+      preprocess_lit_ self ~add_clause @@ Lit.atom self.tst ?sign t
 
     let[@inline] add_clause_temp self acts lits : unit =
       add_sat_clause_ self acts ~keep:false lits
@@ -228,7 +235,7 @@ module Make(A : ARG)
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
       Msat.Log.debugf 2
-        (fun k->k "(@[<hv1>@{<green>th_combine.assume_lits@}%s@ %a@])"
+        (fun k->k "(@[<hv1>@{<green>msat-solver.assume_lits@}%s@ %a@])"
             (if final then "[final]" else "") (Util.pp_seq ~sep:"; " Lit.pp) lits);
       (* transmit to CC *)
       let cc = cc self in
@@ -255,7 +262,7 @@ module Make(A : ARG)
     let check_ ~final (self:t) (acts: msat_acts) =
       let iter = iter_atoms_ acts in
       (* TODO if Config.progress then print_progress(); *)
-      Msat.Log.debugf 5 (fun k->k "(th_combine.assume :len %d)" (Iter.length iter));
+      Msat.Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
       assert_lits_ ~final self acts iter
 
     (* propagation from the bool solver *)
@@ -340,7 +347,7 @@ module Make(A : ARG)
   let add_theory (self:t) (th:theory) : unit =
     let (module Th) = th in
     Log.debugf 2
-      (fun k-> k "(@[th_combine.add_th@ :name %S@])" Th.name);
+      (fun k-> k "(@[msat-solver.add-theory@ :name %S@])" Th.name);
     let st = Th.create_and_setup self.si in
     (* add push/pop to the internal solver *)
     begin
@@ -358,7 +365,7 @@ module Make(A : ARG)
 
   (* create a new solver *)
   let create ?(stat=Stat.global) ?size ?store_proof ~theories tst () : t =
-    Log.debug 5 "th_combine.create";
+    Log.debug 5 "msat-solver.create";
     let si = Solver_internal.create ~stat tst () in
     let self = {
       si;
@@ -405,10 +412,17 @@ module Make(A : ARG)
          | _ -> true)
     |> Iter.iter
       (fun sub ->
-         Log.debugf 5 (fun k->k  "(@[solver.map-to-lit@ :subterm %a@])" T.pp sub);
+         Log.debugf 5 (fun k->k  "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" T.pp sub);
          ignore (mk_atom_t_ self sub : Sat_solver.atom))
 
-  let mk_atom_lit self lit : Atom.t =
+  let rec mk_atom_lit self lit : Atom.t =
+    let lit =
+      Solver_internal.preprocess_lit_
+        ~add_clause:(fun lits ->
+            (* recursively add these sub-literals, so they're also properly processed *)
+            let atoms = List.map (mk_atom_lit self) lits in
+            Sat_solver.add_clause self.solver atoms A.Proof.default)
+        self.si lit in
     add_bool_subterms_ self (Lit.term lit);
     Sat_solver.make_atom self.solver lit
 
@@ -467,7 +481,7 @@ module Make(A : ARG)
 
   (* print all terms reachable from watched literals *)
   let pp_term_graph _out (_:t) =
-    ()
+    () (* TODO *)
 
   let pp_stats out (self:t) : unit =
     Stat.pp_all out (Stat.all @@ stats self)

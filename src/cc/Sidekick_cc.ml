@@ -604,7 +604,7 @@ module Make(CC_A: ARG) = struct
         let lits = explain_unfold cc e_ab in
         let lits = explain_eq_n ~init:lits cc a ra in
         let lits = explain_eq_n ~init:lits cc b rb in
-        raise_conflict cc acts lits
+        raise_conflict cc acts (List.rev_map Lit.neg lits)
       );
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, but always
@@ -801,8 +801,8 @@ module Make(CC_A: ARG) = struct
       (fun k->k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
     ps_clear cc;
     decompose_explain cc expl;
-    let lits = cc.ps_lits in
-    CC_A.Actions.raise_conflict acts lits A.Proof.default
+    let lits = List.rev_map Lit.neg cc.ps_lits in
+    raise_conflict cc acts lits
 
   let merge cc n1 n2 expl =
     Log.debugf 5
