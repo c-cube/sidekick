@@ -411,6 +411,7 @@ module Check_cc = struct
   module MCC = Sidekick_mini_cc.Make(Solver_arg)
 
   let pp_c out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∨ " Lit.pp) c
+  let pp_and out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∧ " Lit.pp) c
 
   let add_cc_lit (cc:MCC.t) (lit:Lit.t) : unit =
     let t = Lit.term lit in
@@ -425,10 +426,27 @@ module Check_cc = struct
     List.iter (fun lit -> add_cc_lit cc @@ Lit.neg lit) confl;
     if MCC.check_sat cc then (
       Error.errorf "@[<2>check-cc-conflict:@ @[clause %a@]@ \
-                    is not a UF conflict (negation is sat)@]" pp_c confl
+                    is not a UF tautology (negation is sat)@]" pp_c confl
     ) else (
       Log.debugf 15 (fun k->k "(@[check-cc-conflict.ok@ %a@])" pp_c confl);
     )
+
+  let check_propagation si _cc p reason : unit =
+    let reason = reason() in
+    Log.debugf 15 (fun k->k "(@[check-cc-prop@ %a@ :reason %a@])" Lit.pp p pp_and reason);
+    let tst = SI.tst si in
+    let cc = MCC.create tst in
+    (* add [reason & ¬lit] and check it's unsat *)
+    List.iter (add_cc_lit cc) reason;
+    add_cc_lit cc (Lit.neg p);
+    if MCC.check_sat cc then (
+      Error.errorf "@[<2>check-cc-prop:@ @[%a => %a@]@ \
+                    is not a UF tautology (negation is sat)@]" pp_and reason Lit.pp p
+    ) else (
+      Log.debugf 15
+        (fun k->k "(@[check-cc-prop.ok@ @[%a => %a@]@])" pp_and reason Lit.pp p);
+    )
+
 
   let theory =
     Solver.mk_theory ~name:"cc-check"
