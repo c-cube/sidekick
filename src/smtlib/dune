@@ -1,6 +1,6 @@
 (library
  (name sidekick_smtlib)
- (public_name sidekick.smtlib)
+ (public_name sidekick-bin.smtlib)
  (libraries containers zarith msat sidekick.core sidekick.util
    sidekick.msat-solver sidekick.base-term sidekick.th-bool-static
    sidekick.mini-cc msat.backend)

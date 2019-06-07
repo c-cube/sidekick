@@ -1,7 +1,7 @@
 opam-version: "2.0"
-name: "sidekick"
+name: "sidekick-bin"
 license: "Apache"
-synopsis: "SMT solver based on msat and CDCL(T) (functor library)"
+synopsis: "SMT solver based on msat and CDCL(T) (standalone binary)"
 version: "dev"
 author: ["Simon Cruanes" "Guillaume Bury"]
 maintainer: ["simon.cruanes.2007@m4x.org"]
@@ -14,6 +14,9 @@ depends: [
   "dune" {build}
   "containers"
   "iter"
+  "zarith"
+  "sidekick"
+  "menhir"
   "msat" { >= "0.8" < "0.9" }
   "ocaml" { >= "4.03" } 
 ]
