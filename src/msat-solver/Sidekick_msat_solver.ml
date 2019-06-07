@@ -468,7 +468,12 @@ module Make(A : ARG)
     |> Iter.iter
       (fun sub ->
          Log.debugf 5 (fun k->k  "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" T.pp sub);
-         ignore (mk_atom_t_ self sub : Sat_solver.atom))
+         (* ensure that msat has a boolean atom for [sub] *)
+         let atom = mk_atom_t_ self sub in
+         (* also map [sub] to this atom in the congruence closure, for propagation *)
+         let cc = cc self in
+         CC.set_as_lit cc (CC.add_term cc sub ) (Sat_solver.Atom.formula atom);
+         ())
 
   let rec mk_atom_lit self lit : Atom.t =
     let lit = preprocess_lit_ self lit in
