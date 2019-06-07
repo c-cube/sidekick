@@ -78,6 +78,8 @@ module type TERM = sig
     val bool : state -> bool -> t (* build true/false *)
     val as_bool : t -> bool option
 
+    val abs : state -> t -> t * bool
+
     val map_shallow : state -> (t -> t) -> t -> t
     (** Map function on immediate subterms *)
 
@@ -87,56 +89,37 @@ module type TERM = sig
   end
 end
 
-module type TERM_LIT = sig
+module type TERM_PROOF = sig
   include TERM
-
-  module Lit : sig
-    type t
-    val neg : t -> t
-    val equal : t -> t -> bool
-    val compare : t -> t -> int
-    val hash : t -> int
-    val pp : t Fmt.printer
-
-    val term : t -> Term.t
-    val sign : t -> bool
-    val abs : t -> t
-    val apply_sign : t -> bool -> t
-    val norm_sign : t -> t * bool
-    (** Invariant: if [u, sign = norm_sign t] then [apply_sign u sign = t] *)
-
-
-    val atom : Term.state -> ?sign:bool -> Term.t -> t
-  end
-end
-
-module type TERM_LIT_PROOF = sig
-  include TERM_LIT
 
   module Proof : sig
     type t
     val pp : t Fmt.printer
 
     val default : t
-    (* TODO: to give more details? or make this extensible?
-       or have a generative function for new proof cstors?
-    val cc_lemma : unit -> t
-       *)
   end
 end
 
 module type CC_ARG = sig
-  module A : TERM_LIT_PROOF
+  module A : TERM_PROOF
 
   val cc_view : A.Term.t -> (A.Fun.t, A.Term.t, A.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
 
+  module Lit : sig
+    type t
+    val term : t -> A.Term.t
+    val sign : t -> bool
+    val neg : t -> t
+    val pp : t Fmt.printer
+  end
+
   module Actions : sig
     type t
 
-    val raise_conflict : t -> A.Lit.t list -> A.Proof.t -> 'a
+    val raise_conflict : t -> Lit.t list -> A.Proof.t -> 'a
 
-    val propagate : t -> A.Lit.t -> reason:(unit -> A.Lit.t list) -> A.Proof.t -> unit
+    val propagate : t -> Lit.t -> reason:(unit -> Lit.t list) -> A.Proof.t -> unit
   end
 end
 
@@ -146,7 +129,7 @@ module type CC_S = sig
   type term_state = A.Term.state
   type term = A.Term.t
   type fun_ = A.Fun.t
-  type lit = A.Lit.t
+  type lit = CC_A.Lit.t
   type proof = A.Proof.t
   type actions = CC_A.Actions.t
 
@@ -302,12 +285,11 @@ end
 
 (** A view of the solver from a theory's point of view *)
 module type SOLVER_INTERNAL = sig
-  module A : TERM_LIT_PROOF 
+  module A : TERM_PROOF 
   module CC_A : CC_ARG with module A = A
   module CC : CC_S with module CC_A = CC_A
 
   type ty = A.Ty.t
-  type lit = A.Lit.t
   type term = A.Term.t
   type term_state = A.Term.state
   type proof = A.Proof.t
@@ -323,6 +305,23 @@ module type SOLVER_INTERNAL = sig
 
   val cc : t -> CC.t
   (** Congruence closure for this solver *)
+
+  (** {3 Literals}
+
+      A literal is a (preprocessed) term along with its sign.
+      It is directly manipulated by the SAT solver.
+  *)
+  module Lit : sig
+    type t
+    val term : t -> term
+    val sign : t -> bool
+    val neg : t -> t
+
+    val equal : t -> t -> bool
+    val hash : t -> int
+    val pp : t Fmt.printer
+  end
+  type lit = Lit.t
 
   (** {3 Simplifiers} *)
 
@@ -440,7 +439,11 @@ module type SOLVER_INTERNAL = sig
       literals suitable for reasoning.
       Typically some clauses are also added to the solver. *)
 
-  type preprocess_hook = t -> add_clause:(lit list -> unit) -> term -> term option
+  type preprocess_hook =
+    t ->
+    mk_lit:(term -> lit) ->
+    add_clause:(lit list -> unit) ->
+    term -> term option
   (** Given a term, try to preprocess it. Return [None] if it didn't change.
       Can also add clauses to define new terms. *)
 
@@ -449,16 +452,18 @@ end
 
 (** Public view of the solver *)
 module type SOLVER = sig
-  module A : TERM_LIT_PROOF
+  module A : TERM_PROOF
   module CC_A : CC_ARG with module A = A
   module Solver_internal : SOLVER_INTERNAL with module A = A and module CC_A = CC_A
   (** Internal solver, available to theories.  *)
+
+  module Lit = Solver_internal.Lit
 
   type t
   type solver = t
   type term = A.Term.t
   type ty = A.Ty.t
-  type lit = A.Lit.t
+  type lit = Solver_internal.Lit.t
   type lemma = A.Proof.t
 
   (** {3 A theory}
@@ -582,10 +587,6 @@ module type SOLVER = sig
   val mk_atom_lit : t -> lit -> Atom.t
 
   val mk_atom_t : t -> ?sign:bool -> term -> Atom.t
-
-  val add_clause_lits : t -> lit IArray.t -> unit
-
-  val add_clause_lits_l : t -> lit list -> unit
 
   val add_clause : t -> Atom.t IArray.t -> unit
 

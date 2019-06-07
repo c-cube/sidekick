@@ -5,7 +5,6 @@ open Sidekick_base_term
 module Solver
   : Sidekick_msat_solver.S with type A.Term.t = Term.t
                             and type A.Term.state = Term.state
-                            and type A.Lit.t = Lit.t
                             and type A.Ty.t = Ty.t
 
 val th_bool : Solver.theory
@@ -24,7 +23,7 @@ module Check_cc : sig
 end
 
 val process_stmt :
-  ?hyps:Lit.t list Vec.t ->
+  ?hyps:Solver.Atom.t list Vec.t ->
   ?gc:bool ->
   ?restarts:bool ->
   ?pp_cnf:bool ->

@@ -18,12 +18,6 @@ and 'a term_view =
   | Eq of 'a * 'a
   | Not of 'a
 
-(* boolean literal *)
-and lit = {
-  lit_term: term;
-  lit_sign: bool;
-}
-
 and fun_ = {
   fun_id: ID.t;
   fun_view: fun_view;
@@ -101,16 +95,7 @@ let[@inline] term_equal_ (a:term) b = a==b
 let[@inline] term_hash_ a = a.term_id
 let[@inline] term_cmp_ a b = CCInt.compare a.term_id b.term_id
 
-let cmp_lit a b =
-  let c = CCBool.compare a.lit_sign b.lit_sign in
-  if c<>0 then c
-  else term_cmp_ a.lit_term b.lit_term
-
 let fun_compare a b = ID.compare a.fun_id b.fun_id
-
-let hash_lit a =
-  let sign = a.lit_sign in
-  Hash.combine3 2 (Hash.bool sign) (term_hash_ a.lit_term)
 
 let pp_fun out a = ID.pp out a.fun_id
 let id_of_fun a = a.fun_id
@@ -166,10 +151,6 @@ let pp_term_top ~ids out t =
 
 let pp_term = pp_term_top ~ids:false
 let pp_term_view = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:pp_term
-
-let pp_lit out l =
-  if l.lit_sign then pp_term out l.lit_term
-  else Format.fprintf out "(@[@<1>¬@ %a@])" pp_term l.lit_term
 
 module Ty_card : sig
 type t = ty_card = Finite | Infinite
@@ -756,63 +737,6 @@ end = struct
     | Eq (a,b) -> eq tst (f a) (f b)
 end
 
-module Lit : sig
-  type t = lit = {
-    lit_term: term;
-    lit_sign : bool
-  }
-
-  val neg : t -> t
-  val abs : t -> t
-  val sign : t -> bool
-  val term : t -> term
-  val as_atom : t -> term * bool
-  val atom : Term.state -> ?sign:bool -> term -> t
-  val hash : t -> int
-  val compare : t -> t -> int
-  val equal : t -> t -> bool
-  val print : t Fmt.printer
-  val pp : t Fmt.printer
-  val apply_sign : t -> bool -> t
-  val norm_sign : t -> t * bool
-  val norm : t -> t * Msat.negated
-  module Set : CCSet.S with type elt = t
-  module Tbl : CCHashtbl.S with type key = t
-end = struct
-  type t = lit = {
-    lit_term: term;
-    lit_sign : bool
-  }
-
-  let[@inline] neg l = {l with lit_sign=not l.lit_sign}
-  let[@inline] sign t = t.lit_sign
-  let[@inline] term (t:t): term = t.lit_term
-
-  let[@inline] abs t: t = {t with lit_sign=true}
-
-  let make ~sign t = {lit_sign=sign; lit_term=t}
-
-  let atom tst ?(sign=true) (t:term) : t =
-    let t, sign' = Term.abs tst t in
-    let sign = if not sign' then not sign else sign in
-    make ~sign t
-
-  let[@inline] as_atom (lit:t) = lit.lit_term, lit.lit_sign
-
-  let hash = hash_lit
-  let compare = cmp_lit
-  let[@inline] equal a b = compare a b = 0
-  let pp = pp_lit
-  let print = pp
-
-  let apply_sign t s = if s then t else neg t
-  let norm_sign l = if l.lit_sign then l, true else neg l, false
-  let norm l = let l, sign = norm_sign l in l, if sign then Msat.Same_sign else Msat.Negated
-
-  module Set = CCSet.Make(struct type t = lit let compare=compare end)
-  module Tbl = CCHashtbl.Make(struct type t = lit let equal=equal let hash=hash end)
-end
-
 module Value : sig
   type t = value =
     | V_bool of bool
@@ -872,10 +796,3 @@ module Proof = struct
   type t = Default
   let default = Default
 end
-
-module type CC_ACTIONS = sig
-  val raise_conflict : Lit.t list -> Proof.t -> 'a
-  val propagate : Lit.t -> reason:(unit -> Lit.t list) -> Proof.t -> unit
-end
-
-type cc_actions = (module CC_ACTIONS)

@@ -5,23 +5,63 @@ module Log = Msat.Log
 module IM = Util.Int_map
 
 module type ARG = sig
-  include Sidekick_core.TERM_LIT_PROOF
+  include Sidekick_core.TERM_PROOF
   val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) Sidekick_core.CC_view.t
 end
 
 module type S = Sidekick_core.SOLVER
 
 module Make(A : ARG)
-  : S with module A = A
+(*   : S with module A = A *)
 = struct
   module A = A
   module T = A.Term
-  module Lit = A.Lit
   module Ty = A.Ty
-  type lit = Lit.t
   type term = T.t
   type ty = Ty.t
   type lemma = A.Proof.t
+
+  module Lit = struct
+    type t = {
+      lit_term: term;
+      lit_sign : bool
+    }
+
+    let[@inline] neg l = {l with lit_sign=not l.lit_sign}
+    let[@inline] sign t = t.lit_sign
+    let[@inline] term (t:t): term = t.lit_term
+
+    let[@inline] abs t: t = {t with lit_sign=true}
+
+    let make ~sign t = {lit_sign=sign; lit_term=t}
+
+    let atom tst ?(sign=true) (t:term) : t =
+      let t, sign' = T.abs tst t in
+      let sign = if not sign' then not sign else sign in
+      make ~sign t
+
+    let[@inline] as_atom (lit:t) = lit.lit_term, lit.lit_sign
+
+    let equal a b =
+      a.lit_sign = b.lit_sign &&
+      T.equal a.lit_term b.lit_term
+
+    let hash a =
+      let sign = a.lit_sign in
+      CCHash.combine3 2 (CCHash.bool sign) (T.hash a.lit_term)
+
+    let pp out l =
+      if l.lit_sign then T.pp out l.lit_term
+      else Format.fprintf out "(@[@<1>¬@ %a@])" T.pp l.lit_term
+
+    let print = pp
+
+    let apply_sign t s = if s then t else neg t
+    let norm_sign l = if l.lit_sign then l, true else neg l, false
+    let norm l = let l, sign = norm_sign l in l, if sign then Msat.Same_sign else Msat.Negated
+  end
+
+  type lit = Lit.t
 
   (* actions from msat *)
   type msat_acts = (Msat.void, Lit.t, Msat.void, A.Proof.t) Msat.acts
@@ -29,6 +69,7 @@ module Make(A : ARG)
   (* the full argument to the congruence closure *)
   module CC_A = struct
     module A = A
+    module Lit = Lit
     let cc_view = A.cc_view
 
     module Actions = struct
@@ -49,6 +90,7 @@ module Make(A : ARG)
   module Solver_internal = struct
     module A = A
     module CC_A = CC_A
+    module Lit = Lit
     module CC = CC
     module N = CC.N
     type term = T.t
@@ -119,7 +161,12 @@ module Make(A : ARG)
       mutable on_partial_check: (t -> actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> actions -> lit Iter.t -> unit) list;
     }
-    and preprocess_hook = t -> add_clause:(lit list -> unit) -> term -> term option
+
+    and preprocess_hook =
+      t ->
+      mk_lit:(term -> lit) ->
+      add_clause:(lit list -> unit) ->
+      term -> term option
 
     type solver = t
 
@@ -159,6 +206,7 @@ module Make(A : ARG)
       acts.Msat.acts_add_clause ~keep lits A.Proof.default
 
     let preprocess_lit_ (self:t) ~add_clause (lit:lit) : lit =
+      let mk_lit t = Lit.atom self.tst t in
       (* compute and cache normal form of [t] *)
       let rec aux t =
         match T.Tbl.find self.preprocess_cache t with
@@ -174,7 +222,7 @@ module Make(A : ARG)
       and aux_rec t hooks = match hooks with
         | [] -> t
         | h :: hooks_tl ->
-          match h self ~add_clause t with
+          match h self ~mk_lit ~add_clause t with
           | None -> aux_rec t hooks_tl
           | Some u ->
             Log.debugf 30 
@@ -188,7 +236,7 @@ module Make(A : ARG)
         (fun k->k "(@[msat-solver.preprocess@ :lit %a@ :into %a@])" Lit.pp lit Lit.pp lit');
       lit'
 
-    let[@inline] mk_lit self acts ?sign t =
+    let mk_lit self acts ?sign t =
       let add_clause lits =
         Stat.incr self.count_preprocess_clause;
         add_sat_clause_ self acts ~keep:true lits
@@ -423,16 +471,18 @@ module Make(A : ARG)
          ignore (mk_atom_t_ self sub : Sat_solver.atom))
 
   let rec mk_atom_lit self lit : Atom.t =
-    let lit =
+    let lit = preprocess_lit_ self lit in
+    add_bool_subterms_ self (Lit.term lit);
+    Sat_solver.make_atom self.solver lit
+
+  and preprocess_lit_ self lit : Lit.t =
       Solver_internal.preprocess_lit_
         ~add_clause:(fun lits ->
             (* recursively add these sub-literals, so they're also properly processed *)
             Stat.incr self.si.count_preprocess_clause;
             let atoms = List.map (mk_atom_lit self) lits in
             Sat_solver.add_clause self.solver atoms A.Proof.default)
-        self.si lit in
-    add_bool_subterms_ self (Lit.term lit);
-    Sat_solver.make_atom self.solver lit
+        self.si lit
 
   let[@inline] mk_atom_t self ?sign t : Atom.t =
     let lit = Lit.atom (tst self) ?sign t in
@@ -499,13 +549,6 @@ module Make(A : ARG)
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) A.Proof.default
 
   let add_clause_l self c = add_clause self (IArray.of_list c)
-
-  let add_clause_lits (self:t) (c:Lit.t IArray.t) : unit =
-    let c = IArray.map (mk_atom_lit self) c in
-    add_clause self c
-
-  let add_clause_lits_l (self:t) (c:Lit.t list) : unit =
-    add_clause self (IArray.of_list_map (mk_atom_lit self) c)
 
   (* TODO: remove? use a special constant + micro theory instead?
   let[@inline] assume_distinct self l ~neq lit : unit =

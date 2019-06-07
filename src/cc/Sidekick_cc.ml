@@ -17,14 +17,14 @@ module Make(CC_A: ARG) = struct
   module A = CC_A.A
   type term = A.Term.t
   type term_state = A.Term.state
-  type lit = A.Lit.t
+  type lit = CC_A.Lit.t
   type fun_ = A.Fun.t
   type proof = A.Proof.t
   type actions = CC_A.Actions.t
 
   module T = A.Term
   module Fun = A.Fun
-  module Lit = A.Lit
+  module Lit = CC_A.Lit
 
   module Bits = CCBitField.Make()
   (* TODO: give theories the possibility to allocate new bits in nodes *)

@@ -54,7 +54,7 @@ module Make(A : ARG) : S with module A = A = struct
   module A = A
   module Ty = A.S.A.Ty
   module T = A.S.A.Term
-  module Lit = A.S.A.Lit
+  module Lit = A.S.Lit
   module SI = A.S.Solver_internal
 
   type state = {
@@ -122,28 +122,28 @@ module Make(A : ARG) : S with module A = A = struct
     | B_atom _ -> None
 
   let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
-  let fresh_lit (self:state) ~pre : Lit.t =
+  let fresh_lit (self:state) ~mk_lit ~pre : Lit.t =
     let t = fresh_term ~pre self Ty.bool in
-    Lit.atom self.tst t
+    mk_lit t
 
   (* TODO: polarity? *)
-  let cnf (self:state) (_solver:SI.t) ~add_clause (t:T.t) : T.t option =
+  let cnf (self:state) (_si:SI.t) ~mk_lit ~add_clause (t:T.t) : T.t option =
     let rec get_lit (t:T.t) : Lit.t =
       match A.view_as_bool t with
-      | B_bool b -> Lit.atom self.tst ~sign:b (T.bool self.tst true)
+      | B_bool b -> mk_lit (T.bool self.tst b)
       | B_not u ->
         let lit = get_lit u in
         Lit.neg lit
       | B_and l ->
         let subs = IArray.to_list_map get_lit l in
-        let proxy = fresh_lit ~pre:"and_" self in
+        let proxy = fresh_lit ~mk_lit ~pre:"and_" self in
         (* add clauses *)
         List.iter (fun u -> add_clause [Lit.neg proxy; u]) subs;
         add_clause (proxy :: List.map Lit.neg subs);
         proxy
       | B_or l ->
         let subs = IArray.to_list_map get_lit l in
-        let proxy = fresh_lit ~pre:"or_" self in
+        let proxy = fresh_lit ~mk_lit ~pre:"or_" self in
         (* add clauses *)
         List.iter (fun u -> add_clause [Lit.neg u; proxy]) subs;
         add_clause (Lit.neg proxy :: subs);
@@ -154,11 +154,11 @@ module Make(A : ARG) : S with module A = A = struct
           IArray.append (IArray.map (not_ self.tst) args) (IArray.singleton u) in
         get_lit t'
       | B_ite _ | B_eq _ ->
-        Lit.atom self.tst t
+        mk_lit t
       | B_equiv (a,b) ->
         let a = get_lit a in
         let b = get_lit b in
-        let proxy = fresh_lit ~pre:"equiv_" self in
+        let proxy = fresh_lit ~mk_lit ~pre:"equiv_" self in
         (* proxy => a<=> b,
            ¬proxy => a xor b *)
         add_clause [Lit.neg proxy; Lit.neg a; b];
@@ -166,7 +166,7 @@ module Make(A : ARG) : S with module A = A = struct
         add_clause [proxy; a; b];
         add_clause [proxy; Lit.neg a; Lit.neg b];
         proxy
-      | B_atom u -> Lit.atom self.tst u
+      | B_atom u -> mk_lit u
     in
     let lit = get_lit t in
     let u = Lit.term lit in

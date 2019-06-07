@@ -406,6 +406,7 @@ end
 module Solver = Sidekick_msat_solver.Make(Solver_arg)
 
 module Check_cc = struct
+  module Lit = Solver.Lit
   module SI = Solver.Solver_internal
   module CC = Solver.Solver_internal.CC
   module MCC = Sidekick_mini_cc.Make(Solver_arg)
@@ -604,9 +605,9 @@ let process_stmt
       if pp_cnf then (
         Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t
       );
-      let atom = Lit.atom tst t in
+      let atom = Solver.mk_atom_t solver t in
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
-      Solver.add_clause_lits solver (IArray.singleton atom);
+      Solver.add_clause solver (IArray.singleton atom);
       E.return()
     | A.Goal (_, _) ->
       Error.errorf "cannot deal with goals yet"
