@@ -3,7 +3,7 @@
  (public_name sidekick.smtlib)
  (libraries containers zarith msat sidekick.core sidekick.util
    sidekick.msat-solver sidekick.base-term sidekick.th-bool-static
-   msat.backend)
+   sidekick.mini-cc msat.backend)
  (flags :standard -open Sidekick_util))
 
 (menhir

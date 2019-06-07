@@ -133,7 +133,6 @@ module Make(A : ARG)
     module Expl = CC.Expl
 
     type proof = A.Proof.t
-    type conflict = lit list
 
     let[@inline] cc (t:t) = Lazy.force t.cc
     let[@inline] tst t = t.tst
@@ -210,6 +209,7 @@ module Make(A : ARG)
     let on_partial_check self f = self.on_partial_check <- f :: self.on_partial_check
     let on_cc_new_term self f = CC.on_new_term (cc self) f
     let on_cc_merge self f = CC.on_merge (cc self) f
+    let on_cc_conflict self f = CC.on_conflict (cc self) f
 
     let cc_add_term self t = CC.add_term (cc self) t
     let cc_find self n = CC.find (cc self) n

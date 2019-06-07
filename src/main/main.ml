@@ -110,6 +110,10 @@ let main () =
     in
     Process.Solver.create ~store_proof:!check ~theories tst ()
   in
+  if !check then (
+    (* might have to check conflicts *)
+    Solver.add_theory solver Process.Check_cc.theory;
+  );
   let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
   Sidekick_smtlib.parse !file >>= fun input ->
   (* process statements *)

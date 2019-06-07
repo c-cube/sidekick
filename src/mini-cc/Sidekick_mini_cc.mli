@@ -1,14 +1,9 @@
-
 (** {1 Mini congruence closure}
 
     This implementation is as simple as possible, and doesn't provide
     backtracking, theories, or explanations.
     It just decides the satisfiability of a set of (dis)equations.
 *)
-
-type res =
-  | Sat
-  | Unsat
 
 module CC_view = Sidekick_core.CC_view
 
@@ -33,7 +28,9 @@ module type S = sig
   val distinct : t -> term list -> unit
   (** [distinct cc l] asserts that all terms in [l] are distinct *)
 
-  val check : t -> res
+  val check_sat : t -> bool
+  (** [check_sat cc] returns [true] if the current state is satisfiable, [false]
+      if it's unsatisfiable *)
 
   val classes : t -> term Iter.t Iter.t
   (** Traverse the set of classes in the congruence closure.

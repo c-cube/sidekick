@@ -1,8 +1,3 @@
-
-type res =
-  | Sat
-  | Unsat
-
 module CC_view = Sidekick_core.CC_view
 
 module type ARG = sig
@@ -23,7 +18,7 @@ module type S = sig
   val add_lit : t -> term -> bool -> unit
   val distinct : t -> term list -> unit
 
-  val check : t -> res
+  val check_sat : t -> bool
 
   val classes : t -> term Iter.t Iter.t
 end
@@ -42,9 +37,9 @@ module Make(A: ARG) = struct
   type node = {
     n_t: term;
     mutable n_next: node; (* next in class *)
-    mutable n_size: int; (* size of parent list *)
+    mutable n_size: int; (* size of class *)
     mutable n_parents: node list;
-    mutable n_root: node;
+    mutable n_root: node; (* root of the class *)
   }
 
   type signature = (fun_, node, node list) CC_view.t
@@ -55,17 +50,16 @@ module Make(A: ARG) = struct
     let[@inline] hash (n:t) = T.hash n.n_t
     let[@inline] size (n:t) = n.n_size
     let[@inline] is_root n = n == n.n_root
+    let[@inline] root n = n.n_root
     let[@inline] term n = n.n_t
     let pp out n = T.pp out n.n_t
 
     let add_parent (self:t) ~p : unit =
-      self.n_parents <- p :: self.n_parents;
-      self.n_size <- 1 + self.n_size;
-      ()
+      self.n_parents <- p :: self.n_parents
 
     let make (t:T.t) : t =
       let rec n = {
-        n_t=t; n_size=0; n_next=n;
+        n_t=t; n_size=1; n_next=n;
         n_parents=[]; n_root=n;
       } in
       n
@@ -167,28 +161,19 @@ module Make(A: ARG) = struct
     | n -> n
     | exception Not_found ->
       let node = Node.make t in
+      T_tbl.add self.tbl t node;
       (* add sub-terms, and add [t] to their parent list *)
       sub_ t
         (fun u ->
-          let n_u = add_t self u in
+          let n_u = Node.root @@ add_t self u in
           Node.add_parent n_u ~p:node);
-      T_tbl.add self.tbl t node;
       (* need to compute signature *)
       Vec.push self.pending node;
       node
 
-  (* find representative *)
-  let[@inline] find_ (n:node) : node =
-    let r = n.n_root in
-    assert (Node.is_root r);
-    r
-
   let find_t_ (self:t) (t:term): node =
-    let n =
-      try T_tbl.find self.tbl t
-      with Not_found -> Error.errorf "minicc.find_t: no node for %a" T.pp t
-    in
-    find_ n
+    try T_tbl.find self.tbl t |> Node.root
+    with Not_found -> Error.errorf "mini-cc.find_t: no node for %a" T.pp t
 
   (* does this list contain a duplicate? *)
   let has_dups (l:node list) : bool =
@@ -200,7 +185,7 @@ module Make(A: ARG) = struct
   let check_distinct_ self : unit =
     Vec.iter
       (fun r ->
-         r := List.map find_ !r;
+         r := List.rev_map Node.root !r;
          if has_dups !r then raise_notrace E_unsat)
       self.distinct
 
@@ -232,17 +217,17 @@ module Make(A: ARG) = struct
         (* reduce to [true] *)
         let n2 = self.true_ in
         Log.debugf 5
-          (fun k->k "(@[minicc.congruence-by-eq@ %a@ %a@])" Node.pp n Node.pp n2);
+          (fun k->k "(@[mini-cc.congruence-by-eq@ %a@ %a@])" Node.pp n Node.pp n2);
         Vec.push self.combine (n,n2)
       )
     | Some s ->
-      Log.debugf 5 (fun k->k "(@[minicc.update-sig@ %a@])" Signature.pp s);
+      Log.debugf 5 (fun k->k "(@[mini-cc.update-sig@ %a@])" Signature.pp s);
       match Sig_tbl.find self.sig_tbl s with
       | n2 when Node.equal n n2 -> ()
       | n2 ->
         (* collision, merge *)
         Log.debugf 5
-          (fun k->k "(@[minicc.congruence-by-sig@ %a@ %a@])" Node.pp n Node.pp n2);
+          (fun k->k "(@[mini-cc.congruence-by-sig@ %a@ %a@])" Node.pp n Node.pp n2);
         Vec.push self.combine (n,n2)
       | exception Not_found ->
         Sig_tbl.add self.sig_tbl s n
@@ -251,8 +236,8 @@ module Make(A: ARG) = struct
 
   (* merge the two classes *)
   let merge_ self (n1,n2) : unit =
-    let n1 = find_ n1 in
-    let n2 = find_ n2 in
+    let n1 = Node.root n1 in
+    let n2 = Node.root n2 in
     if not @@ Node.equal n1 n2 then (
       (* merge into largest class, or into a boolean *)
       let n1, n2 =
@@ -260,10 +245,10 @@ module Make(A: ARG) = struct
         else if is_bool self n2 then n2, n1
         else if Node.size n1 > Node.size n2 then n1, n2
         else n2, n1 in
-      Log.debugf 5 (fun k->k "(@[minicc.merge@ :into %a@ %a@])" Node.pp n1 Node.pp n2);
+      Log.debugf 5 (fun k->k "(@[mini-cc.merge@ :into %a@ %a@])" Node.pp n1 Node.pp n2);
 
       if is_bool self n1 && is_bool self n2 then (
-        Log.debugf 5 (fun k->k "(minicc.conflict.merge-true-false)");
+        Log.debugf 5 (fun k->k "(mini-cc.conflict.merge-true-false)");
         self.ok <- false;
         raise E_unsat
       );
@@ -276,9 +261,14 @@ module Make(A: ARG) = struct
 
       (* update root pointer in [n2.class] *)
       Node.iter_cls n2 (fun n -> n.n_root <- n1);
+
+      (* merge classes [next] pointers *)
+      let n1_next = n1.n_next in
+      n1.n_next <- n2.n_next;
+      n2.n_next <- n1_next;
     )
 
-  let check_ok_ self =
+  let[@inline] check_ok_ self =
     if not self.ok then raise_notrace E_unsat
 
   (* fixpoint of the congruence closure *)
@@ -309,18 +299,17 @@ module Make(A: ARG) = struct
       Vec.push self.combine (n,n2)
 
   let distinct (self:t) l =
-    begin match l with
-      | [] | [_] -> invalid_arg "distinct: need at least 2 terms"
-      | _ -> ()
-    end;
-    let l = List.map (add_t self) l in
-    Vec.push self.distinct (ref l)
+    match l with
+    | [] | [_] -> () (* trivial *)
+    | _ -> 
+      let l = List.rev_map (add_t self) l in
+      Vec.push self.distinct (ref l)
 
-  let check (self:t) : res =
-    try fixpoint self; Sat
+  let check_sat (self:t) : bool =
+    try fixpoint self; true
     with E_unsat ->
       self.ok <- false;
-      Unsat
+      false
 
   let classes self : _ Iter.t =
     T_tbl.values self.tbl

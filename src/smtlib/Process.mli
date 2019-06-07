@@ -18,6 +18,11 @@ val conv_ty : Ast.Ty.t -> Ty.t
 
 val conv_term : Term.state -> Ast.term -> Term.t
 
+module Check_cc : sig
+  (** theory that check validity of conflicts *)
+  val theory : Solver.theory
+end
+
 val process_stmt :
   ?hyps:Lit.t list Vec.t ->
   ?gc:bool ->

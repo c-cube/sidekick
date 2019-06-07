@@ -2,6 +2,8 @@
 
 open Sidekick_base_term
 
+[@@@ocaml.warning "-32"]
+
 type 'a or_error = ('a, string) CCResult.t
 
 module E = CCResult
@@ -391,16 +393,50 @@ let conv_ty = Conv.conv_ty
 let conv_term = Conv.conv_term
 
 (* instantiate solver here *)
-module Solver = Sidekick_msat_solver.Make(struct
-    include Sidekick_base_term
+module Solver_arg = struct
+  include Sidekick_base_term
 
-    let cc_view = Term.cc_view
-    module Proof = struct
-      type t = Default
-      let default=Default
-      let pp out _ = Fmt.string out "default"
-    end
-  end)
+  let cc_view = Term.cc_view
+  module Proof = struct
+    type t = Default
+    let default=Default
+    let pp out _ = Fmt.string out "default"
+  end
+end
+module Solver = Sidekick_msat_solver.Make(Solver_arg)
+
+module Check_cc = struct
+  module SI = Solver.Solver_internal
+  module CC = Solver.Solver_internal.CC
+  module MCC = Sidekick_mini_cc.Make(Solver_arg)
+
+  let pp_c out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∨ " Lit.pp) c
+
+  let add_cc_lit (cc:MCC.t) (lit:Lit.t) : unit =
+    let t = Lit.term lit in
+    MCC.add_lit cc t (Lit.sign lit)
+
+  (* check that this is a proper CC conflict *)
+  let check_conflict si _cc (confl:Lit.t list) : unit =
+    Log.debugf 15 (fun k->k "(@[check-cc-conflict@ %a@])" pp_c confl);
+    let tst = SI.tst si in
+    let cc = MCC.create tst in
+    (* add [¬confl] and check it's unsat *)
+    List.iter (fun lit -> add_cc_lit cc @@ Lit.neg lit) confl;
+    if MCC.check_sat cc then (
+      Error.errorf "@[<2>check-cc-conflict:@ @[clause %a@]@ \
+                    is not a UF conflict (negation is sat)@]" pp_c confl
+    ) else (
+      Log.debugf 15 (fun k->k "(@[check-cc-conflict.ok@ %a@])" pp_c confl);
+    )
+
+  let theory =
+    Solver.mk_theory ~name:"cc-check"
+      ~create_and_setup:(fun si ->
+          Solver.Solver_internal.on_cc_conflict si (check_conflict si))
+      ()
+
+end
 
 (* TODO
 (* check SMT model *)
@@ -501,7 +537,7 @@ let solve
 (* process a single statement *)
 let process_stmt
     ?hyps
-    ?gc ?restarts ?(pp_cnf=false) ?dot_proof ?pp_model ?check
+    ?gc ?restarts ?(pp_cnf=false) ?dot_proof ?pp_model ?(check=false)
     ?time ?memory ?progress
     (solver:Solver.t)
     (stmt:Ast.statement) : unit or_error =
@@ -532,7 +568,7 @@ let process_stmt
       raise Exit
     | A.CheckSat ->
       solve
-        ?gc ?restarts ?dot_proof ?check ?pp_model ?time ?memory ?progress
+        ?gc ?restarts ?dot_proof ~check ?pp_model ?time ?memory ?progress
         ~assumptions:[] ?hyps
         solver;
       E.return()

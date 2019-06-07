@@ -207,8 +207,6 @@ module type CC_S = sig
 
   type explanation = Expl.t
 
-  type conflict = lit list
-
   (** Accessors *)
 
   val term_state : t -> term_state
@@ -222,11 +220,13 @@ module type CC_S = sig
 
   type ev_on_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
   type ev_on_new_term = t -> N.t -> term -> unit
+  type ev_on_conflict = t -> lit list -> unit
 
   val create :
     ?stat:Stat.t ->
     ?on_merge:ev_on_merge list ->
     ?on_new_term:ev_on_new_term list ->
+    ?on_conflict:ev_on_conflict list ->
     ?size:[`Small | `Big] ->
     term_state ->
     t
@@ -238,6 +238,9 @@ module type CC_S = sig
 
   val on_new_term : t -> ev_on_new_term -> unit
   (** Add a function to be called when a new node is created *)
+
+  val on_conflict : t -> ev_on_conflict -> unit
+  (** Called when the congruence closure finds a conflict *)
 
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
@@ -311,10 +314,6 @@ module type SOLVER_INTERNAL = sig
   module Expl = CC.Expl
   module N = CC.N
 
-  (** Unsatisfiable conjunction.
-      Its negation will become a conflict clause *)
-  type conflict = lit list
-
   val tst : t -> term_state
 
   val cc : t -> CC.t
@@ -363,7 +362,6 @@ module type SOLVER_INTERNAL = sig
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-
   val add_clause_temp : t -> actions -> lit list -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
@@ -410,6 +408,9 @@ module type SOLVER_INTERNAL = sig
   val on_cc_new_term : t -> (CC.t -> N.t -> term -> unit) -> unit
   (** Callback to add data on terms when they are added to the congruence
       closure *)
+
+  val on_cc_conflict : t -> (CC.t -> lit list -> unit) -> unit
+  (** Callback called on every CC conflict *)
 
   val on_partial_check : t -> (t -> actions -> lit Iter.t -> unit) -> unit
   (** Register callbacked to be called with the slice of literals

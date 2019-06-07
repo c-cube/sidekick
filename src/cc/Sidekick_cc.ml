@@ -66,7 +66,6 @@ module Make(CC_A: ARG) = struct
     | E_and of explanation * explanation
 
   type repr = node
-  type conflict = lit list
 
   module N = struct
     type t = node
@@ -213,6 +212,7 @@ module Make(CC_A: ARG) = struct
     undo: (unit -> unit) Backtrack_stack.t;
     mutable on_merge: ev_on_merge list;
     mutable on_new_term: ev_on_new_term list;
+    mutable on_conflict: ev_on_conflict list;
     mutable ps_lits: lit list; (* TODO: thread it around instead? *)
     (* proof state *)
     ps_queue: (node*node) Vec.t;
@@ -232,6 +232,7 @@ module Make(CC_A: ARG) = struct
 
   and ev_on_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
   and ev_on_new_term = t -> N.t -> term -> unit
+  and ev_on_conflict = t -> lit list -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
   let[@inline] true_ cc = Lazy.force cc.true_
@@ -337,11 +338,12 @@ module Make(CC_A: ARG) = struct
         n.n_expl <- FL_none;
     end
 
-  let raise_conflict (cc:t) (acts:actions) (e:conflict) : _ =
+  let raise_conflict (cc:t) (acts:actions) (e:lit list) : _ =
     (* clear tasks queue *)
     Vec.iter (N.set_field field_is_pending false) cc.pending;
     Vec.clear cc.pending;
     Vec.clear cc.combine;
+    List.iter (fun f -> f cc e) cc.on_conflict;
     Stat.incr cc.count_conflict;
     CC_A.Actions.raise_conflict acts e A.Proof.default
 
@@ -813,9 +815,10 @@ module Make(CC_A: ARG) = struct
 
   let on_merge cc f = cc.on_merge <- f :: cc.on_merge
   let on_new_term cc f = cc.on_new_term <- f :: cc.on_new_term
+  let on_conflict cc f = cc.on_conflict <- f :: cc.on_conflict
 
   let create ?(stat=Stat.global)
-      ?(on_merge=[]) ?(on_new_term=[]) ?(size=`Big)
+      ?(on_merge=[]) ?(on_new_term=[]) ?(on_conflict=[]) ?(size=`Big)
       (tst:term_state) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
     let rec cc = {
@@ -824,6 +827,7 @@ module Make(CC_A: ARG) = struct
       signatures_tbl = Sig_tbl.create size;
       on_merge;
       on_new_term;
+      on_conflict;
       pending=Vec.create();
       combine=Vec.create();
       ps_lits=[];
