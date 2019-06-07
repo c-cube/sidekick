@@ -2,4 +2,4 @@
 
 ## Documentation
 
-- [dev](dev)
+- [dev](dev/index.html)
