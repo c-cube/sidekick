@@ -109,6 +109,7 @@ module Make(A : ARG)
       cc: CC.t lazy_t; (** congruence closure *)
       stat: Stat.t;
       count_axiom: int Stat.counter;
+      count_preprocess_clause: int Stat.counter;
       count_conflict: int Stat.counter;
       count_propagate: int Stat.counter;
       simp: Simplify.t;
@@ -182,13 +183,17 @@ module Make(A : ARG)
                   T.pp t T.pp u);
             aux u
       in
-      let t = aux (Lit.term lit) in
+      let t = Lit.term lit |> simp_t self |> aux in
+      let lit' = Lit.atom self.tst ~sign:(Lit.sign lit) t in
       Log.debugf 10
-        (fun k->k "(@[msat-solver.preprocess@ :lit %a@ :into %a@])" Lit.pp lit T.pp t);
-      Lit.atom self.tst ~sign:(Lit.sign lit) t
+        (fun k->k "(@[msat-solver.preprocess@ :lit %a@ :into %a@])" Lit.pp lit Lit.pp lit');
+      lit'
 
     let[@inline] mk_lit self acts ?sign t =
-      let add_clause lits = add_sat_clause_ self acts ~keep:true lits in
+      let add_clause lits =
+        Stat.incr self.count_preprocess_clause;
+        add_sat_clause_ self acts ~keep:true lits
+      in
       preprocess_lit_ self ~add_clause @@ Lit.atom self.tst ?sign t
 
     let[@inline] add_clause_temp self acts lits : unit =
@@ -296,9 +301,10 @@ module Make(A : ARG)
         simp=Simplify.create tst;
         preprocess=[];
         preprocess_cache=T.Tbl.create 32;
-        count_axiom = Stat.mk_int stat "th-axioms";
-        count_propagate = Stat.mk_int stat "th-propagations";
-        count_conflict = Stat.mk_int stat "th-conflicts";
+        count_axiom = Stat.mk_int stat "solver.th-axioms";
+        count_preprocess_clause = Stat.mk_int stat "solver.preprocess-clause";
+        count_propagate = Stat.mk_int stat "solver.th-propagations";
+        count_conflict = Stat.mk_int stat "solver.th-conflicts";
         on_partial_check=[];
         on_final_check=[];
       } in
@@ -420,6 +426,7 @@ module Make(A : ARG)
       Solver_internal.preprocess_lit_
         ~add_clause:(fun lits ->
             (* recursively add these sub-literals, so they're also properly processed *)
+            Stat.incr self.si.count_preprocess_clause;
             let atoms = List.map (mk_atom_lit self) lits in
             Sat_solver.add_clause self.solver atoms A.Proof.default)
         self.si lit in

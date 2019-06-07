@@ -221,6 +221,7 @@ module Make(CC_A: ARG) = struct
     false_ : node lazy_t;
     stat: Stat.t;
     count_conflict: int Stat.counter;
+    count_props: int Stat.counter;
     count_merge: int Stat.counter;
   }
   (* TODO: an additional union-find to keep track, for each term,
@@ -707,6 +708,7 @@ module Make(CC_A: ARG) = struct
              let e = lazy (explain_eq_n ~init:(Lazy.force half_expl) cc u1 t1) in
              fun () -> Lazy.force e
            in
+           Stat.incr cc.count_props;
            CC_A.Actions.propagate acts lit ~reason CC_A.A.Proof.default
          | _ -> ())
 
@@ -831,6 +833,7 @@ module Make(CC_A: ARG) = struct
       false_;
       stat;
       count_conflict=Stat.mk_int stat "cc.conflicts";
+      count_props=Stat.mk_int stat "cc.propagations";
       count_merge=Stat.mk_int stat "cc.merges";
     } and true_ = lazy (
         add_term cc (T.bool tst true)
