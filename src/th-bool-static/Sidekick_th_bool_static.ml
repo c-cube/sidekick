@@ -156,7 +156,6 @@ module Make(A : ARG) : S with module A = A = struct
       | B_ite _ | B_eq _ ->
         Lit.atom self.tst t
       | B_equiv (a,b) ->
-        Format.printf "@[cnf: equiv@ %a@ and %a@]@." T.pp a T.pp b;
         let a = get_lit a in
         let b = get_lit b in
         let proxy = fresh_lit ~pre:"equiv_" self in
