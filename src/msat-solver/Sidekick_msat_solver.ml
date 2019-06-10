@@ -31,16 +31,12 @@ module Make(A : ARG)
     let[@inline] sign t = t.lit_sign
     let[@inline] term (t:t): term = t.lit_term
 
-    let[@inline] abs t: t = {t with lit_sign=true}
-
     let make ~sign t = {lit_sign=sign; lit_term=t}
 
     let atom tst ?(sign=true) (t:term) : t =
       let t, sign' = T.abs tst t in
       let sign = if not sign' then not sign else sign in
       make ~sign t
-
-    let[@inline] as_atom (lit:t) = lit.lit_term, lit.lit_sign
 
     let equal a b =
       a.lit_sign = b.lit_sign &&
@@ -53,8 +49,6 @@ module Make(A : ARG)
     let pp out l =
       if l.lit_sign then T.pp out l.lit_term
       else Format.fprintf out "(@[@<1>¬@ %a@])" T.pp l.lit_term
-
-    let print = pp
 
     let apply_sign t s = if s then t else neg t
     let norm_sign l = if l.lit_sign then l, true else neg l, false
@@ -364,9 +358,6 @@ module Make(A : ARG)
 
   (** the parametrized SAT Solver *)
   module Sat_solver = Msat.Make_cdcl_t(Solver_internal)
-
-  let[@inline] clause_of_mclause (c:Sat_solver.clause): Lit.t IArray.t =
-    Sat_solver.Clause.atoms c |> Array.map Sat_solver.Atom.formula |> IArray.of_array_unsafe
 
   module Atom = Sat_solver.Atom
   module Proof = struct

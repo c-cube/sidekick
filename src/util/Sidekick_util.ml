@@ -1,4 +1,3 @@
-
 (* re-exports *)
 module Fmt = CCFormat
 module Vec = Msat.Vec
@@ -11,3 +10,4 @@ module IArray = IArray
 module Intf = Intf
 module Bag = Bag
 module Stat = Stat
+module Hash = Hash
