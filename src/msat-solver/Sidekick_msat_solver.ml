@@ -436,16 +436,9 @@ module Make(A : ARG)
     end;
     self
 
-  module Debug_ = struct
-    let check_invariants (self:t) =
-      if Util._CHECK_INVARIANTS then (
-        CC.Debug_.check_invariants (Solver_internal.cc self.si);
-      )
-  end
-
   let[@inline] solver self = self.solver
   let[@inline] cc self = Solver_internal.cc self.si
-  let stats self = self.stat
+  let[@inline] stats self = self.stat
   let[@inline] tst self = Solver_internal.tst self.si
 
   let[@inline] mk_atom_lit_ self lit : Atom.t = Sat_solver.make_atom self.solver lit

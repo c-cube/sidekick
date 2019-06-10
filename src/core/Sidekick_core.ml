@@ -277,7 +277,6 @@ module type CC_S = sig
 
   (**/**)
   module Debug_ : sig
-    val check_invariants : t -> unit
     val pp : t Fmt.printer
   end
   (**/**)
@@ -624,10 +623,4 @@ module type SOLVER = sig
 
   val pp_term_graph: t CCFormat.printer
   val pp_stats : t CCFormat.printer
-
-  (**/**)
-  module Debug_ : sig
-    val check_invariants : t -> unit
-  end
-  (**/**)
 end

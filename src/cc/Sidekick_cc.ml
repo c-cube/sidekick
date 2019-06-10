@@ -739,8 +739,6 @@ module Make(CC_A: ARG) = struct
     ()
 
   module Debug_ = struct
-    let[@inline] check_invariants (cc:t) : unit =
-      if Util._CHECK_INVARIANTS then check_invariants_ cc
     let pp out _ = Fmt.string out "cc"
   end
 

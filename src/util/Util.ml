@@ -1,4 +1,3 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** {1 Util} *)
@@ -38,5 +37,3 @@ module Int_set = CCSet.Make(CCInt)
 module Int_map = CCMap.Make(CCInt)
 module Int_tbl = CCHashtbl.Make(CCInt)
 
-(* NOTE: if true, can have a big impact on performance *)
-let _CHECK_INVARIANTS = false
