@@ -388,10 +388,11 @@ module Make(A : ARG)
   end
 
   type theory = (module THEORY)
+  type 'a theory_p = (module THEORY with type t = 'a)
 
   (** {2 Main} *)
 
-  let add_theory (self:t) (th:theory) : unit =
+  let add_theory_p (type a) (self:t) (th:a theory_p) : a =
     let (module Th) = th in
     Log.debugf 2
       (fun k-> k "(@[msat-solver.add-theory@ :name %S@])" Th.name);
@@ -406,7 +407,11 @@ module Make(A : ARG)
           next=self.si.th_states;
         };
     end;
-    ()
+    st
+
+  let add_theory (self:t) (th:theory) : unit =
+    let (module Th) = th in
+    ignore (add_theory_p self (module Th))
 
   let add_theory_l self = List.iter (add_theory self)
 

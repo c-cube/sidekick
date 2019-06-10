@@ -502,6 +502,10 @@ module type SOLVER = sig
   type theory = (module THEORY)
   (** A theory that can be used for this particular solver. *)
 
+  type 'a theory_p = (module THEORY with type t = 'a)
+  (** A theory that can be used for this particular solver, with state
+      of type ['a]. *)
+
   val mk_theory :
     name:string ->
     create_and_setup:(Solver_internal.t -> 'th) ->
@@ -583,6 +587,11 @@ module type SOLVER = sig
   (** Add a theory to the solver. This should be called before
       any call to {!solve} or to {!add_clause} and the likes (otherwise
       the theory will have a partial view of the problem). *)
+
+  val add_theory_p : t -> 'a theory_p -> 'a
+  (** Add the given theory and obtain its state *)
+
+  val add_theory_l : t -> theory list -> unit
 
   val mk_atom_lit : t -> lit -> Atom.t
 
