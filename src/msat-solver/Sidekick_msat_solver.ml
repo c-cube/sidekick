@@ -572,12 +572,6 @@ module Make(A : ARG)
       in
       do_on_exit ();
       Sat m
-      (*
-      let env = Ast.env_empty in
-      let m = Model.make ~env in
-         …
-      Unknown U_incomplete (* TODO *)
-      *)
     | Sat_solver.Unsat us ->
       let proof =
         try
