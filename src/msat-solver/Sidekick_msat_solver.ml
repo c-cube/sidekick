@@ -375,6 +375,9 @@ module Make(A : ARG)
     stat: Stat.t;
     count_clause: int Stat.counter;
     count_solve: int Stat.counter;
+    count_sat_conflict: int Stat.counter;
+    count_sat_props: int Stat.counter;
+    count_sat_restarts: int Stat.counter;
     (* config: Config.t *)
   }
   type solver = t
@@ -425,6 +428,9 @@ module Make(A : ARG)
       stat;
       count_clause=Stat.mk_int stat "solver.add-clause";
       count_solve=Stat.mk_int stat "solver.solve";
+      count_sat_conflict=Stat.mk_int stat "sat.conflict";
+      count_sat_props=Stat.mk_int stat "sat.propagation";
+      count_sat_restarts=Stat.mk_int stat "sat.restart";
     } in
     add_theory_l self theories;
     (* assert [true] and [not false] *)
@@ -559,6 +565,9 @@ module Make(A : ARG)
 
   let solve ?(on_exit=[]) ?(check=true) ~assumptions (self:t) : res =
     let do_on_exit () =
+      (* TODO:
+         let stat = Sat_solver.stat self.sat in
+         Stat.set self.count_sat_restarts stat.n_restarts *)
       List.iter (fun f->f()) on_exit;
     in
     let r = Sat_solver.solve ~assumptions (solver self) in
