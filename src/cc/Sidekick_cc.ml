@@ -26,8 +26,32 @@ module Make(CC_A: ARG) = struct
   module Fun = A.Fun
   module Lit = CC_A.Lit
 
-  module Bits = CCBitField.Make()
-  (* TODO: give theories the possibility to allocate new bits in nodes *)
+  module Bits : sig
+    type t = private int
+    type field
+    val empty : t
+    val equal : t -> t -> bool
+    val mk_field : unit -> field
+    val get : field -> t -> bool
+    val set : field -> bool -> t -> t
+    val merge : t -> t -> t
+  end = struct
+    let max_width = Sys.word_size - 2
+    let width = ref 0
+    type t = int
+    type field = int
+    let empty : t = 0
+    let mk_field () : field =
+      let n = !width in
+      if n > max_width then Error.errorf "maximum number of CC bitfields reached";
+      incr width;
+      n
+    let[@inline] get field x = (x land field) <> 0
+    let[@inline] set field b x =
+      if b then x lor field else x land (lnot field)
+    let merge = (lor)
+    let equal : t -> t -> bool = Pervasives.(=)
+  end
 
   let field_is_pending = Bits.mk_field()
   (** true iff the node is in the [cc.pending] queue *)
@@ -112,6 +136,8 @@ module Make(CC_A: ARG) = struct
       assert (is_root n);
       Bag.to_seq n.n_parents
 
+    type bitfield = Bits.field
+    let allocate_bitfield = Bits.mk_field
     let[@inline] get_field f t = Bits.get f t.n_bits
     let[@inline] set_field f b t = t.n_bits <- Bits.set f b t.n_bits
   end
@@ -636,17 +662,20 @@ module Make(CC_A: ARG) = struct
         let r_into_old_next = r_into.n_next in
         let r_from_old_next = r_from.n_next in
         let r_into_old_parents = r_into.n_parents in
+        let r_into_old_bits = r_into.n_bits in
         (* swap [into.next] and [from.next], merging the classes *)
         r_into.n_next <- r_from_old_next;
         r_from.n_next <- r_into_old_next;
         r_into.n_parents <- Bag.append r_into.n_parents r_from.n_parents;
         r_into.n_size <- r_into.n_size + r_from.n_size;
+        r_into.n_bits <- Bits.merge r_into.n_bits r_from.n_bits;
         (* on backtrack, unmerge classes and restore the pointers to [r_from] *)
         on_backtrack cc
           (fun () ->
              Log.debugf 15
                (fun k->k "(@[cc.undo_merge@ :from %a :into %a@])"
                    N.pp r_from N.pp r_into);
+             r_into.n_bits <- r_into_old_bits;
              r_into.n_next <- r_into_old_next;
              r_from.n_next <- r_from_old_next;
              r_into.n_parents <- r_into_old_parents;

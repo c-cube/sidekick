@@ -1,4 +1,3 @@
-
 (** {1 Statistics} *)
 
 module Fmt = CCFormat
@@ -14,6 +13,8 @@ val mk_float : t -> string -> float counter
 
 val incr : int counter -> unit
 val incr_f : float counter -> float -> unit
+
+val set : 'a counter -> 'a -> unit
 
 (** Existential counter *)
 type ex_counter

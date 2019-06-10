@@ -170,6 +170,17 @@ module type CC_S = sig
     val iter_parents : t -> t Iter.t
     (** Traverse the parents of the class.
         Precondition: [is_root n] (see {!find} below) *)
+
+    type bitfield
+    (** A field in the bitfield of this node. This should only be
+        allocated when a theory is initialized.
+
+        All fields are initially 0, are backtracked automatically,
+        and are merged automatically when classes are merged. *)
+
+    val allocate_bitfield : unit -> bitfield
+    val get_field : bitfield -> t -> bool
+    val set_field : bitfield -> bool -> t -> unit
   end
 
   module Expl : sig

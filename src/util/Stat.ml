@@ -1,4 +1,3 @@
-
 (** {1 Statistics} *)
 
 module Fmt = CCFormat
@@ -39,6 +38,7 @@ let mk_float self name =
 
 let[@inline] incr x = x.count <- 1 + x.count
 let[@inline] incr_f x by = x.count <- by +. x.count
+let[@inline] set c x : unit = c.count <- x
 
 let pp_all out l =
   let pp_w out = function
