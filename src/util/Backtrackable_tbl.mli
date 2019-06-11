@@ -2,35 +2,28 @@
 
 module type S = sig
   type key
-  type value
-  type t
+  type 'a t
 
-  val create : ?size:int -> unit -> t
+  val create : ?size:int -> unit -> 'a t
 
-  val find : t -> key -> value
+  val find : 'a t -> key -> 'a
   (** @raise Not_found if the key is not present *)
 
-  val get : t -> key -> value option
-  val mem : t -> key -> bool
-  val length : t -> int
-  val iter : (key -> value -> unit) -> t -> unit
-  val to_iter : t -> (key * value) Iter.t
-  val add : t -> key -> value -> unit
-  val remove : t -> key -> unit
-  val push_level : t -> unit
-  val pop_levels : t -> int -> unit
+  val get : 'a t -> key -> 'a option
+  val mem : _ t -> key -> bool
+  val length : _ t -> int
+  val iter : (key -> 'a -> unit) -> 'a t -> unit
+  val to_iter : 'a t -> (key * 'a) Iter.t
+  val add : 'a t -> key -> 'a -> unit
+  val remove : _ t -> key -> unit
+  val push_level : _ t -> unit
+  val pop_levels : _ t -> int -> unit
 end
 
 module type ARG = sig
-  module Key : sig
-    type t
-    val equal : t -> t -> bool
-    val hash : t -> int
-  end
-  module Value : sig
-    type t
-    val equal : t -> t -> bool
-  end
+  type t
+  val equal : t -> t -> bool
+  val hash : t -> int
 end
 
-module Make(A : ARG) : S with type key = A.Key.t and type value = A.Value.t
+module Make(A : ARG) : S with type key = A.t

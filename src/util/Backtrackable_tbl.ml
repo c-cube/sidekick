@@ -1,57 +1,49 @@
 module type S = sig
   type key
-  type value
-  type t
+  type 'a t
 
-  val create : ?size:int -> unit -> t
+  val create : ?size:int -> unit -> 'a t
 
-  val find : t -> key -> value
+  val find : 'a t -> key -> 'a
   (** @raise Not_found if the key is not present *)
 
-  val get : t -> key -> value option
-  val mem : t -> key -> bool
-  val length : t -> int
-  val iter : (key -> value -> unit) -> t -> unit
-  val to_iter : t -> (key * value) Iter.t
-  val add : t -> key -> value -> unit
-  val remove : t -> key -> unit
-  val push_level : t -> unit
-  val pop_levels : t -> int -> unit
+  val get : 'a t -> key -> 'a option
+  val mem : _ t -> key -> bool
+  val length : _ t -> int
+  val iter : (key -> 'a -> unit) -> 'a t -> unit
+  val to_iter : 'a t -> (key * 'a) Iter.t
+  val add : 'a t -> key -> 'a -> unit
+  val remove : _ t -> key -> unit
+  val push_level : _ t -> unit
+  val pop_levels : _ t -> int -> unit
 end
 
 module type ARG = sig
-  module Key : sig
-    type t
-    val equal : t -> t -> bool
-    val hash : t -> int
-  end
-  module Value : sig
-    type t
-    val equal : t -> t -> bool
-  end
+  type t
+  val equal : t -> t -> bool
+  val hash : t -> int
 end
 
 module Make(A : ARG) = struct
-  type key = A.Key.t
-  type value = A.Value.t
-  module M = CCHashtbl.Make(A.Key)
+  type key = A.t
+  module M = CCHashtbl.Make(A)
   module BS = Backtrack_stack
 
-  type undo_op = Add of key * value | Remove of key
-  type t = {
-    tbl: value M.t;
-    undo: undo_op BS.t;
+  type 'a undo_op = Add of key * 'a | Remove of key
+  type 'a t = {
+    tbl: 'a M.t;
+    undo: 'a undo_op BS.t;
   }
 
-  let create ?(size=32) () : t = { tbl=M.create size; undo=BS.create() }
+  let create ?(size=32) () : _ t = { tbl=M.create size; undo=BS.create() }
 
   let apply_undo self u =
     match u with
     | Add (k,v) -> M.replace self.tbl k v
     | Remove k -> M.remove self.tbl k
 
-  let[@inline] find (self:t) k : value = M.find self.tbl k
-  let[@inline] get (self:t) k : value option = M.get self.tbl k
+  let[@inline] find (self:_ t) k = M.find self.tbl k
+  let[@inline] get (self:_ t) k : _ option = M.get self.tbl k
   let[@inline] mem self k = M.mem self.tbl k
   let[@inline] length self = M.length self.tbl
   let[@inline] iter f self = M.iter f self.tbl
