@@ -178,7 +178,6 @@ module type CC_S = sig
         All fields are initially 0, are backtracked automatically,
         and are merged automatically when classes are merged. *)
 
-    val allocate_bitfield : unit -> bitfield
     val get_field : bitfield -> t -> bool
     val set_field : bitfield -> bool -> t -> unit
   end
@@ -227,6 +226,10 @@ module type CC_S = sig
     term_state ->
     t
   (** Create a new congruence closure. *)
+
+  val allocate_bitfield : t -> N.bitfield
+  (** Allocate a new bitfield for the nodes.
+      See {!N.bitfield}. *)
 
   (* TODO: remove? this is managed by the solver anyway? *)
   val on_merge : t -> ev_on_merge -> unit
