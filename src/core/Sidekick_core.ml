@@ -364,7 +364,7 @@ module type SOLVER_INTERNAL = sig
 
   (** {3 hooks for the theory} *)
 
-  type actions
+  type actions = CC_A.Actions.t
 
   val propagate : t -> actions -> lit -> reason:(unit -> lit list) -> A.Proof.t -> unit
 
