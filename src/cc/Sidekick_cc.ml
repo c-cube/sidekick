@@ -832,6 +832,9 @@ module Make(CC_A: ARG) = struct
       (fun k->k "(@[cc.theory.merge@ :n1 %a@ :n2 %a@ :expl %a@])" N.pp n1 N.pp n2 Expl.pp expl);
     merge_classes cc n1 n2 expl
 
+  let[@inline] merge_t cc t1 t2 expl =
+    merge cc (add_term cc t1) (add_term cc t2) expl
+
   let on_merge cc f = cc.on_merge <- f :: cc.on_merge
   let on_new_term cc f = cc.on_new_term <- f :: cc.on_new_term
   let on_conflict cc f = cc.on_conflict <- f :: cc.on_conflict

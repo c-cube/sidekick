@@ -273,6 +273,9 @@ module type CC_S = sig
       It must be a theory tautology that [expl ==> n1 = n2].
       To be used in theories. *)
 
+  val merge_t : t -> term -> term -> Expl.t -> unit
+  (** Shortcut for adding + merging *)
+
   val check : t -> actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
       Will use the {!actions} to propagate literals, declare conflicts, etc. *)
