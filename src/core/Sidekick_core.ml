@@ -538,6 +538,9 @@ module type SOLVER = sig
     val equal : t -> t -> bool
     val hash : t -> int
     val pp : t CCFormat.printer
+
+    val formula : t -> Lit.t
+    val sign : t -> bool
   end
 
   (** {3 Semantic values} *)
