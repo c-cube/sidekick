@@ -13,3 +13,4 @@ env:
   - PACKAGE="sidekick" OCAML_VERSION="4.04"
   - PACKAGE="sidekick" OCAML_VERSION="4.05"
   - PACKAGE="sidekick" OCAML_VERSION="4.06"
+  - PACKAGE="sidekick" OCAML_VERSION="4.08"
