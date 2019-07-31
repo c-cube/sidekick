@@ -626,6 +626,7 @@ module type SOLVER = sig
   val solve :
     ?on_exit:(unit -> unit) list ->
     ?check:bool ->
+    ?on_progress:(t -> unit) ->
     assumptions:Atom.t list ->
     t ->
     res

@@ -148,6 +148,7 @@ module Make(A : ARG)
       count_preprocess_clause: int Stat.counter;
       count_conflict: int Stat.counter;
       count_propagate: int Stat.counter;
+      mutable on_progress: unit -> unit;
       simp: Simplify.t;
       mutable preprocess: preprocess_hook list;
       preprocess_cache: T.t T.Tbl.t;
@@ -309,8 +310,8 @@ module Make(A : ARG)
     (* propagation from the bool solver *)
     let check_ ~final (self:t) (acts: msat_acts) =
       let iter = iter_atoms_ acts in
-      (* TODO if Config.progress then print_progress(); *)
       Msat.Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
+      self.on_progress();
       assert_lits_ ~final self acts iter
 
     (* propagation from the bool solver *)
@@ -342,6 +343,7 @@ module Make(A : ARG)
         th_states=Ths_nil;
         stat;
         simp=Simplify.create tst;
+        on_progress=(fun () -> ());
         preprocess=[];
         preprocess_cache=T.Tbl.create 32;
         count_axiom = Stat.mk_int stat "solver.th-axioms";
@@ -557,10 +559,12 @@ module Make(A : ARG)
     *)
     ()
 
-  let solve ?(on_exit=[]) ?(check=true) ~assumptions (self:t) : res =
+  let solve ?(on_exit=[]) ?(check=true) ?(on_progress=fun _ -> ())
+      ~assumptions (self:t) : res =
     let do_on_exit () =
       List.iter (fun f->f()) on_exit;
     in
+    self.si.on_progress <- (fun () -> on_progress self);
     let r = Sat_solver.solve ~assumptions (solver self) in
     Stat.incr self.count_solve;
     match r with

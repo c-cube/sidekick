@@ -500,6 +500,21 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
   Vec.iter check_c hyps
    *)
 
+let mk_progress () : _ -> unit =
+  let start = Sys.time() in
+  let n = ref 0 in
+  let syms = "|\\-/" in
+  fun _s ->
+    let diff = Sys.time() -. start in
+    incr n;
+    (* limit frequency *)
+    if float !n > 6. *. diff then (
+      let sym = String.get syms (!n mod String.length syms) in
+      Printf.printf "\r [%.2fs %c]" diff sym;
+      n := 0;
+      flush stdout
+    )
+
 (* call the solver to check-sat *)
 let solve
     ?gc:_
@@ -507,16 +522,19 @@ let solve
     ?dot_proof
     ?(pp_model=false)
     ?(check=false)
-    ?time:_ ?memory:_ ?progress:_
+    ?time:_ ?memory:_ ?(progress=false)
     ?hyps:_
     ~assumptions
     s : unit =
   let t1 = Sys.time() in
+  let on_progress =
+    if progress then Some (mk_progress()) else None in
   let res =
-    Solver.solve ~assumptions s
+    Solver.solve ~assumptions ?on_progress s
     (* ?gc ?restarts ?time ?memory ?progress *)
   in
   let t2 = Sys.time () in
+  Printf.printf "\r"; flush stdout;
   begin match res with
     | Solver.Sat m ->
       if pp_model then (
