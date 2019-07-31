@@ -124,14 +124,13 @@ module type CC_ARG = sig
 end
 
 module type CC_S = sig
-  module CC_A : CC_ARG
-  module A = CC_A.A
-  type term_state = A.Term.state
-  type term = A.Term.t
-  type fun_ = A.Fun.t
-  type lit = CC_A.Lit.t
-  type proof = A.Proof.t
-  type actions = CC_A.Actions.t
+  module A : CC_ARG 
+  type term_state = A.A.Term.state
+  type term = A.A.Term.t
+  type fun_ = A.A.Fun.t
+  type lit = A.Lit.t
+  type proof = A.A.Proof.t
+  type actions = A.Actions.t
 
   type t
   (** Global state of the congruence closure *)
@@ -303,7 +302,7 @@ end
 module type SOLVER_INTERNAL = sig
   module A : TERM_PROOF 
   module CC_A : CC_ARG with module A = A
-  module CC : CC_S with module CC_A = CC_A
+  module CC : CC_S with module A = CC_A
 
   type ty = A.Ty.t
   type term = A.Term.t
@@ -313,9 +312,6 @@ module type SOLVER_INTERNAL = sig
   (** {3 Main type for a solver} *)
   type t
   type solver = t
-
-  module Expl = CC.Expl
-  module N = CC.N
 
   val tst : t -> term_state
 
@@ -401,31 +397,31 @@ module type SOLVER_INTERNAL = sig
   (** Add the given (signed) bool term to the SAT solver, so it gets assigned
       a boolean value *)
 
-  val cc_raise_conflict_expl : t -> actions -> Expl.t -> 'a
+  val cc_raise_conflict_expl : t -> actions -> CC.Expl.t -> 'a
   (** Raise a conflict with the given congruence closure explanation.
       it must be a theory tautology that [expl ==> absurd].
       To be used in theories. *)
 
-  val cc_find : t -> N.t -> N.t
+  val cc_find : t -> CC.N.t -> CC.N.t
   (** Find representative of the node *)
 
-  val cc_merge : t -> actions -> N.t -> N.t -> Expl.t -> unit
+  val cc_merge : t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit
   (** Merge these two nodes in the congruence closure, given this explanation.
       It must be a theory tautology that [expl ==> n1 = n2].
       To be used in theories. *)
 
-  val cc_merge_t : t -> actions -> term -> term -> Expl.t -> unit
+  val cc_merge_t : t -> actions -> term -> term -> CC.Expl.t -> unit
   (** Merge these two terms in the congruence closure, given this explanation.
       See {!cc_merge} *)
 
-  val cc_add_term : t -> term -> N.t
+  val cc_add_term : t -> term -> CC.N.t
   (** Add/retrieve congruence closure node for this term.
       To be used in theories *)
 
-  val on_cc_merge : t -> (CC.t -> actions -> N.t -> N.t -> Expl.t -> unit) -> unit
+  val on_cc_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit
   (** Callback for when two classes containing data for this key are merged *)
 
-  val on_cc_new_term : t -> (CC.t -> N.t -> term -> unit) -> unit
+  val on_cc_new_term : t -> (CC.t -> CC.N.t -> term -> unit) -> unit
   (** Callback to add data on terms when they are added to the congruence
       closure *)
 
@@ -472,8 +468,6 @@ module type SOLVER = sig
   module CC_A : CC_ARG with module A = A
   module Solver_internal : SOLVER_INTERNAL with module A = A and module CC_A = CC_A
   (** Internal solver, available to theories.  *)
-
-  module Lit = Solver_internal.Lit
 
   type t
   type solver = t
@@ -539,7 +533,7 @@ module type SOLVER = sig
     val hash : t -> int
     val pp : t CCFormat.printer
 
-    val formula : t -> Lit.t
+    val formula : t -> lit
     val sign : t -> bool
   end
 

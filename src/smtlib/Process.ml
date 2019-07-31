@@ -406,7 +406,7 @@ end
 module Solver = Sidekick_msat_solver.Make(Solver_arg)
 
 module Check_cc = struct
-  module Lit = Solver.Lit
+  module Lit = Solver.Solver_internal.Lit
   module SI = Solver.Solver_internal
   module CC = Solver.Solver_internal.CC
   module MCC = Sidekick_mini_cc.Make(Solver_arg)

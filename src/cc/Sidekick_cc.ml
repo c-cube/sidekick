@@ -13,17 +13,16 @@ module type ARG = Sidekick_core.CC_ARG
 module type S = Sidekick_core.CC_S
 
 module Make(CC_A: ARG) = struct
-  module CC_A = CC_A
-  module A = CC_A.A
-  type term = A.Term.t
-  type term_state = A.Term.state
-  type lit = CC_A.Lit.t
-  type fun_ = A.Fun.t
-  type proof = A.Proof.t
-  type actions = CC_A.Actions.t
+  module A = CC_A
+  type term = A.A.Term.t
+  type term_state = A.A.Term.state
+  type lit = A.Lit.t
+  type fun_ = A.A.Fun.t
+  type proof = A.A.Proof.t
+  type actions = A.Actions.t
 
-  module T = A.Term
-  module Fun = A.Fun
+  module T = A.A.Term
+  module Fun = A.A.Fun
   module Lit = CC_A.Lit
 
   module Bits : sig
@@ -353,7 +352,7 @@ module Make(CC_A: ARG) = struct
     Vec.clear cc.combine;
     List.iter (fun f -> f cc e) cc.on_conflict;
     Stat.incr cc.count_conflict;
-    CC_A.Actions.raise_conflict acts e A.Proof.default
+    CC_A.Actions.raise_conflict acts e A.A.Proof.default
 
   let[@inline] all_classes cc : repr Iter.t =
     T_tbl.values cc.tbl

@@ -34,17 +34,15 @@ end
 
 module type S = sig
   module A : ARG
-  module T = A.S.A.Term
-  module SI = A.S.Solver_internal
 
   type state
 
-  val create : T.state -> state
+  val create : A.S.A.Term.state -> state
 
-  val simplify : state -> SI.simplify_hook
+  val simplify : state -> A.S.Solver_internal.simplify_hook
   (** Simplify given term *)
 
-  val cnf : state -> SI.preprocess_hook
+  val cnf : state -> A.S.Solver_internal.preprocess_hook
   (** add clauses for the booleans within the term. *)
 
   val theory : A.S.theory
@@ -54,7 +52,7 @@ module Make(A : ARG) : S with module A = A = struct
   module A = A
   module Ty = A.S.A.Ty
   module T = A.S.A.Term
-  module Lit = A.S.Lit
+  module Lit = A.S.Solver_internal.Lit
   module SI = A.S.Solver_internal
 
   type state = {
