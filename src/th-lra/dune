@@ -1,0 +1,8 @@
+
+(library
+  (name Sidekick_th_lra)
+  (public_name sidekick.smt.th-lra)
+  (optional)
+  (libraries containers sidekick.core sidekick.util zarith funarith.zarith)
+  (flags :standard -open Sidekick_util))
+
