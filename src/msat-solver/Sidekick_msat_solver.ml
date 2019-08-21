@@ -251,7 +251,8 @@ module Make(A : ARG)
     let on_final_check self f = self.on_final_check <- f :: self.on_final_check
     let on_partial_check self f = self.on_partial_check <- f :: self.on_partial_check
     let on_cc_new_term self f = CC.on_new_term (cc self) f
-    let on_cc_merge self f = CC.on_merge (cc self) f
+    let on_cc_pre_merge self f = CC.on_pre_merge (cc self) f
+    let on_cc_post_merge self f = CC.on_post_merge (cc self) f
     let on_cc_conflict self f = CC.on_conflict (cc self) f
     let on_cc_propagate self f = CC.on_propagate (cc self) f
 
