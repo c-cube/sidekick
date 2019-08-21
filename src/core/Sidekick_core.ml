@@ -210,14 +210,16 @@ module type CC_S = sig
   (** Add the term to the congruence closure, if not present already.
       Will be backtracked. *)
 
-  type ev_on_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
+  type ev_on_pre_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
+  type ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   type ev_on_new_term = t -> N.t -> term -> unit
   type ev_on_conflict = t -> lit list -> unit
   type ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
 
   val create :
     ?stat:Stat.t ->
-    ?on_merge:ev_on_merge list ->
+    ?on_pre_merge:ev_on_pre_merge list ->
+    ?on_post_merge:ev_on_post_merge list ->
     ?on_new_term:ev_on_new_term list ->
     ?on_conflict:ev_on_conflict list ->
     ?on_propagate:ev_on_propagate list ->
@@ -231,7 +233,10 @@ module type CC_S = sig
       See {!N.bitfield}. *)
 
   (* TODO: remove? this is managed by the solver anyway? *)
-  val on_merge : t -> ev_on_merge -> unit
+  val on_pre_merge : t -> ev_on_pre_merge -> unit
+  (** Add a function to be called when two classes are merged *)
+  
+  val on_post_merge : t -> ev_on_post_merge -> unit
   (** Add a function to be called when two classes are merged *)
 
   val on_new_term : t -> ev_on_new_term -> unit
@@ -418,8 +423,11 @@ module type SOLVER_INTERNAL = sig
   (** Add/retrieve congruence closure node for this term.
       To be used in theories *)
 
-  val on_cc_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit
-  (** Callback for when two classes containing data for this key are merged *)
+  val on_cc_pre_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit
+  (** Callback for when two classes containing data for this key are merged (called before) *)
+
+  val on_cc_post_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> unit) -> unit
+  (** Callback for when two classes containing data for this key are merged (called after)*)
 
   val on_cc_new_term : t -> (CC.t -> CC.N.t -> term -> unit) -> unit
   (** Callback to add data on terms when they are added to the congruence

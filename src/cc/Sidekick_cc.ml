@@ -247,7 +247,8 @@ module Make(CC_A: ARG) = struct
     pending: node Vec.t;
     combine: combine_task Vec.t;
     undo: (unit -> unit) Backtrack_stack.t;
-    mutable on_merge: ev_on_merge list;
+    mutable on_pre_merge: ev_on_pre_merge list;
+    mutable on_post_merge: ev_on_post_merge list;
     mutable on_new_term: ev_on_new_term list;
     mutable on_conflict: ev_on_conflict list;
     mutable on_propagate: ev_on_propagate list;
@@ -266,7 +267,8 @@ module Make(CC_A: ARG) = struct
      several times.
      See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
 
-  and ev_on_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
+  and ev_on_pre_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
+  and ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   and ev_on_new_term = t -> N.t -> term -> unit
   and ev_on_conflict = t -> lit list -> unit
   and ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
@@ -638,11 +640,11 @@ module Make(CC_A: ARG) = struct
       merge_bool rb b ra a;
       (* perform [union r_from r_into] *)
       Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" N.pp r_from N.pp r_into);
-      (* call [on_merge] functions, and merge theory data items *)
+      (* call [on_pre_merge] functions, and merge theory data items *)
       begin
         (* explanation is [a=ra & e_ab & b=rb] *)
         let expl = Expl.mk_list [e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb] in
-        List.iter (fun f -> f cc acts r_into r_from expl) cc.on_merge;
+        List.iter (fun f -> f cc acts r_into r_from expl) cc.on_pre_merge;
       end;
       begin
         (* parents might have a different signature, check for collisions *)
@@ -694,6 +696,10 @@ module Make(CC_A: ARG) = struct
              | _, FL_some e when N.equal e.next a -> b.n_expl <- FL_none
              | _ -> assert false);
         a.n_expl <- FL_some {next=b; expl=e_ab};
+      end;
+      (* call [on_post_merge] *)
+      begin
+        List.iter (fun f -> f cc acts r_into r_from) cc.on_post_merge;
       end;
     )
 
@@ -797,13 +803,14 @@ module Make(CC_A: ARG) = struct
   let[@inline] merge_t cc t1 t2 expl =
     merge cc (add_term cc t1) (add_term cc t2) expl
 
-  let on_merge cc f = cc.on_merge <- f :: cc.on_merge
+  let on_pre_merge cc f = cc.on_pre_merge <- f :: cc.on_pre_merge
+  let on_post_merge cc f = cc.on_post_merge <- f :: cc.on_post_merge
   let on_new_term cc f = cc.on_new_term <- f :: cc.on_new_term
   let on_conflict cc f = cc.on_conflict <- f :: cc.on_conflict
   let on_propagate cc f = cc.on_propagate <- f :: cc.on_propagate
 
   let create ?(stat=Stat.global)
-      ?(on_merge=[]) ?(on_new_term=[]) ?(on_conflict=[]) ?(on_propagate=[])
+      ?(on_pre_merge=[]) ?(on_post_merge=[]) ?(on_new_term=[]) ?(on_conflict=[]) ?(on_propagate=[])
       ?(size=`Big)
       (tst:term_state) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
@@ -814,7 +821,8 @@ module Make(CC_A: ARG) = struct
       tbl = T_tbl.create size;
       signatures_tbl = Sig_tbl.create size;
       bitgen;
-      on_merge;
+      on_pre_merge;
+      on_post_merge;
       on_new_term;
       on_conflict;
       on_propagate;

@@ -40,9 +40,9 @@ module Make(A : ARG) : S with module A = A = struct
     (* TODO: also allocate a bit in CC to filter out quickly classes without cstors *)
   }
 
-  let on_merge (solver:SI.t) n1 tc1 n2 tc2 e_n1_n2 : unit =
+  let on_pre_merge (solver:SI.t) n1 tc1 n2 tc2 e_n1_n2 : unit =
     Log.debugf 5
-      (fun k->k "(@[th-cstor.on_merge@ @[:c1 %a@ (term %a)@]@ @[:c2 %a@ (term %a)@]@])"
+      (fun k->k "(@[th-cstor.on_pre_merge@ @[:c1 %a@ (term %a)@]@ @[:c2 %a@ (term %a)@]@])"
           N.pp n1 T.pp tc1.t N.pp n2 T.pp tc2.t); 
     let expl = Expl.mk_list [e_n1_n2; Expl.mk_merge n1 tc1.n; Expl.mk_merge n2 tc2.n] in
     match A.view_as_cstor tc1.t, A.view_as_cstor tc2.t with
@@ -71,7 +71,7 @@ module Make(A : ARG) : S with module A = A = struct
       cstors=N_tbl.create 32;
     } in
     (* TODO
-    SI.on_cc_merge solver on_merge;
+    SI.on_cc_pre_merge solver on_pre_merge;
     SI.on_cc_new_term solver on_new_term;
        *)
     self
