@@ -560,9 +560,9 @@ module type SOLVER = sig
 
     val empty : t
 
-    val mem : term -> t -> bool
+    val mem : t -> term -> bool
 
-    val find : term -> t -> Value.t option
+    val find : t -> term -> Value.t option
 
     val eval : t -> term -> Value.t option
 

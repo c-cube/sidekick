@@ -506,29 +506,30 @@ module Make(A : ARG)
       | U_incomplete -> Fmt.string out "incomplete fragment"
   end [@@ocaml.warning "-37"]
 
-  (* TODO *)
-  module Value = struct
-    type t = unit
-    let equal _ _ = true
-    let hash _ = 0
-    let ty _ = Ty.bool
-    let pp out _ = Fmt.string out "<value>"
-  end
+  (* just use terms as values *)
+  module Value = A.Term
 
-  (* TODO *)
   module Model = struct
-    type t = unit
-    let empty = ()
-    let mem _ _ = false
-    let find _ _ = None
-    let eval _ _ = None
-    let pp out _ = Fmt.string out "<model>"
+    type t =
+      | Empty
+      | Map of Value.t A.Term.Tbl.t
+    let empty = Empty
+    let mem = function
+      | Empty -> fun _ -> false
+      | Map tbl -> A.Term.Tbl.mem tbl
+    let find = function
+      | Empty -> fun _ -> None
+      | Map tbl -> A.Term.Tbl.get tbl
+    let eval = find
+    let pp out = function
+      | Empty -> Fmt.string out "(model)"
+      | Map tbl ->
+        let pp_pair out (t,v) =
+          Fmt.fprintf out "(@[<1>%a@ := %a@])" A.Term.pp t Value.pp v
+            in
+        Fmt.fprintf out "(@[<hv>model@ %a@])"
+          (Util.pp_seq pp_pair) (A.Term.Tbl.to_seq tbl)
   end
-
-  (* TODO
-  type model = A.Model.t
-  let pp_model = Model.pp
-     *)
 
   type res =
     | Sat of Model.t
@@ -559,6 +560,27 @@ module Make(A : ARG)
     CC.assert_distinct (cc self) l lit ~neq
      *)
 
+  let mk_model (self:t) (lits:lit Iter.t) : Model.t =
+    Log.debug 1 "(smt.solver.mk-model)";
+    let module M = A.Term.Tbl in
+    let m = M.create 128 in
+    let tst = self.si.tst in
+    (* first, add all boolean *)
+    lits
+      (fun {Lit.lit_term=t;lit_sign=sign} ->
+         M.replace m t (A.Term.bool tst sign));
+    (* then add CC classes *)
+    Solver_internal.CC.all_classes (Solver_internal.cc self.si)
+      (fun repr ->
+         N.iter_class repr
+           (fun u ->
+              let t_u = N.term u in
+              if not (N.equal repr u && M.mem m t_u) then (
+                M.replace m t_u (N.term repr);
+              )));
+    (* TODO: theory combination *)
+    Model.Map m
+
   let check_model (_s:t) : unit =
     Log.debug 1 "(smt.solver.check-model)";
     (* TODO
@@ -578,9 +600,8 @@ module Make(A : ARG)
     | Sat_solver.Sat st ->
       Log.debugf 1 (fun k->k "SAT");
       let _lits f = st.iter_trail f (fun _ -> ()) in
-      let m =
-        Model.empty (* TODO Theory_combine.mk_model (th_combine self) lits *)
-      in
+      (* TODO: theory combination *)
+      let m = mk_model self _lits in
       do_on_exit ();
       Sat m
     | Sat_solver.Unsat us ->
