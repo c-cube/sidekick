@@ -6,7 +6,12 @@ module IM = Util.Int_map
 
 module type ARG = sig
   include Sidekick_core.TERM_PROOF
+
   val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) Sidekick_core.CC_view.t
+
+  val is_valid_literal : Term.t -> bool
+  (** Is this a valid boolean literal? (e.g. is it a closed term, not inside
+      a quantifier) *)
 end
 
 module type S = Sidekick_core.SOLVER
@@ -458,6 +463,7 @@ module Make(A : ARG)
       (fun t -> match A.cc_view t with
          | Sidekick_core.CC_view.Not _ -> false (* will process the subterm just later *)
          | _ -> true)
+    |> Iter.filter (fun t -> A.is_valid_literal t)
     |> Iter.iter
       (fun sub ->
          Log.debugf 5 (fun k->k  "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" T.pp sub);

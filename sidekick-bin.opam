@@ -7,7 +7,7 @@ author: ["Simon Cruanes" "Guillaume Bury"]
 maintainer: ["simon.cruanes.2007@m4x.org"]
 build: [
   ["dune" "build" "@install" "-p" name "-j" jobs]
-  ["dune" "build" "@doc" "-p" name] {with-doc}
+  ["dune" "build" "@doc" "-p" name "-j" jobs ] {with-doc}
   # ["dune" "runtest" "-p" name] {with-test}
 ]
 depends: [
@@ -15,7 +15,7 @@ depends: [
   "containers"
   "iter"
   "zarith"
-  "sidekick"
+  "sidekick" { = version }
   "menhir"
   "msat" { >= "0.8" < "0.9" }
   "ocaml" { >= "4.03" } 
