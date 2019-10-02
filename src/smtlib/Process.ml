@@ -397,6 +397,7 @@ module Solver_arg = struct
   include Sidekick_base_term
 
   let cc_view = Term.cc_view
+  let is_valid_literal _ = true
   module Proof = struct
     type t = Default
     let default=Default
