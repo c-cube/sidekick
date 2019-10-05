@@ -9,6 +9,7 @@ type 'a bool_view =
   | B_equiv of 'a * 'a
   | B_eq of 'a * 'a
   | B_ite of 'a * 'a * 'a
+  | B_opaque_bool of 'a (* do not enter *)
   | B_atom of 'a
 
 module type ARG = sig
@@ -86,6 +87,7 @@ module Make(A : ARG) : S with module A = A = struct
     | B_not u when is_true u -> Some (T.bool tst false)
     | B_not u when is_false u -> Some (T.bool tst true)
     | B_not _ -> None
+    | B_opaque_bool _ -> None
     | B_and a ->
       if IArray.exists is_false a then Some (T.bool tst false)
       else if IArray.for_all is_true a then Some (T.bool tst true)
@@ -129,6 +131,7 @@ module Make(A : ARG) : S with module A = A = struct
     let rec get_lit (t:T.t) : Lit.t =
       match A.view_as_bool t with
       | B_bool b -> mk_lit (T.bool self.tst b)
+      | B_opaque_bool t -> mk_lit t
       | B_not u ->
         let lit = get_lit u in
         Lit.neg lit
