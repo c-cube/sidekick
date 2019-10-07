@@ -75,6 +75,7 @@ module Form =  struct
         else Error.errorf "non boolean value %a in ite" Value.pp a
       | B_equiv (a,b) | B_eq(a,b) -> Value.bool (Value.equal a b)
       | B_atom v -> v
+      | B_opaque_bool t -> Error.errorf "cannot evaluate opaque bool %a" pp t
       | B_not _ | B_and _ | B_or _ | B_imply _
         -> Error.errorf "non boolean value in boolean connective"
 
@@ -169,6 +170,7 @@ module Form =  struct
     | B_equiv (a,b) -> equiv st a b
     | B_eq (a,b) -> T.eq st a b
     | B_not t -> not_ st t
+    | B_opaque_bool t -> t
 
   module Gensym = struct
     type t = {
