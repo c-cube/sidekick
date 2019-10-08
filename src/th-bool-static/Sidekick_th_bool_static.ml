@@ -23,6 +23,12 @@ module type ARG = sig
   val mk_bool : S.A.Term.state -> term bool_view -> term
   (** Make a term from the given boolean view *)
 
+  val check_congruence_classes : bool
+  (** Configuration: add final-check handler to verify if new boolean formulas
+      are present in the congruence closure.
+      Only enable if some theories are susceptible to
+      create boolean formulas during the proof search. *)
+
   module Gensym : sig
     type t
 
@@ -60,13 +66,12 @@ module Make(A : ARG) : S with module A = A = struct
     tst: T.state;
     simps: T.t T.Tbl.t; (* cache *)
     cnf: Lit.t T.Tbl.t; (* tseitin CNF *)
-    cnf_ite: T.t T.Tbl.t; (* proxies for "ite" *)
     gensym: A.Gensym.t;
   }
 
   let create tst : state =
     { tst; simps=T.Tbl.create 128;
-      cnf=T.Tbl.create 128; cnf_ite=T.Tbl.create 32;
+      cnf=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
     }
 
@@ -129,6 +134,16 @@ module Make(A : ARG) : S with module A = A = struct
   (* TODO: polarity? *)
   let cnf (self:state) (_si:SI.t) ~mk_lit ~add_clause (t:T.t) : T.t option =
     let rec get_lit (t:T.t) : Lit.t =
+      match T.Tbl.find self.cnf t with
+      | lit -> lit (* cached *)
+      | exception Not_found ->
+        (* compute and cache *)
+        let lit = get_lit_uncached t in
+        if not (T.equal (Lit.term lit) (T.abs self.tst t |> fst)) then (
+          T.Tbl.add self.cnf t lit;
+        );
+        lit
+    and get_lit_uncached t : Lit.t =
       match A.view_as_bool t with
       | B_bool b -> mk_lit (T.bool self.tst b)
       | B_opaque_bool t -> mk_lit t
@@ -175,11 +190,42 @@ module Make(A : ARG) : S with module A = A = struct
     let u = if Lit.sign lit then u else A.mk_bool self.tst (B_not u) in
     if T.equal u t then None else Some u
 
+  (* check if new terms were added to the congruence closure, that can be turned
+     into clauses *)
+  let check_new_terms (self:state) si (acts:SI.actions) (_trail:_ Iter.t) : unit =
+    let cc_ = SI.cc si in
+    let all_terms =
+      let open SI in
+      CC.all_classes cc_
+      |> Iter.flat_map CC.N.iter_class
+      |> Iter.map CC.N.term
+    in
+    let cnf_of t =
+      cnf self si t
+        ~mk_lit:(SI.mk_lit si acts) ~add_clause:(SI.add_clause_permanent si acts)
+    in
+    begin
+      all_terms
+        (fun t -> match cnf_of t with
+           | None -> ()
+           | Some u ->
+             Log.debugf 5
+               (fun k->k "(@[th-bool-static.final-check.cnf@ %a@ :yields %a@])"
+                   T.pp t T.pp u);
+             SI.CC.merge_t cc_ t u (SI.CC.Expl.mk_list []);
+             ());
+    end;
+    ()
+
   let create_and_setup si =
     Log.debug 2 "(th-bool.setup)";
     let st = create (SI.tst si) in
     SI.add_simplifier si (simplify st);
     SI.add_preprocess si (cnf st);
+    if A.check_congruence_classes then (
+      Log.debug 5 "(th-bool.add-final-check)";
+      SI.on_final_check si (check_new_terms st);
+    );
     st
 
   let theory =
