@@ -20,9 +20,9 @@ module Make(A : ARG) : S with module A = A = struct
   module A = A
   module SI = A.S.Solver_internal
   module T = A.S.A.Term
-  module N = SI.N
+  module N = SI.CC.N
   module Fun = A.S.A.Fun
-  module Expl = SI.Expl
+  module Expl = SI.CC.Expl
 
   type cstor_repr = {
     t: T.t;
@@ -40,7 +40,7 @@ module Make(A : ARG) : S with module A = A = struct
     (* TODO: also allocate a bit in CC to filter out quickly classes without cstors *)
   }
 
-  let on_pre_merge (solver:SI.t) n1 tc1 n2 tc2 e_n1_n2 : unit =
+  let on_pre_merge (solver:SI.t) _cc acts n1 tc1 n2 tc2 e_n1_n2 : unit =
     Log.debugf 5
       (fun k->k "(@[th-cstor.on_pre_merge@ @[:c1 %a@ (term %a)@]@ @[:c2 %a@ (term %a)@]@])"
           N.pp n1 T.pp tc1.t N.pp n2 T.pp tc2.t); 
@@ -52,11 +52,11 @@ module Make(A : ARG) : S with module A = A = struct
         (* same function: injectivity *)
         assert (List.length l1 = List.length l2);
         List.iter2
-          (fun u1 u2 -> SI.cc_merge_t solver u1 u2 expl)
+          (fun u1 u2 -> SI.cc_merge_t solver acts u1 u2 expl)
           l1 l2
       ) else (
         (* different function: disjointness *)
-        SI.cc_raise_conflict solver expl
+        SI.cc_raise_conflict_expl solver acts expl
       )
     | _ -> assert false
 
@@ -71,7 +71,7 @@ module Make(A : ARG) : S with module A = A = struct
       cstors=N_tbl.create 32;
     } in
     (* TODO
-    SI.on_cc_pre_merge solver on_pre_merge;
+    SI.on_cc_pre_merge solver (on_pre_merge solver);
     SI.on_cc_new_term solver on_new_term;
        *)
     self
