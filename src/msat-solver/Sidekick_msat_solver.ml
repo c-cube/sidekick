@@ -5,11 +5,13 @@ module Log = Msat.Log
 module IM = Util.Int_map
 
 module type ARG = sig
-  include Sidekick_core.TERM_PROOF
+  open Sidekick_core
+  module T : TERM
+  module P : PROOF
 
-  val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) Sidekick_core.CC_view.t
+  val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 
-  val is_valid_literal : Term.t -> bool
+  val is_valid_literal : T.Term.t -> bool
   (** Is this a valid boolean literal? (e.g. is it a closed term, not inside
       a quantifier) *)
 end
@@ -17,16 +19,20 @@ end
 module type S = Sidekick_core.SOLVER
 
 module Make(A : ARG)
-  : S with module A = A
+  : S
+    with module T = A.T
+     and module P = A.P
 = struct
-  module A = A
-  module T = A.Term
-  module Ty = A.Ty
-  type term = T.t
+  module T = A.T
+  module P = A.P
+  module Ty = T.Ty
+  module Term = T.Term
+  type term = Term.t
   type ty = Ty.t
-  type lemma = A.Proof.t
+  type lemma = P.t
 
   module Lit_ = struct
+    module T = T
     type t = {
       lit_term: term;
       lit_sign : bool
@@ -39,21 +45,21 @@ module Make(A : ARG)
     let make ~sign t = {lit_sign=sign; lit_term=t}
 
     let atom tst ?(sign=true) (t:term) : t =
-      let t, sign' = T.abs tst t in
+      let t, sign' = Term.abs tst t in
       let sign = if not sign' then not sign else sign in
       make ~sign t
 
     let equal a b =
       a.lit_sign = b.lit_sign &&
-      T.equal a.lit_term b.lit_term
+      Term.equal a.lit_term b.lit_term
 
     let hash a =
       let sign = a.lit_sign in
-      CCHash.combine3 2 (CCHash.bool sign) (T.hash a.lit_term)
+      CCHash.combine3 2 (CCHash.bool sign) (Term.hash a.lit_term)
 
     let pp out l =
-      if l.lit_sign then T.pp out l.lit_term
-      else Format.fprintf out "(@[@<1>¬@ %a@])" T.pp l.lit_term
+      if l.lit_sign then Term.pp out l.lit_term
+      else Format.fprintf out "(@[@<1>¬@ %a@])" Term.pp l.lit_term
 
     let apply_sign t s = if s then t else neg t
     let norm_sign l = if l.lit_sign then l, true else neg l, false
@@ -63,15 +69,19 @@ module Make(A : ARG)
   type lit = Lit_.t
 
   (* actions from msat *)
-  type msat_acts = (Msat.void, lit, Msat.void, A.Proof.t) Msat.acts
+  type msat_acts = (Msat.void, lit, Msat.void, P.t) Msat.acts
 
   (* the full argument to the congruence closure *)
-  module CC_A = struct
-    module A = A
+  module CC_actions = struct
+    module T = T
+    module P = P
     module Lit = Lit_
     let cc_view = A.cc_view
 
     module Actions = struct
+      module T = T
+      module P = P
+      module Lit = Lit
       type t = msat_acts
       let[@inline] raise_conflict a lits pr =
         a.Msat.acts_raise_conflict lits pr
@@ -81,21 +91,21 @@ module Make(A : ARG)
     end
   end
 
-  module CC = Sidekick_cc.Make(CC_A)
+  module CC = Sidekick_cc.Make(CC_actions)
   module Expl = CC.Expl
   module N = CC.N
 
   (** Internal solver, given to theories and to Msat *)
   module Solver_internal = struct
-    module A = A
-    module CC_A = CC_A
+    module T = T
+    module P = P
     module Lit = Lit_
     module CC = CC
     module N = CC.N
-    type term = T.t
+    type term = Term.t
     type ty = Ty.t
     type lit = Lit.t
-    type term_state = T.state
+    type term_state = Term.state
 
     type th_states = 
       | Ths_nil
@@ -112,33 +122,33 @@ module Make(A : ARG)
       type t = {
         tst: term_state;
         mutable hooks: hook list;
-        cache: T.t T.Tbl.t;
+        cache: Term.t Term.Tbl.t;
       }
       and hook = t -> term -> term option
 
-      let create tst : t = {tst; hooks=[]; cache=T.Tbl.create 32;}
+      let create tst : t = {tst; hooks=[]; cache=Term.Tbl.create 32;}
       let[@inline] tst self = self.tst
       let add_hook self f = self.hooks <- f :: self.hooks
-      let clear self = T.Tbl.clear self.cache
+      let clear self = Term.Tbl.clear self.cache
 
-      let normalize (self:t) (t:T.t) : T.t =
+      let normalize (self:t) (t:Term.t) : Term.t =
         (* compute and cache normal form of [t] *)
         let rec aux t =
-          match T.Tbl.find self.cache t with
+          match Term.Tbl.find self.cache t with
           | u -> u
           | exception Not_found ->
             let u = aux_rec t self.hooks in
-            T.Tbl.add self.cache t u;
+            Term.Tbl.add self.cache t u;
             u
         (* try each function in [hooks] successively, and rewrite subterms *)
         and aux_rec t hooks = match hooks with
           | [] ->
-            let u = T.map_shallow self.tst aux t in
-            if T.equal t u then t else aux u
+            let u = Term.map_shallow self.tst aux t in
+            if Term.equal t u then t else aux u
           | h :: hooks_tl ->
             match h self t with
             | None -> aux_rec t hooks_tl
-            | Some u when T.equal t u -> aux_rec t hooks_tl
+            | Some u when Term.equal t u -> aux_rec t hooks_tl
             | Some u -> aux u
         in
         aux t
@@ -146,7 +156,7 @@ module Make(A : ARG)
     type simplify_hook = Simplify.hook
 
     type t = {
-      tst: T.state; (** state for managing terms *)
+      tst: Term.state; (** state for managing terms *)
       cc: CC.t lazy_t; (** congruence closure *)
       stat: Stat.t;
       count_axiom: int Stat.counter;
@@ -156,7 +166,7 @@ module Make(A : ARG)
       mutable on_progress: unit -> unit;
       simp: Simplify.t;
       mutable preprocess: preprocess_hook list;
-      preprocess_cache: T.t T.Tbl.t;
+      preprocess_cache: Term.t Term.Tbl.t;
       mutable th_states : th_states; (** Set of theories *)
       mutable on_partial_check: (t -> actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> actions -> lit Iter.t -> unit) list;
@@ -179,44 +189,44 @@ module Make(A : ARG)
     module Eq_class = CC.N
     module Expl = CC.Expl
 
-    type proof = A.Proof.t
+    type proof = P.t
 
     let[@inline] cc (t:t) = Lazy.force t.cc
     let[@inline] tst t = t.tst
 
     let simplifier self = self.simp
-    let simp_t self (t:T.t) : T.t = Simplify.normalize self.simp t
+    let simp_t self (t:Term.t) : Term.t = Simplify.normalize self.simp t
     let add_simplifier (self:t) f : unit = Simplify.add_hook self.simp f
 
     let add_preprocess self f = self.preprocess <- f :: self.preprocess
 
     let[@inline] raise_conflict self acts c : 'a =
       Stat.incr self.count_conflict;
-      acts.Msat.acts_raise_conflict c A.Proof.default
+      acts.Msat.acts_raise_conflict c P.default
 
     let[@inline] propagate self acts p cs : unit =
       Stat.incr self.count_propagate;
-      acts.Msat.acts_propagate p (Msat.Consequence (fun () -> cs(), A.Proof.default))
+      acts.Msat.acts_propagate p (Msat.Consequence (fun () -> cs(), P.default))
 
     let[@inline] propagate_l self acts p cs : unit =
       propagate self acts p (fun()->cs)
 
     let add_sat_clause_ self acts ~keep lits : unit =
       Stat.incr self.count_axiom;
-      acts.Msat.acts_add_clause ~keep lits A.Proof.default
+      acts.Msat.acts_add_clause ~keep lits P.default
 
     let preprocess_lit_ (self:t) ~add_clause (lit:lit) : lit =
       let mk_lit t = Lit.atom self.tst t in
       (* compute and cache normal form of [t] *)
       let rec aux t =
-        match T.Tbl.find self.preprocess_cache t with
+        match Term.Tbl.find self.preprocess_cache t with
         | u -> u
         | exception Not_found ->
           (* first, map subterms *)
-          let u = T.map_shallow self.tst aux t in
+          let u = Term.map_shallow self.tst aux t in
           (* then rewrite *)
           let u = aux_rec u self.preprocess in
-          T.Tbl.add self.preprocess_cache t u;
+          Term.Tbl.add self.preprocess_cache t u;
           u
       (* try each function in [hooks] successively *)
       and aux_rec t hooks = match hooks with
@@ -227,7 +237,7 @@ module Make(A : ARG)
           | Some u ->
             Log.debugf 30 
               (fun k->k "(@[msat-solver.preprocess.step@ :from %a@ :to %a@])"
-                  T.pp t T.pp u);
+                  Term.pp t Term.pp u);
             aux u
       in
       let t = Lit.term lit |> simp_t self |> aux in
@@ -339,7 +349,7 @@ module Make(A : ARG)
       CC.mk_model (cc self) m
        *)
 
-    let create ~stat (tst:A.Term.state) () : t =
+    let create ~stat (tst:Term.state) () : t =
       let rec self = {
         tst;
         cc = lazy (
@@ -351,7 +361,7 @@ module Make(A : ARG)
         simp=Simplify.create tst;
         on_progress=(fun () -> ());
         preprocess=[];
-        preprocess_cache=T.Tbl.create 32;
+        preprocess_cache=Term.Tbl.create 32;
         count_axiom = Stat.mk_int stat "solver.th-axioms";
         count_preprocess_clause = Stat.mk_int stat "solver.preprocess-clause";
         count_propagate = Stat.mk_int stat "solver.th-propagations";
@@ -439,8 +449,8 @@ module Make(A : ARG)
     begin
       let tst = Solver_internal.tst self.si in
       Sat_solver.assume self.solver [
-        [Lit.atom tst @@ T.bool tst true];
-      ] A.Proof.default;
+        [Lit.atom tst @@ Term.bool tst true];
+      ] P.default;
     end;
     self
 
@@ -456,9 +466,9 @@ module Make(A : ARG)
     mk_atom_lit_ self lit
 
   (* map boolean subterms to literals *)
-  let add_bool_subterms_ (self:t) (t:T.t) : unit =
-    T.iter_dag t
-    |> Iter.filter (fun t -> Ty.is_bool @@ T.ty t)
+  let add_bool_subterms_ (self:t) (t:Term.t) : unit =
+    Term.iter_dag t
+    |> Iter.filter (fun t -> Ty.is_bool @@ Term.ty t)
     |> Iter.filter
       (fun t -> match A.cc_view t with
          | Sidekick_core.CC_view.Not _ -> false (* will process the subterm just later *)
@@ -466,7 +476,7 @@ module Make(A : ARG)
     |> Iter.filter (fun t -> A.is_valid_literal t)
     |> Iter.iter
       (fun sub ->
-         Log.debugf 5 (fun k->k  "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" T.pp sub);
+         Log.debugf 5 (fun k->k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp sub);
          (* ensure that msat has a boolean atom for [sub] *)
          let atom = mk_atom_t_ self sub in
          (* also map [sub] to this atom in the congruence closure, for propagation *)
@@ -485,7 +495,7 @@ module Make(A : ARG)
             (* recursively add these sub-literals, so they're also properly processed *)
             Stat.incr self.si.count_preprocess_clause;
             let atoms = List.map (mk_atom_lit self) lits in
-            Sat_solver.add_clause self.solver atoms A.Proof.default)
+            Sat_solver.add_clause self.solver atoms P.default)
         self.si lit
 
   let[@inline] mk_atom_t self ?sign t : Atom.t =
@@ -507,28 +517,28 @@ module Make(A : ARG)
   end [@@ocaml.warning "-37"]
 
   (* just use terms as values *)
-  module Value = A.Term
+  module Value = Term
 
   module Model = struct
     type t =
       | Empty
-      | Map of Value.t A.Term.Tbl.t
+      | Map of Value.t Term.Tbl.t
     let empty = Empty
     let mem = function
       | Empty -> fun _ -> false
-      | Map tbl -> A.Term.Tbl.mem tbl
+      | Map tbl -> Term.Tbl.mem tbl
     let find = function
       | Empty -> fun _ -> None
-      | Map tbl -> A.Term.Tbl.get tbl
+      | Map tbl -> Term.Tbl.get tbl
     let eval = find
     let pp out = function
       | Empty -> Fmt.string out "(model)"
       | Map tbl ->
         let pp_pair out (t,v) =
-          Fmt.fprintf out "(@[<1>%a@ := %a@])" A.Term.pp t Value.pp v
+          Fmt.fprintf out "(@[<1>%a@ := %a@])" Term.pp t Value.pp v
             in
         Fmt.fprintf out "(@[<hv>model@ %a@])"
-          (Util.pp_seq pp_pair) (A.Term.Tbl.to_seq tbl)
+          (Util.pp_seq pp_pair) (Term.Tbl.to_seq tbl)
   end
 
   type res =
@@ -551,7 +561,7 @@ module Make(A : ARG)
 
   let add_clause (self:t) (c:Atom.t IArray.t) : unit =
     Stat.incr self.count_clause;
-    Sat_solver.add_clause_a self.solver (c:> Atom.t array) A.Proof.default
+    Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default
 
   let add_clause_l self c = add_clause self (IArray.of_list c)
 
@@ -562,13 +572,13 @@ module Make(A : ARG)
 
   let mk_model (self:t) (lits:lit Iter.t) : Model.t =
     Log.debug 1 "(smt.solver.mk-model)";
-    let module M = A.Term.Tbl in
+    let module M = Term.Tbl in
     let m = M.create 128 in
     let tst = self.si.tst in
     (* first, add all boolean *)
     lits
       (fun {Lit.lit_term=t;lit_sign=sign} ->
-         M.replace m t (A.Term.bool tst sign));
+         M.replace m t (Term.bool tst sign));
     (* then add CC classes *)
     Solver_internal.CC.all_classes (Solver_internal.cc self.si)
       (fun repr ->

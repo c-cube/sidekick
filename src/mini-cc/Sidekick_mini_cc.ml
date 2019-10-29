@@ -1,9 +1,9 @@
 module CC_view = Sidekick_core.CC_view
 
 module type ARG = sig
-  include Sidekick_core.TERM
+  module T : Sidekick_core.TERM
 
-  val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
+  val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 end
 
 module type S = sig
@@ -26,11 +26,11 @@ end
 module Make(A: ARG) = struct
   open CC_view
 
-  module Fun = A.Fun
-  module T = A.Term
-  type fun_ = A.Fun.t
+  module Fun = A.T.Fun
+  module T = A.T.Term
+  type fun_ = A.T.Fun.t
   type term = T.t
-  type term_state = A.Term.state
+  type term_state = T.state
 
   module T_tbl = CCHashtbl.Make(T)
 

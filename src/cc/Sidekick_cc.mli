@@ -1,6 +1,10 @@
 (** {2 Congruence Closure} *)
 
-module type ARG = Sidekick_core.CC_ARG
+open Sidekick_core
 module type S = Sidekick_core.CC_S
 
-module Make(A: ARG) : S with module A = A
+module Make (A: CC_ARG)
+  : S with module T = A.T 
+       and module Lit = A.Lit
+       and module P = A.P
+       and module Actions = A.Actions

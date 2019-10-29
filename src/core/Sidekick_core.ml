@@ -89,48 +89,58 @@ module type TERM = sig
   end
 end
 
-module type TERM_PROOF = sig
-  include TERM
+module type PROOF = sig
+  type t
+  val pp : t Fmt.printer
 
-  module Proof : sig
-    type t
-    val pp : t Fmt.printer
+  val default : t
+end
 
-    val default : t
-  end
+module type LIT = sig
+  module T : TERM
+  type t
+
+  val term : t -> T.Term.t
+  val sign : t -> bool
+  val neg : t -> t
+
+  val equal : t -> t -> bool
+  val hash : t -> int
+  val pp : t Fmt.printer
+end
+
+module type CC_ACTIONS = sig
+  module T : TERM
+  module P : PROOF
+  module Lit : LIT with module T = T
+  type t
+
+  val raise_conflict : t -> Lit.t list -> P.t -> 'a
+
+  val propagate : t -> Lit.t -> reason:(unit -> Lit.t list) -> P.t -> unit
 end
 
 module type CC_ARG = sig
-  module A : TERM_PROOF
+  module T : TERM
+  module P : PROOF
+  module Lit : LIT with module T = T
+  module Actions : CC_ACTIONS with module T=T and module P = P and module Lit = Lit
 
-  val cc_view : A.Term.t -> (A.Fun.t, A.Term.t, A.Term.t Iter.t) CC_view.t
+  val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
-
-  module Lit : sig
-    type t
-    val term : t -> A.Term.t
-    val sign : t -> bool
-    val neg : t -> t
-    val pp : t Fmt.printer
-  end
-
-  module Actions : sig
-    type t
-
-    val raise_conflict : t -> Lit.t list -> A.Proof.t -> 'a
-
-    val propagate : t -> Lit.t -> reason:(unit -> Lit.t list) -> A.Proof.t -> unit
-  end
 end
 
 module type CC_S = sig
-  module A : CC_ARG 
-  type term_state = A.A.Term.state
-  type term = A.A.Term.t
-  type fun_ = A.A.Fun.t
-  type lit = A.Lit.t
-  type proof = A.A.Proof.t
-  type actions = A.Actions.t
+  module T : TERM
+  module P : PROOF
+  module Lit : LIT with module T = T
+  module Actions : CC_ACTIONS with module T = T and module Lit = Lit and module P = P
+  type term_state = T.Term.state
+  type term = T.Term.t
+  type fun_ = T.Fun.t
+  type lit = Lit.t
+  type proof = P.t
+  type actions = Actions.t
 
   type t
   (** Global state of the congruence closure *)
@@ -305,14 +315,13 @@ end
 
 (** A view of the solver from a theory's point of view *)
 module type SOLVER_INTERNAL = sig
-  module A : TERM_PROOF 
-  module CC_A : CC_ARG with module A = A
-  module CC : CC_S with module A = CC_A
+  module T : TERM
+  module P : PROOF
 
-  type ty = A.Ty.t
-  type term = A.Term.t
-  type term_state = A.Term.state
-  type proof = A.Proof.t
+  type ty = T.Ty.t
+  type term = T.Term.t
+  type term_state = T.Term.state
+  type proof = P.t
 
   (** {3 Main type for a solver} *)
   type t
@@ -320,25 +329,24 @@ module type SOLVER_INTERNAL = sig
 
   val tst : t -> term_state
 
-  val cc : t -> CC.t
-  (** Congruence closure for this solver *)
-
   (** {3 Literals}
 
       A literal is a (preprocessed) term along with its sign.
       It is directly manipulated by the SAT solver.
   *)
-  module Lit : sig
-    type t
-    val term : t -> term
-    val sign : t -> bool
-    val neg : t -> t
+  module Lit : LIT with module T = T
 
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val pp : t Fmt.printer
-  end
   type lit = Lit.t
+
+  (** {2 Congruence Closure} *)
+
+  module CC : CC_S
+    with module T = T
+     and module P = P
+     and module Lit = Lit
+
+  val cc : t -> CC.t
+  (** Congruence closure for this solver *)
 
   (** {3 Simplifiers} *)
 
@@ -368,11 +376,11 @@ module type SOLVER_INTERNAL = sig
 
   (** {3 hooks for the theory} *)
 
-  type actions = CC_A.Actions.t
+  type actions
 
-  val propagate : t -> actions -> lit -> reason:(unit -> lit list) -> A.Proof.t -> unit
+  val propagate : t -> actions -> lit -> reason:(unit -> lit list) -> proof -> unit
 
-  val raise_conflict : t -> actions -> lit list -> A.Proof.t -> 'a
+  val raise_conflict : t -> actions -> lit list -> proof -> 'a
   (** Give a conflict clause to the solver *)
 
   val propagate: t -> actions -> lit -> (unit -> lit list) -> unit
@@ -472,17 +480,22 @@ end
 
 (** Public view of the solver *)
 module type SOLVER = sig
-  module A : TERM_PROOF
-  module CC_A : CC_ARG with module A = A
-  module Solver_internal : SOLVER_INTERNAL with module A = A and module CC_A = CC_A
+  module T : TERM
+  module P : PROOF
+  module Lit : LIT with module T = T
+  module Solver_internal
+    : SOLVER_INTERNAL
+      with module T = T
+       and module P = P
+       and module Lit = Lit
   (** Internal solver, available to theories.  *)
 
   type t
   type solver = t
-  type term = A.Term.t
-  type ty = A.Ty.t
-  type lit = Solver_internal.Lit.t
-  type lemma = A.Proof.t
+  type term = T.Term.t
+  type ty = T.Ty.t
+  type lit = Lit.t
+  type lemma = P.t
 
   (** {3 A theory}
 
@@ -590,7 +603,7 @@ module type SOLVER = sig
   (** {3 Main API} *)
 
   val stats : t -> Stat.t
-  val tst : t -> A.Term.state
+  val tst : t -> T.Term.state
 
   val create :
     ?stat:Stat.t ->
@@ -598,7 +611,7 @@ module type SOLVER = sig
     (* TODO? ?config:Config.t -> *)
     ?store_proof:bool ->
     theories:theory list ->
-    A.Term.state ->
+    T.Term.state ->
     unit ->
     t
   (** Create a new solver.

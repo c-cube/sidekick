@@ -8,9 +8,9 @@
 module CC_view = Sidekick_core.CC_view
 
 module type ARG = sig
-  include Sidekick_core.TERM
+  module T : Sidekick_core.TERM
 
-  val cc_view : Term.t -> (Fun.t, Term.t, Term.t Iter.t) CC_view.t
+  val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 end
 
 module type S = sig
@@ -38,6 +38,6 @@ module type S = sig
 end
 
 module Make(A: ARG)
-  : S with type term = A.Term.t
-       and type fun_ = A.Fun.t
-       and type term_state = A.Term.state
+  : S with type term = A.T.Term.t
+       and type fun_ = A.T.Fun.t
+       and type term_state = A.T.Term.state

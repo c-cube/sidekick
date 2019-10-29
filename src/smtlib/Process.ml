@@ -399,11 +399,11 @@ let conv_term = Conv.conv_term
 
 (* instantiate solver here *)
 module Solver_arg = struct
-  include Sidekick_base_term
+  module T = Sidekick_base_term
 
   let cc_view = Term.cc_view
   let is_valid_literal _ = true
-  module Proof = struct
+  module P = struct
     type t = Default
     let default=Default
     let pp out _ = Fmt.string out "default"
@@ -643,7 +643,7 @@ let process_stmt
 
 module Th_bool = Sidekick_th_bool_static.Make(struct
   module S = Solver
-  type term = S.A.Term.t
+  type term = S.T.Term.t
   include Form
 end)
 

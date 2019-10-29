@@ -8,7 +8,7 @@ let name = "th-cstor"
 
 module type ARG = sig
   module S : Sidekick_core.SOLVER
-  val view_as_cstor : S.A.Term.t -> (S.A.Fun.t, S.A.Term.t) cstor_view
+  val view_as_cstor : S.T.Term.t -> (S.T.Fun.t, S.T.Term.t) cstor_view
 end
 
 module type S = sig
@@ -19,9 +19,9 @@ end
 module Make(A : ARG) : S with module A = A = struct
   module A = A
   module SI = A.S.Solver_internal
-  module T = A.S.A.Term
+  module T = A.S.T.Term
   module N = SI.CC.N
-  module Fun = A.S.A.Fun
+  module Fun = A.S.T.Fun
   module Expl = SI.CC.Expl
 
   type cstor_repr = {

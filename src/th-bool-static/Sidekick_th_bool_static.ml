@@ -15,12 +15,12 @@ type 'a bool_view =
 module type ARG = sig
   module S : Sidekick_core.SOLVER
 
-  type term = S.A.Term.t
+  type term = S.T.Term.t
 
   val view_as_bool : term -> term bool_view
   (** Project the term into the boolean view *)
 
-  val mk_bool : S.A.Term.state -> term bool_view -> term
+  val mk_bool : S.T.Term.state -> term bool_view -> term
   (** Make a term from the given boolean view *)
 
   val check_congruence_classes : bool
@@ -32,9 +32,9 @@ module type ARG = sig
   module Gensym : sig
     type t
 
-    val create : S.A.Term.state -> t
+    val create : S.T.Term.state -> t
 
-    val fresh_term : t -> pre:string -> S.A.Ty.t -> term
+    val fresh_term : t -> pre:string -> S.T.Ty.t -> term
     (** Make a fresh term of the given type *)
   end
 end
@@ -44,7 +44,7 @@ module type S = sig
 
   type state
 
-  val create : A.S.A.Term.state -> state
+  val create : A.S.T.Term.state -> state
 
   val simplify : state -> A.S.Solver_internal.simplify_hook
   (** Simplify given term *)
@@ -57,8 +57,8 @@ end
 
 module Make(A : ARG) : S with module A = A = struct
   module A = A
-  module Ty = A.S.A.Ty
-  module T = A.S.A.Term
+  module Ty = A.S.T.Ty
+  module T = A.S.T.Term
   module Lit = A.S.Solver_internal.Lit
   module SI = A.S.Solver_internal
 

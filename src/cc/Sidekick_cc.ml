@@ -1,3 +1,4 @@
+open Sidekick_core
 module View = Sidekick_core.CC_view
 
 type ('f, 't, 'ts) view = ('f, 't, 'ts) View.t =
@@ -9,21 +10,27 @@ type ('f, 't, 'ts) view = ('f, 't, 'ts) View.t =
   | Not of 't
   | Opaque of 't (* do not enter *)
 
-module type ARG = Sidekick_core.CC_ARG
 module type S = Sidekick_core.CC_S
 
-module Make(CC_A: ARG) = struct
-  module A = CC_A
-  type term = A.A.Term.t
-  type term_state = A.A.Term.state
-  type lit = A.Lit.t
-  type fun_ = A.A.Fun.t
-  type proof = A.A.Proof.t
-  type actions = A.Actions.t
+module Make (A: CC_ARG)
+  : S with module T = A.T 
+       and module Lit = A.Lit
+       and module P = A.P
+       and module Actions = A.Actions
+= struct
+  module T = A.T
+  module P = A.P
+  module Lit = A.Lit
+  module Actions = A.Actions
+  type term = T.Term.t
+  type term_state = T.Term.state
+  type lit = Lit.t
+  type fun_ = T.Fun.t
+  type proof = P.t
+  type actions = Actions.t
 
-  module T = A.A.Term
-  module Fun = A.A.Fun
-  module Lit = CC_A.Lit
+  module Term = T.Term
+  module Fun = T.Fun
 
   module Bits : sig
     type t = private int
@@ -94,9 +101,9 @@ module Make(CC_A: ARG) = struct
     type t = node
 
     let[@inline] equal (n1:t) n2 = n1 == n2
-    let[@inline] hash n = T.hash n.n_term
+    let[@inline] hash n = Term.hash n.n_term
     let[@inline] term n = n.n_term
-    let[@inline] pp out n = T.pp out n.n_term
+    let[@inline] pp out n = Term.pp out n.n_term
     let[@inline] as_lit n = n.n_as_lit
 
     let make (t:term) : t =
@@ -158,7 +165,7 @@ module Make(CC_A: ARG) = struct
       | E_lit lit -> Lit.pp out lit
       | E_congruence (n1,n2) -> Fmt.fprintf out "(@[congruence@ %a@ %a@])" N.pp n1 N.pp n2
       | E_merge (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" N.pp a N.pp b
-      | E_merge_t (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" T.pp a T.pp b
+      | E_merge_t (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" Term.pp a Term.pp b
       | E_and (a,b) ->
         Format.fprintf out "(@[<hv1>and@ %a@ %a@])" pp a pp b
 
@@ -167,7 +174,7 @@ module Make(CC_A: ARG) = struct
     let[@inline] mk_merge a b : t = 
       assert (same_class a b); 
       if N.equal a b then mk_reduction else E_merge (a,b)
-    let[@inline] mk_merge_t a b : t = if T.equal a b then mk_reduction else E_merge_t (a,b)
+    let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_reduction else E_merge_t (a,b)
     let[@inline] mk_lit l : t = E_lit l
 
     let rec mk_list l =
@@ -227,7 +234,7 @@ module Make(CC_A: ARG) = struct
   end
 
   module Sig_tbl = CCHashtbl.Make(Signature)
-  module T_tbl = CCHashtbl.Make(T)
+  module T_tbl = CCHashtbl.Make(Term)
 
   type combine_task =
     | CT_merge of node * node * explanation
@@ -299,7 +306,7 @@ module Make(CC_A: ARG) = struct
         Fmt.fprintf out " (@[:forest %a :expl %a@])" N.pp e.next Expl.pp e.expl
     in
     let pp_n out n =
-      Fmt.fprintf out "(@[%a%a%a%a@])" T.pp n.n_term pp_root n pp_next n pp_expl n
+      Fmt.fprintf out "(@[%a%a%a%a@])" Term.pp n.n_term pp_root n pp_next n pp_expl n
     and pp_sig_e out (s,n) =
       Fmt.fprintf out "(@[<1>%a@ ~~> %a%a@])" Signature.pp s N.pp n pp_root n
     in
@@ -357,7 +364,7 @@ module Make(CC_A: ARG) = struct
     Vec.clear cc.combine;
     List.iter (fun f -> f cc e) cc.on_conflict;
     Stat.incr cc.count_conflict;
-    CC_A.Actions.raise_conflict acts e A.A.Proof.default
+    Actions.raise_conflict acts e P.default
 
   let[@inline] all_classes cc : repr Iter.t =
     T_tbl.values cc.tbl
@@ -440,7 +447,7 @@ module Make(CC_A: ARG) = struct
       begin match T_tbl.find cc.tbl a, T_tbl.find cc.tbl b with
         | a, b -> explain_pair cc acc a b
         | exception Not_found ->
-          Error.errorf "expl: cannot find node(s) for %a, %a" T.pp a T.pp b
+          Error.errorf "expl: cannot find node(s) for %a, %a" Term.pp a Term.pp b
       end
     | E_and (a,b) ->
       let acc = explain_decompose cc acc a in
@@ -477,7 +484,7 @@ module Make(CC_A: ARG) = struct
   (* add [t] to [cc] when not present already *)
   and add_new_term_ cc (t:term) : node =
     assert (not @@ mem cc t);
-    Log.debugf 15 (fun k->k "(@[cc.add-term@ %a@])" T.pp t);
+    Log.debugf 15 (fun k->k "(@[cc.add-term@ %a@])" Term.pp t);
     let n = N.make t in
     (* register sub-terms, add [t] to their parent list, and return the
        corresponding initial signature *)
@@ -486,7 +493,7 @@ module Make(CC_A: ARG) = struct
     (* remove term when we backtrack *)
     on_backtrack cc
       (fun () ->
-         Log.debugf 15 (fun k->k "(@[cc.remove-term@ %a@])" T.pp t);
+         Log.debugf 15 (fun k->k "(@[cc.remove-term@ %a@])" Term.pp t);
          T_tbl.remove cc.tbl t);
     (* add term to the table *)
     T_tbl.add cc.tbl t n;
@@ -514,7 +521,7 @@ module Make(CC_A: ARG) = struct
       sub
     in
     let[@inline] return x = Some x in
-    match CC_A.cc_view n.n_term with
+    match A.cc_view n.n_term with
     | Bool _ | Opaque _ -> None
     | Eq (a,b) ->
       let a = deref_sub a in
@@ -733,7 +740,7 @@ module Make(CC_A: ARG) = struct
            in
            List.iter (fun f -> f cc lit reason) cc.on_propagate;
            Stat.incr cc.count_props;
-           CC_A.Actions.propagate acts lit ~reason CC_A.A.Proof.default
+           Actions.propagate acts lit ~reason P.default
          | _ -> ())
 
   module Debug_ = struct
@@ -766,7 +773,7 @@ module Make(CC_A: ARG) = struct
     let t = Lit.term lit in
     Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);
     let sign = Lit.sign lit in
-    begin match CC_A.cc_view t with
+    begin match A.cc_view t with
       | Eq (a,b) when sign ->
         let a = add_term cc a in
         let b = add_term cc b in
@@ -837,9 +844,9 @@ module Make(CC_A: ARG) = struct
       count_props=Stat.mk_int stat "cc.propagations";
       count_merge=Stat.mk_int stat "cc.merges";
     } and true_ = lazy (
-        add_term cc (T.bool tst true)
+        add_term cc (Term.bool tst true)
       ) and false_ = lazy (
-        add_term cc (T.bool tst false)
+        add_term cc (Term.bool tst false)
       )
     in
     ignore (Lazy.force true_ : node);
