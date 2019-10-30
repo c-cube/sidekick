@@ -24,7 +24,7 @@ clean:
 	@dune clean
 
 test:
-	@dune runtest
+	@dune runtest --force --no-buffer
 
 TESTOPTS ?= -j $(J)
 TESTTOOL=logitest
@@ -51,7 +51,7 @@ reindent: ocp-indent
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 echo "reindenting: "
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 ocp-indent -i
 
-WATCH=@install
+WATCH=@all
 watch:
 	@dune build $(WATCH) -w
 	#@dune build @all -w # TODO: once tests pass

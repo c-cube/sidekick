@@ -1,0 +1,4 @@
+(tests
+ (names tests)
+ (libraries sidekick.mini-cc sidekick.base-term alcotest)
+ (modes native))

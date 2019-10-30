@@ -8,7 +8,7 @@ maintainer: ["simon.cruanes.2007@m4x.org"]
 build: [
   ["dune" "build" "@install" "-p" name "-j" jobs]
   ["dune" "build" "@doc" "-p" name "-j" jobs ] {with-doc}
-  # ["dune" "runtest" "-p" name] {with-test}
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
 ]
 depends: [
   "dune" {build}
@@ -16,6 +16,7 @@ depends: [
   "iter"
   "msat" { >= "0.8" < "0.9" }
   "ocaml" { >= "4.03" } 
+  "alcotest" {with-test}
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
