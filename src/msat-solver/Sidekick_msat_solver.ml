@@ -193,6 +193,7 @@ module Make(A : ARG)
 
     let[@inline] cc (t:t) = Lazy.force t.cc
     let[@inline] tst t = t.tst
+    let stats t = t.stat
 
     let simplifier self = self.simp
     let simp_t self (t:Term.t) : Term.t = Simplify.normalize self.simp t

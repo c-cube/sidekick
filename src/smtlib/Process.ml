@@ -458,7 +458,11 @@ module Check_cc = struct
   let theory =
     Solver.mk_theory ~name:"cc-check"
       ~create_and_setup:(fun si ->
-          Solver.Solver_internal.on_cc_conflict si (check_conflict si))
+          let n_calls = Stat.mk_int (Solver.Solver_internal.stats si) "check-cc.call" in
+          Solver.Solver_internal.on_cc_conflict si
+            (fun c ->
+               Stat.incr n_calls;
+               check_conflict si c))
       ()
 
 end

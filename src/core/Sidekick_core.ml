@@ -328,6 +328,7 @@ module type SOLVER_INTERNAL = sig
   type solver = t
 
   val tst : t -> term_state
+  val stats : t -> Stat.t
 
   (** {3 Literals}
 
