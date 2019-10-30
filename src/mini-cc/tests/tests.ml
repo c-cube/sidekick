@@ -20,6 +20,8 @@ module Setup() = struct
   let fun_a = Fun.mk_undef_const (ID.make "a") ty_i
   let fun_b = Fun.mk_undef_const (ID.make "b") ty_i
   let fun_c = Fun.mk_undef_const (ID.make "c") ty_i
+  let fun_d1 = Fun.mk_undef_const (ID.make "d1") ty_i
+  let fun_d2 = Fun.mk_undef_const (ID.make "d2") ty_i
 
   let true_ = Term.true_ tst
   let false_ = Term.false_ tst
@@ -29,9 +31,12 @@ module Setup() = struct
   let not_ x = Term.not_ tst x
   let eq a b = Term.eq tst a b
   let neq a b = Term.not_ tst (eq a b)
+  let ite a b c = Term.ite tst a b c
   let a = const fun_a
   let b = const fun_b
   let c = const fun_c
+  let d1 = const fun_d1
+  let d2 = const fun_d2
   let f t1 = app_l fun_f [t1]
   let g t1 t2 = app_l fun_g [t1;t2]
   let p t1 = app_l fun_p [t1]
@@ -125,6 +130,21 @@ let () = mk_test "test_not_false" @@ fun () ->
   let cc = CC.create S.tst in
   CC.add_lit cc S.(not_ false_) true;
   A.(check bool) "is-sat" (CC.check_sat cc) true;
+  ()
+
+let () = mk_test "test_ite" @@ fun () ->
+  let module S = Setup() in
+  let cc = CC.create S.tst in
+  for _i = 0 to 10 do
+    CC.add_lit cc S.(eq a b) true;
+    CC.add_lit cc S.(p (ite (eq a c) d1 d2)) true;
+    CC.add_lit cc S.(not_ (p d1)) true;
+    CC.add_lit cc S.(p d2) true;
+    A.(check bool) "is-sat" (CC.check_sat cc) true;
+    CC.add_lit cc S.(eq b c) true; (* force (p d1) *)
+    A.(check bool) "is-unsat" (CC.check_sat cc) false;
+    CC.clear cc;
+  done;
   ()
 
 (* run alcotest *)

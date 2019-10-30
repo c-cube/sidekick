@@ -17,6 +17,7 @@ and 'a term_view =
   | App_fun of fun_ * 'a IArray.t (* full, first-order application *)
   | Eq of 'a * 'a
   | Not of 'a
+  | Ite of 'a * 'a * 'a
 
 and fun_ = {
   fun_id: ID.t;
@@ -140,6 +141,7 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
     Fmt.fprintf out "(@[<1>%a@ %a@])" pp_id (id_of_fun f) (Util.pp_iarray pp_t) l
   | Eq (a,b) -> Fmt.fprintf out "(@[<hv>=@ %a@ %a@])" pp_t a pp_t b
   | Not u -> Fmt.fprintf out "(@[not@ %a@])" pp_t u
+  | Ite (a,b,c) -> Fmt.fprintf out "(@[ite@ %a@ %a@ %a@])" pp_t a pp_t b pp_t c
 
 let pp_term_top ~ids out t =
   let rec pp out t =
@@ -384,6 +386,7 @@ module Term_cell : sig
     | App_fun of fun_ * 'a IArray.t
     | Eq of 'a * 'a
     | Not of 'a
+    | Ite of 'a * 'a * 'a
 
   type t = term view
 
@@ -396,6 +399,7 @@ module Term_cell : sig
   val app_fun : fun_ -> term IArray.t -> t
   val eq : term -> term -> t
   val not_ : term -> t
+  val ite : term -> term -> term -> t
 
   val ty : t -> Ty.t
   (** Compute the type of this term cell. Not totally free *)
@@ -423,6 +427,7 @@ end = struct
     | App_fun of fun_ * 'a IArray.t
     | Eq of 'a * 'a
     | Not of 'a
+    | Ite of 'a * 'a * 'a
 
   type t = term view
 
@@ -443,6 +448,7 @@ end = struct
         Hash.combine3 4 (Fun.hash f) (Hash.iarray sub_hash l)
       | Eq (a,b) -> Hash.combine3 12 (sub_hash a) (sub_hash b)
       | Not u -> Hash.combine2 70 (sub_hash u)
+      | Ite (a,b,c) -> Hash.combine4 80 (sub_hash a)(sub_hash b)(sub_hash c)
 
     (* equality that relies on physical equality of subterms *)
     let equal (a:A.t view) b : bool = match a, b with
@@ -451,7 +457,7 @@ end = struct
         Fun.equal f1 f2 && IArray.equal sub_eq a1 a2
       | Eq(a1,b1), Eq(a2,b2) -> sub_eq a1 a2 && sub_eq b1 b2
       | Not a, Not b -> sub_eq a b
-      | Bool _, _ | App_fun _, _ | Eq _, _ | Not _, _
+      | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _), _
         -> false
 
     let pp = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:A.pp
@@ -484,8 +490,11 @@ end = struct
     | Not u -> u.term_view
     | _ -> Not t
 
+  let ite a b c = Ite (a,b,c)
+
   let ty (t:t): Ty.t = match t with
     | Bool _ | Eq _ | Not _ -> Ty.bool
+    | Ite (_, b, _) -> b.term_ty
     | App_fun (f, args) ->
       begin match Fun.view f with
         | Fun_undef fty -> 
@@ -516,6 +525,7 @@ end = struct
     | App_fun (_,a) -> IArray.iter f a
     | Not u -> f u
     | Eq (a,b) -> f a; f b
+    | Ite (a,b,c) -> f a; f b; f c
 
   let map f view =
     match view with
@@ -523,6 +533,7 @@ end = struct
     | App_fun (fu,a) -> App_fun (fu, IArray.map f a)
     | Not u -> Not (f u)
     | Eq (a,b) -> Eq (f a, f b)
+    | Ite (a,b,c) -> Ite (f a, f b, f c)
 
   module Tbl = CCHashtbl.Make(struct
       type t = term view
@@ -543,6 +554,7 @@ module Term : sig
     | App_fun of fun_ * 'a IArray.t
     | Eq of 'a * 'a
     | Not of 'a
+    | Ite of 'a * 'a * 'a
 
   val id : t -> int
   val view : t -> term view
@@ -563,6 +575,7 @@ module Term : sig
   val app_fun : state -> fun_ -> t IArray.t -> t
   val eq : state -> t -> t -> t
   val not_ : state -> t -> t
+  val ite : state -> t -> t -> t -> t
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
   val abs : state -> t -> t * bool
@@ -608,6 +621,7 @@ end = struct
     | App_fun of fun_ * 'a IArray.t
     | Eq of 'a * 'a
     | Not of 'a
+    | Ite of 'a * 'a * 'a
 
   let[@inline] id t = t.term_id
   let[@inline] ty t = t.term_ty
@@ -663,6 +677,7 @@ end = struct
   let[@inline] const st c = app_fun st c IArray.empty
   let[@inline] eq st a b = make st (Term_cell.eq a b)
   let[@inline] not_ st a = make st (Term_cell.not_ a)
+  let ite st a b c  : t = make st (Term_cell.ite a b c)
 
   (* might need to tranfer the negation from [t] to [sign] *)
   let abs tst t : t * bool = match view t with
@@ -687,6 +702,7 @@ end = struct
     | App_fun (f,args) -> C.App_fun (f, IArray.to_seq args)
     | Eq (a,b) -> C.Eq (a, b)
     | Not u -> C.Not u
+    | Ite (a,b,c) -> C.If (a,b,c)
 
   module As_key = struct
     type t = term
@@ -735,6 +751,7 @@ end = struct
     | App_fun (hd, a) -> app_fun tst hd (IArray.map f a)
     | Not u -> not_ tst (f u)
     | Eq (a,b) -> eq tst (f a) (f b)
+    | Ite (a,b,c) -> ite tst (f a) (f b) (f c)
 end
 
 module Value : sig

@@ -184,11 +184,6 @@ module Make(A: ARG) = struct
     try T_tbl.find self.tbl t |> Node.root
     with Not_found -> Error.errorf "mini-cc.find_t: no node for %a" T.pp t
 
-  (* does this list contain a duplicate? *)
-  let has_dups (l:node list) : bool =
-    Iter.diagonal (Iter.of_list l)
-    |> Iter.exists (fun (n1,n2) -> Node.equal n1 n2)
-
   exception E_unsat
 
   let compute_sig (self:t) (n:node) : Signature.t option =
@@ -226,6 +221,10 @@ module Make(A: ARG) = struct
       self.combine <- (n,self.false_) :: self.combine
     | Some (Not u) when Node.equal u self.false_ ->
       self.combine <- (n,self.true_) :: self.combine
+    | Some (If (a,b,_)) when Node.equal a self.true_ ->
+      self.combine <- (n,b) :: self.combine
+    | Some (If (a,_,c)) when Node.equal a self.false_ ->
+      self.combine <- (n,c) :: self.combine
     | Some s ->
       Log.debugf 5 (fun k->k "(@[mini-cc.update-sig@ %a@])" Signature.pp s);
       match Sig_tbl.find self.sig_tbl s with
