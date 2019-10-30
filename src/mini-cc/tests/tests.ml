@@ -80,5 +80,28 @@ let () = mk_test "test_trans" @@ fun () ->
   A.(check bool) "is-unsat" (CC.check_sat cc) false;
   ()
 
+let () = mk_test "test_true" @@ fun () ->
+  let module S = Setup() in
+  let cc = CC.create S.tst in
+  CC.add_lit cc S.true_ true;
+  A.(check bool) "is-sat" (CC.check_sat cc) true;
+  CC.add_lit cc S.false_ true;
+  A.(check bool) "is-unsat" (CC.check_sat cc) false;
+  ()
+
+let () = mk_test "test_false" @@ fun () ->
+  let module S = Setup() in
+  let cc = CC.create S.tst in
+  CC.add_lit cc S.false_ true;
+  A.(check bool) "is-unsat" (CC.check_sat cc) false;
+  ()
+
+let () = mk_test "test_not_false" @@ fun () ->
+  let module S = Setup() in
+  let cc = CC.create S.tst in
+  CC.add_lit cc S.(not_ false_) true;
+  A.(check bool) "is-sat" (CC.check_sat cc) true;
+  ()
+
 (* run alcotest *)
 let () = Alcotest.run "mini-cc-tests" ["mini-cc", List.rev !l]
