@@ -25,9 +25,6 @@ module type S = sig
   val add_lit : t -> term -> bool -> unit
   (** [add_lit cc p sign] asserts that [p=sign] *)
 
-  val distinct : t -> term list -> unit
-  (** [distinct cc l] asserts that all terms in [l] are distinct *)
-
   val check_sat : t -> bool
   (** [check_sat cc] returns [true] if the current state is satisfiable, [false]
       if it's unsatisfiable *)

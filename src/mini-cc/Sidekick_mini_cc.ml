@@ -16,7 +16,6 @@ module type S = sig
   val create : term_state -> t
 
   val add_lit : t -> term -> bool -> unit
-  val distinct : t -> term list -> unit
 
   val check_sat : t -> bool
 
@@ -123,9 +122,8 @@ module Make(A: ARG) = struct
     mutable ok: bool; (* unsat? *)
     tbl: node T_tbl.t;
     sig_tbl: node Sig_tbl.t;
-    combine: (node * node) Vec.t;
-    pending: node Vec.t; (* refresh signature *)
-    distinct: node list ref Vec.t; (* disjoint sets *)
+    mutable combine: (node * node) list;
+    mutable pending: node list; (* refresh signature *)
     true_: node;
     false_: node;
   }
@@ -137,9 +135,8 @@ module Make(A: ARG) = struct
       ok=true;
       tbl= T_tbl.create 128;
       sig_tbl=Sig_tbl.create 128;
-      combine=Vec.create();
-      pending=Vec.create();
-      distinct=Vec.create();
+      combine=[];
+      pending=[];
       true_=Node.make true_;
       false_=Node.make false_;
     } in
@@ -168,7 +165,7 @@ module Make(A: ARG) = struct
           let n_u = Node.root @@ add_t self u in
           Node.add_parent n_u ~p:node);
       (* need to compute signature *)
-      Vec.push self.pending node;
+      self.pending <- node :: self.pending;
       node
 
   let find_t_ (self:t) (t:term): node =
@@ -181,13 +178,6 @@ module Make(A: ARG) = struct
     |> Iter.exists (fun (n1,n2) -> Node.equal n1 n2)
 
   exception E_unsat
-
-  let check_distinct_ self : unit =
-    Vec.iter
-      (fun r ->
-         r := List.rev_map Node.root !r;
-         if has_dups !r then raise_notrace E_unsat)
-      self.distinct
 
   let compute_sig (self:t) (n:node) : Signature.t option =
     let[@inline] return x = Some x in
@@ -218,7 +208,7 @@ module Make(A: ARG) = struct
         let n2 = self.true_ in
         Log.debugf 5
           (fun k->k "(@[mini-cc.congruence-by-eq@ %a@ %a@])" Node.pp n Node.pp n2);
-        Vec.push self.combine (n,n2)
+        self.combine <- (n,n2) :: self.combine;
       )
     | Some s ->
       Log.debugf 5 (fun k->k "(@[mini-cc.update-sig@ %a@])" Signature.pp s);
@@ -228,14 +218,14 @@ module Make(A: ARG) = struct
         (* collision, merge *)
         Log.debugf 5
           (fun k->k "(@[mini-cc.congruence-by-sig@ %a@ %a@])" Node.pp n Node.pp n2);
-        Vec.push self.combine (n,n2)
+        self.combine <- (n,n2) :: self.combine;
       | exception Not_found ->
         Sig_tbl.add self.sig_tbl s n
 
   let[@inline] is_bool self n = Node.equal self.true_ n || Node.equal self.false_ n
 
   (* merge the two classes *)
-  let merge_ self (n1,n2) : unit =
+  let merge_ self n1 n2 : unit =
     let n1 = Node.root n1 in
     let n2 = Node.root n2 in
     if not @@ Node.equal n1 n2 then (
@@ -253,7 +243,7 @@ module Make(A: ARG) = struct
         raise E_unsat
       );
 
-      List.iter (Vec.push self.pending) n2.n_parents; (* will change signature *)
+      self.pending <- List.rev_append n2.n_parents self.pending; (* will change signature *)
 
       (* merge parent lists *)
       n1.n_parents <- List.rev_append n2.n_parents n1.n_parents;
@@ -273,16 +263,19 @@ module Make(A: ARG) = struct
 
   (* fixpoint of the congruence closure *)
   let fixpoint (self:t) : unit =
-    while not (Vec.is_empty self.pending && Vec.is_empty self.combine) do
+    while not (CCList.is_empty self.pending && CCList.is_empty self.combine) do
       check_ok_ self;
-      while not @@ Vec.is_empty self.pending do
-        update_sig_ self @@ Vec.pop self.pending
+      while not @@ CCList.is_empty self.pending do
+        let n = List.hd self.pending in
+        self.pending <- List.tl self.pending;
+        update_sig_ self n
       done;
-      while not @@ Vec.is_empty self.combine do
-        merge_ self @@ Vec.pop self.combine
+      while not @@ CCList.is_empty self.combine do
+        let (n1,n2) = List.hd self.combine in
+        self.combine <- List.tl self.combine;
+        merge_ self n1 n2
       done
-    done;
-    check_distinct_ self
+    done
 
   (* API *)
 
@@ -291,19 +284,12 @@ module Make(A: ARG) = struct
     | Eq (t1,t2) when sign ->
       let n1 = add_t self t1 in
       let n2 = add_t self t2 in
-      Vec.push self.combine (n1,n2)
+      self.combine <- (n1,n2) :: self.combine
     | _ ->
       (* just merge with true/false *)
       let n = add_t self p in
       let n2 =  if sign then self.true_ else self.false_ in
-      Vec.push self.combine (n,n2)
-
-  let distinct (self:t) l =
-    match l with
-    | [] | [_] -> () (* trivial *)
-    | _ -> 
-      let l = List.rev_map (add_t self) l in
-      Vec.push self.distinct (ref l)
+      self.combine <- (n,n2) :: self.combine
 
   let check_sat (self:t) : bool =
     try fixpoint self; true
