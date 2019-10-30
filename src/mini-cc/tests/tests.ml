@@ -70,6 +70,18 @@ let () = mk_test "test_f_f_f_a" @@ fun () ->
   A.(check bool) "is-unsat" (CC.check_sat cc) false;
   ()
 
+let () = mk_test "test_repeated_f_f_f_a" @@ fun () ->
+  let module S = Setup() in
+  let cc = CC.create S.tst in
+  for _i = 0 to 10 do
+    CC.add_lit cc S.(neq a (f (f (f (f (f (f a))))))) true;
+    A.(check bool) "is-sat" (CC.check_sat cc) true;
+    CC.add_lit cc S.(eq a (f a)) true;
+    A.(check bool) "is-unsat" (CC.check_sat cc) false;
+    CC.clear cc;
+  done;
+  ()
+
 let () = mk_test "test_trans" @@ fun () ->
   let module S = Setup() in
   let cc = CC.create S.tst in
@@ -87,6 +99,18 @@ let () = mk_test "test_true" @@ fun () ->
   A.(check bool) "is-sat" (CC.check_sat cc) true;
   CC.add_lit cc S.false_ true;
   A.(check bool) "is-unsat" (CC.check_sat cc) false;
+  ()
+
+let () = mk_test "test_repeated_true" @@ fun () ->
+  let module S = Setup() in
+  let cc = CC.create S.tst in
+  for _i = 0 to 10 do
+    CC.add_lit cc S.true_ true;
+    A.(check bool) "is-sat" (CC.check_sat cc) true;
+    CC.add_lit cc S.false_ true;
+    A.(check bool) "is-unsat" (CC.check_sat cc) false;
+    CC.clear cc;
+  done;
   ()
 
 let () = mk_test "test_false" @@ fun () ->

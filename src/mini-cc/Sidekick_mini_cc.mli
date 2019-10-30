@@ -22,6 +22,9 @@ module type S = sig
 
   val create : term_state -> t
 
+  val clear : t -> unit
+  (** Fully reset the congruence closure's state *)
+
   val add_lit : t -> term -> bool -> unit
   (** [add_lit cc p sign] asserts that [p=sign] *)
 

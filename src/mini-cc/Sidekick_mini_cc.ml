@@ -15,6 +15,8 @@ module type S = sig
 
   val create : term_state -> t
 
+  val clear : t -> unit
+
   val add_lit : t -> term -> bool -> unit
 
   val check_sat : t -> bool
@@ -143,6 +145,16 @@ module Make(A: ARG) = struct
     T_tbl.add self.tbl true_ self.true_;
     T_tbl.add self.tbl false_ self.false_;
     self
+
+  let clear (self:t) : unit =
+    self.ok <- true;
+    T_tbl.clear self.tbl;
+    Sig_tbl.clear self.sig_tbl;
+    self.pending <- [];
+    self.combine <- [];
+    T_tbl.add self.tbl self.true_.n_t self.true_;
+    T_tbl.add self.tbl self.false_.n_t self.false_;
+    ()
 
   let sub_ t k : unit =
     match A.cc_view t with
