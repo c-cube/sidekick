@@ -210,6 +210,10 @@ module Make(A: ARG) = struct
           (fun k->k "(@[mini-cc.congruence-by-eq@ %a@ %a@])" Node.pp n Node.pp n2);
         self.combine <- (n,n2) :: self.combine;
       )
+    | Some (Not u) when Node.equal u self.true_ ->
+      self.combine <- (n,self.false_) :: self.combine
+    | Some (Not u) when Node.equal u self.false_ ->
+      self.combine <- (n,self.true_) :: self.combine
     | Some s ->
       Log.debugf 5 (fun k->k "(@[mini-cc.update-sig@ %a@])" Signature.pp s);
       match Sig_tbl.find self.sig_tbl s with
