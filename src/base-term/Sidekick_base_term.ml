@@ -14,6 +14,7 @@ module Arg
     with type Term.t = Term.t
      and type Fun.t = Fun.t
      and type Ty.t = Ty.t
+     and type Term.state = Term.state
 = struct
   module Term = Term
   module Fun = Fun
