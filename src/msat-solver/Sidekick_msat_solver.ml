@@ -1,8 +1,6 @@
 (** {1 Implementation of a Solver using Msat} *)
 
-module Vec = Msat.Vec
 module Log = Msat.Log
-module IM = Util.Int_map
 
 module type ARG = sig
   open Sidekick_core
@@ -553,10 +551,6 @@ module Make(A : ARG)
 
   (** {2 Main} *)
 
-  (* print all terms reachable from watched literals *)
-  let pp_term_graph _out (_:t) =
-    () (* TODO *)
-
   let pp_stats out (self:t) : unit =
     Stat.pp_all out (Stat.all @@ stats self)
 
@@ -565,11 +559,6 @@ module Make(A : ARG)
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default
 
   let add_clause_l self c = add_clause self (IArray.of_list c)
-
-  (* TODO: remove? use a special constant + micro theory instead?
-  let[@inline] assume_distinct self l ~neq lit : unit =
-    CC.assert_distinct (cc self) l lit ~neq
-     *)
 
   let mk_model (self:t) (lits:lit Iter.t) : Model.t =
     Log.debug 1 "(smt.solver.mk-model)";
@@ -591,13 +580,6 @@ module Make(A : ARG)
               )));
     (* TODO: theory combination *)
     Model.Map m
-
-  let check_model (_s:t) : unit =
-    Log.debug 1 "(smt.solver.check-model)";
-    (* TODO
-    Sat_solver.check_model s.solver
-    *)
-    ()
 
   let solve ?(on_exit=[]) ?(check=true) ?(on_progress=fun _ -> ())
       ~assumptions (self:t) : res =

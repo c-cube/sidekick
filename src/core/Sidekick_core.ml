@@ -658,6 +658,5 @@ module type SOLVER = sig
         if any, will be a subset of [assumptions].
       @param on_exit functions to be run before this returns *)
 
-  val pp_term_graph: t CCFormat.printer
   val pp_stats : t CCFormat.printer
 end
