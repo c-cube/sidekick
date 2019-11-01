@@ -100,6 +100,8 @@ let main () =
     Arg.usage argspec usage;
     exit 2
   );
+  let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
+  check := !check || CCOpt.is_some dot_proof; (* dot requires a proof *)
   let al = Gc.create_alarm check_limits in
   Util.setup_gc();
   let tst = Term.create ~size:4_096 () in
@@ -114,7 +116,6 @@ let main () =
     (* might have to check conflicts *)
     Solver.add_theory solver Process.Check_cc.theory;
   );
-  let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
   Sidekick_smtlib.parse !file >>= fun input ->
   (* process statements *)
   let res =
