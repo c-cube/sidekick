@@ -134,15 +134,19 @@ module Make(A : ARG) : S with module A = A = struct
   (* TODO: polarity? *)
   let cnf (self:state) (_si:SI.t) ~mk_lit ~add_clause (t:T.t) : T.t option =
     let rec get_lit (t:T.t) : Lit.t =
-      match T.Tbl.find self.cnf t with
-      | lit -> lit (* cached *)
-      | exception Not_found ->
-        (* compute and cache *)
-        let lit = get_lit_uncached t in
-        if not (T.equal (Lit.term lit) (T.abs self.tst t |> fst)) then (
-          T.Tbl.add self.cnf t lit;
-        );
-        lit
+      let t_abs, t_sign = T.abs self.tst t in
+      let lit =
+        match T.Tbl.find self.cnf t_abs with
+        | lit -> lit (* cached *)
+        | exception Not_found ->
+          (* compute and cache *)
+          let lit = get_lit_uncached t_abs in
+          if not (T.equal (Lit.term lit) t_abs) then (
+            T.Tbl.add self.cnf t_abs lit;
+          );
+          lit
+      in
+      if t_sign then lit else Lit.neg lit
     and get_lit_uncached t : Lit.t =
       match A.view_as_bool t with
       | B_bool b -> mk_lit (T.bool self.tst b)
