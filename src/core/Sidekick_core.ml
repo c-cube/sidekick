@@ -10,12 +10,6 @@
 
 module Fmt = CCFormat
 
-module type MERGE_PP = sig
-  type t
-  val merge : t -> t -> t
-  val pp : t Fmt.printer
-end
-
 module CC_view = struct
   type ('f, 't, 'ts) t =
     | Bool of bool
@@ -330,6 +324,10 @@ module type SOLVER_INTERNAL = sig
   val tst : t -> term_state
   val stats : t -> Stat.t
 
+  (** {3 Actions for the theories} *)
+
+  type actions
+
   (** {3 Literals}
 
       A literal is a (preprocessed) term along with its sign.
@@ -345,6 +343,7 @@ module type SOLVER_INTERNAL = sig
     with module T = T
      and module P = P
      and module Lit = Lit
+     and type Actions.t = actions
 
   val cc : t -> CC.t
   (** Congruence closure for this solver *)
@@ -376,8 +375,6 @@ module type SOLVER_INTERNAL = sig
   val simp_t : t -> term -> term
 
   (** {3 hooks for the theory} *)
-
-  type actions
 
   val propagate : t -> actions -> lit -> reason:(unit -> lit list) -> proof -> unit
 
@@ -505,7 +502,8 @@ module type SOLVER = sig
       so they can work with any implementation.
 
       Typically a theory should be a functor taking an argument containing
-      a [SOLVER_INTERNAL] and some additional views on terms, literals, etc.
+      a [SOLVER_INTERNAL] or even a full [SOLVER],
+      and some additional views on terms, literals, etc.
       that are specific to the theory (e.g. to map terms to linear
       expressions).
       The theory can then be instantiated on any kind of solver for any
