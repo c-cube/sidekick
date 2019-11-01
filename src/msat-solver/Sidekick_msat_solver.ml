@@ -310,6 +310,8 @@ module Make(A : ARG)
       CC.check cc acts;
       if final then (
         List.iter (fun f -> f self acts lits) self.on_final_check;
+        CC.check cc acts;
+        (* TODO: theory combination until fixpoint *)
       ) else (
         List.iter (fun f -> f self acts lits) self.on_partial_check;
       );
