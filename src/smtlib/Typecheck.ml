@@ -3,12 +3,12 @@
 (** {1 Preprocessing AST} *)
 
 open Sidekick_base_term
-module Loc = Locations
+module Loc = Smtlib_utils.Loc
 module Fmt = CCFormat
 module Log = Msat.Log
 
 module A = Ast
-module PA = Parse_ast
+module PA = Smtlib_utils.Ast
 
 type 'a or_error = ('a, string) CCResult.t
 
@@ -118,6 +118,7 @@ let find_id_ ctx (s:string): ID.t =
 (* parse a type *)
 let rec conv_ty ctx (t:PA.ty) : A.Ty.t * _ = match t with
   | PA.Ty_bool -> A.Ty.prop, Ctx.K_ty Ctx.K_bool
+  | PA.Ty_real -> A.Ty.rat, Ctx.K_ty Ctx.K_other
   | PA.Ty_app ("Rat",[]) -> A.Ty.rat, Ctx.K_ty Ctx.K_other
   | PA.Ty_app ("Int",[]) -> A.Ty.int , Ctx.K_ty Ctx.K_other
   | PA.Ty_app (f, l) ->
@@ -211,10 +212,6 @@ let rec conv_term ctx (t:PA.term) : A.term = match t with
     let a = conv_term ctx a in
     let b = conv_term ctx b in
     A.imply a b
-  | PA.Xor (a,b) ->
-    let a = conv_term ctx a in
-    let b = conv_term ctx b in
-    A.or_ (A.and_ a (A.not_ b)) (A.and_ (A.not_ a) b)
   | PA.Match (lhs, l) ->
     (*
     errorf_ctx ctx "TODO: support match in %a" PA.pp_term t
@@ -363,7 +360,7 @@ let rec conv_statement ctx (s:PA.statement): A.statement list =
 and conv_statement_aux ctx (stmt:PA.statement) : A.statement list = match PA.view stmt with
   | PA.Stmt_set_logic s -> [A.SetLogic s]
   | PA.Stmt_set_option l -> [A.SetOption l]
-  | PA.Stmt_set_info l -> [A.SetInfo l]
+  | PA.Stmt_set_info (a,b) -> [A.SetInfo [a;b]]
   | PA.Stmt_exit -> [A.Exit]
   | PA.Stmt_decl_sort (s,n) ->
     let id = Ctx.add_id ctx s (Ctx.K_ty Ctx.K_uninterpreted) in
@@ -442,14 +439,5 @@ and conv_statement_aux ctx (stmt:PA.statement) : A.statement list = match PA.vie
     let t = conv_term ctx t in
     check_bool_ t;
     [A.Assert t]
-  | PA.Stmt_assert_not ([], t) ->
-    let vars, t = A.unfold_binder A.Forall (conv_term ctx t) in
-    let g = A.not_ t in (* negate *)
-    [A.Goal (vars, g)]
-  | PA.Stmt_assert_not (_::_, _) ->
-    errorf_ctx ctx "cannot convert polymorphic goal@ `@[%a@]`"
-      PA.pp_stmt stmt
-  | PA.Stmt_lemma _ ->
-    errorf_ctx ctx "smbc does not know how to handle `lemma` statements"
   | PA.Stmt_check_sat -> [A.CheckSat]
 

@@ -2,7 +2,7 @@
 
 (** {1 Preprocessing AST} *)
 
-module Loc = Locations
+module Loc = Smtlib_utils.Loc
 
 type 'a or_error = ('a, string) CCResult.t
 
@@ -14,7 +14,7 @@ module Ctx : sig
   val pp : t CCFormat.printer
 end
 
-module PA = Parse_ast
+module PA = Smtlib_utils.Ast
 module A = Ast
 
 val conv_term : Ctx.t -> PA.term -> A.term

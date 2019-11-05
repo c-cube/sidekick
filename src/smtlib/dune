@@ -3,11 +3,5 @@
  (public_name sidekick-bin.smtlib)
  (libraries containers zarith msat sidekick.core sidekick.util
    sidekick.msat-solver sidekick.base-term sidekick.th-bool-static
-   sidekick.mini-cc msat.backend)
+   sidekick.mini-cc msat.backend smtlib-utils)
  (flags :standard -open Sidekick_util))
-
-(menhir
- (modules Parser))
-
-(ocamllex
- (modules Lexer))
