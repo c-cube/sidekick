@@ -5,14 +5,14 @@ services:
 - docker
 env:
   global:
-  - PINS="sidekick:."
+  - PINS="sidekick:. sidekick-bin:. smtlib-utils:https://github.com/c-cube/smtlib-utils.git"
   - DISTRO="ubuntu-16.04"
-  - PACKAGE="sidekick"
   matrix:
   #- PACKAGE="sidekick" OCAML_VERSION="4.02.3"
-  - OCAML_VERSION="4.03"
-  - OCAML_VERSION="4.04"
-  - OCAML_VERSION="4.05"
-  - OCAML_VERSION="4.06"
-  - OCAML_VERSION="4.08"
-  - OCAML_VERSION="4.09"
+  - PACKAGE="sidekick" CAML_VERSION="4.03"
+  - PACKAGE="sidekick" CAML_VERSION="4.04"
+  - PACKAGE="sidekick" CAML_VERSION="4.05"
+  - PACKAGE="sidekick" CAML_VERSION="4.06"
+  - PACKAGE="sidekick" CAML_VERSION="4.08"
+  - PACKAGE="sidekick" CAML_VERSION="4.09"
+  - PACKAGE="sidekick-bin" CAML_VERSION="4.06" 
