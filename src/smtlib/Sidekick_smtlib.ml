@@ -4,8 +4,8 @@ module ID = Sidekick_base_term.ID
 module Fmt = CCFormat
 module Ast = Ast
 module E = CCResult
-module Loc = Smtlib_utils.Loc
-module Parse_ast = Smtlib_utils.Ast
+module Loc = Smtlib_utils.V_2_6.Loc
+module Parse_ast = Smtlib_utils.V_2_6.Ast
 module Process = Process
 module Solver = Process.Solver
 
@@ -20,7 +20,7 @@ module Parse = struct
   let parse_chan_exn ?(filename="<no name>") ic =
     let lexbuf = Lexing.from_channel ic in
     Loc.set_file lexbuf filename;
-    Smtlib_utils.Parser.parse_list Smtlib_utils.Lexer.token lexbuf
+    Smtlib_utils.V_2_6.(Parser.parse_list Lexer.token) lexbuf
 
   let parse_file_exn file : Parse_ast.statement list =
     CCIO.with_in file (parse_chan_exn ~filename:file)

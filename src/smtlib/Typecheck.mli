@@ -2,7 +2,7 @@
 
 (** {1 Preprocessing AST} *)
 
-module Loc = Smtlib_utils.Loc
+module Loc = Smtlib_utils.V_2_6.Loc
 
 type 'a or_error = ('a, string) CCResult.t
 
@@ -14,7 +14,7 @@ module Ctx : sig
   val pp : t CCFormat.printer
 end
 
-module PA = Smtlib_utils.Ast
+module PA = Smtlib_utils.V_2_6.Ast
 module A = Ast
 
 val conv_term : Ctx.t -> PA.term -> A.term

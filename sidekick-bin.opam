@@ -21,9 +21,6 @@ depends: [
   "msat" { >= "0.8" < "0.9" }
   "ocaml" { >= "4.03" } 
 ]
-pin-depends: [
-  ["smtlib-utils.0.1" "git+https://github.com/c-cube/smtlib-utils.git"]
-]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
 dev-repo: "git+https://github.com/c-cube/sidekick.git"

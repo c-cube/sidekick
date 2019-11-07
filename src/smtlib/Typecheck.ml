@@ -3,12 +3,12 @@
 (** {1 Preprocessing AST} *)
 
 open Sidekick_base_term
-module Loc = Smtlib_utils.Loc
+module Loc = Smtlib_utils.V_2_6.Loc
 module Fmt = CCFormat
 module Log = Msat.Log
 
 module A = Ast
-module PA = Smtlib_utils.Ast
+module PA = Smtlib_utils.V_2_6.Ast
 
 type 'a or_error = ('a, string) CCResult.t
 
@@ -369,10 +369,13 @@ and conv_statement_aux ctx (stmt:PA.statement) : A.statement list = match PA.vie
     let f, ty = conv_fun_decl ctx fr in
     let id = Ctx.add_id ctx f (Ctx.K_fun ty) in
     [A.Decl (id, ty)]
-  | PA.Stmt_data ([],l) ->
+  | PA.Stmt_data l when List.for_all (fun ((_,n),_) -> n=0) l ->
     (* first, read and declare each datatype (it can occur in the other
     datatypes' construtors) *)
-    let pre_parse (data_name,cases) =
+    let pre_parse ((data_name,arity),cases) =
+      if arity <> 0 then (
+        errorf_ctx ctx "cannot handle polymorphic datatype %s" data_name;
+      );
       let data_id = Ctx.add_id ctx data_name (Ctx.K_ty Ctx.K_data) in
       data_id, cases
     in
@@ -382,7 +385,10 @@ and conv_statement_aux ctx (stmt:PA.statement) : A.statement list = match PA.vie
      List.map
        (fun (data_id, (cstors:PA.cstor list)) ->
          let data_ty = A.Ty.const data_id in
-         let parse_case {PA.cstor_name=c; cstor_args} =
+         let parse_case {PA.cstor_name=c; cstor_args; cstor_ty_vars} =
+           if cstor_ty_vars <> [] then (
+             errorf_ctx ctx "cannot handle polymorphic constructor %s" c;
+           );
            let selectors =
              List.map (fun (n,ty) -> Some n, conv_ty_fst ctx ty) cstor_args
            in
@@ -440,4 +446,19 @@ and conv_statement_aux ctx (stmt:PA.statement) : A.statement list = match PA.vie
     check_bool_ t;
     [A.Assert t]
   | PA.Stmt_check_sat -> [A.CheckSat]
+  | PA.Stmt_check_sat_assuming _
+  | PA.Stmt_get_assertions 
+  | PA.Stmt_get_option _
+  | PA.Stmt_get_info _
+  | PA.Stmt_get_model
+  | PA.Stmt_get_proof
+  | PA.Stmt_get_unsat_core
+  | PA.Stmt_get_unsat_assumptions
+  | PA.Stmt_get_assignment
+  | PA.Stmt_reset
+  | PA.Stmt_reset_assertions
+  | PA.Stmt_push _
+  | PA.Stmt_pop _
+  | PA.Stmt_get_value _
+      -> errorf_ctx ctx "cannot handle statement %a" PA.pp_stmt stmt
 
