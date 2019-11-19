@@ -22,7 +22,6 @@ sat = ":status sat"
 timeout=10
 problems = ".*\\.smt2"
 provers = [ "sidekick", ]
-dir = [ "." ]
 
 expect = "program:read-status"
 

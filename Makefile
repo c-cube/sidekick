@@ -32,9 +32,16 @@ DATE=$(shell date +%FT%H:%M)
 
 logitest-quick:
 	@mkdir -p snapshots
-	$(TESTTOOL) run -c tests/conf.toml tests/ $(TESTOPTS) \
-	  --meta `git rev-parse HEAD` --summary snapshots/quick-$(DATE).txt \
-	  --csv snapshots/quick-$(DATE).csv
+	$(TESTTOOL) run -c tests/conf.toml $(TESTOPTS) \
+	  --meta `git rev-parse HEAD` --csv snapshots/quick-$(DATE).csv tests/sat tests/unsat/ tests/pigeon
+logitest-smt-QF_UF:
+	@mkdir -p snapshots
+	$(TESTTOOL) run -c tests/conf.toml $(TESTOPTS) \
+	  --meta `git rev-parse HEAD` --csv snapshots/smt-QF_UF-$(DATE).csv tests/QF_UF
+logitest-smt-QF_DT:
+	@mkdir -p snapshots
+	$(TESTTOOL) run -c tests/conf.toml $(TESTOPTS) \
+	  --meta `git rev-parse HEAD` --csv snapshots/smt-QF_DT-$(DATE).csv tests/QF_DT
 
 install: build-install
 	@dune install
