@@ -11,12 +11,6 @@ val th_bool : Solver.theory
 
 type 'a or_error = ('a, string) CCResult.t
 
-(* TODO: record type for config *)
-
-val conv_ty : Ast.Ty.t -> Ty.t
-
-val conv_term : Term.state -> Ast.term -> Term.t
-
 module Check_cc : sig
   (** theory that check validity of conflicts *)
   val theory : Solver.theory
@@ -34,5 +28,5 @@ val process_stmt :
   ?memory:float ->
   ?progress:bool ->
   Solver.t ->
-  Ast.statement ->
+  Statement.t ->
   unit or_error

@@ -65,12 +65,25 @@ and ty_view =
 
 and ty_def =
   | Ty_uninterpreted of ID.t
+  | Ty_data of data
   | Ty_def of {
       id: ID.t;
       pp: ty Fmt.printer -> ty list Fmt.printer;
       default_val: value list -> value; (* default value of this type *)
       card: ty list -> ty_card;
     }
+
+and data = {
+  data_id: ID.t;
+  data_cstors: (ty * select list) ID.Map.t;
+}
+
+and select = {
+  select_name: ID.t lazy_t;
+  select_cstor: ID.t;
+  select_ty: ty lazy_t;
+  select_i: int;
+}
 
 and ty_card =
   | Finite
@@ -91,6 +104,20 @@ and value =
     } (** Custom value *)
 
 and value_custom_view = ..
+
+type definition = ID.t * ty * term
+
+type statement =
+  | Stmt_set_logic of string
+  | Stmt_set_option of string list
+  | Stmt_set_info of string * string
+  | Stmt_data of data list
+  | Stmt_ty_decl of ID.t * int (* new atomic cstor *)
+  | Stmt_decl of ID.t * ty list * ty
+  | Stmt_define of definition list
+  | Stmt_assert of term
+  | Stmt_check_sat
+  | Stmt_exit
 
 let[@inline] term_equal_ (a:term) b = a==b
 let[@inline] term_hash_ a = a.term_id
@@ -130,6 +157,9 @@ let rec pp_ty out t = match t.ty_view with
   | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args
   | Ty_atomic {def=Ty_def def; args; _} -> def.pp pp_ty out args
+  | Ty_atomic {def=Ty_data d; args=[];_} -> ID.pp out d.data_id
+  | Ty_atomic {def=Ty_data d; args;_} ->
+    Fmt.fprintf out "(@[%a@ %a@])" ID.pp d.data_id (Util.pp_list pp_ty) args
 
 let pp_term_view_gen ~pp_id ~pp_t out = function
   | Bool true -> Fmt.string out "true"
@@ -155,44 +185,58 @@ let pp_term = pp_term_top ~ids:false
 let pp_term_view = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:pp_term
 
 module Ty_card : sig
-type t = ty_card = Finite | Infinite
+  type t = ty_card = Finite | Infinite
 
-val (+) : t -> t -> t
-val ( * ) : t -> t -> t
-val ( ^ ) : t -> t -> t
-val finite : t
-val infinite : t
+  val (+) : t -> t -> t
+  val ( * ) : t -> t -> t
+  val ( ^ ) : t -> t -> t
+  val finite : t
+  val infinite : t
 
-val sum : t list -> t
-val product : t list -> t
+  val sum : t list -> t
+  val product : t list -> t
 
-val equal : t -> t -> bool
-val compare : t -> t -> int
-val pp : t CCFormat.printer
-    end = struct
-type t = ty_card = Finite | Infinite
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val pp : t CCFormat.printer
+end = struct
+  type t = ty_card = Finite | Infinite
 
-let (+) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-let ( * ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-let ( ^ ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-let finite = Finite
-let infinite = Infinite
+  let (+) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
+  let ( * ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
+  let ( ^ ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
+  let finite = Finite
+  let infinite = Infinite
 
-let sum = List.fold_left (+) Finite
-let product = List.fold_left ( * ) Finite
+  let sum = List.fold_left (+) Finite
+  let product = List.fold_left ( * ) Finite
 
-let equal = (=)
-let compare = Pervasives.compare
-let pp out = function
-  | Finite -> CCFormat.string out "finite"
-  | Infinite -> CCFormat.string out "infinite"
-
-  end
+  let equal = (=)
+  let compare = Pervasives.compare
+  let pp out = function
+    | Finite -> CCFormat.string out "finite"
+    | Infinite -> CCFormat.string out "infinite"
+end
 
 module Ty : sig
   type t = ty
-  type view = ty_view
-  type def = ty_def
+  type view = ty_view =
+    | Ty_bool
+    | Ty_atomic of {
+      def: ty_def;
+      args: ty list;
+      card: ty_card lazy_t;
+    }
+
+  type def = ty_def =
+    | Ty_uninterpreted of ID.t
+    | Ty_data of data
+    | Ty_def of {
+        id: ID.t;
+        pp: ty Fmt.printer -> ty list Fmt.printer;
+        default_val: value list -> value; (* default value of this type *)
+        card: ty list -> ty_card;
+      }
 
   val id : t -> int
   val view : t -> view
@@ -228,8 +272,22 @@ module Ty : sig
   end
 end = struct
   type t = ty
-  type view = ty_view
-  type def = ty_def
+  type view = ty_view =
+    | Ty_bool
+    | Ty_atomic of {
+      def: ty_def;
+      args: ty list;
+      card: ty_card lazy_t;
+    }
+  type def = ty_def =
+    | Ty_uninterpreted of ID.t
+    | Ty_data of data
+    | Ty_def of {
+        id: ID.t;
+        pp: ty Fmt.printer -> ty list Fmt.printer;
+        default_val: value list -> value; (* default value of this type *)
+        card: ty list -> ty_card;
+      }
 
   let[@inline] id t = t.ty_id
   let[@inline] view t = t.ty_view
@@ -241,7 +299,8 @@ end = struct
   let equal_def d1 d2 = match d1, d2 with
     | Ty_uninterpreted id1, Ty_uninterpreted id2 -> ID.equal id1 id2
     | Ty_def d1, Ty_def d2 -> ID.equal d1.id d2.id
-    | Ty_uninterpreted _, _ | Ty_def _, _
+    | Ty_data d1, Ty_data d2 -> ID.equal d1.data_id d2.data_id
+    | (Ty_uninterpreted _ | Ty_def _ | Ty_data _), _
       -> false
 
   module H = Hashcons.Make(struct
@@ -259,6 +318,8 @@ end = struct
           Hash.combine3 10 (ID.hash id) (Hash.list hash args)
         | Ty_atomic {def=Ty_def d; args; _} ->
           Hash.combine3 20 (ID.hash d.id) (Hash.list hash args)
+        | Ty_atomic {def=Ty_data d; args; _} ->
+          Hash.combine3 30 (ID.hash d.data_id) (Hash.list hash args)
 
       let set_id ty id =
         assert (ty.ty_id < 0);
@@ -284,6 +345,7 @@ end = struct
       | Ty_uninterpreted _ ->
         if List.for_all (fun sub -> card sub = Finite) args then Finite else Infinite
       | Ty_def d -> d.card args
+      | Ty_data _ -> assert false (* TODO *)
     ) in
     make_ (Ty_atomic {def; args; card})
 
@@ -335,6 +397,7 @@ module Fun : sig
 
   val do_cc : t -> bool
   val mk_undef : ID.t -> Ty.Fun.t -> t
+  val mk_undef' : ID.t -> Ty.t list -> Ty.t -> t
   val mk_undef_const : ID.t -> Ty.t -> t
 
   val pp : t CCFormat.printer
@@ -360,6 +423,7 @@ end = struct
 
   let[@inline] mk_undef id ty = make id (Fun_undef ty)
   let[@inline] mk_undef_const id ty = mk_undef id (Ty.Fun.mk [] ty)
+  let[@inline] mk_undef' id args ret = mk_undef id {fun_ty_args=args; fun_ty_ret=ret}
 
   let[@inline] do_cc (c:t) : bool = match view c with
     | Fun_undef _ -> true
@@ -809,7 +873,51 @@ end = struct
     mk_elt (ID.makef "v_%d" t.term_id) t.term_ty
 end
 
+module Data = struct
+  type t = data = {
+    data_id: ID.t;
+    data_cstors: (ty * select list) ID.Map.t;
+  }
+end
+
+module Select = struct
+  type t = select = {
+    select_name: ID.t lazy_t;
+    select_cstor: ID.t;
+    select_ty: ty lazy_t;
+    select_i: int;
+  }
+end
+
 module Proof = struct
   type t = Default
   let default = Default
+end
+
+module Statement = struct
+  type t = statement =
+    | Stmt_set_logic of string
+    | Stmt_set_option of string list
+    | Stmt_set_info of string * string
+    | Stmt_data of data list
+    | Stmt_ty_decl of ID.t * int (* new atomic cstor *)
+    | Stmt_decl of ID.t * ty list * ty
+    | Stmt_define of definition list
+    | Stmt_assert of term
+    | Stmt_check_sat
+    | Stmt_exit
+
+  let pp out = function
+    | Stmt_set_logic s -> Fmt.fprintf out "(set-logic %s)" s
+    | Stmt_set_option l -> Fmt.fprintf out "(@[set-logic@ %a@])" (Util.pp_list Fmt.string) l
+    | Stmt_set_info (a,b) -> Fmt.fprintf out "(@[set-info@ %s@ %s@])" a b
+    | Stmt_check_sat -> Fmt.string out "(check-sat)"
+    | Stmt_ty_decl (s,n) -> Fmt.fprintf out "(@[declare-sort@ %a %d@])" ID.pp s n
+    | Stmt_decl (id,args,ret) ->
+      Fmt.fprintf out "(@[<1>declare-fun@ %a (@[%a@])@ %a@])"
+        ID.pp id (Util.pp_list Ty.pp) args Ty.pp ret
+    | Stmt_assert t -> Fmt.fprintf out "(@[assert@ %a@])" pp_term t
+    | Stmt_exit -> Fmt.string out "(exit)"
+    | Stmt_data _ -> assert false (* TODO *)
+    | Stmt_define _ -> assert false (* TODO *)
 end

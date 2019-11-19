@@ -8,6 +8,9 @@ module Term = Base_types.Term
 module Value = Base_types.Value
 module Term_cell = Base_types.Term_cell
 module Ty = Base_types.Ty
+module Statement = Base_types.Statement
+module Data = Base_types.Data
+module Select = Base_types.Select
 
 module Arg
   : Sidekick_core.TERM

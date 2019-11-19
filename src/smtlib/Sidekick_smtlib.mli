@@ -6,10 +6,11 @@
 
 type 'a or_error = ('a, string) CCResult.t
 
-module Ast = Ast
+module Term = Sidekick_base_term.Term
+module Stmt = Sidekick_base_term.Statement
 module Process = Process
 module Solver = Process.Solver
 
-val parse : string -> Ast.statement list or_error
+val parse : Term.state -> string -> Stmt.t list or_error
 
-val parse_stdin : unit -> Ast.statement list or_error
+val parse_stdin : Term.state -> Stmt.t list or_error

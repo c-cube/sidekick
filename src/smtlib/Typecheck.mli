@@ -3,6 +3,9 @@
 (** {1 Preprocessing AST} *)
 
 module Loc = Smtlib_utils.V_2_6.Loc
+module PA = Smtlib_utils.V_2_6.Ast
+module T = Sidekick_base_term.Term
+module Stmt = Sidekick_base_term.Statement
 
 type 'a or_error = ('a, string) CCResult.t
 
@@ -10,14 +13,11 @@ type 'a or_error = ('a, string) CCResult.t
 
 module Ctx : sig
   type t
-  val create: unit -> t
+  val create: T.state -> t
   val pp : t CCFormat.printer
 end
 
-module PA = Smtlib_utils.V_2_6.Ast
-module A = Ast
+val conv_term : Ctx.t -> PA.term -> T.t
 
-val conv_term : Ctx.t -> PA.term -> A.term
-
-val conv_statement : Ctx.t -> PA.statement -> A.statement list
+val conv_statement : Ctx.t -> PA.statement -> Stmt.t list
 

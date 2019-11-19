@@ -1,0 +1,180 @@
+open Sidekick_base_term
+
+module T = Term
+open Sidekick_th_bool_static
+exception Not_a_th_term
+
+let id_and = ID.make "and"
+let id_or = ID.make "or"
+let id_imply = ID.make "=>"
+let id_ite = ID.make "ite"
+
+let view_id fid args =
+  if ID.equal fid id_and then (
+    B_and args
+  ) else if ID.equal fid id_or then (
+    B_or args
+  ) else if ID.equal fid id_imply && IArray.length args >= 2 then (
+    (* conclusion is stored first *)
+    let len = IArray.length args in
+    B_imply (IArray.sub args 1 (len-1), IArray.get args 0)
+  ) else if ID.equal fid id_ite && IArray.length args = 3 then (
+    B_ite (IArray.get args 0, IArray.get args 1, IArray.get args 2)
+  ) else (
+    raise_notrace Not_a_th_term
+  )
+
+let view_as_bool (t:T.t) : T.t bool_view =
+  match T.view t with
+  | Bool b -> B_bool b
+  | Not u -> B_not u
+  | Eq (a, b) when Ty.is_bool (T.ty a) -> B_equiv (a,b)
+  | App_fun ({fun_id; _}, args) ->
+    (try view_id fun_id args with Not_a_th_term -> B_atom t)
+  | _ -> B_atom t
+
+module Funs = struct
+  let get_ty id args =
+    if ID.equal id id_ite then T.ty (IArray.get args 1)
+    else Ty.bool
+
+  let abs ~self _a =
+    match T.view self with
+    | Not u -> u, false
+    | _ -> self, true
+
+  (* no congruence closure for boolean terms *)
+  let relevant _id _ _ = false
+
+  let eval id args =
+    let open Value in
+    match view_id id args with
+    | B_bool b -> Value.bool b
+    | B_not (V_bool b) -> Value.bool (not b)
+    | B_and a when IArray.for_all Value.is_true a -> Value.true_
+    | B_and a when IArray.exists Value.is_false a -> Value.false_
+    | B_or a when IArray.exists Value.is_true a -> Value.true_
+    | B_or a when IArray.for_all Value.is_false a -> Value.false_
+    | B_imply (_, V_bool true) -> Value.true_
+    | B_imply (a,_) when IArray.exists Value.is_false a -> Value.true_
+    | B_imply (a,b) when IArray.for_all Value.is_bool a && Value.is_bool b -> Value.false_
+    | B_ite(a,b,c) ->
+      if Value.is_true a then b
+      else if Value.is_false a then c
+      else Error.errorf "non boolean value %a in ite" Value.pp a
+    | B_equiv (a,b) | B_eq(a,b) -> Value.bool (Value.equal a b)
+    | B_atom v -> v
+    | B_opaque_bool t -> Error.errorf "cannot evaluate opaque bool %a" pp t
+    | B_not _ | B_and _ | B_or _ | B_imply _
+      -> Error.errorf "non boolean value in boolean connective"
+
+  let mk_fun ?(do_cc=false) id : Fun.t =
+    {fun_id=id;
+     fun_view=Fun_def {
+         pp=None; abs; ty=get_ty; relevant; do_cc; eval=eval id; }; }
+
+  let and_ = mk_fun id_and
+  let or_ = mk_fun id_or
+  let imply = mk_fun id_imply
+  let ite = mk_fun id_ite
+end
+
+let as_id id (t:T.t) : T.t IArray.t option =
+  match T.view t with
+  | App_fun ({fun_id; _}, args) when ID.equal id fun_id -> Some args
+  | _ -> None
+
+(* flatten terms of the given ID *)
+let flatten_id op sign (l:T.t list) : T.t list =
+  CCList.flat_map
+    (fun t -> match as_id op t with
+       | Some args -> IArray.to_list args
+       | None when (sign && T.is_true t) || (not sign && T.is_false t) ->
+         [] (* idempotent *)
+       | None -> [t])
+    l
+
+let and_l st l =
+  match flatten_id id_and true l with
+  | [] -> T.true_ st
+  | l when List.exists T.is_false l -> T.false_ st
+  | [x] -> x
+  | args -> T.app_fun st Funs.and_ (IArray.of_list args)
+
+let or_l st l =
+  match flatten_id id_or false l with
+  | [] -> T.false_ st
+  | l when List.exists T.is_true l -> T.true_ st
+  | [x] -> x
+  | args -> T.app_fun st Funs.or_ (IArray.of_list args)
+
+let and_ st a b = and_l st [a;b]
+let or_ st a b = or_l st [a;b]
+let and_a st a = and_l st (IArray.to_list a)
+let or_a st a = or_l st (IArray.to_list a)
+let eq = T.eq
+let not_ = T.not_
+
+let ite st a b c = match T.view a with
+  | T.Bool ba -> if ba then b else c
+  | _ -> T.app_fun st Funs.ite (IArray.of_array_unsafe [| a;b;c |])
+
+let equiv st a b =
+  if T.equal a b then T.true_ st
+  else if T.is_true a then b
+  else if T.is_true b then a
+  else if T.is_false a then not_ st b
+  else if T.is_false b then not_ st a
+  else T.eq st a b
+
+let neq st a b = not_ st @@ eq st a b
+
+let imply_a st xs y =
+  if IArray.is_empty xs then y
+  else T.app_fun st Funs.imply (IArray.append (IArray.singleton y) xs)
+
+let imply_l st xs y = match xs with
+  | [] -> y
+  | _ -> T.app_fun st Funs.imply (IArray.of_list @@ y :: xs)
+
+let imply st a b = imply_a st (IArray.singleton a) b
+
+let distinct_l tst l =
+  match l with
+  | [] | [_] -> T.true_ tst
+  | l ->
+    (* turn into [and_{i<j} t_i != t_j] *)
+    let cs =
+      CCList.diagonal l |> List.map (fun (a,b) -> neq tst a b) 
+    in
+    and_l tst cs
+
+let mk_bool st = function
+  | B_bool b -> T.bool st b
+  | B_atom t -> t
+  | B_and l -> and_a st l
+  | B_or l -> or_a st l
+  | B_imply (a,b) -> imply_a st a b
+  | B_ite (a,b,c) -> ite st a b c
+  | B_equiv (a,b) -> equiv st a b
+  | B_eq (a,b) -> T.eq st a b
+  | B_not t -> not_ st t
+  | B_opaque_bool t -> t
+
+module Gensym = struct
+  type t = {
+    tst: T.state;
+    mutable fresh: int;
+  }
+
+  let create tst : t = {tst; fresh=0}
+
+  let fresh_term (self:t) ~pre (ty:Ty.t) : T.t =
+    let name = Printf.sprintf "_tseitin_%s%d" pre self.fresh in
+    self.fresh <- 1 + self.fresh;
+    let id = ID.make name in
+    T.const self.tst @@ Fun.mk_undef_const id ty
+end
+
+(* NOTE: no plugin produces new boolean formulas *)
+let check_congruence_classes = false

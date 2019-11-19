@@ -9,7 +9,6 @@ open CCResult.Infix
 module E = CCResult
 module Fmt = CCFormat
 module Term = Sidekick_base_term.Term
-module Ast = Sidekick_smtlib.Ast
 module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
 module Vec = Msat.Vec
@@ -33,7 +32,7 @@ let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
 
-let hyps : Ast.term list ref = ref []
+let hyps : Term.t list ref = ref []
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -79,8 +78,9 @@ let argspec = Arg.align [
     "--no-p", Arg.Clear p_progress, " no progress bar";
     "--size", Arg.String (int_arg size_limit), " <s>[kMGT] sets the size limit for the sat solver";
     "--time", Arg.String (int_arg time_limit), " <t>[smhd] sets the time limit for the sat solver";
-    "-v", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
-  ]
+    "-d", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
+    "--debug", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
+  ] |> List.sort compare
 
 (* Limits alarm *)
 let check_limits () =
@@ -116,7 +116,7 @@ let main () =
     (* might have to check conflicts *)
     Solver.add_theory solver Process.Check_cc.theory;
   );
-  Sidekick_smtlib.parse !file >>= fun input ->
+  Sidekick_smtlib.parse tst !file >>= fun input ->
   (* process statements *)
   let res =
     try

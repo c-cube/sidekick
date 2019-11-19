@@ -4,4 +4,6 @@
  (libraries containers zarith msat sidekick.core sidekick.util
    sidekick.msat-solver sidekick.base-term sidekick.th-bool-static
    sidekick.mini-cc msat.backend smtlib-utils)
- (flags :standard -open Sidekick_util))
+ (flags :standard -warn-error -27-37 -open Sidekick_util))
+
+; TODO: enable warn-error again
