@@ -1,5 +1,5 @@
 
-provers = [ "sidekick", "read-status" ]
+provers = [ "sidekick", "read-status", "z3" ]
 default_expect = "sat"
 
 [sidekick]
@@ -17,13 +17,20 @@ cmd = "grep :status $file"
 unsat = ":status unsat"
 sat = ":status sat"
 
+[z3]
+
+cmd = "z3 $file"
+unsat = "unsat"
+sat = "^sat"
+
 [test]
 
 timeout=10
 problems = ".*\\.smt2"
 provers = [ "sidekick", ]
 
-expect = "program:read-status"
+# TODO: expect=[program:read-status; program:z3]
+expect = "program:z3"
 
 
 
