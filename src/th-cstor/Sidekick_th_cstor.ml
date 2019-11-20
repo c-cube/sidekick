@@ -46,6 +46,9 @@ module Make(A : ARG) : S with module A = A = struct
   let on_new_term self _solver n (t:T.t) =
     match A.view_as_cstor t with
     | T_cstor (cstor,args) ->
+      Log.debugf 20
+        (fun k->k "(@[th-cstor.on-new-term@ %a@ :cstor %a@ @[:args@ (@[%a@])@]@]@])"
+            T.pp t Fun.pp cstor (Util.pp_iarray T.pp) args);
       N_tbl.add self.cstors n {n; t; cstor; args};
     | _ -> ()
 
