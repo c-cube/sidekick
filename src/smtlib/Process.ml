@@ -76,10 +76,9 @@ module Check_cc = struct
                Stat.incr n_calls;
                check_conflict si c))
       ()
-
 end
 
-(* TODO
+(* TODO: use external proof checker instead: check-sat(φ + model)
 (* check SMT model *)
 let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : unit =
   Log.debug 1 "(smt.check-smt-model)";
@@ -213,8 +212,8 @@ let process_stmt
     (* TODO: more? *)
   in
   begin match stmt with
-    | Statement.Stmt_set_logic ("QF_UF"|"QF_LRA"|"QF_UFLRA") ->
-      E.return () (* TODO: QF_DT *)
+    | Statement.Stmt_set_logic ("QF_UF"|"QF_LRA"|"QF_UFLRA"|"QF_DT") ->
+      E.return ()
     | Statement.Stmt_set_logic s ->
       Log.debugf 0 (fun k->k "warning: unknown logic `%s`" s);
       E.return ()
@@ -246,25 +245,20 @@ let process_stmt
       Solver.add_clause solver (IArray.singleton atom);
       E.return()
     | Statement.Stmt_data _ ->
-      Error.errorf "cannot deal with datatypes yet"
+      E.return()
     | Statement.Stmt_define _ ->
       Error.errorf "cannot deal with definitions yet"
   end
 
-(* TODO: this + datatypes
 module Th_cstor = Sidekick_th_cstor.Make(struct
-    module Solver = Solver
-    module T = Solver.A.Term
+    module S = Solver
+    open Base_types
+    open Sidekick_th_cstor
 
-    let[@inline] view_as_cstor t = match view t with
-      | App_cst (c, args) when Fun.do_cc
-      | If (a,b,c) -> T_ite (a,b,c)
-      | Bool b -> T_bool b
+    let view_as_cstor t = match Term.view t with
+      | Term.App_fun ({fun_view=Fun.Fun_cstor _;_} as f, args) -> T_cstor (f, args)
       | _ -> T_other t
-    end
-
   end)
-   *)
 
 module Th_bool = Sidekick_th_bool_static.Make(struct
   module S = Solver
@@ -272,5 +266,5 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
   include Form
 end)
 
-let th_bool : Solver.theory =
-  Th_bool.theory
+let th_bool : Solver.theory = Th_bool.theory
+let th_cstor : Solver.theory = Th_cstor.theory

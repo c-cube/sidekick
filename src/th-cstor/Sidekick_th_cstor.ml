@@ -1,7 +1,7 @@
 (** {1 Theory for constructors} *)
 
 type ('c,'t) cstor_view =
-  | T_cstor of 'c * 't list
+  | T_cstor of 'c * 't IArray.t
   | T_other of 't
 
 let name = "th-cstor"
@@ -28,7 +28,7 @@ module Make(A : ARG) : S with module A = A = struct
     t: T.t;
     n: N.t;
     cstor: Fun.t;
-    args: T.t list;
+    args: T.t IArray.t;
   }
   (* associate to each class a unique constructor term in the class (if any) *)
 
@@ -65,8 +65,8 @@ module Make(A : ARG) : S with module A = A = struct
         in
         if Fun.equal cr1.cstor cr2.cstor then (
           (* same function: injectivity *)
-          assert (List.length cr1.args = List.length cr2.args);
-          List.iter2
+          assert (IArray.length cr1.args = IArray.length cr2.args);
+          IArray.iter2
             (fun u1 u2 -> SI.CC.merge_t cc u1 u2 expl)
             cr1.args cr2.args
         ) else (

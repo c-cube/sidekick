@@ -26,8 +26,6 @@ module Ctx = struct
   type kind =
     | K_ty of ty_kind
     | K_fun of Fun.t
-    | K_cstor of Fun.t * Ty.t
-    | K_select of Fun.t * Ty.t * BT.Select.t
 
   and ty_kind =
     | K_atomic of Ty.def
@@ -35,35 +33,24 @@ module Ctx = struct
 
   type t = {
     tst: T.state;
-    names: ID.t StrTbl.t;
-    kinds: kind ID.Tbl.t;
+    names: (ID.t * kind) StrTbl.t;
     lets: T.t StrTbl.t;
-    data: (ID.t * Ty.t) list ID.Tbl.t; (* data -> cstors *)
     mutable loc: Loc.t option; (* current loc *)
   }
 
   let create (tst:T.state) : t = {
     tst;
     names=StrTbl.create 64;
-    kinds=ID.Tbl.create 64;
     lets=StrTbl.create 16;
-    data=ID.Tbl.create 64;
     loc=None;
   }
 
   let loc t = t.loc
   let set_loc ?loc t = t.loc <- loc
 
-  let add_id_ self (s:string) (k:ID.t -> kind): ID.t =
-    let id = ID.make s in
-    StrTbl.add self.names s id;
-    ID.Tbl.add self.kinds id (k id);
-    id
-
-  let add_id self (s:string) (k:kind): ID.t = add_id_ self s (fun _ ->k)
-
-  let add_data self (id:ID.t) cstors: unit =
-    ID.Tbl.add self.data id cstors
+  let add_id_ self (s:string) (id:ID.t) (k:kind) : unit =
+    StrTbl.add self.names s (id,k);
+    ()
 
   (* locally bind [bs] and call [f], then remove bindings *)
   let with_lets (self:t) (bs:(string*T.t) list) (f:unit -> 'a): 'a =
@@ -72,32 +59,14 @@ module Ctx = struct
       ~h:(fun () ->
           List.iter (fun (v,_) -> StrTbl.remove self.lets v) bs)
 
-  let find_kind self (id:ID.t) : kind =
-    try ID.Tbl.find self.kinds id
-    with Not_found -> Error.errorf "did not find kind of ID `%a`" ID.pp id
-
-  let find_ty_def self (id:ID.t) : Ty.def =
-    match find_kind self id with
-    | K_ty (K_atomic def) -> def
-    | _ -> Error.errorf "expected %a to be an atomic type" ID.pp id
-
-  let as_data _self (ty:Ty.t) : BT.Data.t =
-    match Ty.view ty with
-    | Ty.Ty_atomic {def=Ty.Ty_data d;_} -> d
-    | _ -> Error.errorf "expected %a to be a constant type" Ty.pp ty
+  let find_ty_def self (s:string) : Ty.def =
+    match StrTbl.get self.names s with
+    | Some (_, K_ty (K_atomic def)) -> def
+    | _ -> Error.errorf "expected %s to be an atomic type" s
 
   let pp_kind out = function
     | K_ty _ -> Format.fprintf out "type"
-    | K_cstor (_,ty) ->
-      Format.fprintf out "(@[cstor : %a@])" Ty.pp ty
-    | K_select (_,ty,s) ->
-      Format.fprintf out "(@[select-%a-%d : %a@])"
-        ID.pp s.Select.select_cstor s.Select.select_i Ty.pp ty
     | K_fun f -> Fun.pp out f
-
-  let pp out t =
-    Format.fprintf out "ctx {@[%a@]}"
-      Fmt.(seq ~sep:(return "@ ") @@ pair ID.pp pp_kind) (ID.Tbl.to_seq t.kinds)
 end
 
 let error_loc ctx : string = Fmt.sprintf "at %a: " pp_loc_opt (Ctx.loc ctx)
@@ -112,7 +81,7 @@ let check_bool_ ctx t =
     ill_typed ctx "expected bool, got `@[%a : %a@]`" T.pp t Ty.pp (T.ty t)
   )
 
-let find_id_ ctx (s:string): ID.t =
+let find_id_ ctx (s:string): ID.t * Ctx.kind =
   try StrTbl.find ctx.Ctx.names s
   with Not_found -> errorf_ctx ctx "name `%s` not in scope" s
 
@@ -131,7 +100,7 @@ let rec conv_ty ctx (t:PA.ty) : Ty.t = match t with
     ill_typed ctx "cannot handle ints for now"
     (* TODO: A.Ty.int , Ctx.K_ty Ctx.K_other *)
   | PA.Ty_app (f, l) ->
-    let def = Ctx.find_ty_def ctx @@ find_id_ ctx f in
+    let def = Ctx.find_ty_def ctx f in
     let l = List.map (conv_ty ctx) l in
     Ty.atomic def l
   | PA.Ty_arrow _ ->
@@ -158,25 +127,18 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
     begin match StrTbl.find ctx.Ctx.lets f with
       | u -> u
       | exception Not_found ->
-        let id = find_id_ ctx f in
-        begin match Ctx.find_kind ctx id with
-          | Ctx.K_fun f -> T.const tst f
-          | Ctx.K_ty _ ->
-            errorf_ctx ctx "expected term, not type; got `%a`" ID.pp id
-          | Ctx.K_cstor _ ->
-            errorf_ctx ctx "cannot handle constructors for now"
-            (* FIXME: A.const id ty *)
-          | Ctx.K_select _ -> errorf_ctx ctx "unapplied `select` not supported"
+        begin match find_id_ ctx f with
+          | _, Ctx.K_fun f -> T.const tst f
+          | _, Ctx.K_ty _ ->
+            errorf_ctx ctx "expected term, not type; got `%s`" f
         end
     end
   | PA.App (f, args) ->
-    let id = find_id_ ctx f in
     let args = List.map (conv_term ctx) args in
-    begin match Ctx.find_kind ctx id with
-      | Ctx.K_fun f -> T.app_fun tst f (IArray.of_list args)
-      | _ ->
-        (* TODO: constructor + selector *)
-        errorf_ctx ctx "expected constant application; got `%a`" ID.pp id
+    begin match find_id_ ctx f with
+      | _, Ctx.K_fun f -> T.app_fun tst f (IArray.of_list args)
+      | _, Ctx.K_ty _ ->
+        errorf_ctx ctx "expected function, got type `%s` instead" f
     end
   | PA.If (a,b,c) ->
     let a = conv_term ctx a in
@@ -214,6 +176,13 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
     let a = conv_term ctx a in
     let b = conv_term ctx b in
     Form.imply tst a b
+  | PA.Is_a (s, u) ->
+    let u = conv_term ctx u in
+    begin match find_id_ ctx s with
+      | _, Ctx.K_fun {Fun.fun_view=Fun_cstor c; _} ->
+        Term.is_a tst c u
+      | _ -> errorf_ctx ctx "expected `%s` to be a constructor" s
+    end
   | PA.Match (_lhs, _l) ->
     errorf_ctx ctx "TODO: support match in %a" PA.pp_term t
     (* FIXME: do that properly, using [with_lets] with selectors
@@ -370,19 +339,20 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
   | PA.Stmt_set_info (a,b) -> [Stmt.Stmt_set_info (a,b)]
   | PA.Stmt_exit -> [Stmt.Stmt_exit]
   | PA.Stmt_decl_sort (s,n) ->
-    let id = Ctx.add_id_ ctx s
-        (fun id -> Ctx.K_ty (Ctx.K_atomic (Ty.Ty_uninterpreted id))) in
+    let id = ID.make s in
+    Ctx.add_id_ ctx s id
+      (Ctx.K_ty (Ctx.K_atomic (Ty.Ty_uninterpreted id)));
     [Stmt.Stmt_ty_decl (id, n)]
   | PA.Stmt_decl fr ->
     let f, args, ret = conv_fun_decl ctx fr in
-    let id = Ctx.add_id_ ctx f
-        (fun id -> Ctx.K_fun (Fun.mk_undef' id args ret)) in
+    let id = ID.make f in
+    Ctx.add_id_ ctx f id
+      (Ctx.K_fun (Fun.mk_undef' id args ret));
     [Stmt.Stmt_decl (id, args,ret)]
-  | PA.Stmt_data l when List.for_all (fun ((_,n),_) -> n=0) l ->
-    errorf_ctx ctx "cannot typecheck datatypes"
-    (* FIXME
+  | PA.Stmt_data l ->
     (* first, read and declare each datatype (it can occur in the other
       datatypes' constructors) *)
+    (* TODO:remove
     let pre_parse ((data_name,arity),cases) =
       if arity <> 0 then (
         errorf_ctx ctx "cannot handle polymorphic datatype %s" data_name;
@@ -391,48 +361,77 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
       data_id, cases
     in
     let l = List.map pre_parse l in
+       *)
+    let module Cstor = Base_types.Cstor in
+    let cstors_of_data data (cstors:PA.cstor list) : Cstor.t ID.Map.t =
+      let parse_case {PA.cstor_name; cstor_args; cstor_ty_vars} =
+        if cstor_ty_vars <> [] then (
+          errorf_ctx ctx "cannot handle polymorphic constructor %s" cstor_name;
+        );
+        let cstor_id = ID.make cstor_name in
+        (* how to translate selectors *)
+        let mk_selectors (cstor:Cstor.t) =
+          List.mapi
+            (fun i (name,ty) ->
+               let select_id = ID.make name in
+               let sel = {
+                 Select.
+                 select_id;
+                 select_ty=lazy (conv_ty ctx ty);
+                 select_cstor=cstor;
+                 select_i=i;
+               } in
+               (* now declare the selector *)
+               Ctx.add_id_ ctx name select_id
+                 (Ctx.K_fun (Fun.select sel));
+               sel)
+            cstor_args
+        in
+        let rec cstor = {
+          Cstor.
+          cstor_id;
+          cstor_is_a = ID.makef "is-a.%s" cstor_name; (* every fun needs a name *)
+          cstor_args=lazy (mk_selectors cstor);
+          cstor_ty_as_data=data;
+          cstor_ty=data.data_as_ty;
+        } in
+        (* declare cstor *)
+        Ctx.add_id_ ctx cstor_name cstor_id (Ctx.K_fun (Fun.cstor cstor));
+        cstor_id, cstor
+      in
+      let cstors = List.map parse_case cstors in
+      ID.Map.of_list cstors
+    in
     (* now parse constructors *)
     let l =
      List.map
-       (fun (data_id, (cstors:PA.cstor list)) ->
-         let data_ty = Ty.const data_id in
-         let parse_case {PA.cstor_name=c; cstor_args; cstor_ty_vars} =
-           if cstor_ty_vars <> [] then (
-             errorf_ctx ctx "cannot handle polymorphic constructor %s" c;
+       (fun ((data_name,arity), (cstors:PA.cstor list)) ->
+         if arity <> 0 then (
+           (* TODO: handle poly datatypes properly *)
+           errorf_ctx ctx "cannot handle polymorphic datatype %s" data_name;
+         );
+         let data_id = ID.make data_name in
+         let rec data = {
+           Data.
+           data_id;
+           data_cstors=lazy (cstors_of_data data cstors);
+           data_as_ty=lazy (
+             let def = Ty.Ty_data data in
+             Ty.atomic def []
            );
-           let selectors =
-             List.map (fun (n,ty) -> Some n, conv_ty_fst ctx ty) cstor_args
-           in
-           let ty_args = List.map snd selectors in
-           (* declare cstor *)
-           let ty_c = Ty.arrow_l ty_args data_ty in
-           let id_c = Ctx.add_id ctx c (Ctx.K_cstor ty_c) in
-           (* now declare selectors *)
-           List.iteri
-             (fun i (name_opt,ty) -> match name_opt with
-                | None -> ()
-                | Some select_str ->
-                  (* declare this selector *)
-                  let rec select_name = lazy
-                    (Ctx.add_id ctx select_str
-                       (Ctx.K_select (ty,
-                          {A.select_name; select_cstor=id_c; select_i=i})))
-                  in
-                  ignore (Lazy.force select_name))
-             selectors;
-           (* return cstor *)
-           id_c, ty_c
-         in
-         let cstors = List.map parse_case cstors in
-         (* update info on [data] *)
-         Ctx.add_data ctx data_id cstors;
-         {Ty.data_id; data_cstors=ID.Map.of_list cstors})
+         } in
+         Ctx.add_id_ ctx data_name data_id
+           (Ctx.K_ty (Ctx.K_atomic (Ty.Ty_data data)));
+         data)
       l
     in
-    [A.Data l]
-       *)
-  | PA.Stmt_data _ ->
-    errorf_ctx ctx "not implemented: parametric datatypes" PA.pp_stmt stmt
+    (* now force definitions *)
+    List.iter
+      (fun {Data.data_cstors=lazy m;data_as_ty=lazy _;_} ->
+         ID.Map.iter (fun _ {Cstor.cstor_args=lazy _;_} -> ()) m;
+         ())
+      l;
+    [Stmt.Stmt_data l]
   | PA.Stmt_funs_rec _defs ->
     errorf_ctx ctx "not implemented: definitions" PA.pp_stmt stmt
       (* TODO
@@ -447,9 +446,9 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
       {PA.fr_decl={PA.fun_ty_vars=[]; fun_args=[]; fun_name; fun_ret}; fr_body} ->
     (* turn [def f : ret := body] into [decl f : ret; assert f=body] *)
     let ret = conv_ty ctx fun_ret in
-    let id = Ctx.add_id_ ctx fun_name
-        (fun id -> Ctx.K_fun (Fun.mk_undef_const id ret)) in
-    let f = match Ctx.find_kind ctx id with Ctx.K_fun f->f | _ -> assert false in
+    let id = ID.make fun_name in
+    let f = Fun.mk_undef_const id ret in
+    Ctx.add_id_ ctx fun_name id (Ctx.K_fun f);
     let rhs = conv_term ctx fr_body in
     [ Stmt.Stmt_decl (id,[],ret);
       Stmt.Stmt_assert (Form.eq tst (T.const tst f) rhs);

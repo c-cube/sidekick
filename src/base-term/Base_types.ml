@@ -26,6 +26,9 @@ and fun_ = {
 
 and fun_view =
   | Fun_undef of fun_ty (* simple undefined constant *)
+  | Fun_select of select
+  | Fun_cstor of cstor
+  | Fun_is_a of cstor
   | Fun_def of {
       pp : 'a. ('a Fmt.printer -> 'a IArray.t Fmt.printer) option;
       abs : self:term -> term IArray.t -> term * bool; (* remove the sign? *)
@@ -75,12 +78,21 @@ and ty_def =
 
 and data = {
   data_id: ID.t;
-  data_cstors: (ty * select list) ID.Map.t;
+  data_cstors: cstor ID.Map.t lazy_t;
+  data_as_ty: ty lazy_t;
+}
+
+and cstor = {
+  cstor_id: ID.t;
+  cstor_is_a: ID.t;
+  cstor_args: select list lazy_t;
+  cstor_ty_as_data: data;
+  cstor_ty: ty lazy_t;
 }
 
 and select = {
-  select_name: ID.t lazy_t;
-  select_cstor: ID.t;
+  select_id: ID.t;
+  select_cstor: cstor;
   select_ty: ty lazy_t;
   select_i: int;
 }
@@ -96,6 +108,10 @@ and value =
       id: ID.t;
       ty: ty;
     } (** a named constant, distinct from any other constant *)
+  | V_cstor of {
+      c: cstor;
+      args: value list;
+    }
   | V_custom of {
       view: value_custom_view;
       pp: value_custom_view Fmt.printer;
@@ -130,24 +146,35 @@ let id_of_fun a = a.fun_id
 
 let[@inline] eq_ty a b = a.ty_id = b.ty_id
 
-let eq_value a b = match a, b with
+let eq_cstor c1 c2 =
+  ID.equal c1.cstor_id c2.cstor_id
+
+let rec eq_value a b = match a, b with
   | V_bool a, V_bool b -> a=b
   | V_element e1, V_element e2 ->
     ID.equal e1.id e2.id && eq_ty e1.ty e2.ty
   | V_custom x1, V_custom x2 ->
     x1.eq x1.view x2.view
-  | V_bool _, _ | V_element _, _ | V_custom _, _
+  | V_cstor x1, V_cstor x2 ->
+    eq_cstor x1.c x2.c &&
+    CCList.equal eq_value x1.args x2.args
+  | (V_bool _ | V_element _ | V_custom _ | V_cstor _), _
     -> false
 
-let hash_value a = match a with
+let rec hash_value a = match a with
   | V_bool a -> Hash.bool a
   | V_element e -> ID.hash e.id
   | V_custom x -> x.hash x.view
+  | V_cstor x ->
+    Hash.combine3 42 (ID.hash x.c.cstor_id) (Hash.list hash_value x.args)
 
-let pp_value out = function
+let rec pp_value out = function
   | V_bool b -> Fmt.bool out b
   | V_element e -> ID.pp out e.id
   | V_custom c -> c.pp out c.view
+  | V_cstor {c;args=[]} -> ID.pp out c.cstor_id
+  | V_cstor {c;args} ->
+    Fmt.fprintf out "(@[%a@ %a@])" ID.pp c.cstor_id (Util.pp_list pp_value) args
 
 let pp_db out (i,_) = Format.fprintf out "%%%d" i
 
@@ -383,8 +410,23 @@ end = struct
 end
 
 module Fun : sig
-  type view = fun_view
-  type t = fun_
+  type view = fun_view =
+    | Fun_undef of fun_ty (* simple undefined constant *)
+    | Fun_select of select
+    | Fun_cstor of cstor
+    | Fun_is_a of cstor
+    | Fun_def of {
+        pp : 'a. ('a Fmt.printer -> 'a IArray.t Fmt.printer) option;
+        abs : self:term -> term IArray.t -> term * bool; (* remove the sign? *)
+        do_cc: bool; (* participate in congruence closure? *)
+        relevant : 'a. ID.t -> 'a IArray.t -> int -> bool; (* relevant argument? *)
+        ty : ID.t -> term IArray.t -> ty; (* compute type *)
+        eval: value IArray.t -> value; (* evaluate term *)
+      }
+  type t = fun_ = {
+    fun_id: ID.t;
+    fun_view: fun_view;
+  }
 
   val id : t -> ID.t
   val view : t -> view
@@ -394,6 +436,9 @@ module Fun : sig
   val as_undefined : t -> (t * Ty.Fun.t) option
   val as_undefined_exn : t -> t * Ty.Fun.t
   val is_undefined : t -> bool
+  val select : select -> t
+  val cstor : cstor -> t
+  val is_a : cstor -> t
 
   val do_cc : t -> bool
   val mk_undef : ID.t -> Ty.Fun.t -> t
@@ -404,8 +449,23 @@ module Fun : sig
   module Map : CCMap.S with type key = t
   module Tbl : CCHashtbl.S with type key = t
 end = struct
-  type view = fun_view
-  type t = fun_
+  type view = fun_view =
+    | Fun_undef of fun_ty (* simple undefined constant *)
+    | Fun_select of select
+    | Fun_cstor of cstor
+    | Fun_is_a of cstor
+    | Fun_def of {
+        pp : 'a. ('a Fmt.printer -> 'a IArray.t Fmt.printer) option;
+        abs : self:term -> term IArray.t -> term * bool; (* remove the sign? *)
+        do_cc: bool; (* participate in congruence closure? *)
+        relevant : 'a. ID.t -> 'a IArray.t -> int -> bool; (* relevant argument? *)
+        ty : ID.t -> term IArray.t -> ty; (* compute type *)
+        eval: value IArray.t -> value; (* evaluate term *)
+      }
+  type t = fun_ = {
+    fun_id: ID.t;
+    fun_view: fun_view;
+  }
 
   let[@inline] id t = t.fun_id
   let[@inline] view t = t.fun_view
@@ -413,7 +473,7 @@ end = struct
 
   let as_undefined (c:t) = match view c with
     | Fun_undef ty -> Some (c,ty)
-    | Fun_def _ -> None
+    | Fun_def _ | Fun_cstor _ | Fun_select _ | Fun_is_a _ -> None
 
   let[@inline] is_undefined c = match view c with Fun_undef _ -> true | _ -> false
 
@@ -424,9 +484,12 @@ end = struct
   let[@inline] mk_undef id ty = make id (Fun_undef ty)
   let[@inline] mk_undef_const id ty = mk_undef id (Ty.Fun.mk [] ty)
   let[@inline] mk_undef' id args ret = mk_undef id {fun_ty_args=args; fun_ty_ret=ret}
+  let is_a c : t = make c.cstor_is_a (Fun_is_a c)
+  let cstor c : t = make c.cstor_id (Fun_cstor c)
+  let select sel : t = make sel.select_id (Fun_select sel)
 
   let[@inline] do_cc (c:t) : bool = match view c with
-    | Fun_undef _ -> true
+    | Fun_cstor _ | Fun_select _ | Fun_undef _ | Fun_is_a _ -> true
     | Fun_def {do_cc;_} -> do_cc
 
   let equal a b = ID.equal a.fun_id b.fun_id
@@ -580,7 +643,10 @@ end = struct
                ))
             ty_args;
           ty_ret
+        | Fun_is_a _ -> Ty.bool
         | Fun_def def -> def.ty f.fun_id args
+        | Fun_select s -> Lazy.force s.select_ty
+        | Fun_cstor c -> Lazy.force c.cstor_ty
       end
 
   let iter f view =
@@ -640,6 +706,10 @@ module Term : sig
   val eq : state -> t -> t -> t
   val not_ : state -> t -> t
   val ite : state -> t -> t -> t -> t
+
+  val select : state -> select -> t -> t
+  val app_cstor : state -> cstor -> t IArray.t -> t
+  val is_a : state -> cstor -> t -> t
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
   val abs : state -> t -> t * bool
@@ -743,6 +813,10 @@ end = struct
   let[@inline] not_ st a = make st (Term_cell.not_ a)
   let ite st a b c  : t = make st (Term_cell.ite a b c)
 
+  let select st sel t : t = app_fun st (Fun.select sel) (IArray.singleton t)
+  let is_a st c t : t = app_fun st (Fun.is_a c) (IArray.singleton t)
+  let app_cstor st c args : t = app_fun st (Fun.cstor c) args
+
   (* might need to tranfer the negation from [t] to [sign] *)
   let abs tst t : t * bool = match view t with
     | Bool false -> true_ tst, false
@@ -822,6 +896,10 @@ module Value : sig
   type t = value =
     | V_bool of bool
     | V_element of {id: ID.t; ty: ty}
+    | V_cstor of {
+        c: cstor;
+        args: value list;
+      }
     | V_custom of {
         view: value_custom_view;
         pp: value_custom_view Fmt.printer;
@@ -838,6 +916,7 @@ module Value : sig
   val is_bool : t -> bool
   val is_true : t -> bool
   val is_false : t -> bool
+  val cstor_app : cstor -> t list -> t
 
   val fresh : Term.t -> t
 
@@ -848,6 +927,10 @@ end = struct
   type t = value =
     | V_bool of bool
     | V_element of {id: ID.t; ty: ty}
+    | V_cstor of {
+        c: cstor;
+        args: value list;
+      }
     | V_custom of {
         view: value_custom_view;
         pp: value_custom_view Fmt.printer;
@@ -864,6 +947,7 @@ end = struct
   let[@inline] is_bool = function V_bool _ -> true | _ -> false
   let[@inline] is_true = function V_bool true -> true | _ -> false
   let[@inline] is_false = function V_bool false -> true | _ -> false
+  let cstor_app c args : t = V_cstor {c;args}
 
   let equal = eq_value
   let hash = hash_value
@@ -876,14 +960,28 @@ end
 module Data = struct
   type t = data = {
     data_id: ID.t;
-    data_cstors: (ty * select list) ID.Map.t;
+    data_cstors: cstor ID.Map.t lazy_t;
+    data_as_ty: ty lazy_t;
   }
+
+  let pp out d = ID.pp out d.data_id
+end
+
+module Cstor = struct
+  type t = cstor = {
+    cstor_id: ID.t;
+    cstor_is_a: ID.t;
+    cstor_args: select list lazy_t;
+    cstor_ty_as_data: data;
+    cstor_ty: ty lazy_t;
+  }
+  let equal = eq_cstor
 end
 
 module Select = struct
   type t = select = {
-    select_name: ID.t lazy_t;
-    select_cstor: ID.t;
+    select_id: ID.t;
+    select_cstor: cstor;
     select_ty: ty lazy_t;
     select_i: int;
   }
@@ -918,6 +1016,7 @@ module Statement = struct
         ID.pp id (Util.pp_list Ty.pp) args Ty.pp ret
     | Stmt_assert t -> Fmt.fprintf out "(@[assert@ %a@])" pp_term t
     | Stmt_exit -> Fmt.string out "(exit)"
-    | Stmt_data _ -> assert false (* TODO *)
+    | Stmt_data l ->
+      Fmt.fprintf out "(@[declare-datatypes@ %a@])" (Util.pp_list Data.pp) l
     | Stmt_define _ -> assert false (* TODO *)
 end

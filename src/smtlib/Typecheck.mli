@@ -14,7 +14,6 @@ type 'a or_error = ('a, string) CCResult.t
 module Ctx : sig
   type t
   val create: T.state -> t
-  val pp : t CCFormat.printer
 end
 
 val conv_term : Ctx.t -> PA.term -> T.t

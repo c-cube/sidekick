@@ -154,12 +154,32 @@ let eval (m:t) (t:Term.t) : Value.t option =
       let b = aux b in
       if Value.equal a b then Value.true_ else Value.false_
     | App_fun (c, args) ->
-      match Fun.view c with
-      | Fun_def udef ->
+      match Fun.view c, (args :_ IArray.t:> _ array) with
+      | Fun_def udef, _ ->
         (* use builtin interpretation function *)
         let args = IArray.map aux args in
         udef.eval args
-      | Fun_undef _ ->
+      | Fun_cstor c, _ ->
+        Value.cstor_app c (IArray.to_list_map aux args)
+      | Fun_select s, [|u|] ->
+        begin match aux u with
+          | V_cstor {c;args} when Cstor.equal c s.select_cstor ->
+            List.nth args s.select_i
+          | v_u ->
+            Error.errorf "cannot eval selector %a@ on %a" Term.pp t Value.pp v_u
+        end
+      | Fun_is_a c1, [|u|] ->
+        begin match aux u with
+          | V_cstor {c=c2;args=_} ->
+            Value.bool (Cstor.equal c1 c2)
+          | v_u ->
+            Error.errorf "cannot eval is-a %a@ on %a" Term.pp t Value.pp v_u
+        end
+      | Fun_select _, _ ->
+        Error.errorf "bad selector term %a" Term.pp t
+      | Fun_is_a _, _ ->
+        Error.errorf "bad is-a term %a" Term.pp t
+      | Fun_undef _, _ ->
         try Term.Map.find t m.values
         with Not_found ->
           begin match Fun.Map.find c m.funs with

@@ -108,7 +108,8 @@ let main () =
   let solver =
     let theories = [
       Process.th_bool ;
-    ] (* TODO: more theories *)
+      Process.th_cstor;
+    ]
     in
     Process.Solver.create ~store_proof:!check ~theories tst ()
   in
