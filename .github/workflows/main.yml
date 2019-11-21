@@ -13,7 +13,7 @@ jobs:
     - uses: avsm/setup-ocaml@master
       with:
         ocaml-version: ${{ matrix.ocaml-version }}
-    - run: opam pin add sidekick.dev sidekick-bin.dev -n .
+    - run: opam pin -n .
     - run: opam depext -yt sidekick-bin
     - run: opam install -t . --deps-only
     - run: opam exec -- dune build
