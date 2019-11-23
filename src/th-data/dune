@@ -1,0 +1,8 @@
+
+
+(library
+  (name Sidekick_th_data)
+  (public_name sidekick.th-data)
+  (libraries containers sidekick.core sidekick.util)
+  (flags :standard -open Sidekick_util))
+

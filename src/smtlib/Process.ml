@@ -258,11 +258,12 @@ let process_stmt
       Error.errorf "cannot deal with definitions yet"
   end
 
-module Th_cstor = Sidekick_th_cstor.Make(struct
+module Th_data = Sidekick_th_data.Make(struct
     module S = Solver
     open Base_types
-    open Sidekick_th_cstor
+    open Sidekick_th_data
 
+    (* TODO*)
     let view_as_cstor t = match Term.view t with
       | Term.App_fun ({fun_view=Fun.Fun_cstor _;_} as f, args) -> T_cstor (f, args)
       | _ -> T_other t
