@@ -143,7 +143,7 @@ let main () =
     let theories =
       if is_cnf then [] else [
         Process.th_bool ;
-        Process.th_cstor;
+        Process.th_data;
       ]
     in
     Process.Solver.create ~store_proof:!check ~theories tst ()

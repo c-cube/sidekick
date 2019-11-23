@@ -262,11 +262,19 @@ module Th_data = Sidekick_th_data.Make(struct
     module S = Solver
     open Base_types
     open Sidekick_th_data
+    module Cstor = Cstor
+
+    let as_datatype ty = match Ty.view ty with
+      | Ty_atomic {def=Ty_data data;_} ->
+        Some (Lazy.force data.data_cstors |> ID.Map.values)
+      | _ -> None
 
     (* TODO*)
-    let view_as_cstor t = match Term.view t with
-      | Term.App_fun ({fun_view=Fun.Fun_cstor _;_} as f, args) -> T_cstor (f, args)
+    let view_as_data t = match Term.view t with
+      | Term.App_fun ({fun_view=Fun.Fun_cstor c;_}, args) -> T_cstor (c, args)
       | _ -> T_other t
+
+    let mk_cstor tst c args : Term.t = Term.app_fun tst (Fun.cstor c) args
   end)
 
 module Th_bool = Sidekick_th_bool_static.Make(struct
@@ -276,4 +284,4 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
 end)
 
 let th_bool : Solver.theory = Th_bool.theory
-let th_cstor : Solver.theory = Th_cstor.theory
+let th_data : Solver.theory = Th_data.theory

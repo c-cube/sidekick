@@ -102,9 +102,15 @@ end
 
 module type ARG = sig
   module S : Sidekick_core.SOLVER
-  val view_as_cstor : S.T.Term.t -> (S.T.Fun.t, S.T.Term.t) cstor_view
-  val mk_cstor : S.T.Term.state -> S.T.Fun.t -> S.T.Term.t IArray.t -> S.T.Term.t
-  val as_datatype : S.T.Ty.t -> S.T.Fun.t list option
+
+  module Cstor : sig
+    type t
+    val pp : t Fmt.printer
+    val equal : t -> t -> bool
+  end
+  val view_as_data : S.T.Term.t -> (Cstor.t, S.T.Term.t) data_view
+  val mk_cstor : S.T.Term.state -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
+  val as_datatype : S.T.Ty.t -> Cstor.t Iter.t option
 end
 
 module type S = sig
@@ -123,7 +129,7 @@ module Make(A : ARG) : S with module A = A = struct
   type cstor_repr = {
     t: T.t;
     n: N.t;
-    cstor: Fun.t;
+    cstor: A.Cstor.t;
     args: T.t IArray.t;
   }
   (* associate to each class a unique constructor term in the class (if any) *)
@@ -135,16 +141,19 @@ module Make(A : ARG) : S with module A = A = struct
     (* TODO: also allocate a bit in CC to filter out quickly classes without cstors? *)
   }
 
+  (* TODO: select/is-a, with exhaustivity rule *)
+  (* TODO: acyclicity *)
+
   let push_level self = N_tbl.push_level self.cstors
   let pop_levels self n = N_tbl.pop_levels self.cstors n
 
   (* attach data to constructor terms *)
   let on_new_term self _solver n (t:T.t) =
-    match A.view_as_cstor t with
+    match A.view_as_data t with
     | T_cstor (cstor,args) ->
       Log.debugf 20
         (fun k->k "(@[th-cstor.on-new-term@ %a@ :cstor %a@ @[:args@ (@[%a@])@]@]@])"
-            T.pp t Fun.pp cstor (Util.pp_iarray T.pp) args);
+            T.pp t A.Cstor.pp cstor (Util.pp_iarray T.pp) args);
       N_tbl.add self.cstors n {n; t; cstor; args};
     | _ -> ()
 
@@ -162,7 +171,7 @@ module Make(A : ARG) : S with module A = A = struct
             Expl.mk_merge n2 cr2.n;
           ]
         in
-        if Fun.equal cr1.cstor cr2.cstor then (
+        if A.Cstor.equal cr1.cstor cr2.cstor then (
           (* same function: injectivity *)
           assert (IArray.length cr1.args = IArray.length cr2.args);
           IArray.iter2
@@ -182,7 +191,7 @@ module Make(A : ARG) : S with module A = A = struct
     let self = {
       cstors=N_tbl.create ~size:32 ();
     } in
-    Log.debug 1 "(setup :th-cstor)";
+    Log.debugf 1 (fun k->k "(setup :%s)" name);
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
     self

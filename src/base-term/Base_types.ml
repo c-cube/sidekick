@@ -977,6 +977,7 @@ module Cstor = struct
     cstor_ty: ty lazy_t;
   }
   let equal = eq_cstor
+  let pp out c = ID.pp out c.cstor_id
 end
 
 module Select = struct
