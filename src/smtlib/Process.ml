@@ -244,6 +244,14 @@ let process_stmt
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
       Solver.add_clause solver (IArray.singleton atom);
       E.return()
+    | Statement.Stmt_assert_clause c ->
+      if pp_cnf then (
+        Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c
+      );
+      let c = List.map (Solver.mk_atom_t solver) c in
+      CCOpt.iter (fun h -> Vec.push h c) hyps;
+      Solver.add_clause solver (IArray.of_list c);
+      E.return()
     | Statement.Stmt_data _ ->
       E.return()
     | Statement.Stmt_define _ ->

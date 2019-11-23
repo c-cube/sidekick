@@ -7,3 +7,5 @@
  (libraries containers iter result msat sidekick.core sidekick.base-term
    sidekick.msat-solver sidekick-bin.smtlib)
  (flags :standard -safe-string -color always -open Sidekick_util))
+
+(ocamllex (modules Dimacs_lexer))

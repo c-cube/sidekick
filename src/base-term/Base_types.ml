@@ -132,6 +132,7 @@ type statement =
   | Stmt_decl of ID.t * ty list * ty
   | Stmt_define of definition list
   | Stmt_assert of term
+  | Stmt_assert_clause of term list
   | Stmt_check_sat
   | Stmt_exit
 
@@ -1002,6 +1003,7 @@ module Statement = struct
     | Stmt_decl of ID.t * ty list * ty
     | Stmt_define of definition list
     | Stmt_assert of term
+    | Stmt_assert_clause of term list
     | Stmt_check_sat
     | Stmt_exit
 
@@ -1015,6 +1017,7 @@ module Statement = struct
       Fmt.fprintf out "(@[<1>declare-fun@ %a (@[%a@])@ %a@])"
         ID.pp id (Util.pp_list Ty.pp) args Ty.pp ret
     | Stmt_assert t -> Fmt.fprintf out "(@[assert@ %a@])" pp_term t
+    | Stmt_assert_clause c -> Fmt.fprintf out "(@[assert-clause@ %a@])" (Util.pp_list pp_term) c
     | Stmt_exit -> Fmt.string out "(exit)"
     | Stmt_data l ->
       Fmt.fprintf out "(@[declare-datatypes@ %a@])" (Util.pp_list Data.pp) l

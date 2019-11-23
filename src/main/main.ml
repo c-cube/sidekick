@@ -82,6 +82,38 @@ let argspec = Arg.align [
     "--debug", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
   ] |> List.sort compare
 
+module Dimacs = struct
+  open Sidekick_base_term
+  module T = Term
+
+  let parse_file tst (file:string) : Statement.t list or_error =
+    let atoms = Util.Int_tbl.create 32 in
+    let get_lit i =
+      let v =
+        match Util.Int_tbl.find atoms (abs i) with
+        | x -> Term.const tst x
+        | exception Not_found ->
+          let f = Sidekick_base_term.Fun.mk_undef_const (ID.makef "%d" (abs i)) Ty.bool in
+          Util.Int_tbl.add atoms (abs i) f;
+          Term.const tst f
+      in
+      if i<0 then Term.not_ tst v else v
+    in
+    try
+      CCIO.with_in file
+        (fun ic ->
+           let p = Dimacs_parser.create ic in
+           let stmts = ref [] in
+           Dimacs_parser.iter p
+             (fun c ->
+                let lits = List.rev_map get_lit c in
+                stmts := Statement.Stmt_assert_clause lits :: !stmts);
+           stmts := Statement.Stmt_check_sat :: !stmts;
+           Ok (List.rev !stmts))
+    with e ->
+      E.of_exn_trace e
+end
+
 (* Limits alarm *)
 let check_limits () =
   let t = Sys.time () in
@@ -105,11 +137,13 @@ let main () =
   let al = Gc.create_alarm check_limits in
   Util.setup_gc();
   let tst = Term.create ~size:4_096 () in
+  let is_cnf = Filename.check_suffix !file ".cnf" in
   let solver =
-    let theories = [
-      Process.th_bool ;
-      Process.th_cstor;
-    ]
+    let theories =
+      if is_cnf then [] else [
+        Process.th_bool ;
+        Process.th_cstor;
+      ]
     in
     Process.Solver.create ~store_proof:!check ~theories tst ()
   in
@@ -117,7 +151,11 @@ let main () =
     (* might have to check conflicts *)
     Solver.add_theory solver Process.Check_cc.theory;
   );
-  Sidekick_smtlib.parse tst !file >>= fun input ->
+  begin
+    if is_cnf then Dimacs.parse_file tst !file
+    else Sidekick_smtlib.parse tst !file
+  end
+  >>= fun input ->
   (* process statements *)
   let res =
     try
