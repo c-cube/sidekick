@@ -20,34 +20,11 @@ type ('c, 'ty) data_ty_view =
       args: 'ty Iter.t;
     }
   | Ty_data of {
-    cstors: 'c list;
-  }
+      cstors: 'c;
+    }
   | Ty_other
 
 let name = "th-data"
-
-(** {2 Cardinality of types} *)
-
-module Ty_card = struct
-  type t = 
-    | Finite
-    | Infinite
-
-  let (+) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-  let ( * ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-  let ( ^ ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-  let finite = Finite
-  let infinite = Infinite
-
-  let sum = Iter.fold (+) Finite
-  let product = Iter.fold ( * ) Finite
-
-  let equal : t -> t -> bool = (=)
-  let compare : t -> t -> int = Pervasives.compare
-  let pp out = function
-    | Finite -> Fmt.string out "finite"
-    | Infinite -> Fmt.string out "infinite"
-end
 
 (** An abtract representation of a datatype *)
 module type DATA_TY = sig
@@ -55,6 +32,10 @@ module type DATA_TY = sig
   type cstor
 
   val equal : t -> t -> bool
+
+  val finite : t -> bool
+
+  val set_finite : t -> bool -> unit
 
   val view : t -> (cstor, t) data_ty_view
 
@@ -64,40 +45,18 @@ module type DATA_TY = sig
   module Tbl : Hashtbl.S with type key = t
 end
 
-(** Helper to compute the cardinality of types *)
-module Compute_card(Ty : DATA_TY) : sig
-  type t
-  val create : unit -> t
-  val card : t -> Ty.t -> Ty_card.t
-end = struct
-  module Card = Ty_card
-  type t = {
-    cards: Card.t Ty.Tbl.t;
-  }
+(** {2 Cardinality of types} *)
 
-  let create() : t = { cards=Ty.Tbl.create 16}
+module C = struct
+  type t =
+    | Finite
+    | Infinite
 
-  let card (self:t) (ty:Ty.t) : Card.t =
-    let rec aux (ty:Ty.t) : Card.t =
-      match Ty.Tbl.find self.cards ty with
-      | c -> c
-      | exception Not_found ->
-        Ty.Tbl.add self.cards ty Card.infinite; (* temp value, for fixpoint computation *)
-        let c = match Ty.view ty with
-          | Ty_other -> Card.finite
-          | Ty_app {args} -> Iter.map aux args |> Card.product
-          | Ty_arrow (args,ret) ->
-            Card.( (aux ret) ^ (Card.product @@ Iter.map aux args))
-          | Ty_data { cstors; } ->
-            cstors
-            |> Iter.of_list
-            |> Iter.map (fun c -> Card.product (Iter.map aux @@ Ty.cstor_args c))
-            |> Card.sum
-        in
-        Ty.Tbl.replace self.cards ty c;
-        c
-    in
-    aux ty
+  let (+) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
+  let ( * ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
+  let ( ^ ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
+  let sum = Iter.fold (+) Finite
+  let product = Iter.fold ( * ) Finite
 end
 
 module type ARG = sig
@@ -105,12 +64,62 @@ module type ARG = sig
 
   module Cstor : sig
     type t
+    val ty_args : t -> S.T.Ty.t Iter.t
     val pp : t Fmt.printer
     val equal : t -> t -> bool
   end
+
+  val as_datatype : S.T.Ty.t -> (Cstor.t Iter.t, S.T.Ty.t) data_ty_view
   val view_as_data : S.T.Term.t -> (Cstor.t, S.T.Term.t) data_view
   val mk_cstor : S.T.Term.state -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
-  val as_datatype : S.T.Ty.t -> Cstor.t Iter.t option
+  val mk_is_a: S.T.Term.state -> Cstor.t -> S.T.Term.t -> S.T.Term.t
+  val ty_is_finite : S.T.Ty.t -> bool
+  val ty_set_is_finite : S.T.Ty.t -> bool -> unit
+end
+
+(** Helper to compute the cardinality of types *)
+module Compute_card(A : ARG) : sig
+  type t
+  val create : unit -> t
+  val is_finite : t -> A.S.T.Ty.t -> bool
+end = struct
+  module Ty = A.S.T.Ty
+  module Ty_tbl = CCHashtbl.Make(Ty)
+  type t = {
+    cards: C.t Ty_tbl.t;
+  }
+
+  let create() : t = { cards=Ty_tbl.create 16}
+
+  let card (self:t) (ty:Ty.t) : C.t =
+    let rec aux (ty:Ty.t) : C.t =
+      match Ty_tbl.find self.cards ty with
+      | c -> c
+      | exception Not_found ->
+        Ty_tbl.add self.cards ty C.Infinite; (* temp value, for fixpoint computation *)
+        let c = match A.as_datatype ty with
+          | Ty_other -> if A.ty_is_finite ty then C.Finite else C.Infinite
+          | Ty_app {args} -> Iter.map aux args |> C.product
+          | Ty_arrow (args,ret) ->
+            C.( (aux ret) ^ (C.product @@ Iter.map aux args))
+          | Ty_data { cstors; } ->
+            let c =
+              cstors
+              |> Iter.map (fun c -> C.product (Iter.map aux @@ A.Cstor.ty_args c))
+              |> C.sum
+            in
+            A.ty_set_is_finite ty (c=Finite);
+            c
+        in
+        Ty_tbl.replace self.cards ty c;
+        c
+    in
+    aux ty
+
+  let is_finite self ty : bool =
+    match card self ty with
+    | C.Finite -> true
+    | C.Infinite -> false
 end
 
 module type S = sig
@@ -123,8 +132,11 @@ module Make(A : ARG) : S with module A = A = struct
   module SI = A.S.Solver_internal
   module T = A.S.T.Term
   module N = SI.CC.N
+  module Ty = A.S.T.Ty
   module Fun = A.S.T.Fun
   module Expl = SI.CC.Expl
+
+  module Card = Compute_card(A)
 
   type cstor_repr = {
     t: T.t;
@@ -137,25 +149,70 @@ module Make(A : ARG) : S with module A = A = struct
   module N_tbl = Backtrackable_tbl.Make(N)
 
   type t = {
+    tst: T.state;
     cstors: cstor_repr N_tbl.t; (* repr -> cstor for the class *)
+    cards: Card.t; (* remember finiteness *)
+    to_decide: bool ref N_tbl.t; (* set of terms to decide. true means already clausified *)
     (* TODO: also allocate a bit in CC to filter out quickly classes without cstors? *)
+    (* TODO: bitfield for types with less than 62 cstors, to quickly detect conflict? *)
   }
+
+  let push_level self =
+    N_tbl.push_level self.cstors;
+    N_tbl.push_level self.to_decide;
+    ()
+
+  let pop_levels self n =
+    N_tbl.pop_levels self.cstors n;
+    N_tbl.pop_levels self.to_decide n;
+    ()
 
   (* TODO: select/is-a, with exhaustivity rule *)
   (* TODO: acyclicity *)
 
-  let push_level self = N_tbl.push_level self.cstors
-  let pop_levels self n = N_tbl.pop_levels self.cstors n
-
   (* attach data to constructor terms *)
-  let on_new_term self _solver n (t:T.t) =
+  let on_new_term_look_at_shape self n (t:T.t) =
     match A.view_as_data t with
     | T_cstor (cstor,args) ->
       Log.debugf 20
-        (fun k->k "(@[th-cstor.on-new-term@ %a@ :cstor %a@ @[:args@ (@[%a@])@]@]@])"
-            T.pp t A.Cstor.pp cstor (Util.pp_iarray T.pp) args);
+        (fun k->k "(@[%s.on-new-term@ %a@ :cstor %a@ @[:args@ (@[%a@])@]@]@])"
+            name T.pp t A.Cstor.pp cstor (Util.pp_iarray T.pp) args);
       N_tbl.add self.cstors n {n; t; cstor; args};
+    | T_select (cstor,i,u) ->
+      Log.debugf 20
+        (fun k->k "(@[%s.on-new-term.select[%d]@ %a@ :cstor %a@ :in %a@])"
+            name i T.pp t A.Cstor.pp cstor T.pp u);
+      (* TODO: remember that [u] must be decided *)
+      ()
+      (*       N_tbl.add self.cstors n {n; t; cstor; args}; *)
+    | T_is_a (cstor,u) ->
+      Log.debugf 20
+        (fun k->k "(@[%s.on-new-term.is-a@ %a@ :cstor %a@ :in %a@])"
+            name T.pp t A.Cstor.pp cstor T.pp u);
+      ()
+      (*       N_tbl.add self.cstors n {n; t; cstor; args}; *)
+    | T_other _ -> ()
+
+  (* remember terms of a datatype *)
+  let on_new_term_look_at_ty (self:t) n (t:T.t) : unit =
+    let ty = T.ty t in
+    match A.as_datatype ty with
+    | Ty_data _ ->
+      Log.debugf 20
+        (fun k->k "(@[%s.on-new-term.has-data-ty@ %a@ :ty %a@])"
+            name T.pp t Ty.pp ty);
+      if Card.is_finite self.cards ty && not (N_tbl.mem self.to_decide n) then (
+        (* must decide this term *)
+        Log.debugf 20
+          (fun k->k "(@[%s.on-new-term.must-decide-finitey@ %a@])" name T.pp t);
+        N_tbl.add self.to_decide n (ref false);
+      )
     | _ -> ()
+
+  let on_new_term self _solver n t =
+    on_new_term_look_at_shape self n t;
+    on_new_term_look_at_ty self n t;
+    ()
 
   let on_pre_merge (self:t) cc acts n1 n2 e_n1_n2 : unit =
     begin match N_tbl.get self.cstors n1, N_tbl.get self.cstors n2 with
@@ -187,13 +244,57 @@ module Make(A : ARG) : S with module A = A = struct
       | None, None -> ()
     end
 
+  let cstors_of_ty (ty:Ty.t) : A.Cstor.t Iter.t =
+    match A.as_datatype ty with
+    | Ty_data {cstors} -> cstors
+    | _ -> assert false
+
+  let on_final_check (self:t) (solver:SI.t) (acts:SI.actions) _trail =
+    let remaining_to_decide =
+      N_tbl.to_iter self.to_decide
+      |> Iter.map (fun (n,r) -> SI.cc_find solver n, r)
+      |> Iter.filter (fun (n,r) -> not !r && not (N_tbl.mem self.cstors n))
+      |> Iter.to_rev_list
+    in
+    begin match remaining_to_decide with
+      | [] -> ()
+      | l ->
+        Log.debugf 10
+          (fun k->k "(@[%s.must-decide@ %a@])" name
+              (Util.pp_list (Fmt.map fst N.pp)) l);
+        (* add clauses [∨_c is-c(t)] and [¬(is-a t) ∨ ¬(is-b t)] *)
+        List.iter
+          (fun (n,r) ->
+             assert (not !r);
+             let t = N.term n in
+             let c =
+               cstors_of_ty (T.ty t) 
+               |> Iter.map (fun c -> A.mk_is_a self.tst c t)
+               |> Iter.map (SI.mk_lit solver acts)
+               |> Iter.to_rev_list
+             in
+             r := true;
+             SI.add_clause_permanent solver acts c;
+             Iter.diagonal_l c
+               (fun (c1,c2) ->
+                  SI.add_clause_permanent solver acts
+                    [SI.Lit.neg c1; SI.Lit.neg c2]);
+             ())
+          l
+    end;
+    ()
+
   let create_and_setup (solver:SI.t) : t =
     let self = {
+      tst=SI.tst solver;
       cstors=N_tbl.create ~size:32 ();
+      to_decide=N_tbl.create ~size:16 ();
+      cards=Card.create();
     } in
     Log.debugf 1 (fun k->k "(setup :%s)" name);
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
+    SI.on_final_check solver (on_final_check self);
     self
 
   let theory =

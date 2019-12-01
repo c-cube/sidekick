@@ -192,7 +192,7 @@ let () = match main() with
       if Printexc.backtrace_status () then (
         Format.fprintf Format.std_formatter "%s@." b
       );
-      Pervasives.exit n
+      CCShims_.Stdlib.exit n
     in
     begin match e with
       | Error.Error msg ->

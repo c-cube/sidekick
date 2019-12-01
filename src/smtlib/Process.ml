@@ -266,15 +266,26 @@ module Th_data = Sidekick_th_data.Make(struct
 
     let as_datatype ty = match Ty.view ty with
       | Ty_atomic {def=Ty_data data;_} ->
-        Some (Lazy.force data.data_cstors |> ID.Map.values)
-      | _ -> None
+        Ty_data {cstors=Lazy.force data.data.data_cstors |> ID.Map.values}
+      | Ty_atomic {def=_;args;finite=_} ->
+        Ty_app{args=Iter.of_list args}
+      | Ty_bool -> Ty_app {args=Iter.empty}
 
-    (* TODO*)
     let view_as_data t = match Term.view t with
       | Term.App_fun ({fun_view=Fun.Fun_cstor c;_}, args) -> T_cstor (c, args)
+      | Term.App_fun ({fun_view=Fun.Fun_select sel;_}, args) ->
+        assert (IArray.length args=1);
+        T_select (sel.select_cstor, sel.select_i, IArray.get args 0)
+      | Term.App_fun ({fun_view=Fun.Fun_is_a c;_}, args) ->
+        assert (IArray.length args=1);
+        T_is_a (c, IArray.get args 0)
       | _ -> T_other t
 
     let mk_cstor tst c args : Term.t = Term.app_fun tst (Fun.cstor c) args
+    let mk_is_a tst c u : Term.t = Term.app_fun tst (Fun.is_a c) (IArray.singleton u)
+
+    let ty_is_finite = Ty.finite
+    let ty_set_is_finite = Ty.set_finite
   end)
 
 module Th_bool = Sidekick_th_bool_static.Make(struct
