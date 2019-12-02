@@ -2,44 +2,42 @@
 
 ## TODO
 
-- per-theory trail, with push/pop as in the SAT solver (generic trail?)
-  * in CC, clear pending tasks upon backtrack
+- functor for mapping equiv classes to values of some monoid, code to be
+  used in 99% of the theories
+  * [ ] also allow to register to "joins" between distinct classes
+    (useful for injectivity or array reduction or selector reduction)
+    → in a way this must become a (backtracking) query API for making theories
+      easy to write
+  * [ ] use it in th-data
+  * [ ] use it in th-array
+  * [ ] use it in th-define-subsort
 
-- in CC, merge classes eagerly
+- write theory of datatypes (without acyclicity) with local case splits + injectivity + selectors
+- datatype acyclicity check
 
-- rethink backtracking: instead of a pure stack, consider the theory as separated from the SAT solver.
-  When a new term is added, unwind theory back to level 0, add term, then up
-  to current trail level again.
+- provide a notion of smtlib theory, with `smtlib.ast --> Term.t option`
+  and typing rule (extensible parsing+typing)
+  * use if for th-bool
+  * use if for th-distinct
 
-- in terms, remove `Bool` case and add `Value of value` instead
-  **OR**: turn every term into `apply` with a `cst` and a `args: term IArray.t`, make bool such a constant,
-    and have `is_value` predicate in custom constants (or `as_value: self -> value option?`)
+- cleanup of CC/optims
+  * store lits directly in (boolean) classes
 
-- when CC merging two classes, if one is a value then pick it as representative
-  (i.e. values are always representatives)
+- add terms of input goals pre-emptively to the CC/theories
 
-- fix:
-  ./main.exe tests/unsat/eq_diamond10.smt2
-
-- make CC work on QF_UF
-  * public `add` function should push_pending then call main CC loop
-    (internal one is called within the loop so no need)
-  * internalize terms on the fly (backtrackable) OR: at the beginning, backtrack to 0 to add a new term and then add trail again
-  * basic notion of activity (of subterms) for `ite` (and recfuns, later)?
+- use funarith for basic Q arith
+  * as a smtlib theory, too
 
 - add `CC.add_rw_step t u` work, where `t-->u`
-  (remove `t` from sig table, should have almost 0 overhead after that)
-  * use it for `if a b c --> b` when `a=true`
+  (keep `t` in sig table, but flag is so it's inert and will not
+   be pushed into `cc.pending` ever, should have almost 0 overhead after that)
   * use it for local simplifications
   * use it for function evaluation (i.e. rewrite rules)
 
-- write theory of datatypes (without acyclicity) with local case splits + `value` + injectivity
 - design evaluation system (guards + `eval:(term -> value) option` in custom TC)
 - compilation of rec functions to defined constants
 - theory of defined constants relying on congruence closure + evaluation
   of guards of each case
-
-- datatype acyclicity check
 
 - abstract domain propagation in CC
 - domain propagation (intervals) for ℚ arith
@@ -60,9 +58,36 @@
 - max-sat/max-smt
 - coq proofs ?
 
-
 ## Done
 
+- make CC work on QF_UF
+  * [x] public `add` function should push_pending then call main CC loop
+    (internal one is called within the loop so no need)
+  * [x] internalize terms on the fly (backtrackable) OR: at the beginning, backtrack to 0 to add a new term and then add trail again
+  * ~~[ ] basic notion of activity (of subterms) for `ite` (and recfuns, later)?~~
+- use `stmlib-utils`
+- parser for cstors  (`declare-cstor`, same as `declare-fun`)
+- refactor:
+ 1. have sidekick.env with only the signature that is instance-dependent + notion of theory (as module sig); 
+ 2. solver takes this env and SAT solver with compatible lits 
+ 3. move concrete terms, etc. into smtlib lib
+ 4. update theories
+- fix: have normal theories `on_new_term` work properly (callback in the CC?)
+- proper statistics
+- make the core library entirely functorized
+  * current term/cst/lit/… would become an implementation library to
+    be used in the binary
+- theory for `ite`
+- theory for constructors
+- do a `th-distinct` package
+  * in CC, use payload to store set of distinct tags (if non empty)
+  * if `¬distinct(t1…tn)` asserted, make big disjunction of cases (split on demand)
+- in CC, store literal associated with term, for bool propagation
+- in CC, propagation of boolean terms
+- in CC, merge classes eagerly
+- when CC merging two classes, if one is a value then pick it as representative
+  (i.e. values are always representatives)
+- large refactoring of CC
 - simplify CC by separating cleanly public/internal API, remove excess batching
 - notion of `value` (V_true,V_false,V_custom, + maybe undefined some day)
 - checking models (for each clause, at least one true lit also evals to true in model)
