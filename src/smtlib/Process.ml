@@ -282,7 +282,12 @@ module Th_data = Sidekick_th_data.Make(struct
       | _ -> T_other t
 
     let mk_cstor tst c args : Term.t = Term.app_fun tst (Fun.cstor c) args
-    let mk_is_a tst c u : Term.t = Term.app_fun tst (Fun.is_a c) (IArray.singleton u)
+    let mk_is_a tst c u : Term.t =
+      if c.cstor_arity=0 then (
+        Term.eq tst u (Term.const tst (Fun.cstor c))
+      ) else (
+        Term.app_fun tst (Fun.is_a c) (IArray.singleton u)
+      )
 
     let ty_is_finite = Ty.finite
     let ty_set_is_finite = Ty.set_finite

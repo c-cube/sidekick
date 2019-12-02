@@ -152,7 +152,8 @@ module Make(A : ARG) : S with module A = A = struct
     tst: T.state;
     cstors: cstor_repr N_tbl.t; (* repr -> cstor for the class *)
     cards: Card.t; (* remember finiteness *)
-    to_decide: bool ref N_tbl.t; (* set of terms to decide. true means already clausified *)
+    to_decide: unit N_tbl.t; (* set of terms to decide. *)
+    case_split_done: unit T.Tbl.t; (* set of terms for which case split is done *)
     (* TODO: also allocate a bit in CC to filter out quickly classes without cstors? *)
     (* TODO: bitfield for types with less than 62 cstors, to quickly detect conflict? *)
   }
@@ -167,7 +168,7 @@ module Make(A : ARG) : S with module A = A = struct
     N_tbl.pop_levels self.to_decide n;
     ()
 
-  (* TODO: select/is-a, with exhaustivity rule *)
+  (* TODO: select/is-a *)
   (* TODO: acyclicity *)
 
   (* attach data to constructor terms *)
@@ -204,8 +205,8 @@ module Make(A : ARG) : S with module A = A = struct
       if Card.is_finite self.cards ty && not (N_tbl.mem self.to_decide n) then (
         (* must decide this term *)
         Log.debugf 20
-          (fun k->k "(@[%s.on-new-term.must-decide-finitey@ %a@])" name T.pp t);
-        N_tbl.add self.to_decide n (ref false);
+          (fun k->k "(@[%s.on-new-term.must-decide-finite-ty@ %a@])" name T.pp t);
+        N_tbl.add self.to_decide n ();
       )
     | _ -> ()
 
@@ -249,37 +250,46 @@ module Make(A : ARG) : S with module A = A = struct
     | Ty_data {cstors} -> cstors
     | _ -> assert false
 
+  (* on final check, make sure we have done case split on all terms that
+     need it. *)
   let on_final_check (self:t) (solver:SI.t) (acts:SI.actions) _trail =
     let remaining_to_decide =
       N_tbl.to_iter self.to_decide
-      |> Iter.map (fun (n,r) -> SI.cc_find solver n, r)
-      |> Iter.filter (fun (n,r) -> not !r && not (N_tbl.mem self.cstors n))
+      |> Iter.map (fun (n,_) -> SI.cc_find solver n)
+      |> Iter.filter
+        (fun n ->
+           not (N_tbl.mem self.cstors n) &&
+           not (T.Tbl.mem self.case_split_done (N.term n)))
       |> Iter.to_rev_list
     in
     begin match remaining_to_decide with
       | [] -> ()
       | l ->
         Log.debugf 10
-          (fun k->k "(@[%s.must-decide@ %a@])" name
-              (Util.pp_list (Fmt.map fst N.pp)) l);
+          (fun k->k "(@[%s.final-check.must-decide@ %a@])" name (Util.pp_list N.pp) l);
         (* add clauses [∨_c is-c(t)] and [¬(is-a t) ∨ ¬(is-b t)] *)
         List.iter
-          (fun (n,r) ->
-             assert (not !r);
+          (fun n ->
              let t = N.term n in
-             let c =
-               cstors_of_ty (T.ty t) 
-               |> Iter.map (fun c -> A.mk_is_a self.tst c t)
-               |> Iter.map (SI.mk_lit solver acts)
-               |> Iter.to_rev_list
-             in
-             r := true;
-             SI.add_clause_permanent solver acts c;
-             Iter.diagonal_l c
-               (fun (c1,c2) ->
-                  SI.add_clause_permanent solver acts
-                    [SI.Lit.neg c1; SI.Lit.neg c2]);
-             ())
+             (* [t] might have been expanded already, in case of duplicates in [l] *)
+             if not @@ T.Tbl.mem self.case_split_done t then (
+               T.Tbl.add self.case_split_done t ();
+               let c =
+                 cstors_of_ty (T.ty t) 
+                 |> Iter.map (fun c -> A.mk_is_a self.tst c t)
+                 |> Iter.map
+                   (fun t ->
+                      let lit = SI.mk_lit solver acts t in
+                      (* TODO: set default polarity, depending on n° of args? *)
+                      lit)
+                 |> Iter.to_rev_list
+               in
+               SI.add_clause_permanent solver acts c;
+               Iter.diagonal_l c
+                 (fun (c1,c2) ->
+                    SI.add_clause_permanent solver acts
+                      [SI.Lit.neg c1; SI.Lit.neg c2]);
+             ))
           l
     end;
     ()
@@ -289,6 +299,7 @@ module Make(A : ARG) : S with module A = A = struct
       tst=SI.tst solver;
       cstors=N_tbl.create ~size:32 ();
       to_decide=N_tbl.create ~size:16 ();
+      case_split_done=T.Tbl.create 16;
       cards=Card.create();
     } in
     Log.debugf 1 (fun k->k "(setup :%s)" name);

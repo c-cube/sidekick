@@ -392,6 +392,7 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
           cstor_id;
           cstor_is_a = ID.makef "(is _ %s)" cstor_name; (* every fun needs a name *)
           cstor_args=lazy (mk_selectors cstor);
+          cstor_arity=0;
           cstor_ty_as_data=data;
           cstor_ty=data.data_as_ty;
         } in
@@ -428,7 +429,7 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
     (* now force definitions *)
     List.iter
       (fun {Data.data_cstors=lazy m;data_as_ty=lazy _;_} ->
-         ID.Map.iter (fun _ {Cstor.cstor_args=lazy _;_} -> ()) m;
+         ID.Map.iter (fun _ ({Cstor.cstor_args=lazy l;_} as r) -> r.cstor_arity <- List.length l) m;
          ())
       l;
     [Stmt.Stmt_data l]

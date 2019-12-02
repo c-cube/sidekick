@@ -86,6 +86,7 @@ and data = {
 and cstor = {
   cstor_id: ID.t;
   cstor_is_a: ID.t;
+  mutable cstor_arity: int;
   cstor_args: select list lazy_t;
   cstor_ty_as_data: data;
   cstor_ty: ty lazy_t;
@@ -946,6 +947,7 @@ module Cstor = struct
   type t = cstor = {
     cstor_id: ID.t;
     cstor_is_a: ID.t;
+    mutable cstor_arity: int;
     cstor_args: select list lazy_t;
     cstor_ty_as_data: data;
     cstor_ty: ty lazy_t;
