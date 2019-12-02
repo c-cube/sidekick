@@ -337,18 +337,18 @@ module Make (A: CC_ARG)
   (* add to signature table. Assume it's not present already *)
   let add_signature cc (s:signature) (n:node) : unit =
     assert (not @@ Sig_tbl.mem cc.signatures_tbl s);
-    Log.debugf 15
+    Log.debugf 50
       (fun k->k "(@[cc.add-sig@ %a@ ~~> %a@])" Signature.pp s N.pp n);
     on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
     Sig_tbl.add cc.signatures_tbl s n
 
   let push_pending cc t : unit =
-    Log.debugf 5 (fun k->k "(@[<hv1>cc.push_pending@ %a@])" N.pp t);
+    Log.debugf 50 (fun k->k "(@[<hv1>cc.push-pending@ %a@])" N.pp t);
     Vec.push cc.pending t
 
   let merge_classes cc t u e : unit =
-    Log.debugf 5
-      (fun k->k "(@[<hv1>cc.push_combine@ %a ~@ %a@ :expl %a@])"
+    Log.debugf 50
+      (fun k->k "(@[<hv1>cc.push-combine@ %a ~@ %a@ :expl %a@])"
         N.pp t N.pp u Expl.pp e);
     Vec.push cc.combine @@ CT_merge (t,u,e)
 
@@ -778,7 +778,7 @@ module Make (A: CC_ARG)
      otherwise merge the atom with true/false *)
   let assert_lit cc lit : unit =
     let t = Lit.term lit in
-    Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);
+    Log.debugf 15 (fun k->k "(@[cc.assert-lit@ %a@])" Lit.pp lit);
     let sign = Lit.sign lit in
     begin match A.cc_view t with
       | Eq (a,b) when sign ->
