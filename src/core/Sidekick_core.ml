@@ -182,7 +182,6 @@ module type CC_S = sig
         and are merged automatically when classes are merged. *)
 
     val get_field : bitfield -> t -> bool
-    val set_field : bitfield -> bool -> t -> unit
   end
 
   module Expl : sig
@@ -234,6 +233,10 @@ module type CC_S = sig
 
   val allocate_bitfield : t -> N.bitfield
   (** Allocate a new bitfield for the nodes.
+      See {!N.bitfield}. *)
+
+  val set_bitfield : t -> N.bitfield -> bool -> N.t -> unit
+  (** Set the bitfield for the node. This will be backtracked.
       See {!N.bitfield}. *)
 
   (* TODO: remove? this is managed by the solver anyway? *)
@@ -657,4 +660,99 @@ module type SOLVER = sig
       @param on_exit functions to be run before this returns *)
 
   val pp_stats : t CCFormat.printer
+end
+
+(** Helper for keeping track of state for each class *)
+
+module type MONOID_ARG = sig
+  module SI : SOLVER_INTERNAL
+  type t
+  val pp : t Fmt.printer
+  val name : string (* name of the monoid's value (short) *)
+  val of_term : SI.CC.N.t -> SI.T.Term.t -> t option
+  val merge : SI.CC.t -> SI.CC.N.t -> t -> SI.CC.N.t -> t -> (t, SI.CC.Expl.t) result
+end
+
+module Monoid_of_repr(M : MONOID_ARG) : sig
+  type t
+  val create_and_setup : ?size:int -> M.SI.t -> t
+  val push_level : t -> unit
+  val pop_levels : t -> int -> unit
+  val mem : t -> M.SI.CC.N.t -> bool
+  val get : t -> M.SI.CC.N.t -> M.t option
+end = struct
+  module SI = M.SI
+  module T = SI.T.Term
+  module N = SI.CC.N
+  module CC = SI.CC
+  module N_tbl = Backtrackable_tbl.Make(N)
+  module Expl = SI.CC.Expl
+
+  type t = {
+    values: M.t N_tbl.t; (* repr -> value for the class *)
+    field_has_value: N.bitfield; (* bit in CC to filter out quickly classes without value *)
+  }
+
+  let push_level self = N_tbl.push_level self.values
+  let pop_levels self n = N_tbl.pop_levels self.values n
+
+  let mem self n =
+    let res = N.get_field self.field_has_value n in
+    assert (if res then N_tbl.mem self.values n else true);
+    res
+
+  let get self n = N_tbl.get self.values n
+
+  let on_new_term self cc n (t:T.t) =
+    match M.of_term n t with
+    | Some v ->
+      Log.debugf 20
+        (fun k->k "(@[monoid[%s].on-new-term@ :n %a@ :value %a@])"
+            M.name N.pp n M.pp v);
+      SI.CC.set_bitfield cc self.field_has_value true n;
+      N_tbl.add self.values n v
+    | None -> ()
+
+  (* find cell for [n] *)
+  let get_cell (self:t) (n:N.t) : M.t option =
+    N_tbl.get self.values n
+    (* TODO
+    if N.get_field self.field_has_value n then (
+      try Some (N_tbl.find self.values n)
+      with Not_found ->
+        Error.errorf "repr %a has value-field bit for %s set, but is not in table"
+          N.pp n M.name
+    ) else (
+      None
+    )
+       *)
+
+  let on_pre_merge (self:t) cc acts n1 n2 e_n1_n2 : unit =
+    begin match get_cell self n1, get_cell self n2 with
+      | Some v1, Some v2 ->
+        Log.debugf 5
+          (fun k->k
+              "(@[monoid[%s].on_pre_merge@ @[:n1 %a@ :val %a@]@ @[:n2 %a@ :val %a@]@])"
+              M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2); 
+        begin match M.merge cc n1 v1 n2 v2 with
+          | Ok v' ->
+            N_tbl.add self.values n1 v';
+          | Error expl ->
+            (* add [n1=n2] to the conflict *)
+            let expl = Expl.mk_list [ e_n1_n2; expl; ] in
+            SI.CC.raise_conflict_from_expl cc acts expl
+        end
+      | None, Some cr ->
+        SI.CC.set_bitfield cc self.field_has_value true n1;
+        N_tbl.add self.values n1 cr
+      | Some _, None -> () (* already there on the left *)
+      | None, None -> ()
+    end
+
+  let create_and_setup ?size (solver:SI.t) : t =
+    let field_has_value = SI.CC.allocate_bitfield (SI.cc solver) in
+    let self = { values=N_tbl.create ?size (); field_has_value; } in
+    SI.on_cc_new_term solver (on_new_term self);
+    SI.on_cc_pre_merge solver (on_pre_merge self);
+    self
 end

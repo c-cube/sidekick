@@ -289,6 +289,13 @@ module Make (A: CC_ARG)
   let[@inline] on_backtrack cc f : unit =
     Backtrack_stack.push_if_nonzero_level cc.undo f
 
+  let set_bitfield cc field b n =
+    let old = N.get_field field n in
+    if old <> b then (
+      on_backtrack cc (fun () -> N.set_field field old n);
+      N.set_field field b n;
+    )
+
   (* check if [t] is in the congruence closure.
      Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
   let[@inline] mem (cc:t) (t:term): bool = T_tbl.mem cc.tbl t

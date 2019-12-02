@@ -138,19 +138,57 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Card = Compute_card(A)
 
-  type cstor_repr = {
-    t: T.t;
-    n: N.t;
-    cstor: A.Cstor.t;
-    args: T.t IArray.t;
-  }
-  (* associate to each class a unique constructor term in the class (if any) *)
+  module Monoid_cstor = struct
+    module SI = SI
 
+    (* associate to each class a unique constructor term in the class (if any) *)
+    type t = {
+      t: T.t;
+      n: N.t;
+      cstor: A.Cstor.t;
+      args: T.t IArray.t;
+    }
+
+    let name = "th-data.cstor"
+    let pp out (v:t) =
+      Fmt.fprintf out "(@[cstor %a@ :term %a@])" A.Cstor.pp v.cstor T.pp v.t
+
+    (* attach data to constructor terms *)
+    let of_term n (t:T.t) : _ option =
+      match A.view_as_data t with
+      | T_cstor (cstor,args) -> Some {n; t; cstor; args}
+      | _ -> None
+
+    let merge cc n1 v1 n2 v2 : _ result =
+      Log.debugf 5
+        (fun k->k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])"
+            name N.pp n1 T.pp v1.t N.pp n2 T.pp v2.t); 
+      (* build full explanation of why the constructor terms are equal *)
+      let expl =
+        Expl.mk_list [
+          Expl.mk_merge n1 v1.n;
+          Expl.mk_merge n2 v2.n;
+        ]
+      in
+      if A.Cstor.equal v1.cstor v2.cstor then (
+        (* same function: injectivity *)
+        assert (IArray.length v1.args = IArray.length v2.args);
+        IArray.iter2
+          (fun u1 u2 -> SI.CC.merge_t cc u1 u2 expl)
+          v1.args v2.args;
+        Ok v1
+      ) else (
+        (* different function: disjointness *)
+        Error expl
+      )
+  end
+
+  module ST_cstors = Sidekick_core.Monoid_of_repr(Monoid_cstor)
   module N_tbl = Backtrackable_tbl.Make(N)
 
   type t = {
     tst: T.state;
-    cstors: cstor_repr N_tbl.t; (* repr -> cstor for the class *)
+    cstors: ST_cstors.t; (* repr -> cstor for the class *)
     cards: Card.t; (* remember finiteness *)
     to_decide: unit N_tbl.t; (* set of terms to decide. *)
     case_split_done: unit T.Tbl.t; (* set of terms for which case split is done *)
@@ -159,18 +197,19 @@ module Make(A : ARG) : S with module A = A = struct
   }
 
   let push_level self =
-    N_tbl.push_level self.cstors;
+    ST_cstors.push_level self.cstors;
     N_tbl.push_level self.to_decide;
     ()
 
   let pop_levels self n =
-    N_tbl.pop_levels self.cstors n;
+    ST_cstors.pop_levels self.cstors n;
     N_tbl.pop_levels self.to_decide n;
     ()
 
   (* TODO: select/is-a *)
   (* TODO: acyclicity *)
 
+  (* TODO: remove
   (* attach data to constructor terms *)
   let on_new_term_look_at_shape self n (t:T.t) =
     match A.view_as_data t with
@@ -193,6 +232,7 @@ module Make(A : ARG) : S with module A = A = struct
       ()
       (*       N_tbl.add self.cstors n {n; t; cstor; args}; *)
     | T_other _ -> ()
+     *)
 
   (* remember terms of a datatype *)
   let on_new_term_look_at_ty (self:t) n (t:T.t) : unit =
@@ -211,39 +251,8 @@ module Make(A : ARG) : S with module A = A = struct
     | _ -> ()
 
   let on_new_term self _solver n t =
-    on_new_term_look_at_shape self n t;
     on_new_term_look_at_ty self n t;
     ()
-
-  let on_pre_merge (self:t) cc acts n1 n2 e_n1_n2 : unit =
-    begin match N_tbl.get self.cstors n1, N_tbl.get self.cstors n2 with
-      | Some cr1, Some cr2 ->
-        Log.debugf 5
-          (fun k->k "(@[th-cstor.on_pre_merge@ @[:c1 %a@ (term %a)@]@ @[:c2 %a@ (term %a)@]@])"
-              N.pp n1 T.pp cr1.t N.pp n2 T.pp cr2.t); 
-        (* build full explanation of why the constructor terms are equal *)
-        let expl =
-          Expl.mk_list [
-            e_n1_n2;
-            Expl.mk_merge n1 cr1.n;
-            Expl.mk_merge n2 cr2.n;
-          ]
-        in
-        if A.Cstor.equal cr1.cstor cr2.cstor then (
-          (* same function: injectivity *)
-          assert (IArray.length cr1.args = IArray.length cr2.args);
-          IArray.iter2
-            (fun u1 u2 -> SI.CC.merge_t cc u1 u2 expl)
-            cr1.args cr2.args
-        ) else (
-          (* different function: disjointness *)
-          SI.CC.raise_conflict_from_expl cc acts expl
-      )
-      | None, Some cr ->
-        N_tbl.add self.cstors n1 cr
-      | Some _, None -> () (* already there on the left *)
-      | None, None -> ()
-    end
 
   let cstors_of_ty (ty:Ty.t) : A.Cstor.t Iter.t =
     match A.as_datatype ty with
@@ -258,7 +267,7 @@ module Make(A : ARG) : S with module A = A = struct
       |> Iter.map (fun (n,_) -> SI.cc_find solver n)
       |> Iter.filter
         (fun n ->
-           not (N_tbl.mem self.cstors n) &&
+           not (ST_cstors.mem self.cstors n) &&
            not (T.Tbl.mem self.case_split_done (N.term n)))
       |> Iter.to_rev_list
     in
@@ -297,14 +306,13 @@ module Make(A : ARG) : S with module A = A = struct
   let create_and_setup (solver:SI.t) : t =
     let self = {
       tst=SI.tst solver;
-      cstors=N_tbl.create ~size:32 ();
+      cstors=ST_cstors.create_and_setup ~size:32 solver;
       to_decide=N_tbl.create ~size:16 ();
       case_split_done=T.Tbl.create 16;
       cards=Card.create();
     } in
     Log.debugf 1 (fun k->k "(setup :%s)" name);
     SI.on_cc_new_term solver (on_new_term self);
-    SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_final_check solver (on_final_check self);
     self
 
