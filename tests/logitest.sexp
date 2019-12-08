@@ -1,17 +1,16 @@
 
 (prover
   (name sidekick-dev)
-  (binary "./sidekick")
-  (cmd "./sidekick --no-check --time $timeout $file")
+  (cmd "${cur_dir}/../sidekick --no-check --time $timeout $file")
   (unsat "Unsat")
   (sat "Sat")
   (unknown "Timeout|Unknown")
   (version "git:."))
 
 (dir
-  (path tests)
+  (path $cur_dir)
   (pattern ".*.(smt2|cnf)")
-  (expect (run z3)))
+  (expect (try (run smtlib-read-status) (run z3))))
 
 (task
   (name sidekick-local-test)
@@ -20,5 +19,4 @@
       (provers sidekick)
       (timeout 10)
       (dirs tests))))
-
 
