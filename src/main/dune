@@ -8,4 +8,15 @@
    sidekick.msat-solver sidekick-bin.smtlib)
  (flags :standard -safe-string -color always -open Sidekick_util))
 
+(rule
+  (targets sidekick_version.ml)
+  (deps (universe))
+  (mode promote)
+  (action
+    (with-stdout-to %{targets}
+      (progn 
+        (echo "let version = {git|")
+        (run git rev-parse HEAD)
+        (echo "|git}")))))
+
 (ocamllex (modules Dimacs_lexer))
