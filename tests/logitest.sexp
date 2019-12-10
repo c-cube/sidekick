@@ -16,7 +16,7 @@
   (name sidekick-local-test)
   (action
     (run_provers
-      (provers sidekick)
+      (provers sidekick-dev)
       (timeout 10)
-      (dirs tests))))
+      (dirs))))
 
