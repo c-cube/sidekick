@@ -171,9 +171,7 @@ module Make (A: CC_ARG)
 
     let mk_reduction : t = E_reduction
     let[@inline] mk_congruence n1 n2 : t = E_congruence (n1,n2)
-    let[@inline] mk_merge a b : t = 
-      assert (same_class a b); 
-      if N.equal a b then mk_reduction else E_merge (a,b)
+    let[@inline] mk_merge a b : t = if N.equal a b then mk_reduction else E_merge (a,b)
     let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_reduction else E_merge_t (a,b)
     let[@inline] mk_lit l : t = E_lit l
 
