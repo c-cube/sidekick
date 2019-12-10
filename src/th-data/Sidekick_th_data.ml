@@ -260,9 +260,94 @@ module Make(A : ARG) : S with module A = A = struct
     | Ty_data {cstors} -> cstors
     | _ -> assert false
 
-  (* on final check, make sure we have done case split on all terms that
+  module Acyclicity_ = struct
+    type st = {
+      n: N.t;
+      mutable flag: flag;
+      cstor: Monoid_cstor.t;
+    }
+    and parent_uplink = {
+      parent: st;
+      t_eq_n: T.t;
+    }
+    and flag =
+      | New | Done
+      | Current of parent_uplink option
+
+    let pp_st out st =
+      Fmt.fprintf out "(@[st :cstor %a@ :flag %s@])"
+        Monoid_cstor.pp st.cstor
+        (match st.flag with
+         | New -> "new" | Done -> "done"
+         | Current None -> "current-top" | Current _ -> "current(_)")
+
+    let pp_parent out {parent; t_eq_n} =
+      Fmt.fprintf out "(@[parent@ :n %a@ :by-eq-t %a@])"
+        N.pp parent.n T.pp t_eq_n
+
+    let check (self:t) (solver:SI.t) (acts:SI.actions) : unit =
+      let module Tbl = CCHashtbl.Make(N) in
+      let cc = SI.cc solver in
+      let tbl : st Tbl.t = Tbl.create 32 in
+      (* traverse [n] with state [st], possibly from an equality [n=t_eq_n] *)
+      let rec traverse ?parent (n:N.t) (st:st) : unit =
+        Log.debugf 50
+          (fun k->k "(@[data.acycl.traverse %a@ :st %a@ :parent %a@])"
+              N.pp n pp_st st (Fmt.Dump.option pp_parent) parent);
+        match st.flag with
+        | Done -> ()
+        | New ->
+          st.flag <- Current parent;
+          traverse_sub n st;
+          st.flag <- Done
+        | Current _parent ->
+          let parent = CCOpt.or_ ~else_:_parent parent in
+          Log.debugf 20
+            (fun k->k "(@[data.acycl.found-loop@ %a@ :st %a@ :parent %a@])"
+                N.pp n pp_st st (Fmt.Dump.option pp_parent) parent);
+          (* conflict, we found a loop! *)
+          let rec mk_path acc n parent =
+            Log.debugf 100
+              (fun k->k "(@[data.acycl.mk-path %a %a@])" N.pp n pp_parent parent);
+            let acc = Expl.mk_merge_t (N.term n) parent.t_eq_n :: acc in
+            let acc = Expl.mk_merge parent.parent.n parent.parent.cstor.n :: acc in
+            match parent.parent.flag with
+            | Current (Some p') -> mk_path acc parent.parent.n p'
+            | _ -> acc
+          in
+          let c0 = [Expl.mk_merge n st.cstor.n;] in
+          let c = match parent with
+            | None -> c0
+            | Some parent -> mk_path c0 n parent
+          in
+          SI.CC.raise_conflict_from_expl cc acts (Expl.mk_list c)
+      (* traverse constructor arguments *)
+      and traverse_sub n st: unit =
+        IArray.iter
+          (fun sub_t ->
+             let sub = SI.CC.find_t cc sub_t in
+             match Tbl.get tbl sub with
+             | None -> ()
+             | Some st' ->
+               let parent = {parent=st; t_eq_n=sub_t} in
+               traverse ~parent sub st')
+          st.cstor.args;
+      in
+      begin
+        (* populate tbl with [repr->cstor] *)
+        ST_cstors.iter_all self.cstors
+          (fun (n, cstor) ->
+             assert (not @@ Tbl.mem tbl n);
+             Tbl.add tbl n {cstor; n; flag=New});
+        Tbl.iter (fun n st -> traverse n st) tbl;
+      end
+  end
+
+  (* on final check, check acyclicity,
+     then make sure we have done case split on all terms that
      need it. *)
   let on_final_check (self:t) (solver:SI.t) (acts:SI.actions) _trail =
+    Acyclicity_.check self solver acts;
     let remaining_to_decide =
       N_tbl.to_iter self.to_decide
       |> Iter.map (fun (n,_) -> SI.cc_find solver n)
