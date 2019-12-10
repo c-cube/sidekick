@@ -680,6 +680,7 @@ module Monoid_of_repr(M : MONOID_ARG) : sig
   val pop_levels : t -> int -> unit
   val mem : t -> M.SI.CC.N.t -> bool
   val get : t -> M.SI.CC.N.t -> M.t option
+  val iter_all : t -> (M.SI.CC.N.t * M.t) Iter.t
 end = struct
   module SI = M.SI
   module T = SI.T.Term
@@ -713,6 +714,9 @@ end = struct
       N_tbl.add self.values n v
     | None -> ()
 
+  let iter_all (self:t) : _ Iter.t =
+    N_tbl.to_iter self.values
+
   (* find cell for [n] *)
   let get_cell (self:t) (n:N.t) : M.t option =
     N_tbl.get self.values n
@@ -736,6 +740,7 @@ end = struct
               M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2); 
         begin match M.merge cc n1 v1 n2 v2 with
           | Ok v' ->
+            N_tbl.remove self.values n2; (* only keep repr *)
             N_tbl.add self.values n1 v';
           | Error expl ->
             (* add [n1=n2] to the conflict *)
@@ -744,7 +749,8 @@ end = struct
         end
       | None, Some cr ->
         SI.CC.set_bitfield cc self.field_has_value true n1;
-        N_tbl.add self.values n1 cr
+        N_tbl.add self.values n1 cr;
+        N_tbl.remove self.values n2; (* only keep reprs *)
       | Some _, None -> () (* already there on the left *)
       | None, None -> ()
     end
