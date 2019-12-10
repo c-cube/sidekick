@@ -168,6 +168,7 @@ module Make(A : ARG) : S with module A = A = struct
         Expl.mk_list [
           Expl.mk_merge n1 v1.n;
           Expl.mk_merge n2 v2.n;
+          Expl.mk_merge n1 n2;
         ]
       in
       if A.Cstor.equal v1.cstor v2.cstor then (
