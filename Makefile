@@ -26,22 +26,21 @@ clean:
 test:
 	@dune runtest --force --no-buffer
 
-TESTOPTS ?= -j $(J)
+TESTOPTS ?= -j $(J) -c tests/logitest.sexp
 TESTTOOL=logitest
 DATE=$(shell date +%FT%H:%M)
 
-logitest-quick:
+snapshots:
 	@mkdir -p snapshots
-	$(TESTTOOL) run -c tests/conf.toml $(TESTOPTS) \
-	  --meta `git rev-parse HEAD` --csv snapshots/quick-$(DATE).csv tests/sat tests/unsat/ tests/pigeon
-logitest-smt-QF_UF:
-	@mkdir -p snapshots
-	$(TESTTOOL) run -c tests/conf.toml $(TESTOPTS) \
-	  --meta `git rev-parse HEAD` --csv snapshots/smt-QF_UF-$(DATE).csv tests/QF_UF
-logitest-smt-QF_DT:
-	@mkdir -p snapshots
-	$(TESTTOOL) run -c tests/conf.toml $(TESTOPTS) \
-	  --meta `git rev-parse HEAD` --csv snapshots/smt-QF_DT-$(DATE).csv tests/QF_DT
+logitest-quick: snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick
+logitest-smt-QF_UF: snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/smt-QF_UF-$(DATE).csv --task sidekick-smt-nodir tests/QF_UF
+logitest-smt-QF_DT: snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/smt-QF_DT-$(DATE).csv --task sidekick-smt-nodir tests/QF_DT
 
 install: build-install
 	@dune install
