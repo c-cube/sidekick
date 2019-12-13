@@ -1,0 +1,13 @@
+
+(declare-sort a 0)
+(declare-fun x () a)
+(declare-fun y () a)
+(declare-fun f (a) a)
+(declare-fun p1 () Bool)
+(declare-fun p2 () Bool)
+(assert (or p1 (= x y)))
+(assert (or p1 (= y (f x))))
+(assert (not (= x (f (f (f x))))))
+(assert (or (not p1) p2))
+(assert (or (not p1) (not p2)))
+(check-sat)
