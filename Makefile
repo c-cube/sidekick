@@ -26,19 +26,19 @@ clean:
 test:
 	@dune runtest --force --no-buffer
 
-TESTOPTS ?= -j $(J) -c tests/logitest.sexp
-TESTTOOL=logitest
+TESTOPTS ?= -j $(J) -c tests/benchpress.sexp
+TESTTOOL=benchpress
 DATE=$(shell date +%FT%H:%M)
 
 snapshots:
 	@mkdir -p snapshots
-logitest-quick: snapshots
+$(TESTTOOL)-quick: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick
-logitest-smt-QF_UF: snapshots
+$(TESTTOOL)-smt-QF_UF: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_UF-$(DATE).csv --task sidekick-smt-nodir tests/QF_UF
-logitest-smt-QF_DT: snapshots
+$(TESTTOOL)-smt-QF_DT: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_DT-$(DATE).csv --task sidekick-smt-nodir tests/QF_DT
 
