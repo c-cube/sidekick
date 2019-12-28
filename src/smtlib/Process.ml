@@ -200,7 +200,7 @@ let process_stmt
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
   Log.debugf 5
-    (fun k->k "(@[<2>process statement@ %a@])" Statement.pp stmt);
+    (fun k->k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
   let decl_sort c n : unit =
     Log.debugf 1 (fun k->k "(@[declare-sort %a@ :arity %d@])" ID.pp c n);
     (* TODO: more? *)

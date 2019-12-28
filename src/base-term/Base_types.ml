@@ -549,6 +549,8 @@ end = struct
         Fun.equal f1 f2 && IArray.equal sub_eq a1 a2
       | Eq(a1,b1), Eq(a2,b2) -> sub_eq a1 a2 && sub_eq b1 b2
       | Not a, Not b -> sub_eq a b
+      | Ite (a1,b1,c1), Ite (a2,b2,c2) ->
+        sub_eq a1 a2 && sub_eq b1 b2 && sub_eq c1 c2
       | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _), _
         -> false
 

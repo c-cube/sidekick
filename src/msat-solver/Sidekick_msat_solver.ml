@@ -558,6 +558,7 @@ module Make(A : ARG)
 
   let add_clause (self:t) (c:Atom.t IArray.t) : unit =
     Stat.incr self.count_clause;
+    Log.debugf 50 (fun k->k "add clause %a@." (Util.pp_iarray Atom.pp) c);
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default
 
   let add_clause_l self c = add_clause self (IArray.of_list c)
