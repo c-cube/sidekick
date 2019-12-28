@@ -209,8 +209,8 @@ module Make(A : ARG) : S with module A = A = struct
       parent_select: select list; (* parents that are [select] *)
     }
 
-    let pp_select out s = Fmt.fprintf out "sel[%d]-%a" s.sel_idx A.Cstor.pp s.sel_cstor
-    let pp_is_a out s = Fmt.fprintf out "is-%a" A.Cstor.pp s.is_a_cstor
+    let pp_select out s = Fmt.fprintf out "(@[sel[%d]-%a@ :n %a@])" s.sel_idx A.Cstor.pp s.sel_cstor N.pp s.sel_n
+    let pp_is_a out s = Fmt.fprintf out "(@[is-%a@ :n %a@])" A.Cstor.pp s.is_a_cstor N.pp s.is_a_n
     let pp out (v:t) =
       Fmt.fprintf out
         "(@[%s@ @[:sel [@[%a@]]@]@ @[:is-a [@[%a@]]@]@])"
@@ -320,7 +320,8 @@ module Make(A : ARG) : S with module A = A = struct
       let n_u = SI.CC.add_term cc u in
       let repr_u = SI.CC.find cc n_u in
       begin match ST_cstors.get self.cstors repr_u with
-        | None -> ()
+        | None ->
+          N_tbl.add self.to_decide repr_u (); (* needs to be decided *)
         | Some cstor ->
           let is_true = A.Cstor.equal cstor.c_cstor c_t in
           Log.debugf 5
@@ -340,7 +341,9 @@ module Make(A : ARG) : S with module A = A = struct
           let u_i = IArray.get cstor.c_args i in
           let n_u_i = SI.CC.add_term cc u_i in
           SI.CC.merge cc n n_u_i (Expl.mk_merge n_u repr_u)
-        | _ -> ()
+        | Some _ -> ()
+        | None ->
+          N_tbl.add self.to_decide repr_u (); (* needs to be decided *)
       end
     | T_cstor _ | T_other _ -> ()
 
@@ -349,25 +352,27 @@ module Make(A : ARG) : S with module A = A = struct
     | Ty_data {cstors} -> cstors
     | _ -> assert false
 
+  (* FIXME: when merging [(is _ C) t] with true, propagate [t=C(sel[1]-c(t),…)] *)
+  (* FIXME: when merging [(is _ C) t] with false, remove [C] from the available list *)
   let on_pre_merge (self:t) (cc:SI.CC.t) acts n1 n2 expl : unit =
     let merge_is_a n1 (c1:Monoid_cstor.t) n2 (is_a2:Monoid_parents.is_a) =
       let is_true = A.Cstor.equal c1.c_cstor is_a2.is_a_cstor in
       Log.debugf 50
-        (fun k->k "(@[%s.on-new-term.is-a.reduce@ :to %B@ :n %a@ :sub-cstor %a@])"
+        (fun k->k "(@[%s.on-merge.is-a.reduce@ :to %B@ :n %a@ :sub-cstor %a@])"
             name is_true N.pp n2 Monoid_cstor.pp c1);
-      SI.CC.merge cc n2 (SI.CC.n_bool cc is_true)
-        Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n2 is_a2.is_a_n])
+      SI.CC.merge cc is_a2.is_a_n (SI.CC.n_bool cc is_true)
+        Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2])
     in
     let merge_select n1 (c1:Monoid_cstor.t) n2 (sel2:Monoid_parents.select) =
       if A.Cstor.equal c1.c_cstor sel2.sel_cstor then (
         Log.debugf 5
-          (fun k->k "(@[%s.on-new-term.select.reduce@ :n %a@ :sel get[%d]-%a@])"
+          (fun k->k "(@[%s.on-merge.select.reduce@ :n %a@ :sel get[%d]-%a@])"
               name N.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
         assert (sel2.sel_idx < IArray.length c1.c_args);
         let u_i = IArray.get c1.c_args sel2.sel_idx in
         let n_u_i = SI.CC.add_term cc u_i in
-        SI.CC.merge cc n2 n_u_i
-          Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n2 sel2.sel_n]);
+        SI.CC.merge cc sel2.sel_n n_u_i
+          Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2]);
       )
     in
     let merge_c_p n1 n2 =
