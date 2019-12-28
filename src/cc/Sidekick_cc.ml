@@ -813,6 +813,7 @@ module Make (A: CC_ARG)
   let merge cc n1 n2 expl =
     Log.debugf 5
       (fun k->k "(@[cc.theory.merge@ :n1 %a@ :n2 %a@ :expl %a@])" N.pp n1 N.pp n2 Expl.pp expl);
+    assert (T.Ty.equal (T.Term.ty n1.n_term) (T.Term.ty n2.n_term));
     merge_classes cc n1 n2 expl
 
   let[@inline] merge_t cc t1 t2 expl =
