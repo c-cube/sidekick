@@ -170,7 +170,6 @@ module Make(A : ARG) : S with module A = A = struct
         Expl.mk_list [
           Expl.mk_merge n1 c1.c_n;
           Expl.mk_merge n2 c2.c_n;
-          Expl.mk_merge n1 n2;
         ]
       in
       if A.Cstor.equal c1.c_cstor c2.c_cstor then (
