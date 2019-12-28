@@ -279,8 +279,9 @@ module Make (A: CC_ARG)
   and ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
-  let[@inline] true_ cc = Lazy.force cc.true_
-  let[@inline] false_ cc = Lazy.force cc.false_
+  let[@inline] n_true cc = Lazy.force cc.true_
+  let[@inline] n_false cc = Lazy.force cc.false_
+  let n_bool cc b = if b then n_true cc else n_false cc
   let[@inline] term_state cc = cc.tst
   let allocate_bitfield ~descr cc =
     Log.debugf 5 (fun k->k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
@@ -557,7 +558,7 @@ module Make (A: CC_ARG)
       n.n_as_lit <- Some lit
 
   let n_is_bool (self:t) n : bool =
-    N.equal n (true_ self) || N.equal n (false_ self)
+    N.equal n (n_true self) || N.equal n (n_false self)
 
   (* main CC algo: add terms from [pending] to the signature table,
      check for collisions *)
@@ -581,17 +582,17 @@ module Make (A: CC_ARG)
           let expl = Expl.mk_merge a b in
           Log.debugf 5 
             (fun k->k "(pending.eq@ %a@ :r1 %a@ :r2 %a@])" N.pp n N.pp a N.pp b);
-          merge_classes cc n (true_ cc) expl
+          merge_classes cc n (n_true cc) expl
         )
       | Some (Not u) ->
         (* [u = bool ==> not u = not bool] *)
         let r_u = find_ u in
-        if N.equal r_u (true_ cc) then (
-          let expl = Expl.mk_merge u (true_ cc) in
-          merge_classes cc n (false_ cc) expl
-        ) else if N.equal r_u (false_ cc) then (
-          let expl = Expl.mk_merge u (false_ cc) in
-          merge_classes cc n (true_ cc) expl
+        if N.equal r_u (n_true cc) then (
+          let expl = Expl.mk_merge u (n_true cc) in
+          merge_classes cc n (n_false cc) expl
+        ) else if N.equal r_u (n_false cc) then (
+          let expl = Expl.mk_merge u (n_false cc) in
+          merge_classes cc n (n_true cc) expl
         )
       | Some s0 ->
         (* update the signature by using [find] on each sub-node *)
@@ -622,8 +623,8 @@ module Make (A: CC_ARG)
       assert (N.is_root rb);
       Stat.incr cc.count_merge;
       (* check we're not merging [true] and [false] *)
-      if (N.equal ra (true_ cc) && N.equal rb (false_ cc)) ||
-         (N.equal rb (true_ cc) && N.equal ra (false_ cc)) then (
+      if (N.equal ra (n_true cc) && N.equal rb (n_false cc)) ||
+         (N.equal rb (n_true cc) && N.equal ra (n_false cc)) then (
         Log.debugf 5
           (fun k->k "(@[<hv>cc.merge.true_false_conflict@ \
                      @[:r1 %a@ :t1 %a@]@ @[:r2 %a@ :t2 %a@]@ :e_ab %a@])"
@@ -644,9 +645,9 @@ module Make (A: CC_ARG)
       in
       (* when merging terms with [true] or [false], possibly propagate them to SAT *)
       let merge_bool r1 t1 r2 t2 =
-        if N.equal r1 (true_ cc) then (
+        if N.equal r1 (n_true cc) then (
           propagate_bools cc acts r2 t2 r1 t1 e_ab true
-        ) else if N.equal r1 (false_ cc) then (
+        ) else if N.equal r1 (n_false cc) then (
           propagate_bools cc acts r2 t2 r1 t1 e_ab false
         )
       in
@@ -788,7 +789,7 @@ module Make (A: CC_ARG)
         merge_classes cc a b (Expl.mk_lit lit)
       | _ ->
         (* equate t and true/false *)
-        let rhs = if sign then true_ cc else false_ cc in
+        let rhs = if sign then n_true cc else n_false cc in
         let n = add_term cc t in
         (* TODO: ensure that this is O(1).
            basically, just have [n] point to true/false and thus acquire

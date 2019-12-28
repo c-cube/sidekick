@@ -282,6 +282,10 @@ module type CC_S = sig
       it must be a theory tautology that [expl ==> absurd].
       To be used in theories. *)
 
+  val n_true : t -> N.t
+  val n_false : t -> N.t
+  val n_bool : t -> bool -> N.t
+
   val merge : t -> N.t -> N.t -> Expl.t -> unit
   (** Merge these two nodes given this explanation.
       It must be a theory tautology that [expl ==> n1 = n2].
@@ -715,7 +719,10 @@ end = struct
     assert (if res then N_tbl.mem self.values n else true);
     res
 
-  let get self n = N_tbl.get self.values n
+  let get self n =
+    if N.get_field self.field_has_value n
+    then N_tbl.get self.values n
+    else None
 
   let on_new_term self cc n (t:T.t) : unit =
     let maybe_m, l = M.of_term n t in

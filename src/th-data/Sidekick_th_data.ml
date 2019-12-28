@@ -313,14 +313,77 @@ module Make(A : ARG) : S with module A = A = struct
       )
     | _ -> ()
 
-  let on_new_term self _solver n t =
-    on_new_term_look_at_ty self n t;
-    ()
+  let on_new_term (self:t) cc (n:N.t) (t:T.t) : unit =
+    on_new_term_look_at_ty self n t; (* might have to decide [t] *)
+    match A.view_as_data t with
+    | T_is_a (c_t, u) ->
+      let n_u = SI.CC.add_term cc u in
+      let repr_u = SI.CC.find cc n_u in
+      begin match ST_cstors.get self.cstors repr_u with
+        | None -> ()
+        | Some cstor ->
+          let is_true = A.Cstor.equal cstor.c_cstor c_t in
+          Log.debugf 5
+            (fun k->k "(@[%s.on-new-term.is-a.reduce@ :to %B@ :n %a@ :sub-cstor %a@])"
+                name is_true N.pp n Monoid_cstor.pp cstor);
+          SI.CC.merge cc n (SI.CC.n_bool cc is_true) (Expl.mk_merge n_u repr_u)
+      end
+    | T_select (c_t, i, u) ->
+      let n_u = SI.CC.add_term cc u in
+      let repr_u = SI.CC.find cc n_u in
+      begin match ST_cstors.get self.cstors repr_u with
+        | Some cstor when A.Cstor.equal cstor.c_cstor c_t ->
+          Log.debugf 5
+            (fun k->k "(@[%s.on-new-term.select.reduce@ :n %a@ :sel get[%d]-%a@])"
+                name N.pp n i A.Cstor.pp c_t);
+          assert (i < IArray.length cstor.c_args);
+          let u_i = IArray.get cstor.c_args i in
+          let n_u_i = SI.CC.add_term cc u_i in
+          SI.CC.merge cc n n_u_i (Expl.mk_merge n_u repr_u)
+        | _ -> ()
+      end
+    | T_cstor _ | T_other _ -> ()
 
   let cstors_of_ty (ty:Ty.t) : A.Cstor.t Iter.t =
     match A.as_datatype ty with
     | Ty_data {cstors} -> cstors
     | _ -> assert false
+
+  let on_pre_merge (self:t) (cc:SI.CC.t) acts n1 n2 expl : unit =
+    let merge_is_a n1 (c1:Monoid_cstor.t) n2 (is_a2:Monoid_parents.is_a) =
+      let is_true = A.Cstor.equal c1.c_cstor is_a2.is_a_cstor in
+      Log.debugf 50
+        (fun k->k "(@[%s.on-new-term.is-a.reduce@ :to %B@ :n %a@ :sub-cstor %a@])"
+            name is_true N.pp n2 Monoid_cstor.pp c1);
+      SI.CC.merge cc n2 (SI.CC.n_bool cc is_true)
+        Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n2 is_a2.is_a_n])
+    in
+    let merge_select n1 (c1:Monoid_cstor.t) n2 (sel2:Monoid_parents.select) =
+      if A.Cstor.equal c1.c_cstor sel2.sel_cstor then (
+        Log.debugf 5
+          (fun k->k "(@[%s.on-new-term.select.reduce@ :n %a@ :sel get[%d]-%a@])"
+              name N.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
+        assert (sel2.sel_idx < IArray.length c1.c_args);
+        let u_i = IArray.get c1.c_args sel2.sel_idx in
+        let n_u_i = SI.CC.add_term cc u_i in
+        SI.CC.merge cc n2 n_u_i
+          Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n2 sel2.sel_n]);
+      )
+    in
+    let merge_c_p n1 n2 =
+      match ST_cstors.get self.cstors n1, ST_parents.get self.parents n2 with
+      | None, _
+      | _, None -> ()
+      | Some c1, Some p2 ->
+        Log.debugf 50
+          (fun k->k "(@[%s.pre-merge@ @[:n1 %a@ :c1 %a@]@ @[:n2 %a@ :p2 %a@]@])"
+              name N.pp n1 Monoid_cstor.pp c1 N.pp n2 Monoid_parents.pp p2);
+        List.iter (fun is_a2 -> merge_is_a n1 c1 n2 is_a2) p2.parent_is_a;
+        List.iter (fun s2 -> merge_select n1 c1 n2 s2) p2.parent_select;
+    in
+    merge_c_p n1 n2;
+    merge_c_p n2 n1;
+    ()
 
   module Acyclicity_ = struct
     type st = {
@@ -462,6 +525,7 @@ module Make(A : ARG) : S with module A = A = struct
     } in
     Log.debugf 1 (fun k->k "(setup :%s)" name);
     SI.on_cc_new_term solver (on_new_term self);
+    SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_final_check solver (on_final_check self);
     self
 
