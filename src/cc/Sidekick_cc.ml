@@ -282,7 +282,9 @@ module Make (A: CC_ARG)
   let[@inline] true_ cc = Lazy.force cc.true_
   let[@inline] false_ cc = Lazy.force cc.false_
   let[@inline] term_state cc = cc.tst
-  let[@inline] allocate_bitfield cc = Bits.mk_field cc.bitgen
+  let allocate_bitfield ~descr cc =
+    Log.debugf 5 (fun k->k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
+    Bits.mk_field cc.bitgen
 
   let[@inline] on_backtrack cc f : unit =
     Backtrack_stack.push_if_nonzero_level cc.undo f

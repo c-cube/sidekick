@@ -138,77 +138,139 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Card = Compute_card(A)
 
+  (** Monoid mapping each class to the (unique) constructor it contains,
+      if any *)
   module Monoid_cstor = struct
     module SI = SI
+    let name = "th-data.cstor"
 
     (* associate to each class a unique constructor term in the class (if any) *)
     type t = {
-      t: T.t;
-      n: N.t;
-      cstor: A.Cstor.t;
-      args: T.t IArray.t;
+      c_n: N.t;
+      c_cstor: A.Cstor.t;
+      c_args: T.t IArray.t;
     }
 
-    let name = "th-data.cstor"
     let pp out (v:t) =
-      Fmt.fprintf out "(@[cstor %a@ :term %a@])" A.Cstor.pp v.cstor T.pp v.t
+      Fmt.fprintf out "(@[%s@ :cstor %a@])" name A.Cstor.pp v.c_cstor
 
     (* attach data to constructor terms *)
-    let of_term n (t:T.t) : _ option =
+    let of_term n (t:T.t) : _ option * _ list =
       match A.view_as_data t with
-      | T_cstor (cstor,args) -> Some {n; t; cstor; args}
-      | _ -> None
+      | T_cstor (cstor,args) ->
+        Some {c_n=n;c_cstor=cstor; c_args=args}, []
+      | _ -> None, []
 
-    let merge cc n1 v1 n2 v2 : _ result =
+    let merge cc n1 c1 n2 c2 : _ result =
       Log.debugf 5
-        (fun k->k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])"
-            name N.pp n1 T.pp v1.t N.pp n2 T.pp v2.t); 
+        (fun k->k "(@[%s.merge@ @[:c1 %a %a@]@ @[:c2 %a %a@]@])"
+            name N.pp n1 pp c1 N.pp n2 pp c2); 
       (* build full explanation of why the constructor terms are equal *)
       let expl =
         Expl.mk_list [
-          Expl.mk_merge n1 v1.n;
-          Expl.mk_merge n2 v2.n;
+          Expl.mk_merge n1 c1.c_n;
+          Expl.mk_merge n2 c2.c_n;
           Expl.mk_merge n1 n2;
         ]
       in
-      if A.Cstor.equal v1.cstor v2.cstor then (
+      if A.Cstor.equal c1.c_cstor c2.c_cstor then (
         (* same function: injectivity *)
-        assert (IArray.length v1.args = IArray.length v2.args);
+        assert (IArray.length c1.c_args = IArray.length c2.c_args);
         IArray.iter2
           (fun u1 u2 -> SI.CC.merge_t cc u1 u2 expl)
-          v1.args v2.args;
-        Ok v1
+          c1.c_args c2.c_args;
+        Ok c1
       ) else (
         (* different function: disjointness *)
         Error expl
       )
   end
 
+  (** Monoid mapping each class to the set of is-a/select of which it
+      is the argument *)
+  module Monoid_parents = struct
+    module SI = SI
+    let name = "th-data.parents"
+
+    type select = {
+      sel_n: N.t;
+      sel_cstor: A.Cstor.t;
+      sel_idx: int;
+    }
+
+    type is_a = {
+      is_a_n: N.t;
+      is_a_cstor: A.Cstor.t;
+    }
+
+    (* associate to each class a unique constructor term in the class (if any) *)
+    type t = {
+      parent_is_a: is_a list;(* parents that are [is-a] *)
+      parent_select: select list; (* parents that are [select] *)
+    }
+
+    let pp_select out s = Fmt.fprintf out "sel[%d]-%a" s.sel_idx A.Cstor.pp s.sel_cstor
+    let pp_is_a out s = Fmt.fprintf out "is-%a" A.Cstor.pp s.is_a_cstor
+    let pp out (v:t) =
+      Fmt.fprintf out
+        "(@[%s@ @[:sel [@[%a@]]@]@ @[:is-a [@[%a@]]@]@])"
+        name
+        (Util.pp_list pp_select) v.parent_select
+        (Util.pp_list pp_is_a) v.parent_is_a
+
+    (* attach data to constructor terms *)
+    let of_term n (t:T.t) : _ option * _ list =
+      match A.view_as_data t with
+      | T_select (c, i, u) ->
+        let m_sel = {
+          parent_select=[{sel_n=n; sel_idx=i; sel_cstor=c}];
+          parent_is_a=[];
+        } in
+        None, [u, m_sel]
+      | T_is_a (c, u) ->
+        let m_sel = {
+          parent_is_a=[{is_a_n=n; is_a_cstor=c}];
+          parent_select=[];
+        } in
+        None, [u, m_sel]
+      | T_cstor _ | T_other _ -> None, []
+
+    let merge cc n1 v1 n2 v2 : _ result =
+      Log.debugf 5
+        (fun k->k "(@[%s.merge@ @[:c1 %a %a@]@ @[:c2 %a %a@]@])"
+            name N.pp n1 pp v1 N.pp n2 pp v2); 
+      let parent_is_a = v1.parent_is_a @ v2.parent_is_a in
+      let parent_select = v1.parent_select @ v2.parent_select in
+      Ok {parent_is_a; parent_select;}
+  end
+
   module ST_cstors = Sidekick_core.Monoid_of_repr(Monoid_cstor)
+  module ST_parents = Sidekick_core.Monoid_of_repr(Monoid_parents)
   module N_tbl = Backtrackable_tbl.Make(N)
 
   type t = {
     tst: T.state;
     cstors: ST_cstors.t; (* repr -> cstor for the class *)
+    parents: ST_parents.t; (* repr -> parents for the class *)
     cards: Card.t; (* remember finiteness *)
     to_decide: unit N_tbl.t; (* set of terms to decide. *)
     case_split_done: unit T.Tbl.t; (* set of terms for which case split is done *)
-    (* TODO: also allocate a bit in CC to filter out quickly classes without cstors? *)
     (* TODO: bitfield for types with less than 62 cstors, to quickly detect conflict? *)
   }
 
   let push_level self =
     ST_cstors.push_level self.cstors;
+    ST_parents.push_level self.parents;
     N_tbl.push_level self.to_decide;
     ()
 
   let pop_levels self n =
     ST_cstors.pop_levels self.cstors n;
+    ST_parents.pop_levels self.parents n;
     N_tbl.pop_levels self.to_decide n;
     ()
 
   (* TODO: select/is-a *)
-  (* TODO: acyclicity *)
 
   (* TODO: remove
   (* attach data to constructor terms *)
@@ -310,12 +372,12 @@ module Make(A : ARG) : S with module A = A = struct
             Log.debugf 100
               (fun k->k "(@[data.acycl.mk-path %a %a@])" N.pp n pp_parent parent);
             let acc = Expl.mk_merge_t (N.term n) parent.t_eq_n :: acc in
-            let acc = Expl.mk_merge parent.parent.n parent.parent.cstor.n :: acc in
+            let acc = Expl.mk_merge parent.parent.n parent.parent.n :: acc in
             match parent.parent.flag with
             | Current (Some p') -> mk_path acc parent.parent.n p'
             | _ -> acc
           in
-          let c0 = [Expl.mk_merge n st.cstor.n;] in
+          let c0 = [Expl.mk_merge n st.n;] in
           let c = match parent with
             | None -> c0
             | Some parent -> mk_path c0 n parent
@@ -331,7 +393,7 @@ module Make(A : ARG) : S with module A = A = struct
              | Some st' ->
                let parent = {parent=st; t_eq_n=sub_t} in
                traverse ~parent sub st')
-          st.cstor.args;
+          st.cstor.Monoid_cstor.c_args;
       in
       begin
         (* populate tbl with [repr->cstor] *)
@@ -393,6 +455,7 @@ module Make(A : ARG) : S with module A = A = struct
     let self = {
       tst=SI.tst solver;
       cstors=ST_cstors.create_and_setup ~size:32 solver;
+      parents=ST_parents.create_and_setup ~size:32 solver;
       to_decide=N_tbl.create ~size:16 ();
       case_split_done=T.Tbl.create 16;
       cards=Card.create();

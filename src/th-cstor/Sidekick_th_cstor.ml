@@ -40,10 +40,10 @@ module Make(A : ARG) : S with module A = A = struct
       Fmt.fprintf out "(@[cstor %a@ :term %a@])" Fun.pp v.cstor T.pp v.t
 
     (* attach data to constructor terms *)
-    let of_term n (t:T.t) : _ option =
+    let of_term n (t:T.t) : _ option * _ =
       match A.view_as_cstor t with
-      | T_cstor (cstor,args) -> Some {n; t; cstor; args}
-      | _ -> None
+      | T_cstor (cstor,args) -> Some {n; t; cstor; args}, []
+      | _ -> None, []
 
     let merge cc n1 v1 n2 v2 : _ result =
       Log.debugf 5
