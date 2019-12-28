@@ -14,9 +14,6 @@
   (mode promote)
   (action
     (with-stdout-to %{targets}
-      (progn 
-        (echo "let version = {git|")
-        (run git rev-parse HEAD)
-        (echo "|git}")))))
+       (echo "let version = {git|%{version:sidekick}|git}"))))
 
 (ocamllex (modules Dimacs_lexer))
