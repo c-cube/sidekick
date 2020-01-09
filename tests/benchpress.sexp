@@ -36,3 +36,5 @@
       (timeout 10)
       (dirs $HOME/workspace/smtlib))))
 
+(set-options (progress true))
+
