@@ -1,0 +1,22 @@
+
+; see diamond2_cong, but using "if"
+; diamond based on congruence, not just transitivity
+(declare-sort a 0)
+(declare-fun x0 () a)
+(declare-fun y0 () a)
+(declare-fun z0 () a)
+(declare-fun p0 () Bool)
+(declare-fun x1 () a)
+(declare-fun y1 () a)
+(declare-fun z1 () a)
+(declare-fun p1 () Bool)
+(declare-fun x2 () a)
+(declare-fun f (a) a)
+(assert (not (= x2 (f (f x0)))))
+(assert (= x1 (f y0)))
+(assert (= x1 (f z0)))
+(assert (= x0 (ite p0 y0 z0)))
+(assert (= x2 (f y1)))
+(assert (= x2 (f z1)))
+(assert (= x1 (ite p1 y1 z1)))
+(check-sat)
