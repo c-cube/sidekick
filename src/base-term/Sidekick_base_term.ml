@@ -1,6 +1,5 @@
 module Base_types = Base_types
 module ID = ID
-module Ty_card = Base_types.Ty_card
 module Fun = Base_types.Fun
 module Stat = Stat
 module Model = Model

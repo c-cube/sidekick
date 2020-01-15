@@ -143,7 +143,7 @@ let main () =
     let theories =
       if is_cnf then [] else [
         Process.th_bool ;
-        Process.th_cstor;
+        Process.th_data;
       ]
     in
     Process.Solver.create ~store_proof:!check ~theories tst ()
@@ -192,7 +192,7 @@ let () = match main() with
       if Printexc.backtrace_status () then (
         Format.fprintf Format.std_formatter "%s@." b
       );
-      Pervasives.exit n
+      CCShims_.Stdlib.exit n
     in
     begin match e with
       | Error.Error msg ->

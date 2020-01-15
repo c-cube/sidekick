@@ -171,9 +171,7 @@ module Make (A: CC_ARG)
 
     let mk_reduction : t = E_reduction
     let[@inline] mk_congruence n1 n2 : t = E_congruence (n1,n2)
-    let[@inline] mk_merge a b : t = 
-      assert (same_class a b); 
-      if N.equal a b then mk_reduction else E_merge (a,b)
+    let[@inline] mk_merge a b : t = if N.equal a b then mk_reduction else E_merge (a,b)
     let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_reduction else E_merge_t (a,b)
     let[@inline] mk_lit l : t = E_lit l
 
@@ -281,13 +279,23 @@ module Make (A: CC_ARG)
   and ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
-  let[@inline] true_ cc = Lazy.force cc.true_
-  let[@inline] false_ cc = Lazy.force cc.false_
+  let[@inline] n_true cc = Lazy.force cc.true_
+  let[@inline] n_false cc = Lazy.force cc.false_
+  let n_bool cc b = if b then n_true cc else n_false cc
   let[@inline] term_state cc = cc.tst
-  let[@inline] allocate_bitfield cc = Bits.mk_field cc.bitgen
+  let allocate_bitfield ~descr cc =
+    Log.debugf 5 (fun k->k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
+    Bits.mk_field cc.bitgen
 
   let[@inline] on_backtrack cc f : unit =
     Backtrack_stack.push_if_nonzero_level cc.undo f
+
+  let set_bitfield cc field b n =
+    let old = N.get_field field n in
+    if old <> b then (
+      on_backtrack cc (fun () -> N.set_field field old n);
+      N.set_field field b n;
+    )
 
   (* check if [t] is in the congruence closure.
      Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
@@ -330,20 +338,22 @@ module Make (A: CC_ARG)
   (* add to signature table. Assume it's not present already *)
   let add_signature cc (s:signature) (n:node) : unit =
     assert (not @@ Sig_tbl.mem cc.signatures_tbl s);
-    Log.debugf 15
+    Log.debugf 50
       (fun k->k "(@[cc.add-sig@ %a@ ~~> %a@])" Signature.pp s N.pp n);
     on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
     Sig_tbl.add cc.signatures_tbl s n
 
   let push_pending cc t : unit =
-    Log.debugf 5 (fun k->k "(@[<hv1>cc.push_pending@ %a@])" N.pp t);
+    Log.debugf 50 (fun k->k "(@[<hv1>cc.push-pending@ %a@])" N.pp t);
     Vec.push cc.pending t
 
   let merge_classes cc t u e : unit =
-    Log.debugf 5
-      (fun k->k "(@[<hv1>cc.push_combine@ %a ~@ %a@ :expl %a@])"
-        N.pp t N.pp u Expl.pp e);
-    Vec.push cc.combine @@ CT_merge (t,u,e)
+    if t != u && not (same_class t u) then (
+      Log.debugf 50
+        (fun k->k "(@[<hv1>cc.push-combine@ %a ~@ %a@ :expl %a@])"
+          N.pp t N.pp u Expl.pp e);
+      Vec.push cc.combine @@ CT_merge (t,u,e)
+    )
 
   (* re-root the explanation tree of the equivalence class of [n]
      so that it points to [n].
@@ -550,7 +560,7 @@ module Make (A: CC_ARG)
       n.n_as_lit <- Some lit
 
   let n_is_bool (self:t) n : bool =
-    N.equal n (true_ self) || N.equal n (false_ self)
+    N.equal n (n_true self) || N.equal n (n_false self)
 
   (* main CC algo: add terms from [pending] to the signature table,
      check for collisions *)
@@ -574,17 +584,17 @@ module Make (A: CC_ARG)
           let expl = Expl.mk_merge a b in
           Log.debugf 5 
             (fun k->k "(pending.eq@ %a@ :r1 %a@ :r2 %a@])" N.pp n N.pp a N.pp b);
-          merge_classes cc n (true_ cc) expl
+          merge_classes cc n (n_true cc) expl
         )
       | Some (Not u) ->
         (* [u = bool ==> not u = not bool] *)
         let r_u = find_ u in
-        if N.equal r_u (true_ cc) then (
-          let expl = Expl.mk_merge u (true_ cc) in
-          merge_classes cc n (false_ cc) expl
-        ) else if N.equal r_u (false_ cc) then (
-          let expl = Expl.mk_merge u (false_ cc) in
-          merge_classes cc n (true_ cc) expl
+        if N.equal r_u (n_true cc) then (
+          let expl = Expl.mk_merge u (n_true cc) in
+          merge_classes cc n (n_false cc) expl
+        ) else if N.equal r_u (n_false cc) then (
+          let expl = Expl.mk_merge u (n_false cc) in
+          merge_classes cc n (n_true cc) expl
         )
       | Some s0 ->
         (* update the signature by using [find] on each sub-node *)
@@ -615,8 +625,8 @@ module Make (A: CC_ARG)
       assert (N.is_root rb);
       Stat.incr cc.count_merge;
       (* check we're not merging [true] and [false] *)
-      if (N.equal ra (true_ cc) && N.equal rb (false_ cc)) ||
-         (N.equal rb (true_ cc) && N.equal ra (false_ cc)) then (
+      if (N.equal ra (n_true cc) && N.equal rb (n_false cc)) ||
+         (N.equal rb (n_true cc) && N.equal ra (n_false cc)) then (
         Log.debugf 5
           (fun k->k "(@[<hv>cc.merge.true_false_conflict@ \
                      @[:r1 %a@ :t1 %a@]@ @[:r2 %a@ :t2 %a@]@ :e_ab %a@])"
@@ -637,9 +647,9 @@ module Make (A: CC_ARG)
       in
       (* when merging terms with [true] or [false], possibly propagate them to SAT *)
       let merge_bool r1 t1 r2 t2 =
-        if N.equal r1 (true_ cc) then (
+        if N.equal r1 (n_true cc) then (
           propagate_bools cc acts r2 t2 r1 t1 e_ab true
-        ) else if N.equal r1 (false_ cc) then (
+        ) else if N.equal r1 (n_false cc) then (
           propagate_bools cc acts r2 t2 r1 t1 e_ab false
         )
       in
@@ -771,7 +781,7 @@ module Make (A: CC_ARG)
      otherwise merge the atom with true/false *)
   let assert_lit cc lit : unit =
     let t = Lit.term lit in
-    Log.debugf 5 (fun k->k "(@[cc.assert_lit@ %a@])" Lit.pp lit);
+    Log.debugf 15 (fun k->k "(@[cc.assert-lit@ %a@])" Lit.pp lit);
     let sign = Lit.sign lit in
     begin match A.cc_view t with
       | Eq (a,b) when sign ->
@@ -781,7 +791,7 @@ module Make (A: CC_ARG)
         merge_classes cc a b (Expl.mk_lit lit)
       | _ ->
         (* equate t and true/false *)
-        let rhs = if sign then true_ cc else false_ cc in
+        let rhs = if sign then n_true cc else n_false cc in
         let n = add_term cc t in
         (* TODO: ensure that this is O(1).
            basically, just have [n] point to true/false and thus acquire
@@ -805,6 +815,7 @@ module Make (A: CC_ARG)
   let merge cc n1 n2 expl =
     Log.debugf 5
       (fun k->k "(@[cc.theory.merge@ :n1 %a@ :n2 %a@ :expl %a@])" N.pp n1 N.pp n2 Expl.pp expl);
+    assert (T.Ty.equal (T.Term.ty n1.n_term) (T.Term.ty n2.n_term));
     merge_classes cc n1 n2 expl
 
   let[@inline] merge_t cc t1 t2 expl =

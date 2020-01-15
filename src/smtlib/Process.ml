@@ -66,7 +66,6 @@ module Check_cc = struct
         (fun k->k "(@[check-cc-prop.ok@ @[%a => %a@]@])" pp_and reason Lit.pp p);
     )
 
-
   let theory =
     Solver.mk_theory ~name:"cc-check"
       ~create_and_setup:(fun si ->
@@ -200,7 +199,7 @@ let process_stmt
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
   Log.debugf 5
-    (fun k->k "(@[<2>process statement@ %a@])" Statement.pp stmt);
+    (fun k->k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
   let decl_sort c n : unit =
     Log.debugf 1 (fun k->k "(@[declare-sort %a@ :arity %d@])" ID.pp c n);
     (* TODO: more? *)
@@ -258,14 +257,40 @@ let process_stmt
       Error.errorf "cannot deal with definitions yet"
   end
 
-module Th_cstor = Sidekick_th_cstor.Make(struct
+module Th_data = Sidekick_th_data.Make(struct
     module S = Solver
     open Base_types
-    open Sidekick_th_cstor
+    open Sidekick_th_data
+    module Cstor = Cstor
 
-    let view_as_cstor t = match Term.view t with
-      | Term.App_fun ({fun_view=Fun.Fun_cstor _;_} as f, args) -> T_cstor (f, args)
+    let as_datatype ty = match Ty.view ty with
+      | Ty_atomic {def=Ty_data data;_} ->
+        Ty_data {cstors=Lazy.force data.data.data_cstors |> ID.Map.values}
+      | Ty_atomic {def=_;args;finite=_} ->
+        Ty_app{args=Iter.of_list args}
+      | Ty_bool -> Ty_app {args=Iter.empty}
+
+    let view_as_data t = match Term.view t with
+      | Term.App_fun ({fun_view=Fun.Fun_cstor c;_}, args) -> T_cstor (c, args)
+      | Term.App_fun ({fun_view=Fun.Fun_select sel;_}, args) ->
+        assert (IArray.length args=1);
+        T_select (sel.select_cstor, sel.select_i, IArray.get args 0)
+      | Term.App_fun ({fun_view=Fun.Fun_is_a c;_}, args) ->
+        assert (IArray.length args=1);
+        T_is_a (c, IArray.get args 0)
       | _ -> T_other t
+
+    let mk_cstor tst c args : Term.t = Term.app_fun tst (Fun.cstor c) args
+    let mk_sel tst c i u = Term.app_fun tst (Fun.select_idx c i) (IArray.singleton u)
+    let mk_is_a tst c u : Term.t =
+      if c.cstor_arity=0 then (
+        Term.eq tst u (Term.const tst (Fun.cstor c))
+      ) else (
+        Term.app_fun tst (Fun.is_a c) (IArray.singleton u)
+      )
+
+    let ty_is_finite = Ty.finite
+    let ty_set_is_finite = Ty.set_finite
   end)
 
 module Th_bool = Sidekick_th_bool_static.Make(struct
@@ -275,4 +300,4 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
 end)
 
 let th_bool : Solver.theory = Th_bool.theory
-let th_cstor : Solver.theory = Th_cstor.theory
+let th_data : Solver.theory = Th_data.theory

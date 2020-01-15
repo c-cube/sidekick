@@ -8,7 +8,7 @@ module Solver
                             and type T.Ty.t = Ty.t
 
 val th_bool : Solver.theory
-val th_cstor : Solver.theory
+val th_data : Solver.theory
 
 type 'a or_error = ('a, string) CCResult.t
 

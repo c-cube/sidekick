@@ -1,3 +1,4 @@
+(*
 
 and datatype = {
   data_cstors: data_cstor ID.Map.t lazy_t;
@@ -48,3 +49,4 @@ let cstor_proj cstor i t =
   let p = IArray.get (Lazy.force cstor.cstor_proj) i in
   app_cst p (IArray.singleton t)
 
+   *)

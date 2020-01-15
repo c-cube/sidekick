@@ -144,7 +144,7 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
     let a = conv_term ctx a in
     let b = conv_term ctx b in
     let c = conv_term ctx c in
-    T.ite tst a b c
+    Form.ite tst a b c
   | PA.Fun _ | PA.Forall _ | PA.Exists _ ->
     errorf_ctx ctx "cannot process lambda/quantifiers in %a" PA.pp_term t
   | PA.Let (vbs, body) ->
@@ -390,8 +390,9 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
         let rec cstor = {
           Cstor.
           cstor_id;
-          cstor_is_a = ID.makef "is-a.%s" cstor_name; (* every fun needs a name *)
+          cstor_is_a = ID.makef "(is _ %s)" cstor_name; (* every fun needs a name *)
           cstor_args=lazy (mk_selectors cstor);
+          cstor_arity=0;
           cstor_ty_as_data=data;
           cstor_ty=data.data_as_ty;
         } in
@@ -416,19 +417,19 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
            data_id;
            data_cstors=lazy (cstors_of_data data cstors);
            data_as_ty=lazy (
-             let def = Ty.Ty_data data in
+             let def = Ty.Ty_data { data; } in
              Ty.atomic def []
            );
          } in
          Ctx.add_id_ ctx data_name data_id
-           (Ctx.K_ty (Ctx.K_atomic (Ty.Ty_data data)));
+           (Ctx.K_ty (Ctx.K_atomic (Ty.Ty_data {data})));
          data)
       l
     in
     (* now force definitions *)
     List.iter
       (fun {Data.data_cstors=lazy m;data_as_ty=lazy _;_} ->
-         ID.Map.iter (fun _ {Cstor.cstor_args=lazy _;_} -> ()) m;
+         ID.Map.iter (fun _ ({Cstor.cstor_args=lazy l;_} as r) -> r.cstor_arity <- List.length l) m;
          ())
       l;
     [Stmt.Stmt_data l]

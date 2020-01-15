@@ -63,17 +63,18 @@ and ty_view =
   | Ty_atomic of {
       def: ty_def;
       args: ty list;
-      card: ty_card lazy_t;
+      mutable finite: bool;
     }
 
 and ty_def =
   | Ty_uninterpreted of ID.t
-  | Ty_data of data
+  | Ty_data of {
+      data: data;
+    }
   | Ty_def of {
       id: ID.t;
       pp: ty Fmt.printer -> ty list Fmt.printer;
       default_val: value list -> value; (* default value of this type *)
-      card: ty list -> ty_card;
     }
 
 and data = {
@@ -85,6 +86,7 @@ and data = {
 and cstor = {
   cstor_id: ID.t;
   cstor_is_a: ID.t;
+  mutable cstor_arity: int;
   cstor_args: select list lazy_t;
   cstor_ty_as_data: data;
   cstor_ty: ty lazy_t;
@@ -96,10 +98,6 @@ and select = {
   select_ty: ty lazy_t;
   select_i: int;
 }
-
-and ty_card =
-  | Finite
-  | Infinite
 
 (** Semantic values, used for models (and possibly model-constructing calculi) *)
 and value =
@@ -185,9 +183,9 @@ let rec pp_ty out t = match t.ty_view with
   | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args
   | Ty_atomic {def=Ty_def def; args; _} -> def.pp pp_ty out args
-  | Ty_atomic {def=Ty_data d; args=[];_} -> ID.pp out d.data_id
+  | Ty_atomic {def=Ty_data d; args=[];_} -> ID.pp out d.data.data_id
   | Ty_atomic {def=Ty_data d; args;_} ->
-    Fmt.fprintf out "(@[%a@ %a@])" ID.pp d.data_id (Util.pp_list pp_ty) args
+    Fmt.fprintf out "(@[%a@ %a@])" ID.pp d.data.data_id (Util.pp_list pp_ty) args
 
 let pp_term_view_gen ~pp_id ~pp_t out = function
   | Bool true -> Fmt.string out "true"
@@ -212,40 +210,6 @@ let pp_term_top ~ids out t =
 let pp_term = pp_term_top ~ids:false
 let pp_term_view = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:pp_term
 
-module Ty_card : sig
-  type t = ty_card = Finite | Infinite
-
-  val (+) : t -> t -> t
-  val ( * ) : t -> t -> t
-  val ( ^ ) : t -> t -> t
-  val finite : t
-  val infinite : t
-
-  val sum : t list -> t
-  val product : t list -> t
-
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val pp : t CCFormat.printer
-end = struct
-  type t = ty_card = Finite | Infinite
-
-  let (+) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-  let ( * ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-  let ( ^ ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
-  let finite = Finite
-  let infinite = Infinite
-
-  let sum = List.fold_left (+) Finite
-  let product = List.fold_left ( * ) Finite
-
-  let equal = (=)
-  let compare = Pervasives.compare
-  let pp out = function
-    | Finite -> CCFormat.string out "finite"
-    | Infinite -> CCFormat.string out "infinite"
-end
-
 module Ty : sig
   type t = ty
   type view = ty_view =
@@ -253,17 +217,18 @@ module Ty : sig
     | Ty_atomic of {
       def: ty_def;
       args: ty list;
-      card: ty_card lazy_t;
+      mutable finite: bool;
     }
 
   type def = ty_def =
     | Ty_uninterpreted of ID.t
-    | Ty_data of data
+    | Ty_data of {
+        data: data;
+      }
     | Ty_def of {
         id: ID.t;
         pp: ty Fmt.printer -> ty list Fmt.printer;
         default_val: value list -> value; (* default value of this type *)
-        card: ty list -> ty_card;
       }
 
   val id : t -> int
@@ -274,7 +239,8 @@ module Ty : sig
 
   val atomic_uninterpreted : ID.t -> t
 
-  val card : t -> ty_card
+  val finite : t -> bool
+  val set_finite : t -> bool -> unit
 
   val is_bool : t -> bool
   val is_uninterpreted : t -> bool
@@ -305,16 +271,17 @@ end = struct
     | Ty_atomic of {
       def: ty_def;
       args: ty list;
-      card: ty_card lazy_t;
+      mutable finite: bool;
     }
   type def = ty_def =
     | Ty_uninterpreted of ID.t
-    | Ty_data of data
+    | Ty_data of {
+        data: data;
+      }
     | Ty_def of {
         id: ID.t;
         pp: ty Fmt.printer -> ty list Fmt.printer;
         default_val: value list -> value; (* default value of this type *)
-        card: ty list -> ty_card;
       }
 
   let[@inline] id t = t.ty_id
@@ -327,7 +294,7 @@ end = struct
   let equal_def d1 d2 = match d1, d2 with
     | Ty_uninterpreted id1, Ty_uninterpreted id2 -> ID.equal id1 id2
     | Ty_def d1, Ty_def d2 -> ID.equal d1.id d2.id
-    | Ty_data d1, Ty_data d2 -> ID.equal d1.data_id d2.data_id
+    | Ty_data d1, Ty_data d2 -> ID.equal d1.data.data_id d2.data.data_id
     | (Ty_uninterpreted _ | Ty_def _ | Ty_data _), _
       -> false
 
@@ -347,7 +314,7 @@ end = struct
         | Ty_atomic {def=Ty_def d; args; _} ->
           Hash.combine3 20 (ID.hash d.id) (Hash.list hash args)
         | Ty_atomic {def=Ty_data d; args; _} ->
-          Hash.combine3 30 (ID.hash d.data_id) (Hash.list hash args)
+          Hash.combine3 30 (ID.hash d.data.data_id) (Hash.list hash args)
 
       let set_id ty id =
         assert (ty.ty_id < 0);
@@ -361,21 +328,18 @@ end = struct
       let ty = {ty_id= -1; ty_view=c; } in
       H.hashcons tbl ty
 
-  let card t = match view t with
-    | Ty_bool -> Finite
-    | Ty_atomic {card=lazy c; _} -> c
+  let finite t = match view t with
+    | Ty_bool -> true
+    | Ty_atomic {finite=f; _} -> f
+
+  let set_finite t b = match view t with
+    | Ty_bool -> assert false
+    | Ty_atomic r -> r.finite <- b
 
   let bool = make_ Ty_bool
 
   let atomic def args : t =
-    let card = lazy (
-      match def with
-      | Ty_uninterpreted _ ->
-        if List.for_all (fun sub -> card sub = Finite) args then Finite else Infinite
-      | Ty_def d -> d.card args
-      | Ty_data _ -> assert false (* TODO *)
-    ) in
-    make_ (Ty_atomic {def; args; card})
+    make_ (Ty_atomic {def; args; finite=true;})
 
   let atomic_uninterpreted id = atomic (Ty_uninterpreted id) []
 
@@ -438,6 +402,7 @@ module Fun : sig
   val as_undefined_exn : t -> t * Ty.Fun.t
   val is_undefined : t -> bool
   val select : select -> t
+  val select_idx : cstor -> int -> t
   val cstor : cstor -> t
   val is_a : cstor -> t
 
@@ -488,6 +453,12 @@ end = struct
   let is_a c : t = make c.cstor_is_a (Fun_is_a c)
   let cstor c : t = make c.cstor_id (Fun_cstor c)
   let select sel : t = make sel.select_id (Fun_select sel)
+  let select_idx c i : t =
+    let lazy l = c.cstor_args in
+    match List.nth l i with
+    | sel -> select sel
+    | exception Not_found ->
+      Error.errorf "invalid selector %d for cstor %a" i ID.pp c.cstor_id
 
   let[@inline] do_cc (c:t) : bool = match view c with
     | Fun_cstor _ | Fun_select _ | Fun_undef _ | Fun_is_a _ -> true
@@ -585,6 +556,8 @@ end = struct
         Fun.equal f1 f2 && IArray.equal sub_eq a1 a2
       | Eq(a1,b1), Eq(a2,b2) -> sub_eq a1 a2 && sub_eq b1 b2
       | Not a, Not b -> sub_eq a b
+      | Ite (a1,b1,c1), Ite (a2,b2,c2) ->
+        sub_eq a1 a2 && sub_eq b1 b2 && sub_eq c1 c2
       | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _), _
         -> false
 
@@ -968,17 +941,6 @@ module Data = struct
   let pp out d = ID.pp out d.data_id
 end
 
-module Cstor = struct
-  type t = cstor = {
-    cstor_id: ID.t;
-    cstor_is_a: ID.t;
-    cstor_args: select list lazy_t;
-    cstor_ty_as_data: data;
-    cstor_ty: ty lazy_t;
-  }
-  let equal = eq_cstor
-end
-
 module Select = struct
   type t = select = {
     select_id: ID.t;
@@ -986,6 +948,23 @@ module Select = struct
     select_ty: ty lazy_t;
     select_i: int;
   }
+
+  let ty sel = Lazy.force sel.select_ty
+end
+
+module Cstor = struct
+  type t = cstor = {
+    cstor_id: ID.t;
+    cstor_is_a: ID.t;
+    mutable cstor_arity: int;
+    cstor_args: select list lazy_t;
+    cstor_ty_as_data: data;
+    cstor_ty: ty lazy_t;
+  }
+  let ty_args c =
+    Lazy.force c.cstor_args |> Iter.of_list |> Iter.map Select.ty
+  let equal = eq_cstor
+  let pp out c = ID.pp out c.cstor_id
 end
 
 module Proof = struct
