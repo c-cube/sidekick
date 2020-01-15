@@ -45,13 +45,14 @@ module Make(A : ARG) : S with module A = A = struct
       | T_cstor (cstor,args) -> Some {n; t; cstor; args}, []
       | _ -> None, []
 
-    let merge cc n1 v1 n2 v2 : _ result =
+    let merge cc n1 v1 n2 v2 e_n1_n2 : _ result =
       Log.debugf 5
         (fun k->k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])"
             name N.pp n1 T.pp v1.t N.pp n2 T.pp v2.t); 
       (* build full explanation of why the constructor terms are equal *)
       let expl =
         Expl.mk_list [
+          e_n1_n2;
           Expl.mk_merge n1 v1.n;
           Expl.mk_merge n2 v2.n;
         ]

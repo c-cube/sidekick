@@ -348,10 +348,12 @@ module Make (A: CC_ARG)
     Vec.push cc.pending t
 
   let merge_classes cc t u e : unit =
-    Log.debugf 50
-      (fun k->k "(@[<hv1>cc.push-combine@ %a ~@ %a@ :expl %a@])"
-        N.pp t N.pp u Expl.pp e);
-    Vec.push cc.combine @@ CT_merge (t,u,e)
+    if t != u && not (same_class t u) then (
+      Log.debugf 50
+        (fun k->k "(@[<hv1>cc.push-combine@ %a ~@ %a@ :expl %a@])"
+          N.pp t N.pp u Expl.pp e);
+      Vec.push cc.combine @@ CT_merge (t,u,e)
+    )
 
   (* re-root the explanation tree of the equivalence class of [n]
      so that it points to [n].

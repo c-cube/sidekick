@@ -73,6 +73,7 @@ module type ARG = sig
   val view_as_data : S.T.Term.t -> (Cstor.t, S.T.Term.t) data_view
   val mk_cstor : S.T.Term.state -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
   val mk_is_a: S.T.Term.state -> Cstor.t -> S.T.Term.t -> S.T.Term.t
+  val mk_sel : S.T.Term.state -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
 end
@@ -152,7 +153,7 @@ module Make(A : ARG) : S with module A = A = struct
     }
 
     let pp out (v:t) =
-      Fmt.fprintf out "(@[%s@ :cstor %a@])" name A.Cstor.pp v.c_cstor
+      Fmt.fprintf out "(@[%s@ :cstor %a@ :n %a@])" name A.Cstor.pp v.c_cstor N.pp v.c_n
 
     (* attach data to constructor terms *)
     let of_term n (t:T.t) : _ option * _ list =
@@ -161,13 +162,15 @@ module Make(A : ARG) : S with module A = A = struct
         Some {c_n=n;c_cstor=cstor; c_args=args}, []
       | _ -> None, []
 
-    let merge cc n1 c1 n2 c2 : _ result =
+    let merge cc n1 c1 n2 c2 e_n1_n2 : _ result =
       Log.debugf 5
-        (fun k->k "(@[%s.merge@ @[:c1 %a %a@]@ @[:c2 %a %a@]@])"
+        (fun k->k "(@[%s.merge@ (@[:c1 %a %a@])@ (@[:c2 %a %a@])@])"
             name N.pp n1 pp c1 N.pp n2 pp c2); 
       (* build full explanation of why the constructor terms are equal *)
+      (* TODO: have a sort of lemma (injectivity) here to justify this in the proof *)
       let expl =
         Expl.mk_list [
+          e_n1_n2;
           Expl.mk_merge n1 c1.c_n;
           Expl.mk_merge n2 c2.c_n;
         ]
@@ -195,11 +198,13 @@ module Make(A : ARG) : S with module A = A = struct
       sel_n: N.t;
       sel_cstor: A.Cstor.t;
       sel_idx: int;
+      sel_arg: T.t;
     }
 
     type is_a = {
       is_a_n: N.t;
       is_a_cstor: A.Cstor.t;
+      is_a_arg: T.t;
     }
 
     (* associate to each class a unique constructor term in the class (if any) *)
@@ -222,19 +227,19 @@ module Make(A : ARG) : S with module A = A = struct
       match A.view_as_data t with
       | T_select (c, i, u) ->
         let m_sel = {
-          parent_select=[{sel_n=n; sel_idx=i; sel_cstor=c}];
+          parent_select=[{sel_n=n; sel_idx=i; sel_cstor=c; sel_arg=u}];
           parent_is_a=[];
         } in
         None, [u, m_sel]
       | T_is_a (c, u) ->
         let m_sel = {
-          parent_is_a=[{is_a_n=n; is_a_cstor=c}];
+          parent_is_a=[{is_a_n=n; is_a_cstor=c; is_a_arg=u;}];
           parent_select=[];
         } in
         None, [u, m_sel]
       | T_cstor _ | T_other _ -> None, []
 
-    let merge cc n1 v1 n2 v2 : _ result =
+    let merge cc n1 v1 n2 v2 _e : _ result =
       Log.debugf 5
         (fun k->k "(@[%s.merge@ @[:c1 %a %a@]@ @[:c2 %a %a@]@])"
             name N.pp n1 pp v1 N.pp n2 pp v2); 
@@ -324,8 +329,8 @@ module Make(A : ARG) : S with module A = A = struct
         | Some cstor ->
           let is_true = A.Cstor.equal cstor.c_cstor c_t in
           Log.debugf 5
-            (fun k->k "(@[%s.on-new-term.is-a.reduce@ :to %B@ :n %a@ :sub-cstor %a@])"
-                name is_true N.pp n Monoid_cstor.pp cstor);
+            (fun k->k "(@[%s.on-new-term.is-a.reduce@ :t %a@ :to %B@ :n %a@ :sub-cstor %a@])"
+                name T.pp t is_true N.pp n Monoid_cstor.pp cstor);
           SI.CC.merge cc n (SI.CC.n_bool cc is_true) (Expl.mk_merge n_u repr_u)
       end
     | T_select (c_t, i, u) ->
@@ -351,27 +356,27 @@ module Make(A : ARG) : S with module A = A = struct
     | Ty_data {cstors} -> cstors
     | _ -> assert false
 
-  (* FIXME: when merging [(is _ C) t] with true, propagate [t=C(sel[1]-c(t),…)] *)
-  (* FIXME: when merging [(is _ C) t] with false, remove [C] from the available list *)
   let on_pre_merge (self:t) (cc:SI.CC.t) acts n1 n2 expl : unit =
     let merge_is_a n1 (c1:Monoid_cstor.t) n2 (is_a2:Monoid_parents.is_a) =
       let is_true = A.Cstor.equal c1.c_cstor is_a2.is_a_cstor in
       Log.debugf 50
-        (fun k->k "(@[%s.on-merge.is-a.reduce@ :to %B@ :n %a@ :sub-cstor %a@])"
-            name is_true N.pp n2 Monoid_cstor.pp c1);
+        (fun k->k "(@[%s.on-merge.is-a.reduce@ %a@ :to %B@ :n1 %a@ :n2 %a@ :sub-cstor %a@])"
+            name Monoid_parents.pp_is_a is_a2 is_true N.pp n1 N.pp n2 Monoid_cstor.pp c1);
       SI.CC.merge cc is_a2.is_a_n (SI.CC.n_bool cc is_true)
-        Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2])
+        Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2;
+                       mk_merge_t (N.term n2) is_a2.is_a_arg])
     in
     let merge_select n1 (c1:Monoid_cstor.t) n2 (sel2:Monoid_parents.select) =
       if A.Cstor.equal c1.c_cstor sel2.sel_cstor then (
         Log.debugf 5
-          (fun k->k "(@[%s.on-merge.select.reduce@ :n %a@ :sel get[%d]-%a@])"
+          (fun k->k "(@[%s.on-merge.select.reduce@ :n2 %a@ :sel get[%d]-%a@])"
               name N.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
         assert (sel2.sel_idx < IArray.length c1.c_args);
         let u_i = IArray.get c1.c_args sel2.sel_idx in
         let n_u_i = SI.CC.add_term cc u_i in
         SI.CC.merge cc sel2.sel_n n_u_i
-          Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2]);
+          Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2;
+                         mk_merge_t (N.term n2) sel2.sel_arg]);
       )
     in
     let merge_c_p n1 n2 =
@@ -380,7 +385,7 @@ module Make(A : ARG) : S with module A = A = struct
       | _, None -> ()
       | Some c1, Some p2 ->
         Log.debugf 50
-          (fun k->k "(@[%s.pre-merge@ @[:n1 %a@ :c1 %a@]@ @[:n2 %a@ :p2 %a@]@])"
+          (fun k->k "(@[<hv>%s.pre-merge@ (@[:n1 %a@ :c1 %a@])@ (@[:n2 %a@ :p2 %a@])@])"
               name N.pp n1 Monoid_cstor.pp c1 N.pp n2 Monoid_parents.pp p2);
         List.iter (fun is_a2 -> merge_is_a n1 c1 n2 is_a2) p2.parent_is_a;
         List.iter (fun s2 -> merge_select n1 c1 n2 s2) p2.parent_select;
@@ -472,6 +477,29 @@ module Make(A : ARG) : S with module A = A = struct
       end
   end
 
+  (* FIXME: when merging [(is _ C) t] with false, remove [C] from the available list *)
+  let on_partial_check (self:t) (solver:SI.t) (acts:SI.actions) trail =
+    let check_lit lit =
+      let t = SI.Lit.term lit in
+      match A.view_as_data t with
+      | T_is_a (c, u) when SI.Lit.sign lit ->
+        (* add [((_ is C) u) ==> u = C(sel-c-0 u, …, sel-c-k u)] *)
+        let rhs =
+          let args =
+            A.Cstor.ty_args c
+            |> Iter.mapi (fun i _ty -> A.mk_sel self.tst c i u)
+            |> Iter.to_list |> IArray.of_list
+          in
+          A.mk_cstor self.tst c args
+        in
+        Log.debugf 50
+          (fun k->k"(@[%s.assign-is-a@ :lhs %a@ :rhs %a@ :lit %a@])"
+              name T.pp u  T.pp rhs SI.Lit.pp lit);
+        SI.cc_merge_t solver acts u rhs (Expl.mk_lit lit)
+      | _ -> ()
+    in
+    Iter.iter check_lit trail
+
   (* on final check, check acyclicity,
      then make sure we have done case split on all terms that
      need it. *)
@@ -530,6 +558,7 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debugf 1 (fun k->k "(setup :%s)" name);
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
+    SI.on_partial_check solver (on_partial_check self);
     SI.on_final_check solver (on_final_check self);
     self
 

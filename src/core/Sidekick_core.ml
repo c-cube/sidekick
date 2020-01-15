@@ -685,7 +685,11 @@ module type MONOID_ARG = sig
         and [m_u] is the monoid value attached to [u].
       *)
 
-  val merge : SI.CC.t -> SI.CC.N.t -> t -> SI.CC.N.t -> t -> (t, SI.CC.Expl.t) result
+  val merge :
+    SI.CC.t ->
+    SI.CC.N.t -> t -> SI.CC.N.t -> t ->
+    SI.CC.Expl.t ->
+    (t, SI.CC.Expl.t) result
 end
 
 (** Keep track of monoid state per equivalence class *)
@@ -749,7 +753,7 @@ end = struct
             with Not_found ->
               Error.errorf "node %a has bitfield but no value" N.pp n_u
           in
-          match M.merge cc n_u m_u n_u m_u' with
+          match M.merge cc n_u m_u n_u m_u' (Expl.mk_list []) with
           | Error expl ->
             Error.errorf
               "when merging@ @[for node %a@],@ \
@@ -773,35 +777,18 @@ end = struct
   let iter_all (self:t) : _ Iter.t =
     N_tbl.to_iter self.values
 
-  (* find cell for [n] *)
-  let get_cell (self:t) (n:N.t) : M.t option =
-    N_tbl.get self.values n
-    (* TODO
-    if N.get_field self.field_has_value n then (
-      try Some (N_tbl.find self.values n)
-      with Not_found ->
-        Error.errorf "repr %a has value-field bit for %s set, but is not in table"
-          N.pp n M.name
-    ) else (
-      None
-    )
-       *)
-
   let on_pre_merge (self:t) cc acts n1 n2 e_n1_n2 : unit =
-    begin match get_cell self n1, get_cell self n2 with
+    begin match get self n1, get self n2 with
       | Some v1, Some v2 ->
         Log.debugf 5
           (fun k->k
-              "(@[monoid[%s].on_pre_merge@ @[:n1 %a@ :val %a@]@ @[:n2 %a@ :val %a@]@])"
+              "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 %a@ :val2 %a@])@])"
               M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2); 
-        begin match M.merge cc n1 v1 n2 v2 with
+        begin match M.merge cc n1 v1 n2 v2 e_n1_n2 with
           | Ok v' ->
             N_tbl.remove self.values n2; (* only keep repr *)
             N_tbl.add self.values n1 v';
-          | Error expl ->
-            (* add [n1=n2] to the conflict *)
-            let expl = Expl.mk_list [ e_n1_n2; expl; ] in
-            SI.CC.raise_conflict_from_expl cc acts expl
+          | Error expl -> SI.CC.raise_conflict_from_expl cc acts expl
         end
       | None, Some cr ->
         SI.CC.set_bitfield cc self.field_has_value true n1;

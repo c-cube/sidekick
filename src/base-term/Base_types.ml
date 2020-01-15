@@ -402,6 +402,7 @@ module Fun : sig
   val as_undefined_exn : t -> t * Ty.Fun.t
   val is_undefined : t -> bool
   val select : select -> t
+  val select_idx : cstor -> int -> t
   val cstor : cstor -> t
   val is_a : cstor -> t
 
@@ -452,6 +453,12 @@ end = struct
   let is_a c : t = make c.cstor_is_a (Fun_is_a c)
   let cstor c : t = make c.cstor_id (Fun_cstor c)
   let select sel : t = make sel.select_id (Fun_select sel)
+  let select_idx c i : t =
+    let lazy l = c.cstor_args in
+    match List.nth l i with
+    | sel -> select sel
+    | exception Not_found ->
+      Error.errorf "invalid selector %d for cstor %a" i ID.pp c.cstor_id
 
   let[@inline] do_cc (c:t) : bool = match view c with
     | Fun_cstor _ | Fun_select _ | Fun_undef _ | Fun_is_a _ -> true

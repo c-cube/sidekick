@@ -66,7 +66,6 @@ module Check_cc = struct
         (fun k->k "(@[check-cc-prop.ok@ @[%a => %a@]@])" pp_and reason Lit.pp p);
     )
 
-
   let theory =
     Solver.mk_theory ~name:"cc-check"
       ~create_and_setup:(fun si ->
@@ -282,6 +281,7 @@ module Th_data = Sidekick_th_data.Make(struct
       | _ -> T_other t
 
     let mk_cstor tst c args : Term.t = Term.app_fun tst (Fun.cstor c) args
+    let mk_sel tst c i u = Term.app_fun tst (Fun.select_idx c i) (IArray.singleton u)
     let mk_is_a tst c u : Term.t =
       if c.cstor_arity=0 then (
         Term.eq tst u (Term.const tst (Fun.cstor c))
