@@ -7,7 +7,6 @@ exception Not_a_th_term
 let id_and = ID.make "and"
 let id_or = ID.make "or"
 let id_imply = ID.make "=>"
-let id_ite = ID.make "ite"
 
 let view_id fid args =
   if ID.equal fid id_and then (
@@ -18,8 +17,6 @@ let view_id fid args =
     (* conclusion is stored first *)
     let len = IArray.length args in
     B_imply (IArray.sub args 1 (len-1), IArray.get args 0)
-  ) else if ID.equal fid id_ite && IArray.length args = 3 then (
-    B_ite (IArray.get args 0, IArray.get args 1, IArray.get args 2)
   ) else (
     raise_notrace Not_a_th_term
   )
@@ -29,14 +26,13 @@ let view_as_bool (t:T.t) : T.t bool_view =
   | Bool b -> B_bool b
   | Not u -> B_not u
   | Eq (a, b) when Ty.is_bool (T.ty a) -> B_equiv (a,b)
+  | Ite (a,b,c) -> B_ite(a,b,c)
   | App_fun ({fun_id; _}, args) ->
     (try view_id fun_id args with Not_a_th_term -> B_atom t)
   | _ -> B_atom t
 
 module Funs = struct
-  let get_ty id args =
-    if ID.equal id id_ite then T.ty (IArray.get args 1)
-    else Ty.bool
+  let get_ty _ _ = Ty.bool
 
   let abs ~self _a =
     match T.view self with
@@ -76,7 +72,7 @@ module Funs = struct
   let and_ = mk_fun id_and
   let or_ = mk_fun id_or
   let imply = mk_fun id_imply
-  let ite = mk_fun id_ite
+  let ite = Term.ite
 end
 
 let as_id id (t:T.t) : T.t IArray.t option =
@@ -117,7 +113,7 @@ let not_ = T.not_
 
 let ite st a b c = match T.view a with
   | T.Bool ba -> if ba then b else c
-  | _ -> T.app_fun st Funs.ite (IArray.of_array_unsafe [| a;b;c |])
+  | _ -> T.ite st a b c
 
 let equiv st a b =
   if T.equal a b then T.true_ st

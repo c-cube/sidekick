@@ -366,8 +366,7 @@ module type SOLVER_INTERNAL = sig
     (** Reset internal cache, etc. *)
 
     type hook = t -> term -> term option
-    (** Given a term, try to simplify it. Return [None] if it didn't change.
-        Can also add clauses to the simplifier. *)
+    (** Given a term, try to simplify it. Return [None] if it didn't change. *)
 
     val normalize : t -> term -> term
     (** Normalize a term using all the hooks. *)

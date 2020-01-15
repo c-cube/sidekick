@@ -144,7 +144,7 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
     let a = conv_term ctx a in
     let b = conv_term ctx b in
     let c = conv_term ctx c in
-    T.ite tst a b c
+    Form.ite tst a b c
   | PA.Fun _ | PA.Forall _ | PA.Exists _ ->
     errorf_ctx ctx "cannot process lambda/quantifiers in %a" PA.pp_term t
   | PA.Let (vbs, body) ->

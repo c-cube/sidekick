@@ -115,7 +115,8 @@ module Make(A : ARG) : S with module A = A = struct
       begin match A.view_as_bool a with
         | B_bool true -> Some b
         | B_bool false -> Some c
-        | _ -> None
+        | _ ->
+          None
       end
     | B_equiv (a,b) when is_true a -> Some b
     | B_equiv (a,b) when is_false a -> Some (not_ tst b)
@@ -130,6 +131,17 @@ module Make(A : ARG) : S with module A = A = struct
   let fresh_lit (self:state) ~mk_lit ~pre : Lit.t =
     let t = fresh_term ~pre self Ty.bool in
     mk_lit t
+
+  (* preprocess "ite" away *)
+  let preproc_ite self _si ~mk_lit ~add_clause (t:T.t) : T.t option =
+    match A.view_as_bool t with
+    | B_ite (a,b,c) ->
+      let t_a = fresh_term self ~pre:"ite" (T.ty b) in
+      let lit_a = mk_lit a in
+      add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_a b)];
+      add_clause [lit_a; mk_lit (eq self.tst t_a c)];
+      Some t_a
+    | _ -> None
 
   (* TODO: polarity? *)
   let cnf (self:state) (_si:SI.t) ~mk_lit ~add_clause (t:T.t) : T.t option =
@@ -173,8 +185,7 @@ module Make(A : ARG) : S with module A = A = struct
           or_a self.tst @@
           IArray.append (IArray.map (not_ self.tst) args) (IArray.singleton u) in
         get_lit t'
-      | B_ite _ | B_eq _ ->
-        mk_lit t
+      | B_ite _ | B_eq _ -> mk_lit t
       | B_equiv (a,b) ->
         let a = get_lit a in
         let b = get_lit b in
@@ -225,6 +236,7 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debug 2 "(th-bool.setup)";
     let st = create (SI.tst si) in
     SI.add_simplifier si (simplify st);
+    SI.add_preprocess si (preproc_ite st);
     SI.add_preprocess si (cnf st);
     if A.check_congruence_classes then (
       Log.debug 5 "(th-bool.add-final-check)";
