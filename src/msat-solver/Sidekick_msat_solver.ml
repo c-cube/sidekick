@@ -168,6 +168,7 @@ module Make(A : ARG)
       mutable th_states : th_states; (** Set of theories *)
       mutable on_partial_check: (t -> actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> actions -> lit Iter.t -> unit) list;
+      mutable level: int;
     }
 
     and preprocess_hook =
@@ -289,18 +290,20 @@ module Make(A : ARG)
       | Ths_cons r -> r.pop_levels r.st n; pop_lvls_ n r.next
 
     let push_level (self:t) : unit =
+      self.level <- 1 + self.level;
       CC.push_level (cc self);
       push_lvl_ self.th_states
 
     let pop_levels (self:t) n : unit =
+      self.level <- self.level - n;
       CC.pop_levels (cc self) n;
       pop_lvls_ n self.th_states
 
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
       Msat.Log.debugf 2
-        (fun k->k "(@[<hv1>@{<green>msat-solver.assume_lits@}%s@ %a@])"
-            (if final then "[final]" else "") (Util.pp_seq ~sep:"; " Lit.pp) lits);
+        (fun k->k "(@[<hv1>@{<green>msat-solver.assume_lits@}%s[lvl=%d]@ %a@])"
+            (if final then "[final]" else "") self.level (Util.pp_seq ~sep:"; " Lit.pp) lits);
       (* transmit to CC *)
       let cc = cc self in
       if not final then (
@@ -369,6 +372,7 @@ module Make(A : ARG)
         count_conflict = Stat.mk_int stat "solver.th-conflicts";
         on_partial_check=[];
         on_final_check=[];
+        level=0;
       } in
       ignore (Lazy.force @@ self.cc : CC.t);
       self
