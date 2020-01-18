@@ -459,8 +459,7 @@ module Make(A : ARG) : S with module A = A = struct
       ()
   end
 
-  (* FIXME: when merging [(is _ C) t] with false, remove [C] from the available list *)
-  let on_partial_check (self:t) (solver:SI.t) (acts:SI.actions) trail =
+  let check_is_a self solver acts trail =
     let check_lit lit =
       let t = SI.Lit.term lit in
       match A.view_as_data t with
@@ -485,7 +484,8 @@ module Make(A : ARG) : S with module A = A = struct
   (* on final check, check acyclicity,
      then make sure we have done case split on all terms that
      need it. *)
-  let on_final_check (self:t) (solver:SI.t) (acts:SI.actions) _trail =
+  let on_final_check (self:t) (solver:SI.t) (acts:SI.actions) trail =
+    check_is_a self solver acts trail;
     Acyclicity_.check self solver acts;
     let remaining_to_decide =
       N_tbl.to_iter self.to_decide
@@ -540,7 +540,6 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debugf 1 (fun k->k "(setup :%s)" name);
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
-    SI.on_partial_check solver (on_partial_check self);
     SI.on_final_check solver (on_final_check self);
     self
 
