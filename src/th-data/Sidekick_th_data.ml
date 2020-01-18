@@ -395,90 +395,68 @@ module Make(A : ARG) : S with module A = A = struct
     ()
 
   module Acyclicity_ = struct
-    type st = {
-      n: N.t;
+    type repr = N.t
+
+    (* a node, corresponding to a class that has a constructor element. *)
+    type node = {
+      repr: N.t; (* repr *)
+      cstor_n: N.t; (* the cstor node *)
+      cstor_args: repr list; (* arguments to [cstor_n] *)
       mutable flag: flag;
-      cstor: Monoid_cstor.t;
     }
-    and parent_uplink = {
-      parent: st;
-      t_eq_n: T.t;
-    }
-    and flag =
-      | New | Done
-      | Current of parent_uplink option
+    and flag = New | Open | Done (* for cycle detection *)
 
-    let pp_st out st =
-      Fmt.fprintf out "(@[acycl.st :cstor %a@ :flag %s@])"
-        Monoid_cstor.pp st.cstor
-        (match st.flag with
-         | New -> "new" | Done -> "done"
-         | Current None -> "current-top" | Current _ -> "current(_)")
+    type graph = node N_tbl.t
 
-    let pp_parent out {parent; t_eq_n} =
-      Fmt.fprintf out "(@[parent@ :n %a@ :by-eq-t %a@])"
-        N.pp parent.n T.pp t_eq_n
-
-    let check (self:t) (solver:SI.t) (acts:SI.actions) : unit =
-      let module Tbl = CCHashtbl.Make(N) in
-      let cc = SI.cc solver in
-      let tbl : st Tbl.t = Tbl.create 32 in
-      (* traverse [n] with state [st], possibly from an equality [n=t_eq_n] *)
-      let rec traverse ?parent (n:N.t) (st:st) : unit =
-        Log.debugf 50
-          (fun k->k "(@[data.acycl.traverse %a@ :st %a@ :parent %a@])"
-              N.pp n pp_st st (Fmt.Dump.option pp_parent) parent);
-        match st.flag with
-        | Done -> ()
-        | New ->
-          st.flag <- Current parent;
-          traverse_sub n st;
-          st.flag <- Done
-        | Current _parent ->
-          let parent = CCOpt.or_ ~else_:_parent parent in
-          Log.debugf 20
-            (fun k->k "(@[data.acycl.found-loop@ %a@ :st %a@ :parent %a@])"
-                N.pp n pp_st st (Fmt.Dump.option pp_parent) parent);
-          (* conflict, we found a loop! *)
-          let rec mk_path acc n parent =
-            Log.debugf 100
-              (fun k->k "(@[data.acycl.mk-path %a %a@])" N.pp n pp_parent parent);
-            let acc = Expl.mk_merge_t (N.term n) parent.t_eq_n :: acc in
-            let acc = Expl.mk_merge parent.parent.n parent.parent.n :: acc in
-            match parent.parent.flag with
-            | Current (Some p') -> mk_path acc parent.parent.n p'
-            | _ -> acc
-          in
-          let c0 = [Expl.mk_merge n st.n;] in
-          let c = match parent with
-            | None -> c0
-            | Some parent -> mk_path c0 n parent
-          in
-          SI.CC.raise_conflict_from_expl cc acts (Expl.mk_list c |> Expl.mk_theory)
-      (* traverse constructor arguments *)
-      and traverse_sub n st: unit =
-        IArray.iter
+    let mk_graph (self:t) cc : graph =
+      let g: graph = N_tbl.create ~size:32 () in
+      let traverse_sub cstor : repr list =
+        IArray.to_list_map
           (fun sub_t ->
              let sub = SI.CC.find_t cc sub_t in
-             match Tbl.get tbl sub with
-             | None -> ()
-             | Some st' ->
-               let parent = {parent=st; t_eq_n=sub_t} in
-               traverse ~parent sub st')
-          st.cstor.Monoid_cstor.c_args;
+             sub)
+          cstor.Monoid_cstor.c_args
       in
       begin
-        (* TODO: instead, create whole graph here (repr -> cstor*repr list)
-           and then just look for cycles in the graph using DFS.
-           Be sure to annotate edges with all info for conflicts, so that the
-           full conflict is just the cycle itself. *)
-        (* populate tbl with [repr->cstor] *)
+        (* populate tbl with [repr->node] *)
         ST_cstors.iter_all self.cstors
-          (fun (n, cstor) ->
-             assert (not @@ Tbl.mem tbl n);
-             Tbl.add tbl n {cstor; n; flag=New});
-        Tbl.iter (fun n st -> traverse n st) tbl;
-      end
+          (fun (repr, cstor) ->
+             assert (N.is_root repr);
+             assert (not @@ N_tbl.mem g repr);
+             let node = {
+               repr; cstor_n=cstor.Monoid_cstor.c_n;
+               cstor_args=traverse_sub cstor;
+               flag=New;
+             } in
+             N_tbl.add g repr node);
+      end;
+      g
+
+    let check (self:t) (solver:SI.t) (acts:SI.actions) : unit =
+      let cc = SI.cc solver in
+      (* create graph *)
+      let g = mk_graph self cc in
+      (* traverse the graph, looking for cycles *)
+      let rec traverse ~path (r:repr) : unit =
+        assert (N.is_root r);
+        match N_tbl.find g r with
+        | exception Not_found -> ()
+        | {flag=Done; _} -> () (* no need *)
+        | {flag=Open; _} ->
+          (* conflict: the [path] forms a cycle *)
+          let expl =
+            List.map (fun node -> Expl.mk_merge node.cstor_n node.repr) path
+            |> Expl.mk_list |> Expl.mk_theory
+          in
+          SI.CC.raise_conflict_from_expl cc acts expl
+        | {flag=New; _} as node_r ->
+          node_r.flag <- Open;
+          let path = node_r :: path in
+          List.iter (fun sub -> traverse ~path sub) node_r.cstor_args;
+          node_r.flag <- Done;
+      in
+      N_tbl.iter (fun r _ -> traverse ~path:[] r) g;
+      ()
   end
 
   (* FIXME: when merging [(is _ C) t] with false, remove [C] from the available list *)
@@ -569,324 +547,3 @@ module Make(A : ARG) : S with module A = A = struct
   let theory =
     A.S.mk_theory ~name ~push_level ~pop_levels ~create_and_setup ()
 end
-
-(*
-module Datatype(A : Congruence_closure.THEORY_ACTION)
-  : Congruence_closure.THEORY with module A=A = struct
-  module A = A
-
-  (* merge equiv classes:
-     - injectivity rule on normal forms
-     - check consistency of normal forms
-     - intersection of label sets  *)
-  let merge (ra:A.repr) (rb:A.repr) expls =
-    begin match A.nf ra, A.nf rb with
-      | Some (NF_cstor (c1, args1)), Some (NF_cstor (c2, args2)) ->
-        if Cst.equal c1.cstor_cst c2.cstor_cst then (
-          (* unify arguments recursively, by injectivity *)
-          assert (IArray.length args1 = IArray.length args2);
-          IArray.iter2
-            (fun sub1 sub2 ->
-               A.add_eqn sub1 sub2
-                 (CC_injectivity (A.term_of_repr ra, A.term_of_repr rb)))
-            args1 args2;
-        ) else (
-          A.unsat expls
-        )
-      | _ -> ()
-    end;
-    (* TODO: intersect label sets *)
-    (* TODO: check if Split2 applies *)
-    ()
-
-  type map_status =
-    | Map_empty
-    | Map_single of data_cstor
-    | Map_other
-
-  type labels = data_cstor ID.Map.t
-
-  (* check if set of cstors is empty or unary *)
-  let map_status (m: labels): map_status =
-    if ID.Map.is_empty m then Map_empty
-    else (
-      let c, cstor = ID.Map.choose m in
-      let m' = ID.Map.remove c m in
-      if ID.Map.is_empty m'
-      then Map_single cstor
-      else Map_other
-    )
-
-  (* propagate [r = cstor], using Instantiation rules *)
-  let propagate_cstor (r:A.repr) (cstor:data_cstor) (expl:cc_explanation list): unit =
-    Log.debugf 5
-      (fun k->k "(@[propagate_cstor@ %a@ %a: expl: (@[%a@])@])"
-          Term.pp (A.term_of_repr r) Cst.pp cstor.cstor_cst
-          (Util.pp_list pp_cc_explanation) expl);
-    (* TODO: propagate, add_eqn with cstor term, but only
-       if either:
-       - cstor is finite
-       - or some parent term of [r_u] is a selector.
-
-       We need to create new constants for the arguments *)
-    assert false
-
-  (* perform (Split 2) if all the cstors of [m] (labels of [r]) are finite
-     and (Split 1) was not applied on [r] *)
-  let maybe_split (r:A.repr) (m: labels) (expl:cc_explanation list): unit =
-    assert (ID.Map.cardinal m >= 2);
-    if ID.Map.for_all (fun _ cstor -> Cst.is_finite_cstor cstor.cstor_cst) m
-    && not (Term_bits.get Term.field_is_split (A.term_of_repr r).term_bits)
-    then (
-      Log.debugf 5
-        (fun k->k "(@[split_finite@ %a@ cstors: (@[<hv>%a@])@ expl: (@[%a@])@])"
-            Term.pp (A.term_of_repr r) (Util.pp_list Cst.pp)
-            (ID.Map.values m |> Sequence.map (fun c->c.cstor_cst) |> Sequence.to_list)
-            (Util.pp_list pp_cc_explanation) expl);
-      let lits =
-        ID.Map.values m
-        |> Sequence.map
-          (fun cstor -> Lit.cstor_test cstor (A.term_of_repr r))
-        |> Sequence.to_list
-      in
-      A.split lits expl
-    )
-
-  let set_nf t nf (e:cc_explanation): unit = match nf, t.term_cell with
-    | NF_bool sign, App_cst ({cst_kind=Cst_test (_, lazy cstor); _}, args) ->
-      (* update set of possible cstors for [A.find args.(0)]
-         if [t = is-cstor args] is true/false *)
-      assert (IArray.length args = 1);
-      let u = IArray.get args 1 in
-      let r_u = A.find u in
-      let cstor_set, expl = match (A.term_of_repr r_u).term_cases_set with
-        | TC_cstors (m,e') -> m,e'
-        | _ -> assert false
-      in
-      let new_expl = e::expl in
-      let cstor_id = cstor.cstor_cst.cst_id in
-      if sign then (
-        if ID.Map.mem cstor_id cstor_set then (
-          (* unit propagate now *)
-          propagate_cstor r_u cstor new_expl
-        ) else (
-          A.unsat new_expl (* conflict: *)
-        )
-      ) else (
-        (* remove [cstor] from the set *)
-        if ID.Map.mem cstor_id cstor_set then (
-          Log.debugf 5
-            (fun k->k "(@[remove_cstor@ %a@ from %a@])" ID.pp cstor_id Term.pp u);
-          let new_set = ID.Map.remove cstor_id cstor_set in
-          begin match map_status new_set with
-            | Map_empty ->
-              A.unsat new_expl (* conflict *)
-            | Map_single cstor' ->
-              propagate_cstor r_u cstor' new_expl;
-            | Map_other ->
-              (* just update set of labels *)
-              if Backtrack.not_at_level_0 () then (
-                let old_cases = (A.term_of_repr r_u).term_cases_set in
-                Backtrack.push_undo (fun () -> (A.term_of_repr r_u).term_cases_set <- old_cases);
-              );
-              (A.term_of_repr r_u).term_cases_set <- TC_cstors (new_set, new_expl);
-              maybe_split r_u new_set new_expl
-          end
-        )
-      )
-    | _ -> ()
-
-  let eval t = match t.term_cell with
-    | Case (u, m) ->
-      let r_u = A.find u in
-      begin match A.nf r_u with
-        | Some (NF_cstor (c, _)) ->
-          (* reduce to the proper branch *)
-          let rhs =
-            try ID.Map.find c.cstor_cst.cst_id m
-            with Not_found -> assert false
-          in
-          A.add_eqn t rhs (CC_reduce_nf u);
-        | Some (NF_bool _) -> assert false
-        | None -> ()
-      end
-    | App_cst ({cst_kind=Cst_test(_,lazy cstor); _}, a) when IArray.length a=1 ->
-      (* check if [a.(0)] has a constructor *)
-      let arg = IArray.get a 0 in
-      let r_a = A.find arg in
-      begin match A.nf r_a with
-        | None -> ()
-        | Some (NF_cstor (cstor', _)) ->
-          (* reduce to true/false depending on whether [cstor=cstor'] *)
-          if Cst.equal cstor.cstor_cst cstor'.cstor_cst then (
-            A.add_eqn t Term.true_ (CC_reduce_nf arg)
-          ) else (
-            A.add_eqn t Term.true_ (CC_reduce_nf arg)
-          )
-        | Some (NF_bool _) -> assert false
-      end
-    | App_cst ({cst_kind=Cst_proj(_,lazy cstor,i); _}, a) when IArray.length a=1 ->
-      (* reduce if [a.(0)] has the proper constructor *)
-      let arg = IArray.get a 0 in
-      let r_a = A.find arg in
-      begin match A.nf r_a with
-        | None -> ()
-        | Some (NF_cstor (cstor', nf_cstor_args)) ->
-          (* [proj-C-i (C t1...tn) = ti] *)
-          if Cst.equal cstor.cstor_cst cstor'.cstor_cst then (
-            A.add_eqn t (IArray.get nf_cstor_args i) (CC_reduce_nf arg)
-          )
-        | Some (NF_bool _) -> assert false
-      end
-    | _ -> ()
-
-  let is_evaluable t = match t.term_cell with
-    | Case _ -> true
-    | App_cst ({cst_kind=Cst_test(_,_); _}, a)
-    | App_cst ({cst_kind=Cst_proj(_,_,_); _}, a) ->
-      IArray.length a=1
-    | _ -> false
-
-  (* split every term that is not split yet, and to which some selectors
-     are applied *)
-  let split_rule () =
-    let is_in_proj (r:A.repr): bool =
-      Bag.to_seq (A.term_of_repr r).term_parents
-      |> Sequence.exists
-        (fun parent -> match parent.term_cell with
-           | App_cst ({cst_kind=Cst_proj _; _}, a) ->
-             let res = IArray.length a = 1 in
-             (* invariant: a.(0) == r should hold *)
-             if res then assert(A.equal_repr r (IArray.get a 1 |> A.find));
-             res
-           | _ -> false)
-    in
-    begin
-      Log.debug 3 "(data.split1)";
-      A.all_classes
-      |> Sequence.filter
-        (fun (r:A.repr) ->
-           (* keep only terms of data-type, never split, with at least
-              two possible cases in their label, and that occur in
-              at least one selector *)
-           Format.printf "check %a@." Term.pp (A.term_of_repr r);
-           Ty.is_data (A.term_of_repr r).term_ty
-           &&
-           begin match (A.term_of_repr r).term_cases_set with
-             | TC_cstors (m, _) -> ID.Map.cardinal m >= 2
-             | _ -> assert false
-           end
-           &&
-           not (Term_bits.get Term.field_is_split (A.term_of_repr r).term_bits)
-           &&
-           is_in_proj r)
-      |> Sequence.iter
-        (fun r ->
-           let r = A.term_of_repr r in
-           Log.debugf 5 (fun k->k "(@[split_1@ term: %a@])" Term.pp r);
-           (* unconditional split: consider all cstors *)
-           let cstors = match r.term_ty.ty_cell with
-             | Atomic (_, Data {data_cstors=lazy cstors;_}) -> cstors
-             | _ -> assert false
-           in
-           let lits =
-             ID.Map.values cstors
-             |> Sequence.map (fun cstor -> Lit.cstor_test cstor r)
-             |> Sequence.to_list
-           in
-           r.term_bits <- Term_bits.set Term.field_is_split true r.term_bits;
-           A.split lits [])
-    end
-
-  (* TODO acyclicity rule
-     could be done by traversing the set of terms, assigning a "level" to
-     each equiv class. If level clash, find why, return conflict.
-  *)
-
-  let final_check (): unit =
-    split_rule ();
-    (* TODO: acyclicity *)
-    ()
-end
-
-
-
-      | Ast.Data l ->
-        (* the datatypes in [l]. Used for computing cardinalities *)
-        let in_same_block : ID.Set.t =
-          List.map (fun {Ast.Ty.data_id; _} -> data_id) l |> ID.Set.of_list
-        in
-        (* declare the type, and all the constructors *)
-        List.iter
-          (fun {Ast.Ty.data_id; data_cstors} ->
-             let ty = lazy (
-               let card_ : ty_card ref = ref Finite in
-               let cstors = lazy (
-                 data_cstors
-                 |> ID.Map.map
-                   (fun c ->
-                      let c_id = c.Ast.Ty.cstor_id in
-                      let ty_c = conv_ty c.Ast.Ty.cstor_ty in
-                      let ty_args, ty_ret = Ty.unfold ty_c in
-                      (* add cardinality of [c] to the cardinality of [data_id].
-                         (product of cardinalities of args) *)
-                      let cstor_card =
-                        ty_args
-                        |> List.map
-                          (fun ty_arg -> match ty_arg.ty_cell with
-                             | Atomic (id, _) when ID.Set.mem id in_same_block ->
-                               Infinite
-                             | _ -> Lazy.force ty_arg.ty_card)
-                        |> Ty_card.product
-                      in
-                      card_ := Ty_card.( !card_ + cstor_card );
-                      let rec cst = lazy (
-                        Cst.make_cstor c_id ty_c cstor
-                      ) and cstor = lazy (
-                        let cstor_proj = lazy (
-                          let n = ref 0 in
-                          List.map2
-                            (fun id ty_arg ->
-                               let ty_proj = Ty.arrow ty_ret ty_arg in
-                               let i = !n in
-                               incr n;
-                               Cst.make_proj id ty_proj cstor i)
-                            c.Ast.Ty.cstor_proj ty_args
-                          |> IArray.of_list
-                        ) in
-                        let cstor_test = lazy (
-                          let ty_test = Ty.arrow ty_ret Ty.prop in
-                          Cst.make_tester c.Ast.Ty.cstor_test ty_test cstor
-                        ) in
-                        { cstor_ty=ty_c; cstor_cst=Lazy.force cst;
-                          cstor_args=IArray.of_list ty_args;
-                          cstor_proj; cstor_test; cstor_card; }
-                      ) in
-                      ID.Tbl.add decl_ty_ c_id cst; (* declare *)
-                      Lazy.force cstor)
-               )
-               in
-               let data = { data_cstors=cstors; } in
-               let card = lazy (
-                 ignore (Lazy.force cstors);
-                 let r = !card_ in
-                 Log.debugf 5
-                   (fun k->k "(@[card_of@ %a@ %a@])" ID.pp data_id Ty_card.pp r);
-                 r
-               ) in
-               Ty.atomic data_id (Data data) ~card
-             ) in
-             ID.Tbl.add ty_tbl_ data_id ty;
-          )
-          l;
-        (* force evaluation *)
-        List.iter
-          (fun {Ast.Ty.data_id; _} ->
-             let lazy ty = ID.Tbl.find ty_tbl_ data_id in
-             ignore (Lazy.force ty.ty_card);
-             begin match ty.ty_cell with
-               | Atomic (_, Data {data_cstors=lazy _; _}) -> ()
-               | _ -> assert false
-             end)
-          l
-   *)
