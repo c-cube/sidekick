@@ -192,6 +192,7 @@ module type CC_S = sig
     val mk_merge_t : term -> term -> t
     val mk_lit : lit -> t
     val mk_list : t list -> t
+    val mk_theory : t -> t (* TODO: indicate what theory, or even provide a lemma *)
   end
 
   type node = N.t
@@ -216,7 +217,7 @@ module type CC_S = sig
   type ev_on_pre_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
   type ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   type ev_on_new_term = t -> N.t -> term -> unit
-  type ev_on_conflict = t -> lit list -> unit
+  type ev_on_conflict = t -> th:bool -> lit list -> unit
   type ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
 
   val create :
@@ -445,7 +446,7 @@ module type SOLVER_INTERNAL = sig
   (** Callback to add data on terms when they are added to the congruence
       closure *)
 
-  val on_cc_conflict : t -> (CC.t -> lit list -> unit) -> unit
+  val on_cc_conflict : t -> (CC.t -> th:bool -> lit list -> unit) -> unit
   (** Callback called on every CC conflict *)
 
   val on_cc_propagate : t -> (CC.t -> lit -> (unit -> lit list) -> unit) -> unit

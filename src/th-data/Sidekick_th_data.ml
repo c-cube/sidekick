@@ -169,7 +169,7 @@ module Make(A : ARG) : S with module A = A = struct
       (* build full explanation of why the constructor terms are equal *)
       (* TODO: have a sort of lemma (injectivity) here to justify this in the proof *)
       let expl =
-        Expl.mk_list [
+        Expl.mk_theory @@ Expl.mk_list [
           e_n1_n2;
           Expl.mk_merge n1 c1.c_n;
           Expl.mk_merge n2 c2.c_n;
@@ -331,7 +331,7 @@ module Make(A : ARG) : S with module A = A = struct
           Log.debugf 5
             (fun k->k "(@[%s.on-new-term.is-a.reduce@ :t %a@ :to %B@ :n %a@ :sub-cstor %a@])"
                 name T.pp t is_true N.pp n Monoid_cstor.pp cstor);
-          SI.CC.merge cc n (SI.CC.n_bool cc is_true) (Expl.mk_merge n_u repr_u)
+          SI.CC.merge cc n (SI.CC.n_bool cc is_true) (Expl.mk_theory @@ Expl.mk_merge n_u repr_u)
       end
     | T_select (c_t, i, u) ->
       let n_u = SI.CC.add_term cc u in
@@ -344,7 +344,7 @@ module Make(A : ARG) : S with module A = A = struct
           assert (i < IArray.length cstor.c_args);
           let u_i = IArray.get cstor.c_args i in
           let n_u_i = SI.CC.add_term cc u_i in
-          SI.CC.merge cc n n_u_i (Expl.mk_merge n_u repr_u)
+          SI.CC.merge cc n n_u_i (Expl.mk_theory @@ Expl.mk_merge n_u repr_u)
         | Some _ -> ()
         | None ->
           N_tbl.add self.to_decide repr_u (); (* needs to be decided *)
@@ -364,7 +364,7 @@ module Make(A : ARG) : S with module A = A = struct
             name Monoid_parents.pp_is_a is_a2 is_true N.pp n1 N.pp n2 Monoid_cstor.pp c1);
       SI.CC.merge cc is_a2.is_a_n (SI.CC.n_bool cc is_true)
         Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2;
-                       mk_merge_t (N.term n2) is_a2.is_a_arg])
+                       mk_merge_t (N.term n2) is_a2.is_a_arg] |> mk_theory)
     in
     let merge_select n1 (c1:Monoid_cstor.t) n2 (sel2:Monoid_parents.select) =
       if A.Cstor.equal c1.c_cstor sel2.sel_cstor then (
@@ -376,7 +376,7 @@ module Make(A : ARG) : S with module A = A = struct
         let n_u_i = SI.CC.add_term cc u_i in
         SI.CC.merge cc sel2.sel_n n_u_i
           Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2;
-                         mk_merge_t (N.term n2) sel2.sel_arg]);
+                         mk_merge_t (N.term n2) sel2.sel_arg] |> mk_theory);
       )
     in
     let merge_c_p n1 n2 =
@@ -409,7 +409,7 @@ module Make(A : ARG) : S with module A = A = struct
       | Current of parent_uplink option
 
     let pp_st out st =
-      Fmt.fprintf out "(@[st :cstor %a@ :flag %s@])"
+      Fmt.fprintf out "(@[acycl.st :cstor %a@ :flag %s@])"
         Monoid_cstor.pp st.cstor
         (match st.flag with
          | New -> "new" | Done -> "done"
@@ -454,7 +454,7 @@ module Make(A : ARG) : S with module A = A = struct
             | None -> c0
             | Some parent -> mk_path c0 n parent
           in
-          SI.CC.raise_conflict_from_expl cc acts (Expl.mk_list c)
+          SI.CC.raise_conflict_from_expl cc acts (Expl.mk_list c |> Expl.mk_theory)
       (* traverse constructor arguments *)
       and traverse_sub n st: unit =
         IArray.iter
@@ -468,6 +468,10 @@ module Make(A : ARG) : S with module A = A = struct
           st.cstor.Monoid_cstor.c_args;
       in
       begin
+        (* TODO: instead, create whole graph here (repr -> cstor*repr list)
+           and then just look for cycles in the graph using DFS.
+           Be sure to annotate edges with all info for conflicts, so that the
+           full conflict is just the cycle itself. *)
         (* populate tbl with [repr->cstor] *)
         ST_cstors.iter_all self.cstors
           (fun (n, cstor) ->
@@ -495,7 +499,7 @@ module Make(A : ARG) : S with module A = A = struct
         Log.debugf 50
           (fun k->k"(@[%s.assign-is-a@ :lhs %a@ :rhs %a@ :lit %a@])"
               name T.pp u  T.pp rhs SI.Lit.pp lit);
-        SI.cc_merge_t solver acts u rhs (Expl.mk_lit lit)
+        SI.cc_merge_t solver acts u rhs (Expl.mk_theory @@ Expl.mk_lit lit)
       | _ -> ()
     in
     Iter.iter check_lit trail
