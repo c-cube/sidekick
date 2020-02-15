@@ -299,6 +299,8 @@ module Make(A : ARG)
       CC.pop_levels (cc self) n;
       pop_lvls_ n self.th_states
 
+    exception E_loop_exit
+
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
       Msat.Log.debugf 2
@@ -312,11 +314,17 @@ module Make(A : ARG)
       (* transmit to theories. *)
       CC.check cc acts;
       if final then (
-        for _i = 0 to 1 do
-        List.iter (fun f -> f self acts lits) self.on_final_check;
-        CC.check cc acts;
-      done; (* FIXME *)
-        (* TODO: theory combination until fixpoint *)
+        try
+          while true do
+            (* TODO: theory combination *)
+            List.iter (fun f -> f self acts lits) self.on_final_check;
+            CC.check cc acts;
+            if not @@ CC.new_merges cc then (
+              raise_notrace E_loop_exit
+            );
+          done;
+        with E_loop_exit ->
+          ()
       ) else (
         List.iter (fun f -> f self acts lits) self.on_partial_check;
       );

@@ -260,6 +260,7 @@ module Make (A: CC_ARG)
     mutable on_new_term: ev_on_new_term list;
     mutable on_conflict: ev_on_conflict list;
     mutable on_propagate: ev_on_propagate list;
+    mutable new_merges: bool;
     bitgen: Bits.bitfield_gen;
     field_marked_explain: Bits.field; (* used to mark traversed nodes when looking for a common ancestor *)
     true_ : node lazy_t;
@@ -618,7 +619,9 @@ module Make (A: CC_ARG)
     end
 
   and[@inline] task_combine_ cc acts = function
-    | CT_merge (a,b,e_ab) -> task_merge_ cc acts a b e_ab
+    | CT_merge (a,b,e_ab) ->
+      cc.new_merges <- true;
+      task_merge_ cc acts a b e_ab
 
   (* main CC algo: merge equivalence classes in [st.combine].
      @raise Exn_unsat if merge fails *)
@@ -861,6 +864,7 @@ module Make (A: CC_ARG)
       true_;
       false_;
       stat;
+      new_merges=false;
       field_marked_explain;
       count_conflict=Stat.mk_int stat "cc.conflicts";
       count_props=Stat.mk_int stat "cc.propagations";
@@ -881,7 +885,10 @@ module Make (A: CC_ARG)
 
   let[@inline] check cc acts : unit =
     Log.debug 5 "(cc.check)";
+    cc.new_merges <- false;
     update_tasks cc acts
+
+  let new_merges cc = cc.new_merges
 
   (* model: return all the classes *)
   let get_model (cc:t) : repr Iter.t Iter.t =
