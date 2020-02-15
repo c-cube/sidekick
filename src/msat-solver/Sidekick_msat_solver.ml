@@ -312,8 +312,10 @@ module Make(A : ARG)
       (* transmit to theories. *)
       CC.check cc acts;
       if final then (
+        for _i = 0 to 1 do
         List.iter (fun f -> f self acts lits) self.on_final_check;
         CC.check cc acts;
+      done; (* FIXME *)
         (* TODO: theory combination until fixpoint *)
       ) else (
         List.iter (fun f -> f self acts lits) self.on_partial_check;
@@ -598,7 +600,7 @@ module Make(A : ARG)
     Stat.incr self.count_solve;
     match r with
     | Sat_solver.Sat st ->
-      Log.debugf 1 (fun k->k "SAT");
+      Log.debug 1 "sidekick.msat-solver: SAT";
       let _lits f = st.iter_trail f (fun _ -> ()) in
       (* TODO: theory combination *)
       let m = mk_model self _lits in

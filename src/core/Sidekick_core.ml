@@ -465,7 +465,8 @@ module type SOLVER_INTERNAL = sig
 
       Must be complete (i.e. must raise a conflict if the set of literals is
       not satisfiable) and can be expensive. The function
-      is given the whole trail. *)
+      is given the whole trail.
+  *)
 
   (** {3 Preprocessors}
       These preprocessors turn mixed, raw literals (possibly simplified) into
@@ -702,6 +703,7 @@ module Monoid_of_repr(M : MONOID_ARG) : sig
   val mem : t -> M.SI.CC.N.t -> bool
   val get : t -> M.SI.CC.N.t -> M.t option
   val iter_all : t -> (M.SI.CC.repr * M.t) Iter.t
+  val pp : t Fmt.printer
 end = struct
   module SI = M.SI
   module T = SI.T.Term
@@ -798,6 +800,10 @@ end = struct
       | Some _, None -> () (* already there on the left *)
       | None, None -> ()
     end
+
+  let pp out (self:t) : unit =
+    let pp_e out (t,v) = Fmt.fprintf out "(@[%a@ :has %a@])" N.pp t M.pp v in
+    Fmt.fprintf out "(@[%a@])" (Fmt.seq pp_e) (iter_all self)
 
   let create_and_setup ?size (solver:SI.t) : t =
     let field_has_value =

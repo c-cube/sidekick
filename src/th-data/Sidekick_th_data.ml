@@ -165,7 +165,7 @@ module Make(A : ARG) : S with module A = A = struct
     let merge cc n1 c1 n2 c2 e_n1_n2 : _ result =
       Log.debugf 5
         (fun k->k "(@[%s.merge@ (@[:c1 %a %a@])@ (@[:c2 %a %a@])@])"
-            name N.pp n1 pp c1 N.pp n2 pp c2); 
+            name N.pp n1 pp c1 N.pp n2 pp c2);
       (* build full explanation of why the constructor terms are equal *)
       (* TODO: have a sort of lemma (injectivity) here to justify this in the proof *)
       let expl =
@@ -242,7 +242,7 @@ module Make(A : ARG) : S with module A = A = struct
     let merge cc n1 v1 n2 v2 _e : _ result =
       Log.debugf 5
         (fun k->k "(@[%s.merge@ @[:c1 %a %a@]@ @[:c2 %a %a@]@])"
-            name N.pp n1 pp v1 N.pp n2 pp v2); 
+            name N.pp n1 pp v1 N.pp n2 pp v2);
       let parent_is_a = v1.parent_is_a @ v2.parent_is_a in
       let parent_select = v1.parent_select @ v2.parent_select in
       Ok {parent_is_a; parent_select;}
@@ -273,33 +273,6 @@ module Make(A : ARG) : S with module A = A = struct
     ST_parents.pop_levels self.parents n;
     N_tbl.pop_levels self.to_decide n;
     ()
-
-  (* TODO: select/is-a *)
-
-  (* TODO: remove
-  (* attach data to constructor terms *)
-  let on_new_term_look_at_shape self n (t:T.t) =
-    match A.view_as_data t with
-    | T_cstor (cstor,args) ->
-      Log.debugf 20
-        (fun k->k "(@[%s.on-new-term@ %a@ :cstor %a@ @[:args@ (@[%a@])@]@]@])"
-            name T.pp t A.Cstor.pp cstor (Util.pp_iarray T.pp) args);
-      N_tbl.add self.cstors n {n; t; cstor; args};
-    | T_select (cstor,i,u) ->
-      Log.debugf 20
-        (fun k->k "(@[%s.on-new-term.select[%d]@ %a@ :cstor %a@ :in %a@])"
-            name i T.pp t A.Cstor.pp cstor T.pp u);
-      (* TODO: remember that [u] must be decided *)
-      ()
-      (*       N_tbl.add self.cstors n {n; t; cstor; args}; *)
-    | T_is_a (cstor,u) ->
-      Log.debugf 20
-        (fun k->k "(@[%s.on-new-term.is-a@ %a@ :cstor %a@ :in %a@])"
-            name T.pp t A.Cstor.pp cstor T.pp u);
-      ()
-      (*       N_tbl.add self.cstors n {n; t; cstor; args}; *)
-    | T_other _ -> ()
-     *)
 
   (* remember terms of a datatype *)
   let on_new_term_look_at_ty (self:t) n (t:T.t) : unit =
@@ -497,7 +470,11 @@ module Make(A : ARG) : S with module A = A = struct
       |> Iter.to_rev_list
     in
     begin match remaining_to_decide with
-      | [] -> ()
+      | [] ->
+        Log.debugf 10
+          (fun k->k "(@[%s.final-check.all-decided@ :cstors %a@ :parents %a@])"
+              name ST_cstors.pp self.cstors ST_parents.pp self.parents);
+        ()
       | l ->
         Log.debugf 10
           (fun k->k "(@[%s.final-check.must-decide@ %a@])" name (Util.pp_list N.pp) l);
@@ -509,7 +486,7 @@ module Make(A : ARG) : S with module A = A = struct
              if not @@ T.Tbl.mem self.case_split_done t then (
                T.Tbl.add self.case_split_done t ();
                let c =
-                 cstors_of_ty (T.ty t) 
+                 cstors_of_ty (T.ty t)
                  |> Iter.map (fun c -> A.mk_is_a self.tst c t)
                  |> Iter.map
                    (fun t ->
