@@ -53,7 +53,9 @@ doc:
 
 reinstall: | uninstall install
 
-reindent: ocp-indent
+reindent:
+	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 \
+	  | xargs -0 sed -i 's/[[:space:]]+$$//g'
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 echo "reindenting: "
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 ocp-indent -i
 
