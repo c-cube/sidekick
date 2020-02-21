@@ -12,14 +12,14 @@ build: [
 ]
 depends: [
   "dune" {build}
-  "containers"
+  "containers" { >= "2.8" }
   "iter"
   "zarith"
   "smtlib-utils" { >= "0.1" & < "0.2" }
   "sidekick" { = version }
   "menhir"
   "msat" { >= "0.8" < "0.9" }
-  "ocaml" { >= "4.03" } 
+  "ocaml" { >= "4.03" }
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
