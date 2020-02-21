@@ -374,20 +374,31 @@ module Make(A : ARG) : S with module A = A = struct
     type node = {
       repr: N.t; (* repr *)
       cstor_n: N.t; (* the cstor node *)
-      cstor_args: repr list; (* arguments to [cstor_n] *)
+      cstor_args: (N.t*repr) list; (* arguments to [cstor_n] *)
       mutable flag: flag;
     }
     and flag = New | Open | Done (* for cycle detection *)
 
     type graph = node N_tbl.t
 
+    let pp_node out (n:node) =
+      Fmt.fprintf out "(@[node@ :repr %a@ :cstor_n %a@ @[:cstor_args %a@]@])"
+        N.pp n.repr N.pp n.cstor_n
+        Fmt.(Dump.list @@ hvbox @@ pair ~sep:(return "@ --> ") N.pp N.pp) n.cstor_args
+    let pp_path = Fmt.Dump.(list@@pair N.pp pp_node)
+    let pp_graph out (g:graph) : unit =
+      let pp_entry out (n,node) =
+        Fmt.fprintf out "@[<1>@[graph_node[%a]@]@ := %a@]" N.pp n pp_node node
+      in
+      Fmt.fprintf out "(@[graph@ %a@])" (Fmt.seq pp_entry) (N_tbl.to_iter g)
+
     let mk_graph (self:t) cc : graph =
       let g: graph = N_tbl.create ~size:32 () in
-      let traverse_sub cstor : repr list =
+      let traverse_sub cstor : _ list =
         IArray.to_list_map
           (fun sub_t ->
-             let sub = SI.CC.find_t cc sub_t in
-             sub)
+             let sub_n = SI.CC.add_term cc sub_t in
+             sub_n, SI.CC.find cc sub_n)
           cstor.Monoid_cstor.c_args
       in
       begin
@@ -409,26 +420,37 @@ module Make(A : ARG) : S with module A = A = struct
       let cc = SI.cc solver in
       (* create graph *)
       let g = mk_graph self cc in
+      Log.debugf 50
+        (fun k->k"(@[%s.acyclicity.graph@ %a@])" name pp_graph g);
       (* traverse the graph, looking for cycles *)
-      let rec traverse ~path (r:repr) : unit =
+      let rec traverse ~path (n:N.t) (r:repr) : unit =
         assert (N.is_root r);
         match N_tbl.find g r with
         | exception Not_found -> ()
         | {flag=Done; _} -> () (* no need *)
-        | {flag=Open; _} ->
+        | {flag=Open; cstor_n; _} as node ->
           (* conflict: the [path] forms a cycle *)
+          let path = (n, node) :: path in
           let expl =
-            List.map (fun node -> Expl.mk_merge node.cstor_n node.repr) path
+            path
+            |> CCList.flat_map
+              (fun (n,node) ->
+                 [ Expl.mk_merge node.cstor_n node.repr;
+                   Expl.mk_merge n node.repr;
+                 ])
             |> Expl.mk_list |> Expl.mk_theory
           in
+          Log.debugf 5
+            (fun k->k "(@[%s.acyclicity.raise_confl@ %a@ @[:path %a@]@])"
+                name Expl.pp expl pp_path path);
           SI.CC.raise_conflict_from_expl cc acts expl
         | {flag=New; _} as node_r ->
           node_r.flag <- Open;
-          let path = node_r :: path in
-          List.iter (fun sub -> traverse ~path sub) node_r.cstor_args;
+          let path = (n, node_r) :: path in
+          List.iter (fun (sub_n,sub_r) -> traverse ~path sub_n sub_r) node_r.cstor_args;
           node_r.flag <- Done;
       in
-      N_tbl.iter (fun r _ -> traverse ~path:[] r) g;
+      N_tbl.iter (fun r _ -> traverse ~path:[] r r) g;
       ()
   end
 
