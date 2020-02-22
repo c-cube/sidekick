@@ -63,6 +63,7 @@ module type TERM = sig
   module Term : sig
     type t
     val equal : t -> t -> bool
+    val compare : t -> t -> int
     val hash : t -> int
     val pp : t Fmt.printer
 

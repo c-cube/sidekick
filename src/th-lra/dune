@@ -1,0 +1,6 @@
+
+(library
+  (name sidekick_lra)
+  (public_name sidekick.lra)
+  (optional) ; only if deps present
+  (libraries containers sidekick.core zarith funarith.zarith funarith))
