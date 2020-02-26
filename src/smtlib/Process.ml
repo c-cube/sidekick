@@ -301,5 +301,12 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
   include Form
 end)
 
+module Th_lra = Sidekick_th_lra.Make(struct
+  module S = Solver
+  type term = S.T.Term.t
+  let view_as_lra _ = assert false (* TODO *)
+end)
+
 let th_bool : Solver.theory = Th_bool.theory
 let th_data : Solver.theory = Th_data.theory
+let th_lra : Solver.theory = Th_lra.theory
