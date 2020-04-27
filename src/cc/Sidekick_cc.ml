@@ -274,7 +274,7 @@ module Make (A: CC_ARG)
      of the terms they are known to be equal to, according
      to the current explanation. That allows not to prove some equality
      several times.
-     See "fast congruence closure and extensions", Nieuwenhis&al, page 14 *)
+     See "fast congruence closure and extensions", Nieuwenhuis&al, page 14 *)
 
   and ev_on_pre_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
   and ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
