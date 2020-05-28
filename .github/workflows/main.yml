@@ -18,7 +18,3 @@ jobs:
     - run: opam install -t . --deps-only
     - run: opam exec -- dune build
     - run: opam exec -- dune runtest
-    - uses: actions/upload-artifact@master
-      with:
-        name: sidekick-bin-${{ matrix.operating-system }}-${{ matrix.ocaml-version }}.exe
-        path: _build/default/src/main/main.exe
