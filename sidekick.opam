@@ -14,8 +14,8 @@ depends: [
   "dune" {build}
   "containers"
   "iter"
-  "msat" { >= "0.8" < "0.9" }
-  "ocaml" { >= "4.03" } 
+  "msat" { >= "0.8.2" < "0.9" }
+  "ocaml" { >= "4.03" }
   "alcotest" {with-test}
 ]
 tags: [ "sat" "smt" ]
