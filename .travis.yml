@@ -8,11 +8,8 @@ env:
   - PINS="sidekick:. sidekick-bin:."
   - DISTRO="ubuntu-16.04"
   matrix:
-  #- PACKAGE="sidekick" OCAML_VERSION="4.02.3"
   - PACKAGE="sidekick" CAML_VERSION="4.03"
-  - PACKAGE="sidekick" CAML_VERSION="4.04"
-  - PACKAGE="sidekick" CAML_VERSION="4.05"
   - PACKAGE="sidekick" CAML_VERSION="4.06"
   - PACKAGE="sidekick" CAML_VERSION="4.08"
-  - PACKAGE="sidekick" CAML_VERSION="4.09"
-  - PACKAGE="sidekick-bin" CAML_VERSION="4.06" 
+  - PACKAGE="sidekick" CAML_VERSION="4.10"
+  - PACKAGE="sidekick-bin" CAML_VERSION="4.06"
