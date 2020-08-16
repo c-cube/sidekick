@@ -301,10 +301,28 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
   include Form
 end)
 
-module Th_lra = Sidekick_th_lra.Make(struct
+module Th_lra = Sidekick_lra.Make(struct
   module S = Solver
   type term = S.T.Term.t
+
   let view_as_lra _ = assert false (* TODO *)
+
+  let mk_lra _ = assert false
+
+  module Gensym = struct
+    type t = {
+      tst: T.state;
+      mutable fresh: int;
+    }
+
+    let create tst : t = {tst; fresh=0}
+
+    let fresh_term (self:t) ~pre (ty:Ty.t) : T.t =
+      let name = Printf.sprintf "_sk_lra_%s%d" pre self.fresh in
+      self.fresh <- 1 + self.fresh;
+      let id = ID.make name in
+      T.const self.tst @@ Fun.mk_undef_const id ty
+  end
 end)
 
 let th_bool : Solver.theory = Th_bool.theory

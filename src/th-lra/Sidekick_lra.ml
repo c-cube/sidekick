@@ -159,7 +159,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* preprocess linear expressions away *)
   let preproc_lra self si ~mk_lit ~add_clause (t:T.t) : T.t option =
-    let tst = SI.tst si in
+    let _tst = SI.tst si in
     match A.view_as_lra t with
     | LRA_pred (_pre, _t1, _t2) ->
       assert false (* TODO: define a bool variable *)
@@ -261,8 +261,11 @@ module Make(A : ARG) : S with module A = A = struct
       |> Iter.map CC.N.term
     in
     let cnf_of t =
+      assert false
+      (*
       cnf self si t
         ~mk_lit:(SI.mk_lit si acts) ~add_clause:(SI.add_clause_permanent si acts)
+    *)
     in
     begin
       all_terms
