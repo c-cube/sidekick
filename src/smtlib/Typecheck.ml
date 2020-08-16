@@ -88,14 +88,7 @@ let find_id_ ctx (s:string): ID.t * Ctx.kind =
 (* parse a type *)
 let rec conv_ty ctx (t:PA.ty) : Ty.t = match t with
   | PA.Ty_bool -> Ty.bool
-  | PA.Ty_real ->
-    ill_typed ctx "cannot handle reals for now"
-      (* FIXME
-    Ty.rat, Ctx.K_ty Ctx.K_other
-         *) 
-  | PA.Ty_app ("Rat",[]) ->
-    ill_typed ctx "cannot handle reals for now"
-    (* TODO A.Ty.rat, Ctx.K_ty Ctx.K_other *)
+  | PA.Ty_real -> Ty.real
   | PA.Ty_app ("Int",[]) ->
     ill_typed ctx "cannot handle ints for now"
     (* TODO: A.Ty.int , Ctx.K_ty Ctx.K_other *)
@@ -158,7 +151,7 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
     Ctx.with_lets ctx bs (fun () -> conv_term ctx body)
   | PA.Distinct l ->
     let l = List.map (conv_term ctx) l in
-    Form.distinct_l tst l 
+    Form.distinct_l tst l
   | PA.And l ->
     let l = List.map (conv_term ctx) l in
     Form.and_l tst l

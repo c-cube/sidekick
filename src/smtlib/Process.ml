@@ -1,5 +1,6 @@
 (** {2 Conversion into {!Term.t}} *)
 
+module BT = Sidekick_base_term
 open Sidekick_base_term
 
 [@@@ocaml.warning "-32"]
@@ -270,7 +271,7 @@ module Th_data = Sidekick_th_data.Make(struct
         Ty_data {cstors=Lazy.force data.data.data_cstors |> ID.Map.values}
       | Ty_atomic {def=_;args;finite=_} ->
         Ty_app{args=Iter.of_list args}
-      | Ty_bool -> Ty_app {args=Iter.empty}
+      | Ty_bool | Ty_real -> Ty_app {args=Iter.empty}
 
     let view_as_data t = match Term.view t with
       | Term.App_fun ({fun_view=Fun.Fun_cstor c;_}, args) -> T_cstor (c, args)
@@ -303,6 +304,7 @@ end)
 
 module Th_lra = Sidekick_lra.Make(struct
   module S = Solver
+  module T = S.T.Term
   type term = S.T.Term.t
 
   let view_as_lra _ = assert false (* TODO *)
@@ -321,7 +323,7 @@ module Th_lra = Sidekick_lra.Make(struct
       let name = Printf.sprintf "_sk_lra_%s%d" pre self.fresh in
       self.fresh <- 1 + self.fresh;
       let id = ID.make name in
-      T.const self.tst @@ Fun.mk_undef_const id ty
+      BT.Term.const self.tst @@ Fun.mk_undef_const id ty
   end
 end)
 

@@ -60,6 +60,7 @@ and ty = {
 
 and ty_view =
   | Ty_bool
+  | Ty_real
   | Ty_atomic of {
       def: ty_def;
       args: ty list;
@@ -116,6 +117,7 @@ and value =
       eq: value_custom_view -> value_custom_view -> bool;
       hash: value_custom_view -> int;
     } (** Custom value *)
+  | V_real of Q.t
 
 and value_custom_view = ..
 
@@ -157,7 +159,8 @@ let rec eq_value a b = match a, b with
   | V_cstor x1, V_cstor x2 ->
     eq_cstor x1.c x2.c &&
     CCList.equal eq_value x1.args x2.args
-  | (V_bool _ | V_element _ | V_custom _ | V_cstor _), _
+  | V_real a, V_real b -> Q.equal a b
+  | (V_bool _ | V_element _ | V_custom _ | V_cstor _ | V_real _), _
     -> false
 
 let rec hash_value a = match a with
@@ -166,6 +169,7 @@ let rec hash_value a = match a with
   | V_custom x -> x.hash x.view
   | V_cstor x ->
     Hash.combine3 42 (ID.hash x.c.cstor_id) (Hash.list hash_value x.args)
+  | V_real x -> Hash.combine3 50 (Z.hash @@ Q.num x) (Z.hash @@ Q.den x)
 
 let rec pp_value out = function
   | V_bool b -> Fmt.bool out b
@@ -174,11 +178,13 @@ let rec pp_value out = function
   | V_cstor {c;args=[]} -> ID.pp out c.cstor_id
   | V_cstor {c;args} ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp c.cstor_id (Util.pp_list pp_value) args
+  | V_real x -> Q.pp_print out x
 
 let pp_db out (i,_) = Format.fprintf out "%%%d" i
 
 let rec pp_ty out t = match t.ty_view with
   | Ty_bool -> Fmt.string out "Bool"
+  | Ty_real -> Fmt.string out "Real"
   | Ty_atomic {def=Ty_uninterpreted id; args=[]; _} -> ID.pp out id
   | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args
@@ -214,6 +220,7 @@ module Ty : sig
   type t = ty
   type view = ty_view =
     | Ty_bool
+    | Ty_real
     | Ty_atomic of {
       def: ty_def;
       args: ty list;
@@ -235,6 +242,7 @@ module Ty : sig
   val view : t -> view
 
   val bool : t
+  val real : t
   val atomic : def -> t list -> t
 
   val atomic_uninterpreted : ID.t -> t
@@ -268,6 +276,7 @@ end = struct
   type t = ty
   type view = ty_view =
     | Ty_bool
+    | Ty_real
     | Ty_atomic of {
       def: ty_def;
       args: ty list;
@@ -302,13 +311,15 @@ end = struct
       type t = ty
       let equal a b = match a.ty_view, b.ty_view with
         | Ty_bool, Ty_bool -> true
+        | Ty_real, Ty_real -> true
         | Ty_atomic a1, Ty_atomic a2 ->
           equal_def a1.def a2.def && CCList.equal equal a1.args a2.args
-        | Ty_bool, _ | Ty_atomic _, _
+        | (Ty_bool | Ty_atomic _ | Ty_real), _
           -> false
 
       let hash t = match t.ty_view with
         | Ty_bool -> 1
+        | Ty_real -> 2
         | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
           Hash.combine3 10 (ID.hash id) (Hash.list hash args)
         | Ty_atomic {def=Ty_def d; args; _} ->
@@ -330,13 +341,15 @@ end = struct
 
   let finite t = match view t with
     | Ty_bool -> true
+    | Ty_real -> false
     | Ty_atomic {finite=f; _} -> f
 
   let set_finite t b = match view t with
-    | Ty_bool -> assert false
+    | Ty_bool | Ty_real -> assert false
     | Ty_atomic r -> r.finite <- b
 
   let bool = make_ Ty_bool
+  let real = make_ Ty_real
 
   let atomic def args : t =
     make_ (Ty_atomic {def; args; finite=true;})
@@ -598,7 +611,7 @@ end = struct
     | Ite (_, b, _) -> b.term_ty
     | App_fun (f, args) ->
       begin match Fun.view f with
-        | Fun_undef fty -> 
+        | Fun_undef fty ->
           let ty_args, ty_ret = Ty.Fun.unfold fty in
           (* check arity *)
           if List.length ty_args <> IArray.length args then (
@@ -880,10 +893,13 @@ module Value : sig
         eq: value_custom_view -> value_custom_view -> bool;
         hash: value_custom_view -> int;
       }
+    | V_real of Q.t
 
   val true_ : t
   val false_ : t
   val bool : bool -> t
+  val real : Q.t -> t
+  val real_of_string : string -> t
 
   val mk_elt : ID.t -> Ty.t -> t
 
@@ -911,10 +927,13 @@ end = struct
         eq: value_custom_view -> value_custom_view -> bool;
         hash: value_custom_view -> int;
       }
+    | V_real of Q.t
 
   let true_ = V_bool true
   let false_ = V_bool false
   let[@inline] bool v = if v then true_ else false_
+  let real x = V_real x
+  let real_of_string x = V_real (Q.of_string x)
 
   let mk_elt id ty : t = V_element {id; ty}
 
