@@ -287,6 +287,7 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
       ill_typed ctx "term `%a`@ should have type `%a`" T.pp t Ty.pp ty_expect
     );
     t
+  | PA.Attr (t, [":named",_]) -> conv_term ctx t
   | _ ->
     errorf_ctx ctx "unsupported term %a" PA.pp_term t
 
