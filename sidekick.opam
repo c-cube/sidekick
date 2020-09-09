@@ -18,6 +18,9 @@ depends: [
   "ocaml" { >= "4.03" }
   "alcotest" {with-test}
 ]
+pin-depends: [
+  ["msat.0.8.3" "git+https://github.com/Gbury/mSAT.git#8eb32fa9abdb30665db7030c4861fe2229c0f671"]
+]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
 dev-repo: "git+https://github.com/c-cube/sidekick.git"
