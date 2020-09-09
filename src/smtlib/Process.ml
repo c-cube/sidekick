@@ -307,9 +307,7 @@ module Th_lra = Sidekick_lra.Make(struct
   module T = S.T.Term
   type term = S.T.Term.t
 
-  let view_as_lra _ = assert false (* TODO *)
-
-  let mk_lra _ = assert false
+  include Lra
 
   module Gensym = struct
     type t = {
