@@ -34,12 +34,12 @@ let rec fold f acc = function
   | L x -> f acc x
   | N (a,b) -> fold f (fold f acc a) b
 
-let[@unroll 2] rec to_seq t yield = match t with
+let[@unroll 2] rec to_iter t yield = match t with
   | E -> ()
   | L x -> yield x
-  | N (a,b) -> to_seq a yield; to_seq b yield
+  | N (a,b) -> to_iter a yield; to_iter b yield
 
-let[@inline] iter f t = to_seq t f
+let[@inline] iter f t = to_iter t f
 
 let equal f a b =
   let rec push x l = match x with

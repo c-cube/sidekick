@@ -45,6 +45,6 @@ let pp_all out l =
     | C_int {name; count} -> Fmt.fprintf out "@[:%s %d@]" name count
     | C_float {name; count} -> Fmt.fprintf out "@[:%s %.4f@]" name count
   in
-  Fmt.fprintf out "(@[stats@ %a@])" Fmt.(seq ~sep:(return "@ ") pp_w) l
+  Fmt.fprintf out "(@[stats@ %a@])" Fmt.(iter ~sep:(return "@ ") pp_w) l
 
 let global = create()

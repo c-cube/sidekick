@@ -6,7 +6,7 @@ type 'a printer = 'a CCFormat.printer
 
 val pp_list : ?sep:string -> 'a printer -> 'a list printer
 
-val pp_seq : ?sep:string -> 'a printer -> 'a Iter.t printer
+val pp_iter : ?sep:string -> 'a printer -> 'a Iter.t printer
 
 val pp_array : ?sep:string -> 'a printer -> 'a array printer
 

@@ -5,7 +5,7 @@
 open Base_types
 
 module Val_map = struct
-  module M = CCIntMap
+  module M = CCMap.Make(CCInt)
   module Key = struct
     type t = Value.t list
     let equal = CCList.equal Value.equal
@@ -21,16 +21,16 @@ module Val_map = struct
   let cardinal = M.cardinal
 
   let find k m =
-    try Some (CCList.assoc ~eq:Key.equal k @@ M.find_exn (Key.hash k) m)
+    try Some (CCList.assoc ~eq:Key.equal k @@ M.find (Key.hash k) m)
     with Not_found -> None
 
   let add k v m =
     let h = Key.hash k in
-    let l = M.find h m |> CCOpt.get_or ~default:[] in
+    let l = M.get_or ~default:[] h m in
     let l = CCList.Assoc.set ~eq:Key.equal k v l in
     M.add h l m
 
-  let to_seq m yield = M.iter (fun _ l -> List.iter yield l) m
+  let to_iter m yield = M.iter (fun _ l -> List.iter yield l) m
 end
 
 module Fun_interpretation = struct
@@ -40,7 +40,7 @@ module Fun_interpretation = struct
   }
 
   let default fi = fi.default
-  let cases_list fi = Val_map.to_seq fi.cases |> Iter.to_rev_list
+  let cases_list fi = Val_map.to_iter fi.cases |> Iter.to_rev_list
 
   let make ~default l : t =
     let m = List.fold_left (fun m (k,v) -> Val_map.add k v m) Val_map.empty l in
@@ -129,8 +129,8 @@ let pp out {values; funs} =
       (Fmt.list ~sep:(Fmt.return "@ ") pp_fun_entry) (FI.cases_list fi) 
   in
   Fmt.fprintf out "(@[model@ @[:terms (@[<hv>%a@])@]@ @[:funs (@[<hv>%a@])@]@])"
-    (Fmt.seq ~sep:Fmt.(return "@ ") pp_tv) (Term.Map.to_seq values)
-    (Fmt.seq ~sep:Fmt.(return "@ ") pp_fun) (Fun.Map.to_seq funs)
+    (Fmt.iter ~sep:Fmt.(return "@ ") pp_tv) (Term.Map.to_iter values)
+    (Fmt.iter ~sep:Fmt.(return "@ ") pp_fun) (Fun.Map.to_iter funs)
 
 exception No_value
 

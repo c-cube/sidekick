@@ -305,7 +305,7 @@ module Make(A : ARG)
     let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
       Msat.Log.debugf 2
         (fun k->k "(@[<hv1>@{<green>msat-solver.assume_lits@}%s[lvl=%d]@ %a@])"
-            (if final then "[final]" else "") self.level (Util.pp_seq ~sep:"; " Lit.pp) lits);
+            (if final then "[final]" else "") self.level (Util.pp_iter ~sep:"; " Lit.pp) lits);
       (* transmit to CC *)
       let cc = cc self in
       if not final then (
@@ -553,7 +553,7 @@ module Make(A : ARG)
           Fmt.fprintf out "(@[<1>%a@ := %a@])" Term.pp t Value.pp v
             in
         Fmt.fprintf out "(@[<hv>model@ %a@])"
-          (Util.pp_seq pp_pair) (Term.Tbl.to_seq tbl)
+          (Util.pp_iter pp_pair) (Term.Tbl.to_iter tbl)
   end
 
   type res =

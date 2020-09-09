@@ -138,7 +138,7 @@ module Make (A: CC_ARG)
 
     let[@inline] iter_parents (n:node) : node Iter.t =
       assert (is_root n);
-      Bag.to_seq n.n_parents
+      Bag.to_iter n.n_parents
 
     type bitfield = Bits.field
     let[@inline] get_field f t = Bits.get f t.n_bits
@@ -324,8 +324,8 @@ module Make (A: CC_ARG)
     in
     Fmt.fprintf out
       "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig-tbl@ %a@])@])"
-      (Util.pp_seq ~sep:" " pp_n) (T_tbl.values cc.tbl)
-      (Util.pp_seq ~sep:" " pp_sig_e) (Sig_tbl.to_seq cc.signatures_tbl)
+      (Util.pp_iter ~sep:" " pp_n) (T_tbl.values cc.tbl)
+      (Util.pp_iter ~sep:" " pp_sig_e) (Sig_tbl.to_iter cc.signatures_tbl)
 
   (* compute up-to-date signature *)
   let update_sig (s:signature) : Signature.t =

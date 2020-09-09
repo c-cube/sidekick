@@ -34,11 +34,11 @@ type pair =
 
 val iter : (pair -> unit) -> t -> unit
 
-val to_seq : t -> pair sequence
+val to_iter : t -> pair sequence
 
-val of_seq : pair sequence -> t
+val of_iter : pair sequence -> t
 
-val add_seq : t -> pair sequence -> t
+val add_iter : t -> pair sequence -> t
 
 val add_list : t -> pair list -> t
 

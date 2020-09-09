@@ -811,7 +811,7 @@ end = struct
     match view t with
     | Bool b -> C.Bool b
     | App_fun (f,_) when not (Fun.do_cc f) -> C.Opaque t (* skip *)
-    | App_fun (f,args) -> C.App_fun (f, IArray.to_seq args)
+    | App_fun (f,args) -> C.App_fun (f, IArray.to_iter args)
     | Eq (a,b) -> C.Eq (a, b)
     | Not u -> C.Not u
     | Ite (a,b,c) -> C.If (a,b,c)

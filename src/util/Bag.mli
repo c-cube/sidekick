@@ -21,7 +21,7 @@ val cons : 'a -> 'a t -> 'a t
 
 val append : 'a t -> 'a t -> 'a t
 
-val to_seq : 'a t -> 'a Iter.t
+val to_iter : 'a t -> 'a Iter.t
 
 val fold : ('a -> 'b -> 'a) -> 'a -> 'b t -> 'a
 

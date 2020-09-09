@@ -243,7 +243,7 @@ module type CC_S = sig
   (* TODO: remove? this is managed by the solver anyway? *)
   val on_pre_merge : t -> ev_on_pre_merge -> unit
   (** Add a function to be called when two classes are merged *)
-  
+
   val on_post_merge : t -> ev_on_post_merge -> unit
   (** Add a function to be called when two classes are merged *)
 
@@ -272,7 +272,7 @@ module type CC_S = sig
   val assert_lit : t -> lit -> unit
   (** Given a literal, assume it in the congruence closure and propagate
       its consequences. Will be backtracked.
-  
+
       Useful for the theory combination or the SAT solver's functor *)
 
   val assert_lits : t -> lit Iter.t -> unit
@@ -790,7 +790,7 @@ end = struct
         Log.debugf 5
           (fun k->k
               "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 %a@ :val2 %a@])@])"
-              M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2); 
+              M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2);
         begin match M.merge cc n1 v1 n2 v2 e_n1_n2 with
           | Ok v' ->
             N_tbl.remove self.values n2; (* only keep repr *)
@@ -807,7 +807,7 @@ end = struct
 
   let pp out (self:t) : unit =
     let pp_e out (t,v) = Fmt.fprintf out "(@[%a@ :has %a@])" N.pp t M.pp v in
-    Fmt.fprintf out "(@[%a@])" (Fmt.seq pp_e) (iter_all self)
+    Fmt.fprintf out "(@[%a@])" (Fmt.iter pp_e) (iter_all self)
 
   let create_and_setup ?size (solver:SI.t) : t =
     let field_has_value =
