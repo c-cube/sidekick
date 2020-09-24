@@ -14,12 +14,9 @@ depends: [
   "dune" {build}
   "containers" { >= "3.0" & < "4.0" }
   "iter" { >= "1.0" & < "2.0" }
-  "msat" { >= "0.8.2" < "0.9" }
+  "msat" { >= "0.8.3" < "0.9" }
   "ocaml" { >= "4.03" }
   "alcotest" {with-test}
-]
-pin-depends: [
-  ["msat.0.8.3" "git+https://github.com/Gbury/mSAT.git#8eb32fa9abdb30665db7030c4861fe2229c0f671"]
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
