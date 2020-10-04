@@ -4,6 +4,15 @@ module Fmt = CCFormat
 
 module CC_view = Sidekick_core.CC_view
 
+type lra_pred = Sidekick_lra.pred = Lt | Leq | Eq | Neq | Geq | Gt
+type lra_op = Sidekick_lra.op = Plus | Minus
+
+type 'a lra_view = 'a Sidekick_lra.lra_view =
+  | LRA_pred of lra_pred * 'a * 'a
+  | LRA_op of lra_op * 'a * 'a
+  | LRA_const of Q.t
+  | LRA_other of 'a
+
 (* main term cell. *)
 type term = {
   mutable term_id: int; (* unique ID *)
@@ -18,6 +27,7 @@ and 'a term_view =
   | Eq of 'a * 'a
   | Not of 'a
   | Ite of 'a * 'a * 'a
+  | LRA of 'a lra_view
 
 and fun_ = {
   fun_id: ID.t;
@@ -193,6 +203,20 @@ let rec pp_ty out t = match t.ty_view with
   | Ty_atomic {def=Ty_data d; args;_} ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp d.data.data_id (Util.pp_list pp_ty) args
 
+let string_of_lra_pred = function
+  | Lt -> "<"
+  | Leq -> "<="
+  | Neq -> "!="
+  | Eq -> "="
+  | Gt-> ">"
+  | Geq -> ">="
+let pp_pred out p = Fmt.string out (string_of_lra_pred p)
+
+let string_of_lra_op = function
+  | Plus -> "+"
+  | Minus -> "-"
+let pp_lra_op out p = Fmt.string out (string_of_lra_op p)
+
 let pp_term_view_gen ~pp_id ~pp_t out = function
   | Bool true -> Fmt.string out "true"
   | Bool false -> Fmt.string out "false"
@@ -204,6 +228,15 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
   | Eq (a,b) -> Fmt.fprintf out "(@[<hv>=@ %a@ %a@])" pp_t a pp_t b
   | Not u -> Fmt.fprintf out "(@[not@ %a@])" pp_t u
   | Ite (a,b,c) -> Fmt.fprintf out "(@[ite@ %a@ %a@ %a@])" pp_t a pp_t b pp_t c
+  | LRA l ->
+    begin match l with
+      | LRA_pred (p, a, b) ->
+        Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_pred p) pp_t a pp_t b
+      | LRA_op (p, a, b) ->
+        Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_op p) pp_t a pp_t b
+      | LRA_const q -> Q.pp_print out q
+      | LRA_other x -> pp_t out x
+    end
 
 let pp_term_top ~ids out t =
   let rec pp out t =
@@ -499,6 +532,7 @@ module Term_cell : sig
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
+    | LRA of 'a lra_view
 
   type t = term view
 
@@ -512,6 +546,7 @@ module Term_cell : sig
   val eq : term -> term -> t
   val not_ : term -> t
   val ite : term -> term -> term -> t
+  val lra : term lra_view -> t
 
   val ty : t -> Ty.t
   (** Compute the type of this term cell. Not totally free *)
@@ -540,6 +575,7 @@ end = struct
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
+    | LRA of 'a lra_view
 
   type t = term view
 
@@ -561,6 +597,15 @@ end = struct
       | Eq (a,b) -> Hash.combine3 12 (sub_hash a) (sub_hash b)
       | Not u -> Hash.combine2 70 (sub_hash u)
       | Ite (a,b,c) -> Hash.combine4 80 (sub_hash a)(sub_hash b)(sub_hash c)
+      | LRA l ->
+        begin match l with
+          | LRA_pred (p, a, b) ->
+            Hash.combine4 81 (Hash.poly p) (sub_hash a) (sub_hash b)
+          | LRA_op (p, a, b) ->
+            Hash.combine4 82 (Hash.poly p) (sub_hash a) (sub_hash b)
+          | LRA_const q -> Hash.combine2 83 (Hash.string @@ Q.to_string q)
+          | LRA_other x -> sub_hash x
+        end
 
     (* equality that relies on physical equality of subterms *)
     let equal (a:A.t view) b : bool = match a, b with
@@ -571,7 +616,17 @@ end = struct
       | Not a, Not b -> sub_eq a b
       | Ite (a1,b1,c1), Ite (a2,b2,c2) ->
         sub_eq a1 a2 && sub_eq b1 b2 && sub_eq c1 c2
-      | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _), _
+      | LRA l1, LRA l2 ->
+        begin match l1, l2 with
+          | LRA_pred (p1,a1,b1), LRA_pred (p2,a2,b2) ->
+            p1 = p2 && sub_eq a1 a2 && sub_eq b1 b2
+          | LRA_op(p1,a1,b1), LRA_op (p2,a2,b2) ->
+            p1 = p2 && sub_eq a1 a2 && sub_eq b1 b2
+          | LRA_const a1, LRA_const a2 -> Q.equal a1 a2
+          | LRA_other x1, LRA_other x2 -> sub_eq x1 x2
+          | (LRA_pred _ | LRA_op _ | LRA_const _ | LRA_other _), _ -> false
+        end
+      | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _ | LRA _), _
         -> false
 
     let pp = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:A.pp
@@ -605,6 +660,7 @@ end = struct
     | _ -> Not t
 
   let ite a b c = Ite (a,b,c)
+  let lra l : t = LRA l
 
   let ty (t:t): Ty.t = match t with
     | Bool _ | Eq _ | Not _ -> Ty.bool
@@ -635,6 +691,12 @@ end = struct
         | Fun_select s -> Lazy.force s.select_ty
         | Fun_cstor c -> Lazy.force c.cstor_ty
       end
+    | LRA l ->
+      begin match l with
+        | LRA_pred _ -> Ty.bool
+        | LRA_op _ | LRA_const _ -> Ty.real
+        | LRA_other x -> x.term_ty
+      end
 
   let iter f view =
     match view with
@@ -643,6 +705,12 @@ end = struct
     | Not u -> f u
     | Eq (a,b) -> f a; f b
     | Ite (a,b,c) -> f a; f b; f c
+    | LRA l ->
+      begin match l with
+        | LRA_pred (_, a, b)|LRA_op (_, a, b) -> f a; f b
+        | LRA_const _ -> ()
+        | LRA_other x -> f x
+      end
 
   let map f view =
     match view with
@@ -651,6 +719,7 @@ end = struct
     | Not u -> Not (f u)
     | Eq (a,b) -> Eq (f a, f b)
     | Ite (a,b,c) -> Ite (f a, f b, f c)
+    | LRA l -> LRA (Sidekick_lra.map_view f l)
 
   module Tbl = CCHashtbl.Make(struct
       type t = term view
@@ -672,6 +741,7 @@ module Term : sig
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
+    | LRA of 'a lra_view
 
   val id : t -> int
   val view : t -> term view
@@ -697,6 +767,7 @@ module Term : sig
   val select : state -> select -> t -> t
   val app_cstor : state -> cstor -> t IArray.t -> t
   val is_a : state -> cstor -> t -> t
+  val lra : state -> t lra_view -> t
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
   val abs : state -> t -> t * bool
@@ -743,6 +814,7 @@ end = struct
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
+    | LRA of 'a lra_view
 
   let[@inline] id t = t.term_id
   let[@inline] ty t = t.term_ty
@@ -804,6 +876,9 @@ end = struct
   let is_a st c t : t = app_fun st (Fun.is_a c) (IArray.singleton t)
   let app_cstor st c args : t = app_fun st (Fun.cstor c) args
 
+  let[@inline] lra (st:state) (l:t lra_view) : t =
+    make st (Term_cell.lra l)
+
   (* might need to tranfer the negation from [t] to [sign] *)
   let abs tst t : t * bool = match view t with
     | Bool false -> true_ tst, false
@@ -828,6 +903,7 @@ end = struct
     | Eq (a,b) -> C.Eq (a, b)
     | Not u -> C.Not u
     | Ite (a,b,c) -> C.If (a,b,c)
+    | LRA _ -> C.Opaque t (* no congruence here *)
 
   module As_key = struct
     type t = term
@@ -877,6 +953,7 @@ end = struct
     | Not u -> not_ tst (f u)
     | Eq (a,b) -> eq tst (f a) (f b)
     | Ite (a,b,c) -> ite tst (f a) (f b) (f c)
+    | LRA l -> lra tst (Sidekick_lra.map_view f l)
 end
 
 module Value : sig

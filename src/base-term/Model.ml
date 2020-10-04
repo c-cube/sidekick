@@ -153,6 +153,14 @@ let eval (m:t) (t:Term.t) : Value.t option =
       let a = aux a in
       let b = aux b in
       if Value.equal a b then Value.true_ else Value.false_
+    | LRA _l ->
+      assert false
+      (* TODO: evaluation
+      begin match l with
+        | LRA_pred (p, a, b) ->
+        | LRA_op (_, _, _)|LRA_const _|LRA_other _ -> assert false
+      end
+      *)
     | App_fun (c, args) ->
       match Fun.view c, (args :_ IArray.t:> _ array) with
       | Fun_def udef, _ ->
@@ -180,7 +188,7 @@ let eval (m:t) (t:Term.t) : Value.t option =
       | Fun_is_a _, _ ->
         Error.errorf "bad is-a term %a" Term.pp t
       | Fun_undef _, _ ->
-        try Term.Map.find t m.values
+        (try Term.Map.find t m.values
         with Not_found ->
           begin match Fun.Map.find c m.funs with
             | fi ->
@@ -191,7 +199,7 @@ let eval (m:t) (t:Term.t) : Value.t option =
               end
             | exception Not_found ->
               raise No_value (* no particular interpretation *)
-          end
+          end)
   in
   try Some (aux t)
   with No_value -> None

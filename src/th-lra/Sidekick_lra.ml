@@ -15,6 +15,14 @@ type 'a lra_view =
   | LRA_const of Q.t
   | LRA_other of 'a
 
+let map_view f (l:_ lra_view) : _ lra_view =
+  begin match l with
+    | LRA_pred (p, a, b) -> LRA_pred (p, f a, f b)
+    | LRA_op (p, a, b) -> LRA_op (p, f a, f b)
+    | LRA_const q -> LRA_const q
+    | LRA_other x -> LRA_other (f x)
+  end
+
 module type ARG = sig
   module S : Sidekick_core.SOLVER
 

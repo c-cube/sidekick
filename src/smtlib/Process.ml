@@ -304,7 +304,6 @@ end)
 
 module Th_lra = Sidekick_lra.Make(struct
   module S = Solver
-  module T = S.T.Term
   type term = S.T.Term.t
 
   include Lra
