@@ -105,6 +105,21 @@ let is_num s =
   then CCString.for_all is_digit_or_dot (String.sub s 1 (String.length s-1))
   else CCString.for_all is_digit_or_dot s
 
+let string_as_q (s:string) : Q.t option =
+  try
+    let x =
+      try Q.of_string s
+      with _ ->
+        let f = float_of_string s in
+        Q.of_float f
+    in
+    Some x
+  with _ -> None
+
+let t_as_q t = match Term.view t with
+  | T.LRA (LRA_const n) -> Some n
+  | _ -> None
+
 (* conversion of terms *)
 let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
   let tst = ctx.Ctx.tst in
@@ -112,8 +127,11 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
   | PA.True -> T.true_ tst
   | PA.False -> T.false_ tst
   | PA.Const s when is_num s ->
-    errorf_ctx ctx "cannot handle numbers for now"
-    (* FIXME   A.num_str Ty.rat s (* numeral *) *)
+    let open Base_types in
+    begin match string_as_q s with
+      | Some n -> T.lra tst (LRA_const n)
+      | None -> errorf_ctx ctx "expected a number for %a" PA.pp_term t
+    end
   | PA.Const f
   | PA.App (f, []) ->
     (* lookup in `let` table, then in type defs *)
@@ -251,8 +269,33 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
      in
      A.match_ lhs cases
        *)
-  | PA.Arith (_op, _l) ->
-    errorf_ctx ctx "cannot handle arith construct %a" PA.pp_term t
+  | PA.Arith (op, l) ->
+    let l = List.map (conv_term ctx) l in
+    let open Base_types in
+    begin match op, l with
+      | PA.Leq, [a;b] -> T.lra ctx.tst (LRA_pred (Leq, a, b))
+      | PA.Lt, [a;b] -> T.lra ctx.tst (LRA_pred (Lt, a, b))
+      | PA.Geq, [a;b] -> T.lra ctx.tst (LRA_pred (Geq, a, b))
+      | PA.Gt, [a;b] -> T.lra ctx.tst (LRA_pred (Gt, a, b))
+      | PA.Add, [a;b] -> T.lra ctx.tst (LRA_op (Plus, a, b))
+      | PA.Minus, [a;b] -> T.lra ctx.tst (LRA_op (Minus, a, b))
+      | PA.Mult, [a;b] ->
+        begin match t_as_q a, t_as_q b with
+          | Some a, _ -> T.lra ctx.tst (LRA_mult (a, b))
+          | _, Some b -> T.lra ctx.tst (LRA_mult (b, a))
+          | None, None ->
+            errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t
+        end
+      | PA.Div, [a;b] ->
+        begin match t_as_q a, t_as_q b with
+          | Some a, _ -> T.lra ctx.tst (LRA_mult (Q.inv a, b))
+          | _, Some b -> T.lra ctx.tst (LRA_mult (Q.inv b, a))
+          | None, None ->
+            errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t
+        end
+      | _ ->
+        errorf_ctx ctx "cannot handle arith construct %a" PA.pp_term t
+    end;
       (* FIXME: arith
     let l = List.map (conv_term ctx) l in
     List.iter

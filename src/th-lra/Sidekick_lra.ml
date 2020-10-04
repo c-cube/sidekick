@@ -12,6 +12,7 @@ type op = Plus | Minus
 type 'a lra_view =
   | LRA_pred of pred * 'a * 'a
   | LRA_op of op * 'a * 'a
+  | LRA_mult of Q.t * 'a
   | LRA_const of Q.t
   | LRA_other of 'a
 
@@ -19,6 +20,7 @@ let map_view f (l:_ lra_view) : _ lra_view =
   begin match l with
     | LRA_pred (p, a, b) -> LRA_pred (p, f a, f b)
     | LRA_op (p, a, b) -> LRA_op (p, f a, f b)
+    | LRA_mult (n,a) -> LRA_mult (n, f a)
     | LRA_const q -> LRA_const q
     | LRA_other x -> LRA_other (f x)
   end
@@ -163,18 +165,30 @@ module Make(A : ARG) : S with module A = A = struct
         | Plus -> t1 + t2
         | Minus -> t1 - t2
       end
+    | LRA_mult (n, x) ->
+      let t = as_linexp x in
+      LE.( n * t )
     | LRA_const q -> LE.of_const q
+
+  (* TODO: keep the linexps until they're asserted;
+     TODO: but use simplification in preprocess
+     *)
+
 
   (* preprocess linear expressions away *)
   let preproc_lra self si ~mk_lit ~add_clause (t:T.t) : T.t option =
     let _tst = SI.tst si in
     match A.view_as_lra t with
     | LRA_pred (_pre, _t1, _t2) ->
-      assert false (* TODO: define a bool variable *)
-    | LRA_op _ | LRA_const _ ->
+      None (* TODO: define a bool variable *)
+    | LRA_op _ | LRA_const _ -> None
+      (* TODO: remove?
       let le = as_linexp t in
       let proxy = fresh_term self ~pre:"lra" (T.ty t) in
       Simplex.add_eq self.simplex (V_t proxy, []); (* TODO add LE *)
+      Some proxy
+         *)
+
       (* TODO: useless?
       add_clause [
         mk_lit
@@ -182,7 +196,6 @@ module Make(A : ARG) : S with module A = A = struct
              (LRA_pred (Eq, le, Simplex.L.Comb.monomial1 (V_t proxy))))
       ];
          *)
-      Some proxy
         (*
     | B_ite (a,b,c) ->
       let t_a = fresh_term self ~pre:"ite" (T.ty b) in
@@ -191,8 +204,9 @@ module Make(A : ARG) : S with module A = A = struct
       add_clause [lit_a; mk_lit (eq self.tst t_a c)];
       Some t_a
            *)
+    | LRA_mult _ -> None (* TODO *)
     | LRA_const _ ->
-      assert false (* TODO: turn into linexp *)
+      None (* TODO: turn into linexp *)
     | LRA_other _ -> None
 
   (* TODO: remove

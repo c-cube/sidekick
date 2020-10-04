@@ -10,6 +10,7 @@ type lra_op = Sidekick_lra.op = Plus | Minus
 type 'a lra_view = 'a Sidekick_lra.lra_view =
   | LRA_pred of lra_pred * 'a * 'a
   | LRA_op of lra_op * 'a * 'a
+  | LRA_mult of Q.t * 'a
   | LRA_const of Q.t
   | LRA_other of 'a
 
@@ -234,6 +235,8 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
         Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_pred p) pp_t a pp_t b
       | LRA_op (p, a, b) ->
         Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_op p) pp_t a pp_t b
+      | LRA_mult (n, x) ->
+        Fmt.fprintf out "(@[*@ %a@ %a@])" Q.pp_print n pp_t x
       | LRA_const q -> Q.pp_print out q
       | LRA_other x -> pp_t out x
     end
@@ -603,7 +606,9 @@ end = struct
             Hash.combine4 81 (Hash.poly p) (sub_hash a) (sub_hash b)
           | LRA_op (p, a, b) ->
             Hash.combine4 82 (Hash.poly p) (sub_hash a) (sub_hash b)
-          | LRA_const q -> Hash.combine2 83 (Hash.string @@ Q.to_string q)
+          | LRA_mult (n, x) ->
+            Hash.combine3 83 (Hash.string @@ Q.to_string n) (sub_hash x)
+          | LRA_const q -> Hash.combine2 84 (Hash.string @@ Q.to_string q)
           | LRA_other x -> sub_hash x
         end
 
@@ -623,8 +628,10 @@ end = struct
           | LRA_op(p1,a1,b1), LRA_op (p2,a2,b2) ->
             p1 = p2 && sub_eq a1 a2 && sub_eq b1 b2
           | LRA_const a1, LRA_const a2 -> Q.equal a1 a2
+          | LRA_mult (n1,x1), LRA_mult (n2,x2) -> Q.equal n1 n2 && sub_eq x1 x2
           | LRA_other x1, LRA_other x2 -> sub_eq x1 x2
-          | (LRA_pred _ | LRA_op _ | LRA_const _ | LRA_other _), _ -> false
+          | (LRA_pred _ | LRA_op _ | LRA_const _
+            | LRA_mult _ | LRA_other _), _ -> false
         end
       | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _ | LRA _), _
         -> false
@@ -659,8 +666,8 @@ end = struct
     | Not u -> u.term_view
     | _ -> Not t
 
-  let ite a b c = Ite (a,b,c)
-  let lra l : t = LRA l
+  let[@inline] ite a b c = Ite (a,b,c)
+  let[@inline] lra l : t = LRA l
 
   let ty (t:t): Ty.t = match t with
     | Bool _ | Eq _ | Not _ -> Ty.bool
@@ -694,7 +701,7 @@ end = struct
     | LRA l ->
       begin match l with
         | LRA_pred _ -> Ty.bool
-        | LRA_op _ | LRA_const _ -> Ty.real
+        | LRA_op _ | LRA_const _ | LRA_mult _ -> Ty.real
         | LRA_other x -> x.term_ty
       end
 
@@ -708,8 +715,8 @@ end = struct
     | LRA l ->
       begin match l with
         | LRA_pred (_, a, b)|LRA_op (_, a, b) -> f a; f b
+        | LRA_mult (_,x) | LRA_other x -> f x
         | LRA_const _ -> ()
-        | LRA_other x -> f x
       end
 
   let map f view =
@@ -877,7 +884,9 @@ end = struct
   let app_cstor st c args : t = app_fun st (Fun.cstor c) args
 
   let[@inline] lra (st:state) (l:t lra_view) : t =
-    make st (Term_cell.lra l)
+    match l with
+    | LRA_other x -> x (* normalize *)
+    | _ -> make st (Term_cell.lra l)
 
   (* might need to tranfer the negation from [t] to [sign] *)
   let abs tst t : t * bool = match view t with

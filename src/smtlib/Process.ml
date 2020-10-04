@@ -304,9 +304,13 @@ end)
 
 module Th_lra = Sidekick_lra.Make(struct
   module S = Solver
+  module T = BT.Term
   type term = S.T.Term.t
 
-  include Lra
+  let mk_lra = T.lra
+  let view_as_lra t = match T.view t with
+    | T.LRA l -> l
+    | _ -> LRA_other t
 
   module Gensym = struct
     type t = {
