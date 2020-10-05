@@ -94,12 +94,16 @@ module Make(A : ARG) : S with module A = A = struct
     simps: T.t T.Tbl.t; (* cache *)
     simplex: Simplex.t;
     gensym: A.Gensym.t;
+    mutable t_defs: (T.t * LE.t) list; (* term definitions *)
+    pred_defs: (pred * LE.t * LE.t) T.Tbl.t; (* predicate definitions *)
   }
 
   let create tst : state =
     { tst; simps=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
       simplex=Simplex.create();
+      t_defs=[];
+      pred_defs=T.Tbl.create 16;
     }
 
   (* FIXME
@@ -176,38 +180,26 @@ module Make(A : ARG) : S with module A = A = struct
 
 
   (* preprocess linear expressions away *)
-  let preproc_lra self si ~mk_lit ~add_clause (t:T.t) : T.t option =
+  let preproc_lra self si ~mk_lit:_ ~add_clause:_ (t:T.t) : T.t option =
+    Log.debugf 50 (fun k->k "lra.preprocess %a" T.pp t);
     let _tst = SI.tst si in
     match A.view_as_lra t with
-    | LRA_pred (_pre, _t1, _t2) ->
-      None (* TODO: define a bool variable *)
-    | LRA_op _ | LRA_const _ -> None
-      (* TODO: remove?
-      let le = as_linexp t in
-      let proxy = fresh_term self ~pre:"lra" (T.ty t) in
-      Simplex.add_eq self.simplex (V_t proxy, []); (* TODO add LE *)
+    | LRA_pred (pred, t1, t2) ->
+      (* TODO: map preproc on [l1] and [l2] *)
+      let l1 = as_linexp t1 in
+      let l2 = as_linexp t2 in
+      let proxy = fresh_term self ~pre:"_pred_lra_" Ty.bool in
+      T.Tbl.add self.pred_defs proxy (pred, l1, l2);
+      Log.debugf 5 (fun k->k"lra.preprocess.step %a :into %a" T.pp t T.pp proxy);
       Some proxy
-         *)
-
-      (* TODO: useless?
-      add_clause [
-        mk_lit
-          (A.mk_lra tst
-             (LRA_pred (Eq, le, Simplex.L.Comb.monomial1 (V_t proxy))))
-      ];
-         *)
-        (*
-    | B_ite (a,b,c) ->
-      let t_a = fresh_term self ~pre:"ite" (T.ty b) in
-      let lit_a = mk_lit a in
-      add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_a b)];
-      add_clause [lit_a; mk_lit (eq self.tst t_a c)];
-      Some t_a
-           *)
-    | LRA_mult _ -> None (* TODO *)
-    | LRA_const _ ->
-      None (* TODO: turn into linexp *)
-    | LRA_other _ -> None
+    | LRA_op _ | LRA_mult _ ->
+      let le = as_linexp t in
+      (* TODO: map preproc on [le] *)
+      let proxy = fresh_term self ~pre:"_e_lra_" (T.ty t) in
+      self.t_defs <- (proxy, le) :: self.t_defs;
+      Log.debugf 5 (fun k->k"lra.preprocess.step %a :into %a" T.pp t T.pp proxy);
+      Some proxy
+    | LRA_const _ | LRA_other _ -> None
 
   (* TODO: remove
   let cnf (self:state) (_si:SI.t) ~mk_lit ~add_clause (t:T.t) : T.t option =
@@ -302,11 +294,16 @@ module Make(A : ARG) : S with module A = A = struct
     end;
     ()
 
+  let final_check_ (self:state) si (acts:SI.actions) (_trail:_ Iter.t) : unit =
+    Log.debug 5 "(th-lra.final-check)";
+    ()
+
   let create_and_setup si =
     Log.debug 2 "(th-lra.setup)";
     let st = create (SI.tst si) in
     (* TODO    SI.add_simplifier si (simplify st); *)
     SI.add_preprocess si (preproc_lra st);
+    SI.on_final_check si (final_check_ st);
     (*     SI.add_preprocess si (cnf st); *)
     (* TODO: theory combination *)
     st
