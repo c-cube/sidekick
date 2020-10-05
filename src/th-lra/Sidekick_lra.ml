@@ -25,6 +25,24 @@ let map_view f (l:_ lra_view) : _ lra_view =
     | LRA_other x -> LRA_other (f x)
   end
 
+(* TODO: upstream *)
+let neg_pred = function
+  | Leq -> Gt
+  | Lt -> Geq
+  | Eq -> Neq
+  | Neq -> Eq
+  | Geq -> Lt
+  | Gt -> Leq
+
+let pred_to_funarith = function
+  | Leq -> `Leq
+  | Lt -> `Lt
+  | Geq -> `Geq
+  | Gt -> `Gt
+  | Eq -> `Eq
+  | Neq -> `Neq
+
+
 module type ARG = sig
   module S : Sidekick_core.SOLVER
 
@@ -88,6 +106,8 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Simplex = Funarith_zarith.Simplex.Make_full(Simp_vars)
   module LE = Simplex.L.Expr
+  module LComb = Simplex.L.Comb
+  module Constr = Simplex.L.Constr
 
   type state = {
     tst: T.state;
@@ -178,7 +198,6 @@ module Make(A : ARG) : S with module A = A = struct
      TODO: but use simplification in preprocess
      *)
 
-
   (* preprocess linear expressions away *)
   let preproc_lra self si ~mk_lit:_ ~add_clause:_ (t:T.t) : T.t option =
     Log.debugf 50 (fun k->k "lra.preprocess %a" T.pp t);
@@ -201,101 +220,51 @@ module Make(A : ARG) : S with module A = A = struct
       Some proxy
     | LRA_const _ | LRA_other _ -> None
 
-  (* TODO: remove
-  let cnf (self:state) (_si:SI.t) ~mk_lit ~add_clause (t:T.t) : T.t option =
-    let rec get_lit (t:T.t) : Lit.t =
-      let t_abs, t_sign = T.abs self.tst t in
-      let lit =
-        match T.Tbl.find self.cnf t_abs with
-        | lit -> lit (* cached *)
-        | exception Not_found ->
-          (* compute and cache *)
-          let lit = get_lit_uncached t_abs in
-          if not (T.equal (Lit.term lit) t_abs) then (
-            T.Tbl.add self.cnf t_abs lit;
-          );
-          lit
-      in
-      if t_sign then lit else Lit.neg lit
-    and get_lit_uncached t : Lit.t =
-      match A.view_as_bool t with
-      | B_bool b -> mk_lit (T.bool self.tst b)
-      | B_opaque_bool t -> mk_lit t
-      | B_not u ->
-        let lit = get_lit u in
-        Lit.neg lit
-      | B_and l ->
-        let subs = IArray.to_list_map get_lit l in
-        let proxy = fresh_lit ~mk_lit ~pre:"and_" self in
-        (* add clauses *)
-        List.iter (fun u -> add_clause [Lit.neg proxy; u]) subs;
-        add_clause (proxy :: List.map Lit.neg subs);
-        proxy
-      | B_or l ->
-        let subs = IArray.to_list_map get_lit l in
-        let proxy = fresh_lit ~mk_lit ~pre:"or_" self in
-        (* add clauses *)
-        List.iter (fun u -> add_clause [Lit.neg u; proxy]) subs;
-        add_clause (Lit.neg proxy :: subs);
-        proxy
-      | B_imply (args, u) ->
-        let t' =
-          or_a self.tst @@
-          IArray.append (IArray.map (not_ self.tst) args) (IArray.singleton u) in
-        get_lit t'
-      | B_ite _ | B_eq _ -> mk_lit t
-      | B_equiv (a,b) ->
-        let a = get_lit a in
-        let b = get_lit b in
-        let proxy = fresh_lit ~mk_lit ~pre:"equiv_" self in
-        (* proxy => a<=> b,
-           ¬proxy => a xor b *)
-        add_clause [Lit.neg proxy; Lit.neg a; b];
-        add_clause [Lit.neg proxy; Lit.neg b; a];
-        add_clause [proxy; a; b];
-        add_clause [proxy; Lit.neg a; Lit.neg b];
-        proxy
-      | B_atom u -> mk_lit u
-    in
-    let lit = get_lit t in
-    let u = Lit.term lit in
-    (* put sign back as a "not" *)
-    let u = if Lit.sign lit then u else A.mk_bool self.tst (B_not u) in
-    if T.equal u t then None else Some u
-     *)
-
-  (* check if new terms were added to the congruence closure, that can be turned
-     into clauses *)
-  let check_new_terms (self:state) si (acts:SI.actions) (_trail:_ Iter.t) : unit =
-    let cc_ = SI.cc si in
-    let all_terms =
-      let open SI in
-      CC.all_classes cc_
-      |> Iter.flat_map CC.N.iter_class
-      |> Iter.map CC.N.term
-    in
-    let cnf_of t =
-      assert false
-      (*
-      cnf self si t
-        ~mk_lit:(SI.mk_lit si acts) ~add_clause:(SI.add_clause_permanent si acts)
-    *)
-    in
-    begin
-      all_terms
-        (fun t -> match cnf_of t with
-           | None -> ()
-           | Some u ->
-             Log.debugf 5
-               (fun k->k "(@[th-lra.final-check.cnf@ %a@ :yields %a@])"
-                   T.pp t T.pp u);
-             SI.CC.merge_t cc_ t u (SI.CC.Expl.mk_list []);
-             ());
-    end;
-    ()
-
-  let final_check_ (self:state) si (acts:SI.actions) (_trail:_ Iter.t) : unit =
+  let final_check_ (self:state) si (acts:SI.actions) (trail:_ Iter.t) : unit =
     Log.debug 5 "(th-lra.final-check)";
+    let simplex = Simplex.create() in
+    (* first, add definitions *)
+    begin
+      List.iter
+        (fun (t,le) ->
+           let open LE.Infix in
+           let c =
+             Constr.of_expr (le - LE.of_comb (LComb.monomial1 (V_t t))) `Eq
+           in
+           Simplex.add_constr simplex c)
+        self.t_defs
+    end;
+    (* add trail *)
+    begin
+      trail
+      |> Iter.iter
+        (fun lit ->
+           let sign = Lit.sign lit in
+           let t = Lit.term lit in
+           begin match T.Tbl.find self.pred_defs t with
+             | exception Not_found -> ()
+             | (pred, a, b) ->
+               let open LE.Infix in
+               let e = a - b in
+               let pred = if sign then pred else neg_pred pred in
+               let pred = match pred_to_funarith pred with
+                 | `Neq -> Sidekick_util.Error.errorf "cannot handle negative LEQ equality"
+                 | (`Eq | `Geq | `Gt | `Leq | `Lt) as p -> p
+(*                  | p -> p *)
+               in
+               let c = Constr.of_expr e pred in
+               Simplex.add_constr simplex c;
+           end)
+    end;
+    Log.debug 5 "lra: call simplex";
+    begin match Simplex.solve simplex with
+      | Simplex.Solution _ ->
+        Log.debug 5 "lra: simplex returns SAT";
+        () (* TODO: model combination *)
+      | Simplex.Unsatisfiable cert ->
+        Log.debugf 5 (fun k->k"lra: simplex returns UNSAT@ with cert %a" Simplex.pp_cert cert);
+        () (* TODO: produce conflict *)
+    end;
     ()
 
   let create_and_setup si =
