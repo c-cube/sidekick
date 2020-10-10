@@ -1,6 +1,6 @@
 (library
  (name sidekick_base_term)
- (public_name sidekick.base-term)
+ (public_name sidekick-arith.base-term)
  (synopsis "Basic term definitions for the standalone SMT solver")
  (libraries containers sidekick.core sidekick.util sidekick-arith.lra zarith)
  (flags :standard -w -32 -open Sidekick_util))
