@@ -302,7 +302,7 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
   include Form
 end)
 
-module Th_lra = Sidekick_lra.Make(struct
+module Th_lra = Sidekick_arith_lra.Make(struct
   module S = Solver
   module T = BT.Term
   type term = S.T.Term.t

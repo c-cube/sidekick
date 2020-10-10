@@ -4,10 +4,10 @@ module Fmt = CCFormat
 
 module CC_view = Sidekick_core.CC_view
 
-type lra_pred = Sidekick_lra.FM.Pred.t = Lt | Leq | Geq | Gt | Neq | Eq
-type lra_op = Sidekick_lra.op = Plus | Minus
+type lra_pred = Sidekick_arith_lra.FM.Pred.t = Lt | Leq | Geq | Gt | Neq | Eq
+type lra_op = Sidekick_arith_lra.op = Plus | Minus
 
-type 'a lra_view = 'a Sidekick_lra.lra_view =
+type 'a lra_view = 'a Sidekick_arith_lra.lra_view =
   | LRA_pred of lra_pred * 'a * 'a
   | LRA_op of lra_op * 'a * 'a
   | LRA_mult of Q.t * 'a
@@ -726,7 +726,7 @@ end = struct
     | Not u -> Not (f u)
     | Eq (a,b) -> Eq (f a, f b)
     | Ite (a,b,c) -> Ite (f a, f b, f c)
-    | LRA l -> LRA (Sidekick_lra.map_view f l)
+    | LRA l -> LRA (Sidekick_arith_lra.map_view f l)
 
   module Tbl = CCHashtbl.Make(struct
       type t = term view
@@ -964,7 +964,7 @@ end = struct
     | Not u -> not_ tst (f u)
     | Eq (a,b) -> eq tst (f a) (f b)
     | Ite (a,b,c) -> ite tst (f a) (f b) (f c)
-    | LRA l -> lra tst (Sidekick_lra.map_view f l)
+    | LRA l -> lra tst (Sidekick_arith_lra.map_view f l)
 end
 
 module Value : sig

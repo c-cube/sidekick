@@ -1,7 +1,7 @@
 
 (library
-  (name sidekick_lra)
-  (public_name sidekick.th-lra)
+  (name sidekick_arith_lra)
+  (public_name sidekick-arith.lra)
   (optional) ; only if deps present
   (flags :standard -warn-error -a+8 -open Sidekick_util)
   (libraries containers sidekick.core zarith))
