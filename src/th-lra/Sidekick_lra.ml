@@ -220,7 +220,7 @@ module Make(A : ARG) : S with module A = A = struct
       Some proxy
     | LRA_const _ | LRA_other _ -> None
 
-  let final_check_ (self:state) si (acts:SI.actions) (trail:_ Iter.t) : unit =
+  let final_check_ (self:state) _si (_acts:SI.actions) (trail:_ Iter.t) : unit =
     Log.debug 5 "(th-lra.final-check)";
     let simplex = Simplex.create() in
     (* first, add definitions *)
@@ -250,7 +250,6 @@ module Make(A : ARG) : S with module A = A = struct
                let pred = match pred_to_funarith pred with
                  | `Neq -> Sidekick_util.Error.errorf "cannot handle negative LEQ equality"
                  | (`Eq | `Geq | `Gt | `Leq | `Lt) as p -> p
-(*                  | p -> p *)
                in
                let c = Constr.of_expr e pred in
                Simplex.add_constr simplex c;
@@ -263,6 +262,17 @@ module Make(A : ARG) : S with module A = A = struct
         () (* TODO: model combination *)
       | Simplex.Unsatisfiable cert ->
         Log.debugf 5 (fun k->k"lra: simplex returns UNSAT@ with cert %a" Simplex.pp_cert cert);
+        (* find what terms are involved *)
+        let asserts =
+          cert.Simplex.cert_expr
+          |> Iter.of_list
+          |> Iter.filter_map
+            (function
+              | V_t -> Some t
+              | V_fresh _ -> None)
+          |> Iter.to_rev_list
+        in
+        Simplex.cert
         () (* TODO: produce conflict *)
     end;
     ()
