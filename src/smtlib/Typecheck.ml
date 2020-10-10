@@ -278,9 +278,14 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
       | PA.Geq, [a;b] -> T.lra ctx.tst (LRA_pred (Geq, a, b))
       | PA.Gt, [a;b] -> T.lra ctx.tst (LRA_pred (Gt, a, b))
       | PA.Add, [a;b] -> T.lra ctx.tst (LRA_op (Plus, a, b))
+      | PA.Add, (a::l) ->
+        List.fold_left (fun a b -> T.lra ctx.tst (LRA_op (Plus,a,b))) a l
       | PA.Minus, [a;b] -> T.lra ctx.tst (LRA_op (Minus, a, b))
+      | PA.Minus, (a::l) ->
+        List.fold_left (fun a b -> T.lra ctx.tst (LRA_op (Minus,a,b))) a l
       | PA.Mult, [a;b] ->
         begin match t_as_q a, t_as_q b with
+          | Some a, Some b -> T.lra ctx.tst (LRA_const (Q.mul a b))
           | Some a, _ -> T.lra ctx.tst (LRA_mult (a, b))
           | _, Some b -> T.lra ctx.tst (LRA_mult (b, a))
           | None, None ->
@@ -288,6 +293,7 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
         end
       | PA.Div, [a;b] ->
         begin match t_as_q a, t_as_q b with
+          | Some a, Some b -> T.lra ctx.tst (LRA_const (Q.div a b))
           | Some a, _ -> T.lra ctx.tst (LRA_mult (Q.inv a, b))
           | _, Some b -> T.lra ctx.tst (LRA_mult (Q.inv b, a))
           | None, None ->
