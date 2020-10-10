@@ -38,6 +38,7 @@ module Make(A : ARG)
 
     let[@inline] neg l = {l with lit_sign=not l.lit_sign}
     let[@inline] sign t = t.lit_sign
+    let[@inline] abs t = {t with lit_sign=true}
     let[@inline] term (t:t): term = t.lit_term
 
     let make ~sign t = {lit_sign=sign; lit_term=t}

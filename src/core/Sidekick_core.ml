@@ -98,6 +98,7 @@ module type LIT = sig
   val term : t -> T.Term.t
   val sign : t -> bool
   val neg : t -> t
+  val abs : t -> t
 
   val equal : t -> t -> bool
   val hash : t -> int
