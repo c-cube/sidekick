@@ -236,7 +236,6 @@ module Make(A : ARG) : S with module A = A = struct
            begin match T.Tbl.find self.pred_defs t with
              | exception Not_found -> ()
              | (pred, a, b) ->
-               let open LE.Infix in
                let pred = if sign then pred else FM.Pred.neg pred in
                let c = FM_A.Constr.mk ~tag:lit pred a b in
                FM_A.assert_c fm c;
