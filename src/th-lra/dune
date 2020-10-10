@@ -4,4 +4,4 @@
   (public_name sidekick.th-lra)
   (optional) ; only if deps present
   (flags :standard -warn-error -a+8 -open Sidekick_util)
-  (libraries containers sidekick.core zarith funarith.zarith funarith))
+  (libraries containers sidekick.core zarith))

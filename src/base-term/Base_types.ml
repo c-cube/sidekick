@@ -4,7 +4,7 @@ module Fmt = CCFormat
 
 module CC_view = Sidekick_core.CC_view
 
-type lra_pred = Sidekick_lra.pred = Lt | Leq | Eq | Neq | Geq | Gt
+type lra_pred = Sidekick_lra.FM.Pred.t = Lt | Leq | Geq | Gt | Neq | Eq
 type lra_op = Sidekick_lra.op = Plus | Minus
 
 type 'a lra_view = 'a Sidekick_lra.lra_view =
@@ -894,6 +894,8 @@ end = struct
     | Not u -> u, false
     | App_fun ({fun_view=Fun_def def; _}, args) ->
       def.abs ~self:t args (* TODO: pass state *)
+    | LRA (LRA_pred (Neq, a, b)) ->
+      lra tst (LRA_pred (Eq,a,b)), false (* != is just not eq *)
     | _ -> t, true
 
   let[@inline] is_true t = match view t with Bool true -> true | _ -> false
