@@ -4,4 +4,4 @@
   (name Sidekick_cc)
   (public_name sidekick.cc)
   (libraries containers iter sidekick.core sidekick.util)
-  (flags :standard -open Sidekick_util))
+  (flags :standard -warn-error -a+8 -open Sidekick_util))
