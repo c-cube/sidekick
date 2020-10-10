@@ -248,7 +248,7 @@ module Make(A : ARG)
   }
 
   let add_sys (sys:system) (c:Constr.t) : system =
-    assert (match c.pred with Eq|Neq|Lt -> true | _ -> false);
+    assert (match c.pred with Eq|Leq|Lt -> true | _ -> false);
     if Constr.is_trivial c then (
       Log.debugf 10 (fun k->k"(@[FM.drop-trivial@ %a@])" Constr.pp c);
       sys

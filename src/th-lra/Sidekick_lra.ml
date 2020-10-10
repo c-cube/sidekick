@@ -237,8 +237,12 @@ module Make(A : ARG) : S with module A = A = struct
              | exception Not_found -> ()
              | (pred, a, b) ->
                let pred = if sign then pred else FM.Pred.neg pred in
-               let c = FM_A.Constr.mk ~tag:lit pred a b in
-               FM_A.assert_c fm c;
+               if pred = Neq then (
+                 Log.debugf 50 (fun k->k "skip neq in %a" T.pp t);
+               ) else (
+                 let c = FM_A.Constr.mk ~tag:lit pred a b in
+                 FM_A.assert_c fm c;
+               )
            end)
     end;
     Log.debug 5 "lra: call arith solver";
