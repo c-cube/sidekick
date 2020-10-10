@@ -59,7 +59,7 @@ module Make (A: CC_ARG)
     let[@inline] set field b x =
       if b then x lor field else x land (lnot field)
     let merge = (lor)
-    let equal : t -> t -> bool = Pervasives.(=)
+    let equal : t -> t -> bool = CCEqual.poly
   end
 
   (** A node of the congruence closure.
