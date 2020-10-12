@@ -85,7 +85,7 @@ module Make(A : ARG)
       let[@inline] raise_conflict a lits pr =
         a.Msat.acts_raise_conflict lits pr
       let[@inline] propagate a lit ~reason pr =
-        let reason = Msat.Consequence (fun () -> reason(), pr) in 
+        let reason = Msat.Consequence (fun () -> reason(), pr) in
         a.Msat.acts_propagate lit reason
     end
   end
@@ -106,7 +106,7 @@ module Make(A : ARG)
     type lit = Lit.t
     type term_state = Term.state
 
-    type th_states = 
+    type th_states =
       | Ths_nil
       | Ths_cons : {
           st: 'a;
@@ -236,7 +236,7 @@ module Make(A : ARG)
           match h self ~mk_lit ~add_clause t with
           | None -> aux_rec t hooks_tl
           | Some u ->
-            Log.debugf 30 
+            Log.debugf 30
               (fun k->k "(@[msat-solver.preprocess.step@ :from %a@ :to %a@])"
                   Term.pp t Term.pp u);
             aux u
