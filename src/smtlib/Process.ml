@@ -123,17 +123,20 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
   Vec.iter check_c hyps
    *)
 
-let mk_progress () : _ -> unit =
+let mk_progress (_s:Solver.t) : _ -> unit =
   let start = Sys.time() in
   let n = ref 0 in
   let syms = "|\\-/" in
   fun _s ->
     let diff = Sys.time() -. start in
     incr n;
+    (* TODO: print some core stats in the progress bar
+    let n_cl = Solver.pp_stats
+       *)
     (* limit frequency *)
     if float !n > 6. *. diff then (
       let sym = String.get syms (!n mod String.length syms) in
-      Printf.printf "\r [%.2fs %c]" diff sym;
+      Printf.printf "\r[%.2fs %c]" diff sym;
       n := 0;
       flush stdout
     )
@@ -151,7 +154,7 @@ let solve
     s : unit =
   let t1 = Sys.time() in
   let on_progress =
-    if progress then Some (mk_progress()) else None in
+    if progress then Some (mk_progress s) else None in
   let res =
     Solver.solve ~assumptions ?on_progress s
     (* ?gc ?restarts ?time ?memory ?progress *)
