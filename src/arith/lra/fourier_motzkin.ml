@@ -218,8 +218,8 @@ module Make(A : ARG)
     (* nornalize and return maximum variable *)
     let normalize (self:t) : t =
       match self.pred with
-      | Geq -> mk_ ~tag:self.tag Lt (LE.neg self.le)
-      | Gt -> mk_ ~tag:self.tag Leq (LE.neg self.le)
+      | Geq -> mk_ ~tag:self.tag Leq (LE.neg self.le)
+      | Gt -> mk_ ~tag:self.tag Lt (LE.neg self.le)
       | _ -> self
 
     let find_max (self:t) : T.t option * bool =
