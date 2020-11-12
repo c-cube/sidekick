@@ -84,7 +84,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   let is_true t = match T.as_bool t with Some true -> true | _ -> false
   let is_false t = match T.as_bool t with Some false -> true | _ -> false
-    
+
   let simplify (self:state) (simp:SI.Simplify.t) (t:T.t) : T.t option =
     let tst = self.tst in
     match A.view_as_bool t with
@@ -133,18 +133,26 @@ module Make(A : ARG) : S with module A = A = struct
     mk_lit t
 
   (* preprocess "ite" away *)
-  let preproc_ite self _si ~mk_lit ~add_clause (t:T.t) : T.t option =
+  let preproc_ite self _si ~recurse ~mk_lit ~add_clause (t:T.t) : T.t option =
     match A.view_as_bool t with
     | B_ite (a,b,c) ->
-      let t_a = fresh_term self ~pre:"ite" (T.ty b) in
-      let lit_a = mk_lit a in
-      add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_a b)];
-      add_clause [lit_a; mk_lit (eq self.tst t_a c)];
-      Some t_a
+      let a = recurse a in
+      begin match A.view_as_bool a with
+        | B_bool true -> Some (recurse b)
+        | B_bool false -> Some (recurse c)
+        | _ ->
+          let t_a = fresh_term self ~pre:"ite" (T.ty b) in
+          let lit_a = mk_lit a in
+          let b = recurse b in
+          let c = recurse c in
+          add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_a b)];
+          add_clause [lit_a; mk_lit (eq self.tst t_a c)];
+          Some t_a
+      end
     | _ -> None
 
   (* TODO: polarity? *)
-  let cnf (self:state) (_si:SI.t) ~mk_lit ~add_clause (t:T.t) : T.t option =
+  let cnf (self:state) (_si:SI.t) ~recurse:_ ~mk_lit ~add_clause (t:T.t) : T.t option =
     let rec get_lit (t:T.t) : Lit.t =
       let t_abs, t_sign = T.abs self.tst t in
       let lit =
@@ -217,6 +225,7 @@ module Make(A : ARG) : S with module A = A = struct
     in
     let cnf_of t =
       cnf self si t
+        ~recurse:(fun t -> t)
         ~mk_lit:(SI.mk_lit si acts) ~add_clause:(SI.add_clause_permanent si acts)
     in
     begin

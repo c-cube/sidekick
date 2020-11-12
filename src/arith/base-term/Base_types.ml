@@ -209,7 +209,7 @@ let string_of_lra_pred = function
   | Leq -> "<="
   | Neq -> "!="
   | Eq -> "="
-  | Gt-> ">"
+  | Gt -> ">"
   | Geq -> ">="
 let pp_pred out p = Fmt.string out (string_of_lra_pred p)
 

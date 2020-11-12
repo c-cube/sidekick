@@ -174,6 +174,7 @@ module Make(A : ARG)
 
     and preprocess_hook =
       t ->
+      recurse:(term -> term) ->
       mk_lit:(term -> lit) ->
       add_clause:(lit list -> unit) ->
       term -> term option
@@ -223,23 +224,27 @@ module Make(A : ARG)
         match Term.Tbl.find self.preprocess_cache t with
         | u -> u
         | exception Not_found ->
-          (* first, map subterms *)
-          let u = Term.map_shallow self.tst aux t in
-          (* then rewrite *)
-          let u = aux_rec u self.preprocess in
+          (* try rewrite here *)
+          let u =
+            match aux_rec t self.preprocess with
+            | None ->
+              Term.map_shallow self.tst aux t (* just map subterms *)
+            | Some u -> u
+          in
           Term.Tbl.add self.preprocess_cache t u;
           u
       (* try each function in [hooks] successively *)
       and aux_rec t hooks = match hooks with
-        | [] -> t
+        | [] -> None
         | h :: hooks_tl ->
-          match h self ~mk_lit ~add_clause t with
+          match h self ~recurse:aux ~mk_lit ~add_clause t with
           | None -> aux_rec t hooks_tl
           | Some u ->
-            Log.debugf 30 
+            Log.debugf 30
               (fun k->k "(@[msat-solver.preprocess.step@ :from %a@ :to %a@])"
                   Term.pp t Term.pp u);
-            aux u
+            let u' = aux u in
+            Some u'
       in
       let t = Lit.term lit |> simp_t self |> aux in
       let lit' = Lit.atom self.tst ~sign:(Lit.sign lit) t in

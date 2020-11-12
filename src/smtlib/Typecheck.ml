@@ -294,9 +294,8 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
       | PA.Div, [a;b] ->
         begin match t_as_q a, t_as_q b with
           | Some a, Some b -> T.lra ctx.tst (LRA_const (Q.div a b))
-          | Some a, _ -> T.lra ctx.tst (LRA_mult (Q.inv a, b))
           | _, Some b -> T.lra ctx.tst (LRA_mult (Q.inv b, a))
-          | None, None ->
+          | _, None ->
             errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t
         end
       | _ ->

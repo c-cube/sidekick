@@ -142,22 +142,22 @@ module Make(A : ARG) : S with module A = A = struct
     let t = fresh_term ~pre self Ty.bool in
     mk_lit t
 
-  (* turn the term into a linear expression *)
-  let rec as_linexp (t:T.t) : LE.t =
+  (* turn the term into a linear expression. Apply [f] on leaves. *)
+  let rec as_linexp ~f (t:T.t) : LE.t =
     let open LE.Infix in
     match A.view_as_lra t with
-    | LRA_other _ -> LE.var t
+    | LRA_other _ -> LE.var (f t)
     | LRA_pred _ ->
       Error.errorf "type error: in linexp, LRA predicate %a" T.pp t
     | LRA_op (op, t1, t2) ->
-      let t1 = as_linexp t1 in
-      let t2 = as_linexp t2 in
+      let t1 = as_linexp ~f t1 in
+      let t2 = as_linexp ~f t2 in
       begin match op with
         | Plus -> t1 + t2
         | Minus -> t1 - t2
       end
     | LRA_mult (n, x) ->
-      let t = as_linexp x in
+      let t = as_linexp ~f x in
       LE.( n * t )
     | LRA_const q -> LE.const q
 
@@ -166,21 +166,19 @@ module Make(A : ARG) : S with module A = A = struct
      *)
 
   (* preprocess linear expressions away *)
-  let preproc_lra self si ~mk_lit:_ ~add_clause:_ (t:T.t) : T.t option =
+  let preproc_lra self si ~recurse ~mk_lit:_ ~add_clause:_ (t:T.t) : T.t option =
     Log.debugf 50 (fun k->k "lra.preprocess %a" T.pp t);
     let _tst = SI.tst si in
     match A.view_as_lra t with
     | LRA_pred (pred, t1, t2) ->
-      (* TODO: map preproc on [l1] and [l2] *)
-      let l1 = as_linexp t1 in
-      let l2 = as_linexp t2 in
+      let l1 = as_linexp ~f:recurse t1 in
+      let l2 = as_linexp ~f:recurse t2 in
       let proxy = fresh_term self ~pre:"_pred_lra_" Ty.bool in
       T.Tbl.add self.pred_defs proxy (pred, l1, l2);
       Log.debugf 5 (fun k->k"lra.preprocess.step %a :into %a" T.pp t T.pp proxy);
       Some proxy
     | LRA_op _ | LRA_mult _ ->
-      let le = as_linexp t in
-      (* TODO: map preproc on [le] *)
+      let le = as_linexp ~f:recurse t in
       let proxy = fresh_term self ~pre:"_e_lra_" (T.ty t) in
       self.t_defs <- (proxy, le) :: self.t_defs;
       Log.debugf 5 (fun k->k"lra.preprocess.step %a :into %a" T.pp t T.pp proxy);

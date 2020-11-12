@@ -59,6 +59,8 @@ module type S = sig
     val find_exn : term -> t -> Q.t
     val find : term -> t -> Q.t option
 
+(*     val map : (term -> term) -> t -> t *)
+
     module Infix : sig
       val (+) : t -> t -> t
       val (-) : t -> t -> t
@@ -112,10 +114,10 @@ module Make(A : ARG)
     let zero = const Q.zero
     let var x : t = {const=Q.zero; le=M.singleton x Q.one}
 
-    let find_exn v le = M.find v le.le
-    let find v le = M.get v le.le
+    let[@inline] find_exn v le = M.find v le.le
+    let[@inline] find v le = M.get v le.le
 
-    let remove v le : t = {le with le=M.remove v le.le}
+    let[@inline] remove v le : t = {le with le=M.remove v le.le}
 
     let neg a : t =
       {const=Q.neg a.const;
