@@ -69,6 +69,7 @@ module Make(A : ARG) : S with module A = A = struct
   module FM_A = FM.Make(struct
       module T = T
       type tag = Lit.t
+      let pp_tag = Lit.pp
     end)
 
   (* linear expressions *)
@@ -142,6 +143,9 @@ module Make(A : ARG) : S with module A = A = struct
     let t = fresh_term ~pre self Ty.bool in
     mk_lit t
 
+  let pp_pred_def out (p,l1,l2) : unit =
+    Fmt.fprintf out "(@[%a@ :l1 %a@ :l2 %a@])" FM.Pred.pp p LE.pp l1 LE.pp l2
+
   (* turn the term into a linear expression. Apply [f] on leaves. *)
   let rec as_linexp ~f (t:T.t) : LE.t =
     let open LE.Infix in
@@ -175,13 +179,15 @@ module Make(A : ARG) : S with module A = A = struct
       let l2 = as_linexp ~f:recurse t2 in
       let proxy = fresh_term self ~pre:"_pred_lra_" Ty.bool in
       T.Tbl.add self.pred_defs proxy (pred, l1, l2);
-      Log.debugf 5 (fun k->k"lra.preprocess.step %a :into %a" T.pp t T.pp proxy);
+      Log.debugf 5 (fun k->k"@[<hv2>lra.preprocess.step %a@ :into %a@ :def %a@]"
+                       T.pp t T.pp proxy pp_pred_def (pred,l1,l2));
       Some proxy
     | LRA_op _ | LRA_mult _ ->
       let le = as_linexp ~f:recurse t in
       let proxy = fresh_term self ~pre:"_e_lra_" (T.ty t) in
       self.t_defs <- (proxy, le) :: self.t_defs;
-      Log.debugf 5 (fun k->k"lra.preprocess.step %a :into %a" T.pp t T.pp proxy);
+      Log.debugf 5 (fun k->k"@[<hv2>lra.preprocess.step %a@ :into %a@ :def %a@]"
+                       T.pp t T.pp proxy LE.pp le);
       Some proxy
     | LRA_const _ | LRA_other _ -> None
 

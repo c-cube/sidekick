@@ -12,6 +12,7 @@ module type ARG = sig
   end
 
   type tag
+  val pp_tag : tag Fmt.printer
 end
 
 module Pred : sig
@@ -173,10 +174,17 @@ module Make(A : ARG)
         if Q.equal Q.one q then T.pp out e
         else Fmt.fprintf out "%a * %a" Q.pp_print q T.pp e
       in
-      Fmt.fprintf out "(@[%a@ + %a@])"
-        Q.pp_print self.const (Util.pp_iter ~sep:" + " pp_pair) (M.to_iter self.le)
+      let pp_sum out le =
+        (Util.pp_iter ~sep:" + " pp_pair) out (M.to_iter le)
+      in
+      if Q.sign self.const = 0 then (
+        Fmt.fprintf out "(@[%a@])" pp_sum self.le
+      ) else (
+        Fmt.fprintf out "(@[%a@ + %a@])" Q.pp_print self.const pp_sum self.le
+      )
   end
 
+  (** {2 Constraints} *)
   module Constr = struct
     type t = {
       pred: Pred.t;
@@ -271,7 +279,8 @@ module Make(A : ARG)
     )
 
   let assert_c (self:t) c0 : unit =
-    Log.debugf 10 (fun k->k "(@[FM.add-constr@ %a@])" Constr.pp c0);
+    Log.debugf 10 (fun k->k "(@[FM.add-constr@ %a@ :tags %a@])"
+                      Constr.pp c0 (Fmt.Dump.list A.pp_tag) c0.tag);
     let c = Constr.normalize c0 in
     if c.pred <> c0.pred then (
       Log.debugf 30 (fun k->k "(@[FM.normalized %a@])" Constr.pp c);
