@@ -59,6 +59,7 @@ module type S = sig
 
     val find_exn : term -> t -> Q.t
     val find : term -> t -> Q.t option
+    val mem : term -> t -> bool
 
 (*     val map : (term -> term) -> t -> t *)
 
@@ -117,6 +118,7 @@ module Make(A : ARG)
 
     let[@inline] find_exn v le = M.find v le.le
     let[@inline] find v le = M.get v le.le
+    let[@inline] mem v le = M.mem v le.le
 
     let[@inline] remove v le : t = {le with le=M.remove v le.le}
 
@@ -238,9 +240,9 @@ module Make(A : ARG)
   type system = {
     empties: Constr.t list; (* no variables, check first *)
     idx: c_for_var T_map.t;
-    (* map [t] to [c1,c2] where [c1] are normalized constraints whose
-       maximum term is [t], with positive sign for [c1]
-       and negative for [c2] respectively. *)
+    (* map [t] to [cft] where [cft] are normalized constraints whose
+       maximum term is [t], with positive sign for [cft.occ_pos]
+       and negative for [cft.neg_pos] respectively. *)
   }
 
   type t = {
@@ -329,19 +331,25 @@ module Make(A : ARG)
         match T_map.max_binding_opt self.idx with
         | None -> Sat
         | Some (v, {occ_eq=c0 :: ceq'; occ_pos; occ_neg}) ->
+          (* at least one equality constraint, use it as a substitution *)
+
           (* remove [v] from [idx] *)
           let sys = {self with idx=T_map.remove v self.idx} in
 
           (* substitute using [c0] in the other constraints containing [v] *)
           assert (c0.pred = Eq);
           let c0 = LE.normalize_wrt v c0.le in
-          (* build [v = rhs] *)
+          (* turn equation [c0] into [v = rhs] *)
           let rhs = LE.neg @@ LE.remove v c0 in
           Log.debugf 50
             (fun k->k "(@[FM.subst-from-eq@ :v %a@ :rhs %a@])"
                 T.pp v LE.pp rhs);
-          (* perform substitution *)
 
+          (* perform substitution in other constraints. Note that [v] cannot
+             occur in constraints in the rest of [sys] because it's the
+             maximal variable of the system, so it would be the maximum
+             variable of these other constraints too.
+          *)
           let new_sys =
             [Iter.of_list ceq'; Iter.of_list occ_pos; Iter.of_list occ_neg]
             |> Iter.of_list
@@ -351,30 +359,41 @@ module Make(A : ARG)
           in
           solve_ new_sys
 
-        | Some (v, {occ_eq=[]; occ_pos=l1; occ_neg=l2}) ->
+        | Some (v, {occ_eq=[]; occ_pos=l_pos; occ_neg=l_neg}) ->
           Log.debugf 10
             (fun k->k "(@[@{<yellow>FM.pivot@}@ :v %a@ :lpos %a@ :lneg %a@])"
-                T.pp v (Fmt.Dump.list Constr.pp) l1
-                (Fmt.Dump.list Constr.pp) l2);
+                T.pp v (Fmt.Dump.list Constr.pp) l_pos
+                (Fmt.Dump.list Constr.pp) l_neg);
 
           (* remove [v] *)
           let sys = {self with idx=T_map.remove v self.idx} in
 
+          (* TODO: store all lower bound constraints for [v], so we can use
+             their max to build the model once we have values for lower
+             variables *)
+
           let new_sys =
-            Iter.product (Iter.of_list l1) (Iter.of_list l2)
+            Iter.product (Iter.of_list l_pos) (Iter.of_list l_neg)
             |> Iter.map
               (fun (c1,c2) ->
                 let q1 = LE.find_exn v c1.Constr.le in
-                let le = LE.( c1.Constr.le + (Q.inv q1 * c2.Constr.le) ) in
+                let q2 = LE.find_exn v c2.Constr.le in
+                assert (Q.sign q1 > 0 && Q.sign q2 < 0);
+                let le = LE.( c1.Constr.le + (Q.(q1 / abs q2) * c2.Constr.le) ) in
+                Log.debugf 50 (fun k->k "coeff=%a; le: %a" Q.pp_print (Q.inv q1) LE.pp le);
                 let pred = match c1.Constr.pred, c2.Constr.pred with
-                  | Eq, Eq -> Pred.Eq
                   | Lt, _ | _, Lt -> Pred.Lt
-                  | Leq, _ | _, Leq -> Pred.Leq
-                  | _ -> assert false
+                  | Leq, Leq -> Pred.Leq
+                  | _ ->
+                    Log.debugf 1
+                      (fun k->k "unexpected pair in pivot@ :c1 %a@ :c2 %a"
+                          Constr.pp c1 Constr.pp c2);
+                    assert false
                 in
                 let c = Constr.mk_ ~tag:(c1.tag @ c2.tag) pred le in
                 Log.debugf 50 (fun k->k "(@[FM.resolve@ %a@ %a@ :yields@ %a@])"
                                   Constr.pp c1 Constr.pp c2 Constr.pp c);
+                assert (not (LE.mem v c.Constr.le));
                 c)
             |> Iter.fold add_sys sys
           in
