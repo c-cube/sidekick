@@ -4,7 +4,7 @@ module Fmt = CCFormat
 
 module CC_view = Sidekick_core.CC_view
 
-type lra_pred = Sidekick_arith_lra.FM.Pred.t = Lt | Leq | Geq | Gt | Neq | Eq
+type lra_pred = Sidekick_arith_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 type lra_op = Sidekick_arith_lra.op = Plus | Minus
 
 type 'a lra_view = 'a Sidekick_arith_lra.lra_view =

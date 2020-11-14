@@ -17,6 +17,7 @@ depends: [
   "ocaml" { >= "4.03" }
   "zarith"
   "alcotest" {with-test}
+  "qcheck" {with-test & >= "0.16" }
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"

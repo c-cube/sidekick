@@ -6,9 +6,11 @@
 
 open Sidekick_core
 
-module FM = Fourier_motzkin
+module Simplex = Simplex
+module Predicate = Predicate
+module Linear_expr = Linear_expr
 
-type pred = FM.Pred.t = Lt | Leq | Geq | Gt | Neq | Eq
+type pred = Linear_expr_intf.bool_op = Leq | Geq | Lt | Gt | Eq | Neq
 type op = Plus | Minus
 
 type 'a lra_view =
@@ -31,6 +33,7 @@ module type ARG = sig
   module S : Sidekick_core.SOLVER
 
   type term = S.T.Term.t
+  type ty = S.T.Ty.t
 
   val view_as_lra : term -> term lra_view
   (** Project the term into the theory view *)
@@ -38,10 +41,16 @@ module type ARG = sig
   val mk_lra : S.T.Term.state -> term lra_view -> term
   (** Make a term from the given theory view *)
 
+  val ty_lra : S.T.Term.state -> ty
+
   module Gensym : sig
     type t
 
     val create : S.T.Term.state -> t
+
+    val tst : t -> S.T.Term.state
+
+    val copy : t -> t
 
     val fresh_term : t -> pre:string -> S.T.Ty.t -> term
     (** Make a fresh term of the given type *)
@@ -65,15 +74,32 @@ module Make(A : ARG) : S with module A = A = struct
   module Lit = A.S.Solver_internal.Lit
   module SI = A.S.Solver_internal
 
-  (* the fourier motzkin module *)
-  module FM_A = FM.Make(struct
-      module T = T
-      type tag = Lit.t
-      let pp_tag = Lit.pp
-    end)
+  module SimpVar
+    : Linear_expr.VAR_GEN
+      with type t = A.term
+       and type Fresh.t = A.Gensym.t
+       and type lit = Lit.t
+  = struct
+    type t = A.term
+    let pp = A.S.T.Term.pp
+    let compare = A.S.T.Term.compare
+    type lit = Lit.t
+    let pp_lit = Lit.pp
+    module Fresh = struct
+      type t = A.Gensym.t
+      let copy = A.Gensym.copy
+      let fresh (st:t) =
+        let ty = A.ty_lra (A.Gensym.tst st) in
+        A.Gensym.fresh_term ~pre:"_lra" st ty
+    end
+  end
+
+  module SimpSolver = Simplex.Make_full(SimpVar)
 
   (* linear expressions *)
-  module LE = FM_A.LE
+  module LComb = SimpSolver.L.Comb
+  module LE = SimpSolver.L.Expr
+  module LConstr = SimpSolver.L.Constr
 
   type state = {
     tst: T.state;
@@ -144,13 +170,13 @@ module Make(A : ARG) : S with module A = A = struct
     mk_lit t
 
   let pp_pred_def out (p,l1,l2) : unit =
-    Fmt.fprintf out "(@[%a@ :l1 %a@ :l2 %a@])" FM.Pred.pp p LE.pp l1 LE.pp l2
+    Fmt.fprintf out "(@[%a@ :l1 %a@ :l2 %a@])" Predicate.pp p LE.pp l1 LE.pp l2
 
   (* turn the term into a linear expression. Apply [f] on leaves. *)
   let rec as_linexp ~f (t:T.t) : LE.t =
     let open LE.Infix in
     match A.view_as_lra t with
-    | LRA_other _ -> LE.var (f t)
+    | LRA_other _ -> LE.monomial1 (f t)
     | LRA_pred _ ->
       Error.errorf "type error: in linexp, LRA predicate %a" T.pp t
     | LRA_op (op, t1, t2) ->
@@ -163,7 +189,7 @@ module Make(A : ARG) : S with module A = A = struct
     | LRA_mult (n, x) ->
       let t = as_linexp ~f x in
       LE.( n * t )
-    | LRA_const q -> LE.const q
+    | LRA_const q -> LE.of_const q
 
   (* TODO: keep the linexps until they're asserted;
      TODO: but use simplification in preprocess
@@ -219,15 +245,15 @@ module Make(A : ARG) : S with module A = A = struct
 
   let final_check_ (self:state) si (acts:SI.actions) (trail:_ Iter.t) : unit =
     Log.debug 5 "(th-lra.final-check)";
-    let fm = FM_A.create() in
+    let simplex = SimpSolver.create self.gensym in
     (* first, add definitions *)
     begin
       List.iter
         (fun (t,le) ->
            let open LE.Infix in
-           let le = le - LE.var t in
-           let c = FM_A.Constr.mk ?tag:None Eq (LE.var t) le in
-           FM_A.assert_c fm c)
+           let le = le - LE.monomial1 t in
+           let c = LConstr.eq0 le in
+           SimpSolver.add_constr simplex c)
         self.t_defs
     end;
     (* add trail *)
@@ -240,28 +266,34 @@ module Make(A : ARG) : S with module A = A = struct
            begin match T.Tbl.find self.pred_defs t with
              | exception Not_found -> ()
              | (pred, a, b) ->
-               let pred = if sign then pred else FM.Pred.neg pred in
+               (* FIXME: generic negation+printer in Linear_expr_intf;
+                  actually move predicates to their own module *)
+               let pred = if sign then pred else Predicate.neg pred in
                if pred = Neq then (
                  Log.debugf 50 (fun k->k "skip neq in %a" T.pp t);
                ) else (
-                 let c = FM_A.Constr.mk ~tag:lit pred a b in
-                 FM_A.assert_c fm c;
+                 (* TODO: tag *)
+                 let c = LConstr.of_expr LE.(a-b) pred in
+                 SimpSolver.add_constr simplex c;
                )
            end)
     end;
     Log.debug 5 "lra: call arith solver";
-    begin match FM_A.solve fm with
-      | FM_A.Sat ->
+    begin match SimpSolver.solve simplex with
+      | SimpSolver.Solution _m ->
         Log.debug 5 "lra: solver returns SAT";
         () (* TODO: get a model + model combination *)
-      | FM_A.Unsat lits ->
+      | SimpSolver.Unsatisfiable _cert ->
         (* we tagged assertions with their lit, so the certificate being an
            unsat core translates directly into a conflict clause *)
+        assert false
+          (* TODO
         Log.debugf 5 (fun k->k"lra: solver returns UNSAT@ with cert %a"
                          (Fmt.Dump.list Lit.pp) lits);
         let confl = List.rev_map Lit.neg lits in
         (* TODO: produce and store a proper LRA resolution proof *)
         SI.raise_conflict si acts confl SI.P.default
+             *)
     end;
     ()
 

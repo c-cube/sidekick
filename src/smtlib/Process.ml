@@ -306,12 +306,15 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   module S = Solver
   module T = BT.Term
   type term = S.T.Term.t
+  type ty = S.T.Ty.t
 
   let mk_lra = T.lra
   let view_as_lra t = match T.view t with
     | T.LRA l -> l
     | T.Eq (a,b) when Ty.equal (T.ty a) Ty.real -> LRA_pred (Eq, a, b)
     | _ -> LRA_other t
+
+  let ty_lra _st = Ty.real
 
   module Gensym = struct
     type t = {
@@ -320,6 +323,8 @@ module Th_lra = Sidekick_arith_lra.Make(struct
     }
 
     let create tst : t = {tst; fresh=0}
+    let tst self = self.tst
+    let copy s = {s with tst=s.tst}
 
     let fresh_term (self:t) ~pre (ty:Ty.t) : T.t =
       let name = Printf.sprintf "_sk_lra_%s%d" pre self.fresh in
