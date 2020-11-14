@@ -78,6 +78,7 @@ let argspec = Arg.align [
     "--no-p", Arg.Clear p_progress, " no progress bar";
     "--size", Arg.String (int_arg size_limit), " <s>[kMGT] sets the size limit for the sat solver";
     "--time", Arg.String (int_arg time_limit), " <t>[smhd] sets the time limit for the sat solver";
+    "-t", Arg.String (int_arg time_limit), " short for --time";
     "--version", Arg.Unit (fun () -> Printf.printf "version: %s\n%!" Sidekick_version.version; exit 0), " show version and exit";
     "-d", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
     "--debug", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
