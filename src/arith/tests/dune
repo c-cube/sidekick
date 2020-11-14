@@ -1,0 +1,10 @@
+(executable
+ (name run_tests)
+ (libraries containers sidekick-arith.lra zarith iter qcheck)
+ (flags :standard -warn-error -a+8 -color always))
+
+(alias
+ (name runtest)
+ (deps run_tests.exe)
+ (action
+  (run %{deps} --verbose)))
