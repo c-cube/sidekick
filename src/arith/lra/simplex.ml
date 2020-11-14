@@ -209,15 +209,13 @@ module Make_inner
       (fun y -> if Var.compare x y = 0 then Q.one else Q.zero)
       t.nbasic
 
-  (* TODO: avoid double lookup in maps *)
   (* find expression of [x] *)
   let find_expr_total (t:t) (x:var) : Q.t Vec.vector =
-    if mem_basic t x then
-      find_expr_basic t x
-    else (
+    match find_expr_basic_opt t x with
+    | Some e -> e
+    | None ->
       assert (mem_nbasic t x);
       find_expr_nbasic t x
-    )
 
   (* compute value of basic variable.
      It can be computed by using [x]'s definition
