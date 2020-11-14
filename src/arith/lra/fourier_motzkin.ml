@@ -315,8 +315,13 @@ module Make(A : ARG)
     let le = LE.remove x le in
     LE.( le + q * le1 )
 
-  let subst_constr x c ~by : Constr.t =
-    let c = {c with Constr.le=subst_le x ~by c.Constr.le} in
+  let subst_constr ~tag x c ~by : Constr.t =
+    let open Constr in
+    let c = {
+      c with
+      le=subst_le x ~by c.le;
+      tag=tag @ c.tag;
+    } in
     Constr.normalize c
 
   let rec solve_ (self:system) : res =
@@ -338,9 +343,9 @@ module Make(A : ARG)
 
           (* substitute using [c0] in the other constraints containing [v] *)
           assert (c0.pred = Eq);
-          let c0 = LE.normalize_wrt v c0.le in
+          let l0 = LE.normalize_wrt v c0.le in
           (* turn equation [c0] into [v = rhs] *)
-          let rhs = LE.neg @@ LE.remove v c0 in
+          let rhs = LE.neg @@ LE.remove v l0 in
           Log.debugf 50
             (fun k->k "(@[FM.subst-from-eq@ :v %a@ :rhs %a@])"
                 T.pp v LE.pp rhs);
@@ -354,7 +359,7 @@ module Make(A : ARG)
             [Iter.of_list ceq'; Iter.of_list occ_pos; Iter.of_list occ_neg]
             |> Iter.of_list
             |> Iter.flatten
-            |> Iter.map (subst_constr v ~by:rhs)
+            |> Iter.map (subst_constr v ~tag:c0.Constr.tag ~by:rhs)
             |> Iter.fold add_sys sys
           in
           solve_ new_sys
