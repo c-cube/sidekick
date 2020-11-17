@@ -324,9 +324,15 @@ module Make(A : ARG)
   let build_model_ (self:pre_model) : _ T_map.t =
     let l = T_map.to_iter self |> Iter.to_rev_list in
 
+    let m = ref T_map.empty in
+
     (* how to evaluate a linexpr in the model *)
-    let eval_le (mv:Q.t T_map.t) (le:LE.t) : Q.t =
-      let find x = try T_map.find x mv with Not_found -> Q.zero in
+    let eval_le (le:LE.t) : Q.t =
+      let find x =
+        try T_map.find x !m
+        with Not_found ->
+          m := T_map.add x Q.zero !m; (* remember this choice *)
+          Q.zero in
       T_map.to_iter le.LE.le
       |> Iter.fold
         (fun sum (t,coeff) -> Q.(sum + coeff * find t))
@@ -345,44 +351,43 @@ module Make(A : ARG)
       else if Q.lt q1 q2 then s1,q1
       else s2,q2
     in
-    let m =
-      List.fold_left
-        begin fun m (v,cs_v) ->
-          (* update [v] using its constraints [cs_v].
-             [m] is the model to update *)
-          let val_v =
-            match cs_v with
-            | lazy (PM_eq le) -> eval_le m le
-            | lazy (PM_bounds {lower; upper}) ->
-              let lower = List.map (fun (s,le) -> s, eval_le m le) lower in
-              let upper = List.map (fun (s,le) -> s, eval_le m le) upper in
-              let strict_low, lower = match lower with
-                | [] -> NonStrict, Q.minus_inf
-                | x :: l -> List.fold_left max_pair x l
-              and strict_up, upper = match upper with
-                | [] -> NonStrict, Q.inf
-                | x :: l -> List.fold_left min_pair x l
-              in
-              if Q.is_real lower && Q.is_real upper then (
-                if Q.equal lower upper then (
-                  assert (strict_low=NonStrict && strict_up=NonStrict); (* unsat otherwise *)
-                  lower
-                ) else (
-                  Q.((lower + upper) / of_int 2) (* middle *)
-                )
-              ) else if Q.is_real lower then (
-                if strict_low=Strict then Q.(lower + one) else lower
-              ) else if Q.is_real upper then (
-                if strict_up=Strict then Q.(upper - one) else upper
+    List.iter
+      begin fun (v,cs_v) ->
+        (* update [v] using its constraints [cs_v].
+           [m] is the model to update *)
+        let val_v =
+          match cs_v with
+          | lazy (PM_eq le) -> eval_le le
+          | lazy (PM_bounds {lower; upper}) ->
+            let lower = List.map (fun (s,le) -> s, eval_le le) lower in
+            let upper = List.map (fun (s,le) -> s, eval_le le) upper in
+            let strict_low, lower = match lower with
+              | [] -> NonStrict, Q.minus_inf
+              | x :: l -> List.fold_left max_pair x l
+            and strict_up, upper = match upper with
+              | [] -> NonStrict, Q.inf
+              | x :: l -> List.fold_left min_pair x l
+            in
+            if Q.is_real lower && Q.is_real upper then (
+              if Q.equal lower upper then (
+                assert (strict_low=NonStrict && strict_up=NonStrict); (* unsat otherwise *)
+                lower
               ) else (
-                Q.zero (* no bounds *)
+                Q.((lower + upper) / of_int 2) (* middle *)
               )
-          in
-          T_map.add v val_v m
-        end
-        T_map.empty l
-    in
-    m
+            ) else if Q.is_real lower then (
+              if strict_low=Strict then Q.(lower + one) else lower
+            ) else if Q.is_real upper then (
+              if strict_up=Strict then Q.(upper - one) else upper
+            ) else (
+              Q.zero (* no bounds *)
+            )
+        in
+        assert (not (T_map.mem v !m)); (* by ordering *)
+        m := T_map.add v val_v !m;
+      end
+      l;
+    !m
 
   let get_model (m:model) (v:T.t) : Q.t =
     let lazy m = m in
