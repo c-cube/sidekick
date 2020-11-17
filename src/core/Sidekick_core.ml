@@ -401,6 +401,12 @@ module type SOLVER_INTERNAL = sig
   val raise_conflict : t -> actions -> lit list -> proof -> 'a
   (** Give a conflict clause to the solver *)
 
+  val push_decision : t -> actions -> lit -> unit
+  (** Ask the SAT solver to decide the given literal in an extension of the
+      current trail. This is useful for theory combination.
+      If the SAT solver backtracks, this (potential) decision is removed
+      and forgotten. *)
+
   val propagate: t -> actions -> lit -> (unit -> lit list) -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)

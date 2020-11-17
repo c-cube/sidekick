@@ -202,6 +202,10 @@ module Make(A : ARG)
 
     let add_preprocess self f = self.preprocess <- f :: self.preprocess
 
+    let push_decision (_self:t) (acts:actions) (lit:lit) : unit =
+      let sign = Lit.sign lit in
+      acts.Msat.acts_add_decision_lit (Lit.abs lit) sign
+
     let[@inline] raise_conflict self acts c : 'a =
       Stat.incr self.count_conflict;
       acts.Msat.acts_raise_conflict c P.default
@@ -279,6 +283,10 @@ module Make(A : ARG)
 
     let cc_add_term self t = CC.add_term (cc self) t
     let cc_find self n = CC.find (cc self) n
+    let cc_are_equal self t1 t2 =
+      let n1 = cc_add_term self t1 in
+      let n2 = cc_add_term self t2 in
+      N.equal (cc_find self n1) (cc_find self n2)
     let cc_merge self _acts n1 n2 e = CC.merge (cc self) n1 n2 e
     let cc_merge_t self acts t1 t2 e =
       cc_merge self acts (cc_add_term self t1) (cc_add_term self t2) e
@@ -578,7 +586,7 @@ module Make(A : ARG)
 
   let add_clause (self:t) (c:Atom.t IArray.t) : unit =
     Stat.incr self.count_clause;
-    Log.debugf 50 (fun k->k "add clause %a@." (Util.pp_iarray Atom.pp) c);
+    Log.debugf 50 (fun k->k "(@[solver.add-clause@ %a@])" (Util.pp_iarray Atom.pp) c);
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default
 
   let add_clause_l self c = add_clause self (IArray.of_list c)
