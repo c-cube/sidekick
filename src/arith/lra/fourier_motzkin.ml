@@ -87,6 +87,7 @@ module type S = sig
   type model
 
   val get_model : model -> term -> Q.t
+  val eval_model : model -> LE.t -> Q.t
   val pp_model : model Fmt.printer
 
   type res =
@@ -320,19 +321,23 @@ module Make(A : ARG)
       (Fmt.Dump.list Constr.pp) self.empties
       (Util.pp_iter pp_idxkv) (T_map.to_iter self.idx)
 
-  (* TODO: be able to provide a model for SAT *)
   let build_model_ (self:pre_model) : _ T_map.t =
-    let l = T_map.to_iter self |> Iter.to_rev_list in
+    (* order matters: we need to compute values for lowest variables first *)
+    let l = T_map.to_iter self |> Iter.to_list in
+    (* INVARIANT: assert (CCList.is_sorted ~cmp:(fun (a,_) (b,_) -> T.compare a b) l); *)
 
     let m = ref T_map.empty in
 
     (* how to evaluate a linexpr in the model *)
-    let eval_le (le:LE.t) : Q.t =
+    let eval_le ~for_v (le:LE.t) : Q.t =
       let find x =
+        assert (T.compare for_v x > 0);
         try T_map.find x !m
         with Not_found ->
+          Log.debugf 50 (fun k->k "LRA.model: add default value for %a" T.pp x);
           m := T_map.add x Q.zero !m; (* remember this choice *)
-          Q.zero in
+          Q.zero
+      in
       T_map.to_iter le.LE.le
       |> Iter.fold
         (fun sum (t,coeff) -> Q.(sum + coeff * find t))
@@ -355,12 +360,13 @@ module Make(A : ARG)
       begin fun (v,cs_v) ->
         (* update [v] using its constraints [cs_v].
            [m] is the model to update *)
+        Log.debugf 40 (fun k->k "LRA.model: compute value for %a" T.pp v);
         let val_v =
           match cs_v with
-          | lazy (PM_eq le) -> eval_le le
+          | lazy (PM_eq le) -> eval_le ~for_v:v le
           | lazy (PM_bounds {lower; upper}) ->
-            let lower = List.map (fun (s,le) -> s, eval_le le) lower in
-            let upper = List.map (fun (s,le) -> s, eval_le le) upper in
+            let lower = List.map (fun (s,le) -> s, eval_le ~for_v:v le) lower in
+            let upper = List.map (fun (s,le) -> s, eval_le ~for_v:v le) upper in
             let strict_low, lower = match lower with
               | [] -> NonStrict, Q.minus_inf
               | x :: l -> List.fold_left max_pair x l
@@ -383,7 +389,10 @@ module Make(A : ARG)
               Q.zero (* no bounds *)
             )
         in
-        assert (not (T_map.mem v !m)); (* by ordering *)
+        if T_map.mem v !m then (
+          (* error: by ordering [v] should not have been touched yet *)
+          Error.errorf "LRA.build-model: variable %a already has a value" T.pp v
+        );
         m := T_map.add v val_v !m;
       end
       l;
@@ -393,6 +402,12 @@ module Make(A : ARG)
     let lazy m = m in
     try T_map.find v m
     with Not_found -> Q.zero
+
+  let eval_model m (le:LE.t) : Q.t =
+    T_map.fold
+      (fun v coeff sum ->
+         Q.(sum + coeff * get_model m v))
+      le.LE.le le.LE.const
 
   let pp_model out (m:model) : unit =
     let lazy m = m in
