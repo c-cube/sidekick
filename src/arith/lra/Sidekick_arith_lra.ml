@@ -38,6 +38,9 @@ module type ARG = sig
   val mk_lra : S.T.Term.state -> term lra_view -> term
   (** Make a term from the given theory view *)
 
+  val has_ty_real : term -> bool
+  (** Does this term have the type [Real] *)
+
   module Gensym : sig
     type t
 
@@ -81,6 +84,7 @@ module Make(A : ARG) : S with module A = A = struct
     gensym: A.Gensym.t;
     neq_encoded: unit T.Tbl.t;
     (* if [a != b] asserted and not in this table, add clause [a = b \/ a<b \/ a>b] *)
+    needs_th_combination: LE.t T.Tbl.t; (* terms that require theory combination *)
     mutable t_defs: (T.t * LE.t) list; (* term definitions *)
     pred_defs: (pred * LE.t * LE.t * T.t * T.t) T.Tbl.t; (* predicate definitions *)
   }
@@ -90,6 +94,7 @@ module Make(A : ARG) : S with module A = A = struct
       simps=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
       neq_encoded=T.Tbl.create 16;
+      needs_th_combination=T.Tbl.create 8;
       t_defs=[];
       pred_defs=T.Tbl.create 16;
     }
@@ -170,7 +175,7 @@ module Make(A : ARG) : S with module A = A = struct
      *)
 
   (* preprocess linear expressions away *)
-  let preproc_lra self si ~recurse ~mk_lit:_ ~add_clause:_ (t:T.t) : T.t option =
+  let preproc_lra (self:state) si ~recurse ~mk_lit:_ ~add_clause:_ (t:T.t) : T.t option =
     Log.debugf 50 (fun k->k "lra.preprocess %a" T.pp t);
     let _tst = SI.tst si in
     match A.view_as_lra t with
@@ -184,11 +189,17 @@ module Make(A : ARG) : S with module A = A = struct
       Some proxy
     | LRA_op _ | LRA_mult _ ->
       let le = as_linexp ~f:recurse t in
+      (* TODO: reuse proxy if present? *)
       let proxy = fresh_term self ~pre:"_e_lra_" (T.ty t) in
       self.t_defs <- (proxy, le) :: self.t_defs;
+      T.Tbl.add self.needs_th_combination t le;
       Log.debugf 5 (fun k->k"@[<hv2>lra.preprocess.step %a@ :into %a@ :def %a@]"
                        T.pp t T.pp proxy LE.pp le);
       Some proxy
+    | LRA_other t when A.has_ty_real t ->
+      let le = LE.var t in
+      T.Tbl.replace self.needs_th_combination t le;
+      None
     | LRA_const _ | LRA_other _ -> None
 
   (* ensure that [a != b] triggers the clause
@@ -269,8 +280,12 @@ module Make(A : ARG) : S with module A = A = struct
     end;
     Log.debug 5 "lra: call arith solver";
     begin match FM_A.solve fm with
-      | FM_A.Sat ->
+      | FM_A.Sat model ->
         Log.debug 5 "lra: solver returns SAT";
+        Log.debugf 50
+          (fun k->k "(@[LRA.needs-th-combination:@ %a@])"
+              (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
+        Log.debugf 30 (fun k->k "(@[LRA.model@ %a@])" FM_A.pp_model model);
         () (* TODO: get a model + model combination *)
       | FM_A.Unsat lits ->
         (* we tagged assertions with their lit, so the certificate being an

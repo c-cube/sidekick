@@ -313,6 +313,8 @@ module Th_lra = Sidekick_arith_lra.Make(struct
     | T.Eq (a,b) when Ty.equal (T.ty a) Ty.real -> LRA_pred (Eq, a, b)
     | _ -> LRA_other t
 
+  let has_ty_real t = Ty.equal (T.ty t) Ty.real
+
   module Gensym = struct
     type t = {
       tst: T.state;
