@@ -340,6 +340,7 @@ module Make(A : ARG) : S with module A = A = struct
         Log.debugf 50
           (fun k->k "(@[LRA.needs-th-combination:@ %a@])"
               (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
+        let lazy model = model in
         Log.debugf 30 (fun k->k "(@[LRA.model@ %a@])" FM_A.pp_model model);
 
         (* theory combination: for [t1,t2] terms in [self.needs_th_combination]

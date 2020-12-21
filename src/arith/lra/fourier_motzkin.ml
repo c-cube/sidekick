@@ -91,7 +91,7 @@ module type S = sig
   val pp_model : model Fmt.printer
 
   type res =
-    | Sat of model
+    | Sat of model lazy_t
     | Unsat of A.tag list
 
   val solve : t -> res
@@ -183,7 +183,9 @@ module Make(A : ARG)
       let pp_sum out le =
         (Util.pp_iter ~sep:" + " pp_pair) out (M.to_iter le)
       in
-      if Q.sign self.const = 0 then (
+      if T_map.is_empty self.le then (
+        Q.pp_print out self.const
+      ) else if Q.sign self.const = 0 then (
         Fmt.fprintf out "(@[%a@])" pp_sum self.le
       ) else (
         Fmt.fprintf out "(@[%a@ + %a@])" Q.pp_print self.const pp_sum self.le
@@ -250,7 +252,7 @@ module Make(A : ARG)
       }
 
   type pre_model = pre_model_constr lazy_t T_map.t
-  type model = Q.t T_map.t lazy_t
+  type model = Q.t T_map.t
 
   type system = {
     empties: Constr.t list; (* no variables, check first *)
@@ -321,6 +323,23 @@ module Make(A : ARG)
       (Fmt.Dump.list Constr.pp) self.empties
       (Util.pp_iter pp_idxkv) (T_map.to_iter self.idx)
 
+  let pp_pre_model_strict out = function
+    | Strict -> Fmt.string out "strict"
+    | NonStrict -> Fmt.string out "non-strict"
+
+  let pp_pre_model_constr out (m:pre_model_constr) : unit =
+    match m with
+    | PM_eq le -> Fmt.fprintf out "(@[eq@ %a@])" LE.pp le
+    | PM_bounds {lower;upper} ->
+      Fmt.fprintf out "(@[bounds@ :lower %a@ :upper %a@])"
+        Fmt.Dump.(list @@ pair pp_pre_model_strict LE.pp) lower
+        Fmt.Dump.(list @@ pair pp_pre_model_strict LE.pp) upper
+
+  let pp_pre_model out (m:pre_model) : unit =
+    Fmt.fprintf out "(@[pre-model@ %a@])"
+      (Util.pp_iter @@ Fmt.Dump.pair T.pp (Fmt.map Lazy.force pp_pre_model_constr))
+      (T_map.to_iter m)
+
   let build_model_ (self:pre_model) : _ T_map.t =
     (* order matters: we need to compute values for lowest variables first *)
     let l = T_map.to_iter self |> Iter.to_list in
@@ -361,6 +380,7 @@ module Make(A : ARG)
         (* update [v] using its constraints [cs_v].
            [m] is the model to update *)
         Log.debugf 40 (fun k->k "LRA.model: compute value for %a" T.pp v);
+        Format.printf "(@[<2>pre-model@ :t %a@ :constr %a@])@." T.pp v pp_pre_model_constr (Lazy.force cs_v);
         let val_v =
           match cs_v with
           | lazy (PM_eq le) -> eval_le ~for_v:v le
@@ -374,6 +394,7 @@ module Make(A : ARG)
               | [] -> NonStrict, Q.inf
               | x :: l -> List.fold_left min_pair x l
             in
+            Format.printf "lower=%a, upper=%a@." Q.pp_print lower Q.pp_print upper;
             if Q.is_real lower && Q.is_real upper then (
               if Q.equal lower upper then (
                 assert (strict_low=NonStrict && strict_up=NonStrict); (* unsat otherwise *)
@@ -382,9 +403,9 @@ module Make(A : ARG)
                 Q.((lower + upper) / of_int 2) (* middle *)
               )
             ) else if Q.is_real lower then (
-              if strict_low=Strict then Q.(lower + one) else lower
+              if strict_low=Strict then Q.(lower + ~$ 1) else lower
             ) else if Q.is_real upper then (
-              if strict_up=Strict then Q.(upper - one) else upper
+              if strict_up=Strict then Q.(upper - ~$ 1) else upper
             ) else (
               Q.zero (* no bounds *)
             )
@@ -394,12 +415,12 @@ module Make(A : ARG)
           Error.errorf "LRA.build-model: variable %a already has a value" T.pp v
         );
         m := T_map.add v val_v !m;
+        Log.debugf 40 (fun k->k "LRA.model: value for %a is %a" T.pp v Q.pp_print val_v);
       end
       l;
     !m
 
   let get_model (m:model) (v:T.t) : Q.t =
-    let lazy m = m in
     try T_map.find v m
     with Not_found -> Q.zero
 
@@ -410,13 +431,12 @@ module Make(A : ARG)
       le.LE.le le.LE.const
 
   let pp_model out (m:model) : unit =
-    let lazy m = m in
     let pp_pair out (v,q) = Fmt.fprintf out "(@[%a@ %a@])" T.pp v Q.pp_print q in
     Fmt.fprintf out "(@[<hv1>model@ %a@])"
       (Util.pp_iter pp_pair) (T_map.to_iter m)
 
   type res =
-    | Sat of model
+    | Sat of model lazy_t
     | Unsat of A.tag list
 
   (* replace [x] with [by] inside [le] *)
@@ -489,6 +509,7 @@ module Make(A : ARG)
             |> Iter.of_list
             |> Iter.flatten
             |> Iter.map (subst_constr v ~tag:c0.Constr.tag ~by:rhs)
+            (* |> CCFun.tap (fun i -> Fmt.printf "@[<hv4>add constrs@ %a@]@." (Util.pp_iter Constr.pp) i) *)
             |> Iter.fold add_sys sys
           in
 
