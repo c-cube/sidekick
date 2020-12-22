@@ -286,17 +286,16 @@ module Make(A : ARG) : S with module A = A = struct
         Log.debug 5 "lra: solver returns SAT";
         () (* TODO: get a model + model combination *)
       | SimpSolver.Unsatisfiable cert ->
-        begin match SimpSolver.check_cert simplex cert with
-          | `Ok _unsat_core -> assert false (* TODO *)
+        let unsat_core =
+          match SimpSolver.check_cert simplex cert with
+          | `Ok unsat_core -> unsat_core (* TODO *)
           | _ -> assert false (* some kind of fatal error ? *)
-          (* TODO
+        in
         Log.debugf 5 (fun k->k"lra: solver returns UNSAT@ with cert %a"
-                         (Fmt.Dump.list Lit.pp) lits);
-        let confl = List.rev_map Lit.neg lits in
+                         (Fmt.Dump.list Lit.pp) unsat_core);
         (* TODO: produce and store a proper LRA resolution proof *)
+        let confl = List.rev_map Lit.neg unsat_core in
         SI.raise_conflict si acts confl SI.P.default
-          *)
-        end
     end;
     ()
 
