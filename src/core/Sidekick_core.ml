@@ -280,6 +280,10 @@ module type CC_S = sig
   val assert_lits : t -> lit Iter.t -> unit
   (** Addition of many literals *)
 
+  val explain_eq : t -> N.t -> N.t -> lit list
+  (** Explain why the two nodes are equal.
+      Fails if they are not, in an unspecified way *)
+
   val raise_conflict_from_expl : t -> actions -> Expl.t -> 'a
   (** Raise a conflict with the given explanation
       it must be a theory tautology that [expl ==> absurd].
@@ -390,9 +394,18 @@ module type SOLVER_INTERNAL = sig
   (** {3 hooks for the theory} *)
 
   val propagate : t -> actions -> lit -> reason:(unit -> lit list) -> proof -> unit
+  (** Propagate a literal for a reason. This is similar to asserting
+      the clause [reason => lit], but more lightweight, and in a way
+      that is backtrackable. *)
 
   val raise_conflict : t -> actions -> lit list -> proof -> 'a
   (** Give a conflict clause to the solver *)
+
+  val push_decision : t -> actions -> lit -> unit
+  (** Ask the SAT solver to decide the given literal in an extension of the
+      current trail. This is useful for theory combination.
+      If the SAT solver backtracks, this (potential) decision is removed
+      and forgotten. *)
 
   val propagate: t -> actions -> lit -> (unit -> lit list) -> unit
   (** Propagate a boolean using a unit clause.
@@ -428,6 +441,9 @@ module type SOLVER_INTERNAL = sig
 
   val cc_find : t -> CC.N.t -> CC.N.t
   (** Find representative of the node *)
+
+  val cc_are_equal : t -> term -> term -> bool
+  (** Are these two terms equal in the congruence closure? *)
 
   val cc_merge : t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit
   (** Merge these two nodes in the congruence closure, given this explanation.

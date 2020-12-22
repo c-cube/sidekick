@@ -914,6 +914,8 @@ end = struct
     | Eq (a,b) -> C.Eq (a, b)
     | Not u -> C.Not u
     | Ite (a,b,c) -> C.If (a,b,c)
+    | LRA (LRA_pred (Eq, a, b)) ->
+      C.Eq (a,b) (* need congruence closure on this one, for theory combination *)
     | LRA _ -> C.Opaque t (* no congruence here *)
 
   module As_key = struct

@@ -15,7 +15,7 @@ depends: [
   "containers" { >= "3.0" & < "4.0" }
   "iter"
   "zarith"
-  "smtlib-utils" { >= "0.1" & < "0.2" }
+  "smtlib-utils" { >= "0.1" & < "0.3" }
   "sidekick" { = version }
   "menhir"
   "msat" { >= "0.8" < "0.9" }

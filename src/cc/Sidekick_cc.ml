@@ -835,6 +835,10 @@ module Make (A: CC_ARG)
   let[@inline] merge_t cc t1 t2 expl =
     merge cc (add_term cc t1) (add_term cc t2) expl
 
+  let explain_eq cc n1 n2 : lit list =
+    let th = ref true in
+    explain_pair cc ~th [] n1 n2
+
   let on_pre_merge cc f = cc.on_pre_merge <- f :: cc.on_pre_merge
   let on_post_merge cc f = cc.on_post_merge <- f :: cc.on_post_merge
   let on_new_term cc f = cc.on_new_term <- f :: cc.on_new_term
