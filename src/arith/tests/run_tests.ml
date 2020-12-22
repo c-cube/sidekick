@@ -1,6 +1,4 @@
 
-open OUnit
-
 let props =
   List.flatten
     [ Test_simplex.props;
