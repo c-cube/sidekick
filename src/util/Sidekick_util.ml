@@ -12,3 +12,4 @@ module Intf = Intf
 module Bag = Bag
 module Stat = Stat
 module Hash = Hash
+module Profile = Profile

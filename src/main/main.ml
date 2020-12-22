@@ -127,6 +127,8 @@ let check_limits () =
     raise Out_of_space
 
 let main () =
+  Sidekick_tef.setup();
+  at_exit Sidekick_tef.teardown;
   CCFormat.set_color_default true;
   (* Administrative duties *)
   Arg.parse argspec input_file usage;

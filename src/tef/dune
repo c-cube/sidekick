@@ -1,0 +1,8 @@
+
+(library
+  (name sidekick_tef)
+  (public_name sidekick.tef)
+  (synopsis "profiling backend based on TEF")
+  (optional)
+  (flags :standard -warn-error -a+8)
+  (libraries sidekick.util unix threads mtime mtime.clock.os))

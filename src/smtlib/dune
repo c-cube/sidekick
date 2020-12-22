@@ -3,5 +3,6 @@
  (public_name sidekick-bin.smtlib)
  (libraries containers zarith msat sidekick.core sidekick.util
    sidekick.msat-solver sidekick-arith.base-term sidekick.th-bool-static
-   sidekick.mini-cc sidekick.th-data sidekick-arith.lra msat.backend smtlib-utils)
+   sidekick.mini-cc sidekick.th-data sidekick-arith.lra msat.backend smtlib-utils
+   sidekick.tef)
  (flags :standard -warn-error -a+8 -open Sidekick_util))

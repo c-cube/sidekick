@@ -18,6 +18,7 @@ depends: [
   "smtlib-utils" { >= "0.1" & < "0.3" }
   "sidekick" { = version }
   "menhir"
+  "mtime"
   "msat" { >= "0.8" < "0.9" }
   "ocaml" { >= "4.03" }
 ]

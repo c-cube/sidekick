@@ -587,12 +587,15 @@ module Make(A : ARG)
   let add_clause (self:t) (c:Atom.t IArray.t) : unit =
     Stat.incr self.count_clause;
     Log.debugf 50 (fun k->k "(@[solver.add-clause@ %a@])" (Util.pp_iarray Atom.pp) c);
-    Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default
+    let pb = Profile.begin_ "add-clause" in
+    Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default;
+    Profile.exit pb
 
   let add_clause_l self c = add_clause self (IArray.of_list c)
 
   let mk_model (self:t) (lits:lit Iter.t) : Model.t =
     Log.debug 1 "(smt.solver.mk-model)";
+    Profile.with_ "msat-solver.mk-model" @@ fun () ->
     let module M = Term.Tbl in
     let m = M.create 128 in
     let tst = self.si.tst in
@@ -614,6 +617,7 @@ module Make(A : ARG)
 
   let solve ?(on_exit=[]) ?(check=true) ?(on_progress=fun _ -> ())
       ~assumptions (self:t) : res =
+    Profile.with_ "msat-solver.solve" @@ fun () ->
     let do_on_exit () =
       List.iter (fun f->f()) on_exit;
     in

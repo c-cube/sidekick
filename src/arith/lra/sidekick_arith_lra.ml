@@ -316,6 +316,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   let final_check_ (self:state) si (acts:SI.actions) (trail:_ Iter.t) : unit =
     Log.debug 5 "(th-lra.final-check)";
+    Profile.with_ "lra.final-check" @@ fun () ->
     let simplex = SimpSolver.create self.gensym in
     encode_neq self si acts trail;
     (* first, add definitions *)
