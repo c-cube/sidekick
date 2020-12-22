@@ -667,7 +667,7 @@ module Make_inner
     let pp_pair =
       within "(" ")" @@ hvbox @@ pair ~sep:(return "@ := ") Var.pp Erat.pp
     in
-    map Var_map.to_seq @@ within "(" ")" @@ hvbox @@ seq pp_pair
+    map Var_map.to_iter @@ within "(" ")" @@ hvbox @@ iter pp_pair
 
   let pp_bounds =
     let open Format in
