@@ -373,6 +373,7 @@ module Make (A: CC_ARG)
     end
 
   let raise_conflict (cc:t) ~th (acts:actions) (e:lit list) : _ =
+    Profile.instant "cc.conflict";
     (* clear tasks queue *)
     Vec.clear cc.pending;
     Vec.clear cc.combine;

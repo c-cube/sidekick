@@ -368,7 +368,8 @@ module Make(A : ARG) : S with module A = A = struct
            end)
     end;
     Log.debug 5 "lra: call arith solver";
-    begin match SimpSolver.solve simplex with
+    let res = Profile.with1 "simplex.solve" SimpSolver.solve simplex in
+    begin match res with
       | SimpSolver.Solution _m ->
         Log.debug 5 "lra: solver returns SAT";
         Log.debugf 50

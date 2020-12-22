@@ -34,20 +34,32 @@ module Make()
     let now = Mtime_clock.now() in
     Mtime.Span.to_us (Mtime.span program_start now)
 
-  let emit_event ~name ~start ~end_ () : unit =
-    let dur = end_ -. start in
-    let ts = start in
-    let pid = Unix.getpid() in
-    let tid = Thread.id (Thread.self()) in
+  let emit_sep_ () =
     if !first_ then (
       first_ := false;
     ) else (
       output_string oc ",\n";
-    );
+    )
+
+  let emit_duration_event ~name ~start ~end_ () : unit =
+    let dur = end_ -. start in
+    let ts = start in
+    let pid = Unix.getpid() in
+    let tid = Thread.id (Thread.self()) in
+    emit_sep_();
     Printf.fprintf oc
       {json|{"pid": %d,"cat":"","tid": %d,"dur": %.2f,"ts": %.2f,"name":"%s","ph":"X"}|json}
       pid tid dur ts name;
-    flush oc
+    ()
+
+  let emit_instant_event ~name ~ts () : unit =
+    let pid = Unix.getpid() in
+    let tid = Thread.id (Thread.self()) in
+    emit_sep_();
+    Printf.fprintf oc
+      {json|{"pid": %d,"cat":"","tid": %d,"ts": %.2f,"name":"%s","ph":"I"}|json}
+      pid tid ts name;
+    ()
 
   let teardown () = teardown_ oc
 end

@@ -353,10 +353,12 @@ module Make(A : ARG)
 
     (* propagation from the bool solver *)
     let check_ ~final (self:t) (acts: msat_acts) =
+      let pb = if final then Profile.begin_ "solver.final-check" else Profile.null_probe in
       let iter = iter_atoms_ acts in
       Msat.Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
       self.on_progress();
-      assert_lits_ ~final self acts iter
+      assert_lits_ ~final self acts iter;
+      Profile.exit pb
 
     (* propagation from the bool solver *)
     let[@inline] partial_check (self:t) (acts:_ Msat.acts) : unit =

@@ -3,19 +3,31 @@
 
 type probe
 
+val null_probe : probe
+
+val instant : string -> unit
+
 val begin_ : string -> probe
 
 val exit : probe -> unit
 
 val with_ : string -> (unit -> 'a) -> 'a
 
+val with1 : string -> ('a -> 'b) -> 'a -> 'b
+
 module type BACKEND = sig
   val get_ts : unit -> float
 
-  val emit_event :
+  val emit_duration_event :
     name : string ->
     start : float ->
     end_ : float ->
+    unit ->
+    unit
+
+  val emit_instant_event :
+    name : string ->
+    ts : float ->
     unit ->
     unit
 
