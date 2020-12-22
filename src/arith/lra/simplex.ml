@@ -674,7 +674,7 @@ module Make_inner
     let pp_pairs out (x,(l,u)) =
       fprintf out "(@[%a =< %a =< %a@])" Erat.pp l.value Var.pp x Erat.pp u.value
     in
-    map Var_map.to_seq @@ within "(" ")" @@ hvbox @@ seq pp_pairs
+    map Var_map.to_iter @@ within "(" ")" @@ hvbox @@ iter pp_pairs
 
   let pp_full_state out (t:t) : unit =
     (* print main matrix *)
