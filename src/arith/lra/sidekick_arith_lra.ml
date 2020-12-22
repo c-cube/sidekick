@@ -253,7 +253,9 @@ module Make(A : ARG) : S with module A = A = struct
            let open LE.Infix in
            let le = le - LE.monomial1 t in
            let c = LConstr.eq0 le in
-           SimpSolver.add_constr simplex c)
+           let lit = assert false (* TODO: find the lit *) in
+           SimpSolver.add_constr simplex c lit
+           )
         self.t_defs
     end;
     (* add trail *)
@@ -274,7 +276,7 @@ module Make(A : ARG) : S with module A = A = struct
                ) else (
                  (* TODO: tag *)
                  let c = LConstr.of_expr LE.(a-b) pred in
-                 SimpSolver.add_constr simplex c;
+                 SimpSolver.add_constr simplex c lit;
                )
            end)
     end;
@@ -283,17 +285,18 @@ module Make(A : ARG) : S with module A = A = struct
       | SimpSolver.Solution _m ->
         Log.debug 5 "lra: solver returns SAT";
         () (* TODO: get a model + model combination *)
-      | SimpSolver.Unsatisfiable _cert ->
-        (* we tagged assertions with their lit, so the certificate being an
-           unsat core translates directly into a conflict clause *)
-        assert false
+      | SimpSolver.Unsatisfiable cert ->
+        begin match SimpSolver.check_cert simplex cert with
+          | `Ok _unsat_core -> assert false (* TODO *)
+          | _ -> assert false (* some kind of fatal error ? *)
           (* TODO
         Log.debugf 5 (fun k->k"lra: solver returns UNSAT@ with cert %a"
                          (Fmt.Dump.list Lit.pp) lits);
         let confl = List.rev_map Lit.neg lits in
         (* TODO: produce and store a proper LRA resolution proof *)
         SI.raise_conflict si acts confl SI.P.default
-             *)
+          *)
+        end
     end;
     ()
 

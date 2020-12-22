@@ -35,7 +35,6 @@ module type S = sig
   type cert = {
     cert_var: var;
     cert_expr: (Q.t * var) list;
-    cert_core: lit list;
   }
 
   (** Generic type returned when solving the simplex. A solution is a list of
@@ -66,11 +65,14 @@ module type S = sig
       [Q.inf].
       Optional parameters allow to make the the bounds strict. Defaults to false,
       so that bounds are large by default. *)
-  val add_bounds : t -> ?strict_lower:bool -> ?strict_upper:bool -> var * Q.t * Q.t -> unit
+  val add_bounds : t ->
+    ?strict_lower:bool -> ?strict_upper:bool ->
+    ?lower_reason:lit -> ?upper_reason:lit ->
+    var * Q.t * Q.t -> unit
 
-  val add_lower_bound : t -> ?strict:bool -> var -> Q.t -> unit
+  val add_lower_bound : t -> ?strict:bool -> reason:lit -> var -> Q.t -> unit
 
-  val add_upper_bound : t -> ?strict:bool -> var -> Q.t -> unit
+  val add_upper_bound : t -> ?strict:bool -> reason:lit -> var -> Q.t -> unit
 
   (** {3 Simplex solving} *)
 
@@ -85,10 +87,10 @@ module type S = sig
   val check_cert :
     t ->
     cert ->
-    [`Ok | `Bad_bounds of string * string | `Diff_not_0 of Q.t Var_map.t]
+    [`Ok of lit list | `Bad_bounds of string * string | `Diff_not_0 of Q.t Var_map.t]
   (** checks that the certificat indeed yields to a contradiction
       in the current state of the simplex.
-      @return [`Ok] if the certificate is valid. *)
+      @return [`Ok unsat_core] if the certificate is valid. *)
 
   (* TODO: push/pop? at least on bounds *)
 
@@ -119,6 +121,6 @@ module type S_FULL = sig
 
   type constr = L.Constr.t
 
-  val add_constr : t -> constr -> unit
+  val add_constr : t -> constr -> lit -> unit
   (** Add a constraint to a simplex state. *)
 end

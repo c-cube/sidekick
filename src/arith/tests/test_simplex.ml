@@ -107,7 +107,11 @@ module Problem = struct
     QC.list_of_size QC.Gen.(m -- n) @@ Constr.rand 10
 end
 
-let add_problem (t:Spl.t) (pb:Problem.t) : unit = List.iter (Spl.add_constr t) pb
+let add_problem (t:Spl.t) (pb:Problem.t) : unit =
+  (* TODO: use an arbitrary litteral if the tests do not check the unsat core,
+           or else add litterals to the generated problem. *)
+  let lit = assert false in
+  List.iter (fun constr -> Spl.add_constr t constr lit) pb
 
 let pp_subst : subst Fmt.printer =
   Fmt.(map Spl.L.Var_map.to_seq @@
@@ -150,7 +154,7 @@ let check_sound =
         )
       | Spl.Unsatisfiable cert ->
         begin match Spl.check_cert simplex cert with
-          | `Ok -> true
+          | `Ok _ -> true
           | `Bad_bounds (low, up) ->
             QC.Test.fail_reportf
               "(@[<hv>bad-certificat@ :problem %a@ :cert %a@ :low %s :up %s@ :simplex-after  %a@ :simplex-before %a@])"
