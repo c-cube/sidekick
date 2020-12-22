@@ -695,6 +695,13 @@ module Make_full_for_expr(V : VAR_GEN)
      with type Var.t = V.t
       and type C.t = Q.t
       and type Var.lit = V.lit)
+  : S_FULL with type var = V.t
+            and type lit = V.lit
+            and module L = L
+            and module Var_map = L.Var_map
+            and type L.var = V.t
+            and type L.Comb.t = L.Comb.t
+            and type param = V.Fresh.t
 = struct
   include Make_inner(V)(L.Var_map)(V.Fresh)
   module L = L
@@ -721,4 +728,8 @@ module Make_full_for_expr(V : VAR_GEN)
 end
 
 module Make_full(V : VAR_GEN)
+  : S_FULL with type var = V.t
+            and type lit = V.lit
+            and type L.var = V.t
+            and type param = V.Fresh.t
   = Make_full_for_expr(V)(Linear_expr.Make(struct include Q let pp = pp_print end)(V))
