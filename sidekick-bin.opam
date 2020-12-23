@@ -19,7 +19,6 @@ depends: [
   "sidekick" { = version }
   "menhir"
   "mtime"
-  "msat" { >= "0.8" < "0.9" }
   "ocaml" { >= "4.03" }
 ]
 tags: [ "sat" "smt" ]
