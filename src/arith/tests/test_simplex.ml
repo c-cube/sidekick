@@ -114,8 +114,8 @@ let add_problem (t:Spl.t) (pb:Problem.t) : unit =
   List.iter (fun constr -> Spl.add_constr t constr lit) pb
 
 let pp_subst : subst Fmt.printer =
-  Fmt.(map Spl.L.Var_map.to_seq @@
-    within "{" "}" @@ hvbox @@ seq ~sep:(return ",@ ") @@
+  Fmt.(map Spl.L.Var_map.to_iter @@
+    within "{" "}" @@ hvbox @@ iter ~sep:(return ",@ ") @@
     pair ~sep:(return "@ @<1>→ ") Var.pp Q.pp_print
   )
 
