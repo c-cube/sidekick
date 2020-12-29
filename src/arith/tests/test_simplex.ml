@@ -108,9 +108,7 @@ module Problem = struct
 end
 
 let add_problem (t:Spl.t) (pb:Problem.t) : unit =
-  (* TODO: use an arbitrary litteral if the tests do not check the unsat core,
-           or else add litterals to the generated problem. *)
-  let lit = assert false in
+  let lit = 0 in
   List.iter (fun constr -> Spl.add_constr t constr lit) pb
 
 let pp_subst : subst Fmt.printer =
