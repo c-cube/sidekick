@@ -13,8 +13,16 @@ jobs:
     - uses: avsm/setup-ocaml@master
       with:
         ocaml-version: ${{ matrix.ocaml-version }}
+    - name: cache opam
+      id: cache-opam
+      uses: actions/cache@v2
+      with:
+        path: _opam
+        key: opam-${{matrix.operating-system}}-${{matrix.ocaml-version}}
     - run: opam pin -n .
     - run: opam depext -yt sidekick-bin
+      if: steps.cache-opam.outputs.cache-hit != 'true'
     - run: opam install -t . --deps-only
+      if: steps.cache-opam.outputs.cache-hit != 'true'
     - run: opam exec -- dune build
     - run: opam exec -- dune runtest

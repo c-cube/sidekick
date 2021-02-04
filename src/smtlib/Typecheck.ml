@@ -144,6 +144,10 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
             errorf_ctx ctx "expected term, not type; got `%s`" f
         end
     end
+  | PA.App ("xor", [a;b]) ->
+    let a = conv_term ctx a in
+    let b = conv_term ctx b in
+    Form.xor ctx.tst a b
   | PA.App (f, args) ->
     let args = List.map (conv_term ctx) args in
     begin match find_id_ ctx f with
@@ -280,6 +284,12 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
       | PA.Add, [a;b] -> T.lra ctx.tst (LRA_op (Plus, a, b))
       | PA.Add, (a::l) ->
         List.fold_left (fun a b -> T.lra ctx.tst (LRA_op (Plus,a,b))) a l
+      | PA.Minus, [a] ->
+        begin match t_as_q a with
+          | Some a -> T.lra ctx.tst (LRA_const (Q.neg a))
+          | None ->
+            T.lra ctx.tst (LRA_op (Minus, T.lra ctx.tst (LRA_const Q.zero), a))
+        end
       | PA.Minus, [a;b] -> T.lra ctx.tst (LRA_op (Minus, a, b))
       | PA.Minus, (a::l) ->
         List.fold_left (fun a b -> T.lra ctx.tst (LRA_op (Minus,a,b))) a l

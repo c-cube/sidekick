@@ -202,6 +202,10 @@ module Make(A : ARG)
 
     let add_preprocess self f = self.preprocess <- f :: self.preprocess
 
+    let push_decision (_self:t) (acts:actions) (lit:lit) : unit =
+      let sign = Lit.sign lit in
+      acts.Msat.acts_add_decision_lit (Lit.abs lit) sign
+
     let[@inline] raise_conflict self acts c : 'a =
       Stat.incr self.count_conflict;
       acts.Msat.acts_raise_conflict c P.default
@@ -279,6 +283,10 @@ module Make(A : ARG)
 
     let cc_add_term self t = CC.add_term (cc self) t
     let cc_find self n = CC.find (cc self) n
+    let cc_are_equal self t1 t2 =
+      let n1 = cc_add_term self t1 in
+      let n2 = cc_add_term self t2 in
+      N.equal (cc_find self n1) (cc_find self n2)
     let cc_merge self _acts n1 n2 e = CC.merge (cc self) n1 n2 e
     let cc_merge_t self acts t1 t2 e =
       cc_merge self acts (cc_add_term self t1) (cc_add_term self t2) e
@@ -345,10 +353,12 @@ module Make(A : ARG)
 
     (* propagation from the bool solver *)
     let check_ ~final (self:t) (acts: msat_acts) =
+      let pb = if final then Profile.begin_ "solver.final-check" else Profile.null_probe in
       let iter = iter_atoms_ acts in
       Msat.Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
       self.on_progress();
-      assert_lits_ ~final self acts iter
+      assert_lits_ ~final self acts iter;
+      Profile.exit pb
 
     (* propagation from the bool solver *)
     let[@inline] partial_check (self:t) (acts:_ Msat.acts) : unit =
@@ -578,13 +588,16 @@ module Make(A : ARG)
 
   let add_clause (self:t) (c:Atom.t IArray.t) : unit =
     Stat.incr self.count_clause;
-    Log.debugf 50 (fun k->k "add clause %a@." (Util.pp_iarray Atom.pp) c);
-    Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default
+    Log.debugf 50 (fun k->k "(@[solver.add-clause@ %a@])" (Util.pp_iarray Atom.pp) c);
+    let pb = Profile.begin_ "add-clause" in
+    Sat_solver.add_clause_a self.solver (c:> Atom.t array) P.default;
+    Profile.exit pb
 
   let add_clause_l self c = add_clause self (IArray.of_list c)
 
   let mk_model (self:t) (lits:lit Iter.t) : Model.t =
     Log.debug 1 "(smt.solver.mk-model)";
+    Profile.with_ "msat-solver.mk-model" @@ fun () ->
     let module M = Term.Tbl in
     let m = M.create 128 in
     let tst = self.si.tst in
@@ -606,6 +619,7 @@ module Make(A : ARG)
 
   let solve ?(on_exit=[]) ?(check=true) ?(on_progress=fun _ -> ())
       ~assumptions (self:t) : res =
+    Profile.with_ "msat-solver.solve" @@ fun () ->
     let do_on_exit () =
       List.iter (fun f->f()) on_exit;
     in

@@ -22,6 +22,8 @@ module Make_full_for_expr(V : VAR_GEN)
             and type lit = V.lit
             and module L = L
             and module Var_map = L.Var_map
+            and type L.var = V.t
+            and type L.Comb.t = L.Comb.t
             and type param = V.Fresh.t
 
 module Make_full(V : VAR_GEN)

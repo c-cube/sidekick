@@ -134,7 +134,7 @@ module type S = sig
       to coefficients. This allows for very fast computations.
   *)
   module Comb : sig
-    type t = private C.t Var_map.t
+    type t
     (** The type of linear combinations. *)
 
     val compare : t -> t -> int

@@ -122,13 +122,18 @@ module Make_inner
   let str_of_erat = Format.to_string Erat.pp
   let str_of_q = Format.to_string Q.pp_print
 
+  type bound = {
+    value : Erat.t;
+    reason : lit option;
+  }
+
   type t = {
     param: param;
     tab : Q.t Matrix.t; (* the matrix of coefficients *)
     basic : basic_var Vec.vector; (* basic variables *)
     nbasic : nbasic_var Vec.vector; (* non basic variables *)
     mutable assign : Erat.t M.t; (* assignments *)
-    mutable bounds : (Erat.t * Erat.t) M.t; (* (lower, upper) bounds for variables *)
+    mutable bounds : (bound * bound) M.t; (* (lower, upper) bounds for variables *)
     mutable idx_basic : int M.t; (* basic var -> its index in [basic] *)
     mutable idx_nbasic : int M.t; (* non basic var -> its index in [nbasic] *)
   }
@@ -136,7 +141,6 @@ module Make_inner
   type cert = {
     cert_var: var;
     cert_expr: (Q.t * var) list;
-    cert_core: lit list;
   }
 
   type res =
@@ -239,17 +243,23 @@ module Make_inner
     with Not_found -> value_basic t x
 
   (* trivial bounds *)
-  let empty_bounds : Erat.t * Erat.t = Q.(Erat.make minus_inf zero, Erat.make inf zero)
+  let empty_bounds : bound * bound =
+    { value = Erat.make Q.minus_inf Q.zero; reason = None; },
+    { value = Erat.make Q.inf Q.zero; reason = None; }
 
   (* find bounds of [x] *)
-  let[@inline] get_bounds (t:t) (x:var) : Erat.t * Erat.t =
+  let[@inline] get_bounds (t:t) (x:var) : bound * bound =
     try M.find x t.bounds
     with Not_found -> empty_bounds
+
+  let[@inline] get_bounds_values (t:t) (x:var) : Erat.t * Erat.t =
+    let l, u = get_bounds t x in
+    l.value, u.value
 
   (* is [value x] within the bounds for [x]? *)
   let is_within_bounds (t:t) (x:var) : bool * Erat.t =
     let v = value t x in
-    let low, upp = get_bounds t x in
+    let low, upp = get_bounds_values t x in
     if Erat.compare v low < 0 then
       false, low
     else if Erat.compare v upp > 0 then
@@ -313,15 +323,21 @@ module Make_inner
     ()
 
   (* add bounds to [x] in [t] *)
-  let add_bound_aux (t:t) (x:var) (low:Erat.t) (upp:Erat.t) : unit =
+  let add_bound_aux (t:t) (x:var)
+      (low:Erat.t) (low_reason:lit option)
+      (upp:Erat.t) (upp_reason:lit option) : unit =
     add_vars t [x];
     let l, u = get_bounds t x in
-    t.bounds <- M.add x (Erat.max l low, Erat.min u upp) t.bounds
+    let l' = if Erat.lt low l.value then l else { value = low; reason = low_reason; } in
+    let u' = if Erat.gt upp u.value then u else { value = upp; reason = upp_reason; } in
+    t.bounds <- M.add x (l', u') t.bounds
 
-  let add_bounds (t:t) ?strict_lower:(slow=false) ?strict_upper:(supp=false) (x, l, u) : unit =
+  let add_bounds (t:t)
+      ?strict_lower:(slow=false) ?strict_upper:(supp=false)
+      ?lower_reason ?upper_reason (x, l, u) : unit =
     let e1 = if slow then Q.one else Q.zero in
     let e2 = if supp then Q.neg Q.one else Q.zero in
-    add_bound_aux t x (Erat.make l e1) (Erat.make u e2);
+    add_bound_aux t x (Erat.make l e1) lower_reason (Erat.make u e2) upper_reason;
     if mem_nbasic t x then (
       let b, v = is_within_bounds t x in
       if not b then (
@@ -329,8 +345,11 @@ module Make_inner
       )
     )
 
-  let add_lower_bound t ?strict x l = add_bounds t ?strict_lower:strict (x,l,Q.inf)
-  let add_upper_bound t ?strict x u = add_bounds t ?strict_upper:strict (x,Q.minus_inf,u)
+  let add_lower_bound t ?strict ~reason x l =
+    add_bounds t ?strict_lower:strict ~lower_reason:reason (x,l,Q.inf)
+
+  let add_upper_bound t ?strict ~reason x u =
+    add_bounds t ?strict_upper:strict ~upper_reason:reason (x,Q.minus_inf,u)
 
   (* full assignment *)
   let full_assign (t:t) : (var * Erat.t) Iter.t =
@@ -352,7 +371,8 @@ module Make_inner
   let solve_epsilon (t:t) : Q.t =
     let emax =
       M.fold
-        (fun x ({base=low;eps_factor=e_low}, {base=upp;eps_factor=e_upp}) emax ->
+        (fun x ({ value = {base=low;eps_factor=e_low}; _},
+                { value = {base=upp;eps_factor=e_upp}; _}) emax ->
            let {base=v; eps_factor=e_v} = value t x in
            (* lower bound *)
            let emax =
@@ -396,7 +416,7 @@ module Make_inner
     let test (y:nbasic_var) (a:Q.t) : bool =
       assert (mem_nbasic t y);
       let v = value t y in
-      let low, upp = get_bounds t y in
+      let low, upp = get_bounds_values t y in
       if b then (
         (Erat.lt v upp && Q.compare a Q.zero > 0) ||
         (Erat.gt v low && Q.compare a Q.zero < 0)
@@ -489,7 +509,7 @@ module Make_inner
 
   (* check bounds *)
   let check_bounds (t:t) : unit =
-    M.iter (fun x (l, u) -> if Erat.gt l u then raise (AbsurdBounds x)) t.bounds
+    M.iter (fun x (l, u) -> if Erat.gt l.value u.value then raise (AbsurdBounds x)) t.bounds
 
   (* actual solving algorithm *)
   let solve_aux (t:t) : unit =
@@ -534,9 +554,9 @@ module Make_inner
             (Vec.to_list (find_expr_basic t x))
             (Vec.to_list t.nbasic)
         in
-        Unsatisfiable { cert_var=x; cert_expr; cert_core=[]; } (* FIXME *)
+        Unsatisfiable { cert_var=x; cert_expr; } (* FIXME *)
       | AbsurdBounds x ->
-        Unsatisfiable { cert_var=x; cert_expr=[]; cert_core=[]; }
+        Unsatisfiable { cert_var=x; cert_expr=[]; }
 
   (* add [c·x] to [m] *)
   let add_expr_ (x:var) (c:Q.t) (m:Q.t M.t) =
@@ -557,38 +577,54 @@ module Make_inner
       !m
 
   (* maybe invert bounds, if [c < 0] *)
-  let scale_bounds c (l,u) : erat * erat =
+  let scale_bounds c (l,u) : bound * bound =
     match Q.compare c Q.zero with
-      | 0 -> Erat.zero, Erat.zero
-      | n when n<0 -> Erat.mul c u, Erat.mul c l
-      | _ -> Erat.mul c l, Erat.mul c u
+      | 0 ->
+        let b = { value = Erat.zero; reason = None; } in
+        b, b
+      | n when n<0 ->
+        { u with value = Erat.mul c u.value; },
+        { l with value = Erat.mul c l.value; }
+      | _ ->
+        { l with value = Erat.mul c l.value; },
+        { u with value = Erat.mul c u.value; }
+
+  let add_to_unsat_core acc = function
+    | None -> acc
+    | Some reason -> reason :: acc
 
   let check_cert (t:t) (c:cert) =
     let x = c.cert_var in
-    let low_x, up_x = get_bounds t x in
+    let { value = low_x; reason = low_x_reason; },
+        { value = up_x; reason = upp_x_reason; } = get_bounds t x in
     begin match c.cert_expr with
       | [] ->
-        if Erat.compare low_x up_x > 0 then `Ok
+        if Erat.compare low_x up_x > 0
+        then `Ok (add_to_unsat_core (add_to_unsat_core [] low_x_reason) upp_x_reason)
         else `Bad_bounds (str_of_erat low_x, str_of_erat up_x)
       | expr ->
         let e0 = deref_var_ t x (Q.neg Q.one) M.empty in
         (* compute bounds for the expression [c.cert_expr],
            and also compute [c.cert_expr - x] to check if it's 0] *)
-        let low, up, expr_minus_x =
+        let low, low_unsat_core, up, up_unsat_core, expr_minus_x =
           List.fold_left
-            (fun (l,u,expr_minus_x) (c, y) ->
+            (fun (l, luc, u, uuc, expr_minus_x) (c, y) ->
                let ly, uy = scale_bounds c (get_bounds t y) in
-               assert (Erat.compare ly uy <= 0);
+               assert (Erat.compare ly.value uy.value <= 0);
                let expr_minus_x = deref_var_ t y c expr_minus_x in
-               Erat.sum l ly, Erat.sum u uy, expr_minus_x)
-              (Erat.zero, Erat.zero, e0)
+               let luc = add_to_unsat_core luc ly.reason in
+               let uuc = add_to_unsat_core uuc uy.reason in
+               Erat.sum l ly.value, luc, Erat.sum u uy.value, uuc, expr_minus_x)
+            (Erat.zero, [], Erat.zero, [], e0)
               expr
         in
         (* check that the expanded expression is [x], and that
            one of the bounds on [x] is incompatible with bounds of [c.cert_expr] *)
         if M.is_empty expr_minus_x then (
-          if Erat.compare low_x up > 0 || Erat.compare up_x low < 0
-          then `Ok
+          if Erat.compare low_x up > 0
+          then `Ok (add_to_unsat_core up_unsat_core low_x_reason)
+          else if Erat.compare up_x low < 0
+          then `Ok (add_to_unsat_core low_unsat_core upp_x_reason)
           else `Bad_bounds (str_of_erat low, str_of_erat up)
         ) else `Diff_not_0 expr_minus_x
     end
@@ -631,14 +667,14 @@ module Make_inner
     let pp_pair =
       within "(" ")" @@ hvbox @@ pair ~sep:(return "@ := ") Var.pp Erat.pp
     in
-    map Var_map.to_seq @@ within "(" ")" @@ hvbox @@ seq pp_pair
+    map Var_map.to_iter @@ within "(" ")" @@ hvbox @@ iter pp_pair
 
   let pp_bounds =
     let open Format in
     let pp_pairs out (x,(l,u)) =
-      fprintf out "(@[%a =< %a =< %a@])" Erat.pp l Var.pp x Erat.pp u
+      fprintf out "(@[%a =< %a =< %a@])" Erat.pp l.value Var.pp x Erat.pp u.value
     in
-    map Var_map.to_seq @@ within "(" ")" @@ hvbox @@ seq pp_pairs
+    map Var_map.to_iter @@ within "(" ")" @@ hvbox @@ iter pp_pairs
 
   let pp_full_state out (t:t) : unit =
     (* print main matrix *)
@@ -659,6 +695,13 @@ module Make_full_for_expr(V : VAR_GEN)
      with type Var.t = V.t
       and type C.t = Q.t
       and type Var.lit = V.lit)
+  : S_FULL with type var = V.t
+            and type lit = V.lit
+            and module L = L
+            and module Var_map = L.Var_map
+            and type L.var = V.t
+            and type L.Comb.t = L.Comb.t
+            and type param = V.Fresh.t
 = struct
   include Make_inner(V)(L.Var_map)(V.Fresh)
   module L = L
@@ -668,19 +711,25 @@ module Make_full_for_expr(V : VAR_GEN)
   type constr = L.Constr.t
 
   (* add a constraint *)
-  let add_constr (t:t) (c:constr) : unit =
+  let add_constr (t:t) (c:constr) (reason:lit) : unit =
     let (x:var) = V.Fresh.fresh t.param in
     let e, op, q = L.Constr.split c in
     add_eq t (x, L.Comb.to_list e);
     begin match op with
-      | Leq -> add_upper_bound t ~strict:false x q
-      | Geq -> add_lower_bound t ~strict:false x q
-      | Lt -> add_upper_bound t ~strict:true x q
-      | Gt -> add_lower_bound t ~strict:true x q
-      | Eq -> add_bounds t ~strict_lower:false ~strict_upper:false (x,q,q)
+      | Leq -> add_upper_bound t ~strict:false ~reason x q
+      | Geq -> add_lower_bound t ~strict:false ~reason x q
+      | Lt -> add_upper_bound t ~strict:true ~reason x q
+      | Gt -> add_lower_bound t ~strict:true ~reason x q
+      | Eq -> add_bounds t (x,q,q)
+                ~strict_lower:false ~strict_upper:false
+                ~lower_reason:reason ~upper_reason:reason
       | Neq -> assert false
     end
 end
 
 module Make_full(V : VAR_GEN)
+  : S_FULL with type var = V.t
+            and type lit = V.lit
+            and type L.var = V.t
+            and type param = V.Fresh.t
   = Make_full_for_expr(V)(Linear_expr.Make(struct include Q let pp = pp_print end)(V))
