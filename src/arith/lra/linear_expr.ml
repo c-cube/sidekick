@@ -36,6 +36,13 @@ module Make(C : COEFF)(Var : VAR) = struct
 
     let monomial1 x = Var_map.singleton x C.one
 
+    let as_singleton m =
+      if is_empty m then None
+      else (
+        let x, c = Var_map.choose m in
+        if is_empty (Var_map.remove x m) then Some (c, x) else None
+      )
+
     let add c x e =
       let c' = Var_map.get_or ~default:C.zero x e in
       let c' = C.(c + c') in

@@ -157,6 +157,9 @@ module type S = sig
     val monomial1 : var -> t
     (** [monome1 v] creates the linear combination [1 * v] *)
 
+    val as_singleton : t -> (C.t * var) option
+    (** [as_singleton l] returns [Some (c,x)] if [l = c * x], [None] otherwise *)
+
     val add : C.t -> var -> t -> t
     (** [add n v t] adds the monome [n * v] to the combination [t]. *)
 

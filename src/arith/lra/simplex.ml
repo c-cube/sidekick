@@ -726,19 +726,35 @@ module Make_full_for_expr(V : VAR_GEN)
 
   (* add a constraint *)
   let add_constr (t:t) (c:constr) (reason:lit) : unit =
-    let (x:var) = V.Fresh.fresh t.param in
     let e, op, q = L.Constr.split c in
-    add_eq t (x, L.Comb.to_list e);
-    begin match op with
-      | Leq -> add_upper_bound t ~strict:false ~reason x q
-      | Geq -> add_lower_bound t ~strict:false ~reason x q
-      | Lt -> add_upper_bound t ~strict:true ~reason x q
-      | Gt -> add_lower_bound t ~strict:true ~reason x q
-      | Eq -> add_bounds t (x,q,q)
-                ~strict_lower:false ~strict_upper:false
-                ~lower_reason:reason ~upper_reason:reason
-      | Neq -> assert false
-    end
+    match L.Comb.as_singleton e with
+    | Some (c0, x0) ->
+      (* no need for a fresh variable, just add constraint on [x0] *)
+      let q = Q.div q c0 in
+      let op = if Q.sign c0 < 0 then Predicate.neg_sign op else op in
+      begin match op with
+        | Leq -> add_upper_bound t ~strict:false ~reason x0 q
+        | Geq -> add_lower_bound t ~strict:false ~reason x0 q
+        | Lt -> add_upper_bound t ~strict:true ~reason x0 q
+        | Gt -> add_lower_bound t ~strict:true ~reason x0 q
+        | Eq -> add_bounds t (x0,q,q)
+                  ~strict_lower:false ~strict_upper:false
+                  ~lower_reason:reason ~upper_reason:reason
+        | Neq -> assert false
+      end
+    | None ->
+      let (x:var) = V.Fresh.fresh t.param in
+      add_eq t (x, L.Comb.to_list e);
+      begin match op with
+        | Leq -> add_upper_bound t ~strict:false ~reason x q
+        | Geq -> add_lower_bound t ~strict:false ~reason x q
+        | Lt -> add_upper_bound t ~strict:true ~reason x q
+        | Gt -> add_lower_bound t ~strict:true ~reason x q
+        | Eq -> add_bounds t (x,q,q)
+                  ~strict_lower:false ~strict_upper:false
+                  ~lower_reason:reason ~upper_reason:reason
+        | Neq -> assert false
+      end
 end
 
 module Make_full(V : VAR_GEN)
