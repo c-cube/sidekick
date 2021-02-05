@@ -372,8 +372,15 @@ module Make(A : ARG) : S with module A = A = struct
     begin match res with
       | SimpSolver.Solution _m ->
         Log.debug 5 "lra: solver returns SAT";
+        let n_th_comb =
+          T.Tbl.keys self.needs_th_combination |> Iter.length
+        in
+        if n_th_comb > 0 then (
+          Log.debugf 5
+            (fun k->k "(@[LRA.needs-th-combination@ :n-lits %d@])" n_th_comb);
+        );
         Log.debugf 50
-          (fun k->k "(@[LRA.needs-th-combination:@ %a@])"
+          (fun k->k "(@[LRA.needs-th-combination@ :lits %a@])"
               (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
         (* FIXME: theory combination
         let lazy model = model in

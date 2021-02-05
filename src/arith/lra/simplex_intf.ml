@@ -50,9 +50,6 @@ module type S = sig
       @param fresh the state for generating fresh variables on demand. *)
   val create : param -> t
 
-  (** Returns a copy of the given system *)
-  val copy : t -> t
-
   (** [add_eq s (x, eq)] adds the equation [x=eq] to [s] *)
   val add_eq : t -> var * (Q.t * var) list -> unit
 

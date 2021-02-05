@@ -141,26 +141,25 @@ let check_sound =
   let prop pb =
     let simplex = Spl.create (Var.Fresh.create()) in
     add_problem simplex pb;
-    let old_simp = Spl.copy simplex in
     begin match Spl.solve simplex with
       | Spl.Solution subst ->
         if Problem.eval subst pb then true
         else (
           QC.Test.fail_reportf
-            "(@[<hv>bad-solution@ :problem %a@ :sol %a@ :simplex-after  %a@ :simplex-before %a@])"
-            Problem.pp pb pp_subst subst Spl.pp_full_state simplex Spl.pp_full_state old_simp
+            "(@[<hv>bad-solution@ :problem %a@ :sol %a@ :simplex %a@])"
+            Problem.pp pb pp_subst subst Spl.pp_full_state simplex
         )
       | Spl.Unsatisfiable cert ->
         begin match Spl.check_cert simplex cert with
           | `Ok _ -> true
           | `Bad_bounds (low, up) ->
             QC.Test.fail_reportf
-              "(@[<hv>bad-certificat@ :problem %a@ :cert %a@ :low %s :up %s@ :simplex-after  %a@ :simplex-before %a@])"
-              Problem.pp pb Spl.pp_cert cert low up Spl.pp_full_state simplex Spl.pp_full_state old_simp
+              "(@[<hv>bad-certificat@ :problem %a@ :cert %a@ :low %s :up %s@ :simplex %a@])"
+              Problem.pp pb Spl.pp_cert cert low up Spl.pp_full_state simplex
           | `Diff_not_0 e ->
             QC.Test.fail_reportf
-              "(@[<hv>bad-certificat@ :problem %a@ :cert %a@ :diff %a@ :simplex-after  %a@ :simplex-before %a@])"
-              Problem.pp pb Spl.pp_cert cert Comb.pp (Comb.of_map e) Spl.pp_full_state simplex Spl.pp_full_state old_simp
+              "(@[<hv>bad-certificat@ :problem %a@ :cert %a@ :diff %a@ :simplex %a@])"
+              Problem.pp pb Spl.pp_cert cert Comb.pp (Comb.of_map e) Spl.pp_full_state simplex
         end
     end
   in

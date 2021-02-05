@@ -7,8 +7,7 @@
  * - Implement gomorry cuts ?
 *)
 
-open Containers
-
+module Fmt = CCFormat
 module type VAR = Linear_expr_intf.VAR
 module type FRESH = Linear_expr_intf.FRESH
 module type VAR_GEN = Linear_expr_intf.VAR_GEN
@@ -59,7 +58,7 @@ end = struct
 end
 
 (* use non-polymorphic comparison ops *)
-open Int.Infix
+open CCInt.Infix
 
 (* Simplex Implementation *)
 module Make_inner
@@ -70,17 +69,9 @@ module Make_inner
   module Var_map = VMap
   module M = Var_map
 
-  (* Exceptions *)
-  exception Unsat of Var.t
-  exception AbsurdBounds of Var.t
-  exception NoneSuitable
-
   type param = Param.t
   type var = Var.t
   type lit = Var.lit
-
-  type basic_var = var
-  type nbasic_var = var
 
   type erat = {
     base: Q.t; (* reference number *)
@@ -114,28 +105,43 @@ module Make_inner
       if Q.equal Q.zero (eps_factor e)
       then Q.pp_print out (base e)
       else
-        Format.fprintf out "(@[<h>%a + @<1>ε * %a@])"
+        Fmt.fprintf out "(@[<h>%a + @<1>ε * %a@])"
           Q.pp_print (base e) Q.pp_print (eps_factor e)
   end
 
-  let str_of_var = Format.to_string Var.pp
-  let str_of_erat = Format.to_string Erat.pp
-  let str_of_q = Format.to_string Q.pp_print
+  let str_of_var = Fmt.to_string Var.pp
+  let str_of_erat = Fmt.to_string Erat.pp
+  let str_of_q = Fmt.to_string Q.pp_print
 
   type bound = {
     value : Erat.t;
     reason : lit option;
   }
 
+  (* state associated with a variable *)
+  type var_state = {
+    var: var;
+    mutable assign: Erat.t option; (* current assignment *)
+    mutable l_bound: bound; (* lower bound *)
+    mutable u_bound: bound; (* upper bound *)
+    mutable idx_basic: int; (* index in [t.nbasic] *)
+    mutable idx_nbasic: int; (* index in [t.nbasic] *)
+  }
+
+  (* Exceptions *)
+  exception Unsat of var_state
+  exception AbsurdBounds of var_state
+  exception NoneSuitable
+
+  type basic_var = var_state
+  type nbasic_var = var_state
+
   type t = {
     param: param;
+    mutable var_states: var_state M.t; (* var -> its state *)
     tab : Q.t Matrix.t; (* the matrix of coefficients *)
     basic : basic_var Vec.vector; (* basic variables *)
     nbasic : nbasic_var Vec.vector; (* non basic variables *)
-    mutable assign : Erat.t M.t; (* assignments *)
-    mutable bounds : (bound * bound) M.t; (* (lower, upper) bounds for variables *)
-    mutable idx_basic : int M.t; (* basic var -> its index in [basic] *)
-    mutable idx_nbasic : int M.t; (* non basic var -> its index in [nbasic] *)
   }
 
   type cert = {
@@ -148,99 +154,80 @@ module Make_inner
     | Unsatisfiable of cert
 
   let create param : t = {
-    param: param;
+    param;
+    var_states = M.empty;
     tab = Matrix.create ();
     basic = Vec.create ();
     nbasic = Vec.create ();
-    assign = M.empty;
-    bounds = M.empty;
-    idx_basic = M.empty;
-    idx_nbasic = M.empty;
   }
 
-  let copy t = {
-    param = Param.copy t.param;
-    tab = Matrix.copy t.tab;
-    basic = Vec.copy t.basic;
-    nbasic = Vec.copy t.nbasic;
-    assign = t.assign;
-    bounds = t.bounds;
-    idx_nbasic = t.idx_nbasic;
-    idx_basic = t.idx_basic;
-  }
+  let[@inline] index_basic (x:basic_var) : int = x.idx_basic
+  let[@inline] index_nbasic (x:nbasic_var) : int = x.idx_nbasic
 
-  let index_basic (t:t) (x:basic_var) : int =
-    match M.find x t.idx_basic with
-      | n -> n
-      | exception Not_found -> -1
-
-  let index_nbasic (t:t) (x:nbasic_var) : int =
-    match M.find x t.idx_nbasic with
-      | n -> n
-      | exception Not_found -> -1
-
-  let[@inline] mem_basic (t:t) (x:var) : bool = M.mem x t.idx_basic
-  let[@inline] mem_nbasic (t:t) (x:var) : bool = M.mem x t.idx_nbasic
+  let[@inline] is_basic (x:var_state) : bool = x.idx_basic >= 0
+  let[@inline] is_nbasic (x:var_state) : bool = x.idx_nbasic >= 0
 
   (* check invariants, for test purposes *)
   let check_invariants (t:t) : bool =
     Matrix.check_invariants t.tab &&
-    Vec.for_all (fun v -> mem_basic t v) t.basic &&
-    Vec.for_all (fun v -> mem_nbasic t v) t.nbasic &&
-    Vec.for_all (fun v -> not (mem_nbasic t v)) t.basic &&
-    Vec.for_all (fun v -> not (mem_basic t v)) t.nbasic &&
-    Vec.for_all (fun v -> Var_map.mem v t.assign) t.nbasic &&
-    Vec.for_all (fun v -> not (Var_map.mem v t.assign)) t.basic &&
+    Vec.for_all (fun v -> is_basic v) t.basic &&
+    Vec.for_all (fun v -> is_nbasic v) t.nbasic &&
+    Vec.for_all (fun v -> not (is_nbasic v)) t.basic &&
+    Vec.for_all (fun v -> not (is_basic v)) t.nbasic &&
+    Vec.for_all (fun v -> CCOpt.is_some v.assign) t.nbasic &&
+    Vec.for_all (fun v -> CCOpt.is_none v.assign) t.basic &&
     true
 
   (* find the definition of the basic variable [x],
      as a linear combination of non basic variables *)
-  let find_expr_basic_opt t (x:var) : Q.t Vec.vector option =
-    begin match index_basic t x with
+  let find_expr_basic_opt t (x:var_state) : Q.t Vec.vector option =
+    begin match index_basic x with
       | -1 -> None
       | i -> Some (Matrix.get_row t.tab i)
     end
 
+  (* expression that defines a basic variable in terms of non-basic variables *)
   let find_expr_basic t (x:basic_var) : Q.t Vec.vector =
-    begin match find_expr_basic_opt t x with
-      | None -> assert false
-      | Some e -> e
-    end
+    let i = index_basic x in
+    assert (i >= 0);
+    Matrix.get_row t.tab i
 
   (* build the expression [y = \sum_i (if x_i=y then 1 else 0)·x_i] *)
   let find_expr_nbasic t (x:nbasic_var) : Q.t Vec.vector =
     Vec.map
-      (fun y -> if Var.compare x y = 0 then Q.one else Q.zero)
+      (fun y -> if x == y then Q.one else Q.zero)
       t.nbasic
 
   (* find expression of [x] *)
-  let find_expr_total (t:t) (x:var) : Q.t Vec.vector =
+  let find_expr_total (t:t) (x:var_state) : Q.t Vec.vector =
     match find_expr_basic_opt t x with
     | Some e -> e
     | None ->
-      assert (mem_nbasic t x);
+      assert (is_nbasic x);
       find_expr_nbasic t x
 
   (* compute value of basic variable.
      It can be computed by using [x]'s definition
      in terms of nbasic variables, which have values *)
   let value_basic (t:t) (x:basic_var) : Erat.t =
-    assert (mem_basic t x);
+    assert (is_basic x);
     let res = ref Erat.zero in
     let expr = find_expr_basic t x in
     for i = 0 to Vec.length expr - 1 do
       let val_nbasic_i =
-        try M.find (Vec.get t.nbasic i) t.assign
-        with Not_found -> assert false
+        match (Vec.get t.nbasic i).assign with
+        | None -> assert false
+        | Some e -> e
       in
       res := Erat.sum !res (Erat.mul (Vec.get expr i) val_nbasic_i)
     done;
     !res
 
   (* extract a value for [x] *)
-  let[@inline] value (t:t) (x:var) : Erat.t =
-    try M.find x t.assign (* nbasic variables are assigned *)
-    with Not_found -> value_basic t x
+  let[@inline] value (t:t) (x:var_state) : Erat.t =
+    match x.assign with
+    | Some e -> e
+    | None -> value_basic t x
 
   (* trivial bounds *)
   let empty_bounds : bound * bound =
@@ -248,18 +235,17 @@ module Make_inner
     { value = Erat.make Q.inf Q.zero; reason = None; }
 
   (* find bounds of [x] *)
-  let[@inline] get_bounds (t:t) (x:var) : bound * bound =
-    try M.find x t.bounds
-    with Not_found -> empty_bounds
+  let[@inline] get_bounds (x:var_state) : bound * bound =
+    x.l_bound, x.u_bound
 
-  let[@inline] get_bounds_values (t:t) (x:var) : Erat.t * Erat.t =
-    let l, u = get_bounds t x in
+  let[@inline] get_bounds_values (x:var_state) : Erat.t * Erat.t =
+    let l, u = get_bounds x in
     l.value, u.value
 
   (* is [value x] within the bounds for [x]? *)
-  let is_within_bounds (t:t) (x:var) : bool * Erat.t =
+  let is_within_bounds (t:t) (x:var_state) : bool * Erat.t =
     let v = value t x in
-    let low, upp = get_bounds_values t x in
+    let low, upp = get_bounds_values x in
     if Erat.compare v low < 0 then
       false, low
     else if Erat.compare v upp > 0 then
@@ -267,50 +253,62 @@ module Make_inner
     else
       true, v
 
-  (* add nbasic variables *)
-  let add_vars (t:t) (l:var list) : unit =
-    (* add new variable to idx and array for nbasic, removing duplicates
-       and variables already present *)
-    let idx_nbasic, _, l =
-      List.fold_left
-        (fun ((idx_nbasic, offset, l) as acc) x ->
-           if mem_basic t x then acc
-           else if M.mem x idx_nbasic then acc
-           else (
-             (* allocate new index for [x] *)
-             M.add x offset idx_nbasic, offset+1, x::l
-           ))
-        (t.idx_nbasic, Vec.length t.nbasic, [])
-        l
-    in
-    (* add new columns to the matrix *)
-    let old_dim = Matrix.n_col t.tab in
-    List.iter (fun _ -> Matrix.push_col t.tab Q.zero) l;
-    assert (old_dim + List.length l = Matrix.n_col t.tab);
-    Vec.append_list t.nbasic (List.rev l);
-    (* assign these variables *)
-    t.assign <- List.fold_left (fun acc y -> M.add y Erat.zero acc) t.assign l;
-    t.idx_nbasic <- idx_nbasic;
-    ()
+  (* add [v] as a non-basic variable, or return its state if already mapped *)
+  let get_var_or_add_as_nbasic (t:t) (v:var) : var_state =
+    match M.get v t.var_states with
+    | Some v -> v
+    | None ->
+      let l_bound, u_bound = empty_bounds in
+      let idx_nbasic = Vec.length t.nbasic in
+      let vs = {
+        var=v; l_bound; u_bound;
+        assign=Some Erat.zero;
+        idx_nbasic; idx_basic=(-1);
+      } in
+      t.var_states <- M.add v vs t.var_states;
+      Vec.push t.nbasic vs;
+      Matrix.push_col t.tab Q.zero; (* new empty column *)
+      vs
+
+  (* add new variables as nbasic variables, return them, ignore
+     the already existing variables *)
+  let add_vars_as_nbasic (t:t) (l:var list) : unit =
+    List.iter
+      (fun x ->
+         if not (M.mem x t.var_states) then  (
+           (* allocate new index for [x] *)
+           ignore (get_var_or_add_as_nbasic t x : var_state)
+         ))
+      l
 
   (* define basic variable [x] by [eq] in [t] *)
-  let add_eq (t:t) (x, eq : basic_var * _ list) : unit =
-    if mem_basic t x || mem_nbasic t x then (
-      invalid_arg (Format.sprintf "Variable `%a` already defined." Var.pp x);
-    );
-    add_vars t (List.map snd eq);
+  let add_eq (t:t) (x, eq : var * _ list) : unit =
+    let eq = List.map (fun (coeff,x) -> coeff, get_var_or_add_as_nbasic t x) eq in
     (* add [x] as a basic var *)
-    t.idx_basic <- M.add x (Vec.length t.basic) t.idx_basic;
-    Vec.push t.basic x;
+    begin match M.get x t.var_states with
+      | Some _ ->
+        invalid_arg (Fmt.sprintf "Variable `%a` already defined." Var.pp x);
+      | None ->
+        let l_bound, u_bound = empty_bounds in
+        let idx_basic = Vec.length t.basic in
+        let vs = {
+          var=x; l_bound; u_bound; assign=None; idx_basic;
+          idx_nbasic=(-1);
+        } in
+        Vec.push t.basic vs;
+        t.var_states <- M.add x vs t.var_states;
+    end;
     (* add new row for defining [x] *)
     assert (Matrix.n_col t.tab > 0);
     Matrix.push_row t.tab Q.zero;
     let row_i = Matrix.n_row t.tab - 1 in
     assert (row_i >= 0);
+
     (* now put into the row the coefficients corresponding to [eq],
        expanding basic variables to their definition *)
     List.iter
       (fun (c, x) ->
+         (* FIXME(perf): replace with a `idx -> Q.t` function, do not allocate vector *)
          let expr = find_expr_total t x in
          assert (Vec.length expr = Matrix.n_col t.tab);
          Vec.iteri
@@ -323,25 +321,27 @@ module Make_inner
     ()
 
   (* add bounds to [x] in [t] *)
-  let add_bound_aux (t:t) (x:var)
+  let add_bound_aux (x:var_state)
       (low:Erat.t) (low_reason:lit option)
       (upp:Erat.t) (upp_reason:lit option) : unit =
-    add_vars t [x];
-    let l, u = get_bounds t x in
+    let l, u = get_bounds x in
     let l' = if Erat.lt low l.value then l else { value = low; reason = low_reason; } in
     let u' = if Erat.gt upp u.value then u else { value = upp; reason = upp_reason; } in
-    t.bounds <- M.add x (l', u') t.bounds
+    x.l_bound <- l';
+    x.u_bound <- u';
+    ()
 
   let add_bounds (t:t)
       ?strict_lower:(slow=false) ?strict_upper:(supp=false)
       ?lower_reason ?upper_reason (x, l, u) : unit =
+    let x = get_var_or_add_as_nbasic t x in
     let e1 = if slow then Q.one else Q.zero in
     let e2 = if supp then Q.neg Q.one else Q.zero in
-    add_bound_aux t x (Erat.make l e1) lower_reason (Erat.make u e2) upper_reason;
-    if mem_nbasic t x then (
+    add_bound_aux x (Erat.make l e1) lower_reason (Erat.make u e2) upper_reason;
+    if is_nbasic x then (
       let b, v = is_within_bounds t x in
       if not b then (
-        t.assign <- M.add x v t.assign;
+        x.assign <- Some v;
       )
     )
 
@@ -351,10 +351,13 @@ module Make_inner
   let add_upper_bound t ?strict ~reason x u =
     add_bounds t ?strict_upper:strict ~upper_reason:reason (x,Q.minus_inf,u)
 
+  let iter_all_vars (t:t) : var_state Iter.t =
+    Iter.append (Vec.to_iter t.nbasic) (Vec.to_iter t.basic)
+
   (* full assignment *)
   let full_assign (t:t) : (var * Erat.t) Iter.t =
     Iter.append (Vec.to_iter t.nbasic) (Vec.to_iter t.basic)
-    |> Iter.map (fun x -> x, value t x)
+    |> Iter.map (fun x -> x.var, value t x)
 
   let[@inline] min x y = if Q.compare x y < 0 then x else y
 
@@ -370,9 +373,10 @@ module Make_inner
   *)
   let solve_epsilon (t:t) : Q.t =
     let emax =
-      M.fold
-        (fun x ({ value = {base=low;eps_factor=e_low}; _},
-                { value = {base=upp;eps_factor=e_upp}; _}) emax ->
+      Iter.fold
+        (fun emax x ->
+           let { value = {base=low;eps_factor=e_low}; _} = x.l_bound in
+           let { value = {base=upp;eps_factor=e_upp}; _} = x.u_bound in
            let {base=v; eps_factor=e_v} = value t x in
            (* lower bound *)
            let emax =
@@ -384,8 +388,7 @@ module Make_inner
            if Q.compare upp Q.inf < 0 && Q.compare e_v e_upp > 0
            then min emax Q.((upp - v) / (e_v - e_upp))
            else emax)
-        t.bounds
-        Q.inf
+        Q.inf (iter_all_vars t)
     in
     if Q.compare emax Q.one >= 0 then Q.one else emax
 
@@ -409,14 +412,15 @@ module Make_inner
      This is important for termination.
   *)
   let find_suitable_nbasic_for_pivot (t:t) (x:basic_var) : nbasic_var * Q.t =
-    assert (mem_basic t x);
+    Profile.with_ "simplex.find-pivot-var" @@ fun () ->
+    assert (is_basic x);
     let _, v = is_within_bounds t x in
     let b = Erat.compare (value t x) v < 0 in
     (* is nbasic var [y], with coeff [a] in definition of [x], suitable? *)
     let test (y:nbasic_var) (a:Q.t) : bool =
-      assert (mem_nbasic t y);
+      assert (is_nbasic y);
       let v = value t y in
-      let low, upp = get_bounds_values t y in
+      let low, upp = get_bounds_values y in
       if b then (
         (Erat.lt v upp && Q.compare a Q.zero > 0) ||
         (Erat.gt v low && Q.compare a Q.zero < 0)
@@ -440,7 +444,7 @@ module Make_inner
           begin match aux (i+1) with
             | None -> Some (y,a)
             | Some (z, _) as res_tail ->
-              if Var.compare y z <= 0
+              if Var.compare y.var z.var <= 0
               then Some (y,a)
               else res_tail
           end
@@ -456,15 +460,17 @@ module Make_inner
 
   (* pivot to exchange [x] and [y] *)
   let pivot (t:t) (x:basic_var) (y:nbasic_var) (a:Q.t) : unit =
+    Profile.with_ "simplex.pivot" @@ fun () ->
     (* swap values ([x] becomes assigned) *)
     let val_x = value t x in
-    t.assign <- t.assign |> M.remove y |> M.add x val_x;
-    (* Matrixrix Pivot operation *)
-    let kx = index_basic t x in
-    let ky = index_nbasic t y in
+    y.assign <- None;
+    x.assign <- Some val_x;
+    (* Matrix Pivot operation *)
+    let kx = index_basic x in
+    let ky = index_nbasic y in
     for j = 0 to Vec.length t.nbasic - 1 do
-      if Var.compare y (Vec.get t.nbasic j) = 0 then (
-        Matrix.set t.tab kx j Q.(one / a)
+      if y == Vec.get t.nbasic j then (
+        Matrix.set t.tab kx j Q.(inv a)
       ) else (
         Matrix.set t.tab kx j Q.(neg (Matrix.get t.tab kx j) / a)
       )
@@ -481,8 +487,10 @@ module Make_inner
     (* Switch x and y in basic and nbasic vars *)
     Vec.set t.basic kx y;
     Vec.set t.nbasic ky x;
-    t.idx_basic <- t.idx_basic |> M.remove x |> M.add y kx;
-    t.idx_nbasic <- t.idx_nbasic |> M.remove y |> M.add x ky;
+    x.idx_basic <- -1;
+    y.idx_basic <- kx;
+    x.idx_nbasic <- ky;
+    y.idx_nbasic <- -1;
     ()
 
   (* find minimum element of [arr] (wrt [cmp]) that satisfies predicate [f] *)
@@ -509,16 +517,26 @@ module Make_inner
 
   (* check bounds *)
   let check_bounds (t:t) : unit =
-    M.iter (fun x (l, u) -> if Erat.gt l.value u.value then raise (AbsurdBounds x)) t.bounds
+    iter_all_vars t
+      (fun x ->
+         let l = x.l_bound in
+         let u = x.u_bound in
+         if Erat.gt l.value u.value then raise (AbsurdBounds x))
+
+  let[@inline] compare_by_var x y = Var.compare x.var y.var
 
   (* actual solving algorithm *)
   let solve_aux (t:t) : unit =
+    Profile.instant
+      (Printf.sprintf "(simplex.solve :basic %d :non-basic %d)"
+         (Vec.length t.basic) (Vec.length t.nbasic));
     check_bounds t;
     (* select the smallest basic variable that is not satisfied in the current
        assignment. *)
     let rec aux_select_basic_var () =
       match
-        find_min_filter ~cmp:Var.compare
+        Profile.with_ "simplex.select-basic-var" @@ fun () ->
+        find_min_filter ~cmp:compare_by_var
           (fun x -> not (fst (is_within_bounds t x)))
           t.basic
       with
@@ -533,7 +551,7 @@ module Make_inner
           (* exchange [x] and [y] by pivoting *)
           pivot t x y a;
           (* assign [x], now a nbasic variable, to the faulty bound [v] *)
-          t.assign <- M.add x v t.assign;
+          x.assign <- Some v;
           (* next iteration *)
           aux_select_basic_var ()
         | exception NoneSuitable ->
@@ -552,11 +570,11 @@ module Make_inner
         let cert_expr =
           List.combine
             (Vec.to_list (find_expr_basic t x))
-            (Vec.to_list t.nbasic)
+            (Vec.to_list t.nbasic |> CCList.map (fun x -> x.var))
         in
-        Unsatisfiable { cert_var=x; cert_expr; } (* FIXME *)
+        Unsatisfiable { cert_var=x.var; cert_expr; } (* FIXME *)
       | AbsurdBounds x ->
-        Unsatisfiable { cert_var=x; cert_expr=[]; }
+        Unsatisfiable { cert_var=x.var; cert_expr=[]; }
 
   (* add [c·x] to [m] *)
   let add_expr_ (x:var) (c:Q.t) (m:Q.t M.t) =
@@ -565,8 +583,9 @@ module Make_inner
     if Q.equal Q.zero c' then M.remove x m else M.add x c' m
 
   (* dereference basic variables from [c·x], and add the result to [m] *)
-  let rec deref_var_ t x c m = match find_expr_basic_opt t x with
-    | None -> add_expr_ x c m
+  let rec deref_var_ t x c m =
+    match find_expr_basic_opt t x with
+    | None -> add_expr_ x.var c m
     | Some expr_x ->
       let m = ref m in
       Vec.iteri
@@ -594,9 +613,9 @@ module Make_inner
     | Some reason -> reason :: acc
 
   let check_cert (t:t) (c:cert) =
-    let x = c.cert_var in
-    let { value = low_x; reason = low_x_reason; },
-        { value = up_x; reason = upp_x_reason; } = get_bounds t x in
+    let x = M.get c.cert_var t.var_states |> CCOpt.get_lazy (fun()->assert false) in
+    let { value = low_x; reason = low_x_reason; } = x.l_bound in
+    let { value = up_x; reason = upp_x_reason; } = x.u_bound in
     begin match c.cert_expr with
       | [] ->
         if Erat.compare low_x up_x > 0
@@ -609,14 +628,15 @@ module Make_inner
         let low, low_unsat_core, up, up_unsat_core, expr_minus_x =
           List.fold_left
             (fun (l, luc, u, uuc, expr_minus_x) (c, y) ->
-               let ly, uy = scale_bounds c (get_bounds t y) in
+               let y = M.get y t.var_states |> CCOpt.get_lazy (fun ()->assert false) in
+               let ly, uy = scale_bounds c (get_bounds y) in
                assert (Erat.compare ly.value uy.value <= 0);
                let expr_minus_x = deref_var_ t y c expr_minus_x in
                let luc = add_to_unsat_core luc ly.reason in
                let uuc = add_to_unsat_core uuc uy.reason in
                Erat.sum l ly.value, luc, Erat.sum u uy.value, uuc, expr_minus_x)
             (Erat.zero, [], Erat.zero, [], e0)
-              expr
+            expr
         in
         (* check that the expanded expression is [x], and that
            one of the bounds on [x] is incompatible with bounds of [c.cert_expr] *)
@@ -637,51 +657,45 @@ module Make_inner
   let fmt_cell = format_of_string "%*s| "
 
   let pp_cert out (c:cert) = match c.cert_expr with
-    | [] -> Format.fprintf out "(@[inconsistent-bounds %a@])" Var.pp c.cert_var
+    | [] -> Fmt.fprintf out "(@[inconsistent-bounds %a@])" Var.pp c.cert_var
     | _ ->
-      let pp_pair = Format.(hvbox ~i:2 @@ pair ~sep:(return "@ * ") Q.pp_print Var.pp) in
-      Format.fprintf out "(@[<hv>cert@ :var %a@ :linexp %a@])"
+      let pp_pair = Fmt.(hvbox ~i:2 @@ pair ~sep:(return "@ * ") Q.pp_print Var.pp) in
+      Fmt.fprintf out "(@[<hv>cert@ :var %a@ :linexp %a@])"
         Var.pp c.cert_var
-        Format.(within "[" "]" @@ hvbox @@ list ~sep:(return "@ + ") pp_pair)
+        Fmt.(within "[" "]" @@ hvbox @@ list ~sep:(return "@ + ") pp_pair)
         c.cert_expr
 
   let pp_mat out t =
-    let open Format in
+    let open Fmt in
     fprintf out "@[<v>";
     (* header *)
     fprintf out fmt_head !matrix_pp_width "";
-    Vec.iter (fun x -> fprintf out fmt_cell !matrix_pp_width (str_of_var x)) t.nbasic;
+    Vec.iter (fun x -> fprintf out fmt_cell !matrix_pp_width (str_of_var x.var)) t.nbasic;
     fprintf out "@,";
     (* rows *)
     for i=0 to Matrix.n_row t.tab-1 do
       if i>0 then fprintf out "@,";
       let v = Vec.get t.basic i in
-      fprintf out fmt_head !matrix_pp_width (str_of_var v);
+      fprintf out fmt_head !matrix_pp_width (str_of_var v.var);
       let row = Matrix.get_row t.tab i in
       Vec.iter (fun q -> fprintf out fmt_cell !matrix_pp_width (str_of_q q)) row;
     done;
     fprintf out "@]"
 
-  let pp_assign =
-    let open Format in
-    let pp_pair =
-      within "(" ")" @@ hvbox @@ pair ~sep:(return "@ := ") Var.pp Erat.pp
+  let pp_vars =
+    let ppv out v =
+      Fmt.fprintf out "(@[var %a@ :assign %a@ :lbound %a@ :ubound %a@])"
+        Var.pp v.var (Fmt.Dump.option Erat.pp) v.assign
+        Erat.pp v.l_bound.value Erat.pp v.u_bound.value
     in
-    map Var_map.to_iter @@ within "(" ")" @@ hvbox @@ iter pp_pair
-
-  let pp_bounds =
-    let open Format in
-    let pp_pairs out (x,(l,u)) =
-      fprintf out "(@[%a =< %a =< %a@])" Erat.pp l.value Var.pp x Erat.pp u.value
-    in
-    map Var_map.to_iter @@ within "(" ")" @@ hvbox @@ iter pp_pairs
+    Fmt.(within "(" ")" @@ hvbox @@ iter ppv)
 
   let pp_full_state out (t:t) : unit =
     (* print main matrix *)
-    Format.fprintf out
-      "(@[<hv>simplex@ :n-row %d :n-col %d@ :mat %a@ :assign %a@ :bounds %a@])"
-      (Matrix.n_row t.tab) (Matrix.n_col t.tab) pp_mat t pp_assign t.assign
-      pp_bounds t.bounds
+    Fmt.fprintf out
+      "(@[<hv>simplex@ :n-row %d :n-col %d@ :mat %a@ :vars %a @])"
+      (Matrix.n_row t.tab) (Matrix.n_col t.tab) pp_mat t
+      pp_vars (iter_all_vars t)
 end
 
 module Make(Var:VAR) =
