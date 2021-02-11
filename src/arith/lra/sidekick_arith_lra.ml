@@ -7,6 +7,7 @@
 open Sidekick_core
 
 module Simplex = Simplex
+module Simplex2 = Simplex2
 module Predicate = Predicate
 module Linear_expr = Linear_expr
 
@@ -123,7 +124,6 @@ module Make(A : ARG) : S with module A = A = struct
   module LE = SimpSolver.L.Expr
   module LConstr = SimpSolver.L.Constr
 
-  type proxy = T.t
   type state = {
     tst: T.state;
     simps: T.t T.Tbl.t; (* cache *)
@@ -305,12 +305,6 @@ module Make(A : ARG) : S with module A = A = struct
            T.Tbl.add self.neq_encoded (Lit.term (Lit.abs lit)) ();
         )
     end
-
-  let dedup_lits lits : _ list =
-    let module LTbl = CCHashtbl.Make(Lit) in
-    let tbl = LTbl.create 16 in
-    List.iter (fun l -> LTbl.replace tbl l ()) lits;
-    LTbl.keys_list tbl
 
   module Q_map = CCMap.Make(Q)
 
