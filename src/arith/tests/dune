@@ -1,10 +1,13 @@
 (executable
  (name run_tests)
- (libraries containers sidekick-arith.lra zarith iter qcheck)
+ (libraries containers sidekick-arith.lra zarith iter alcotest qcheck)
  (flags :standard -warn-error -a+8 -color always))
 
 (alias
  (name runtest)
- (deps run_tests.exe)
+ (locks /test)
+ (package sidekick-arith)
  (action
-  (run %{deps} --verbose)))
+   (progn
+     (run ./run_tests.exe alcotest) ; run regressions first
+     (run ./run_tests.exe qcheck --verbose))))
