@@ -46,9 +46,7 @@ type subst = Spl.L.subst
 let filter_shrink (f:'a->bool) (a:'a QC.arbitrary) : 'a QC.arbitrary =
   match a.QC.shrink with
     | None -> a
-    | Some shr ->
-      let shr' x yield = shr x (fun y -> if f y then yield y) in
-      QC.set_shrink shr' a
+    | Some shr -> QC.set_shrink (QC.Shrink.filter f shr) a
 
 module Comb = struct
   include Spl.L.Comb
