@@ -404,10 +404,10 @@ module Make(Var: VAR)
       assert Erat.(sum = zero);
 
     done;
-    () (* TODO: more *)
+    ()
 
   (* for internal checking *)
-  let _check_invariants_internal self =
+  let[@inline] _check_invariants_internal self =
     if false (* FUDGE *) then _check_invariants self
 
   let[@inline] has_var_ (self:t) x : bool = V_map.mem x self.var_tbl

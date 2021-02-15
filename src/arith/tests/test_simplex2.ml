@@ -277,7 +277,7 @@ let check_sound =
   let ar =
     Step.(rand_for 0 300)
     |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
-    |> QC.set_stats steps_stats
+(*     |> QC.set_stats steps_stats *)
   in
   QC.Test.make ~long_factor:10 ~count:500 ~name:"simplex2_sound" ar prop_sound
 
@@ -287,6 +287,7 @@ let prop_invariants pb =
     add_steps simplex pb ~f:(fun () -> Spl._check_invariants simplex);
     Spl.check_exn simplex
    with Spl.E_unsat _ -> ());
+  Spl._check_invariants simplex;
   true
 
 let check_invariants =
