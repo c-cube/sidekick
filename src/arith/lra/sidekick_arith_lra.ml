@@ -373,6 +373,10 @@ module Make(A : ARG) : S with module A = A = struct
         fail_with_cert si acts cert
     end
 
+  (* TODO: trivial propagations *)
+
+  (* partial checks is where we add literals from the trail to the
+     simplex. *)
   let partial_check_ self si acts trail : unit =
     Profile.with_ "lra.partial-check" @@ fun () ->
     trail
@@ -381,7 +385,11 @@ module Make(A : ARG) : S with module A = A = struct
          let lit_t = SI.Lit.term lit in
          match A.view_as_lra lit_t with
          | LRA_simplex_pred (v, op, q) ->
-           let op = if sign then op else S_op.neg_sign op in
+
+           (* need to account for the literal's sign *)
+           let op = if sign then op else S_op.not_ op in
+
+           (* assert new constraint to Simplex *)
            let constr = SimpSolver.Constraint.mk v op q in
            Log.debugf 10
              (fun k->k "(@[lra.partial-check.assert@ %a@])"

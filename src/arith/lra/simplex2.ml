@@ -23,6 +23,12 @@ module Op = struct
     | Geq -> Leq
     | Gt -> Lt
 
+  let not_ = function
+    | Leq -> Gt
+    | Lt -> Geq
+    | Geq -> Lt
+    | Gt -> Leq
+
   let to_string = function
     | Leq -> "<="
     | Lt -> "<"
