@@ -20,9 +20,9 @@ module Spl = Sidekick_arith_lra.Simplex2.Make(Var)
 let rand_n low n : Z.t QC.arbitrary =
   QC.map ~rev:Z.to_int Z.of_int QC.(low -- n)
 
-let rand_q : Q.t QC.arbitrary =
-  let n1 = rand_n ~-100_000 100_000 in
-  let n2 = rand_n 1 40_000 in
+let rand_q_with u l : Q.t QC.arbitrary =
+  let n1 = rand_n (~- u) u in
+  let n2 = rand_n 1 l in
   let qc =
     QC.map ~rev:(fun q -> Q.num q, Q.den q)
       (fun (x,y) -> Q.make x y)
@@ -33,6 +33,8 @@ let rand_q : Q.t QC.arbitrary =
     CCOpt.get_exn qc.QC.shrink q (fun x -> if Q.is_real x then yield x)
   in
   QC.set_shrink shrink qc
+
+let rand_q = rand_q_with 200_000 40_000
 
 module Step = struct
   module G = QC.Gen
@@ -106,13 +108,13 @@ module Step = struct
                      | `Gt -> S_gt(x,n)
                      | `Geq -> S_geq(x,n))
                in
-               [3, gen]);
+               [6, gen]);
             (* make a new non-basic var *)
             (let gen =
                let v = List.length vars in
                return ((v::vars), S_new_var v)
              in
-             [1, gen]);
+             [2, gen]);
             (* make a definition *)
             (if List.length vars>2
              then (
@@ -126,7 +128,7 @@ module Step = struct
                  let le = List.combine coeffs vars' in
                  return (v::vars, S_define (v, le))
                in
-               [3, gen]
+               [5, gen]
             ) else []);
           ]
         in
@@ -180,7 +182,7 @@ let check_steps l : bool =
 (* basic debug printer for Q.t *)
 let q_dbg q = Fmt.asprintf "%.3f" (Q.to_float q)
 
-let prop_sound pb =
+let prop_sound ?(inv=false) pb =
   let simplex = Spl.create () in
   begin match
       add_steps simplex pb;
@@ -195,6 +197,7 @@ let prop_sound pb =
 
       let check_step s =
         (try
+           if inv then Spl._check_invariants simplex;
            match s with
            | Step.S_new_var _ -> ()
            | Step.S_define (x, le) ->
@@ -203,7 +206,7 @@ let prop_sound pb =
                List.fold_left (fun s (n,y) -> Q.(s + n * get_val y)) Q.zero le
              in
              if Q.(v_x <> v_le) then (
-               failwith (spf "bad def (X_%d): val(x)=%s, val(le)=%s" x (q_dbg v_x)(q_dbg v_le))
+               failwith (spf "bad def (X_%d): val(x)=%s, val(expr)=%s" x (q_dbg v_x)(q_dbg v_le))
              );
            | Step.S_lt (x, n) ->
              let v_x = get_val x in
@@ -221,6 +224,7 @@ let prop_sound pb =
            QC.Test.fail_reportf "step failed: %a@.exn:@.%s@."
              Step.pp_ s (Printexc.to_string e)
         );
+        if inv then Spl._check_invariants simplex;
         true
       in
       List.for_all check_step pb
@@ -244,10 +248,24 @@ let prop_sound pb =
       true (* TODO : check certificate *)
   end
 
+(* a bunch of useful stats for a problem *)
+let steps_stats = [
+  "n-define", Step.(List.fold_left (fun n -> function S_define _ -> n+1 | _->n) 0);
+  "n-bnd",
+  Step.(List.fold_left
+          (fun n -> function (S_leq _ | S_lt _ | S_geq _ | S_gt _) -> n+1 | _->n) 0);
+  "n-vars",
+  Step.(List.fold_left
+          (fun n -> function S_define _ | S_new_var _ -> n+1 | _ -> n) 0);
+]
+
 let check_sound =
-  let ar = Step.(rand_for 0 350) in
-  let ar = QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat") ar in
-  QC.Test.make ~long_factor:10 ~count:900 ~name:"simplex2_sound" ar prop_sound
+  let ar =
+    Step.(rand_for 0 300)
+    |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
+    |> QC.set_stats steps_stats
+  in
+  QC.Test.make ~long_factor:10 ~count:500 ~name:"simplex2_sound" ar prop_sound
 
 let prop_invariants pb =
   let simplex = Spl.create () in
@@ -258,10 +276,12 @@ let prop_invariants pb =
   true
 
 let check_invariants =
-  let ar = Step.(rand_for 0 350) in
-  let ar = QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat") ar in
+  let ar =
+    Step.(rand_for 0 300)
+    |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
+  in
   QC.Test.make
-    ~long_factor:10 ~count:900 ~name:"simplex2_invariants"
+    ~long_factor:10 ~count:500 ~name:"simplex2_invariants"
     ar prop_invariants
 
 let check_scalable =
@@ -273,9 +293,13 @@ let check_scalable =
      with _ -> ());
     true
   in
+  let ar =
+    Step.(rand_for 3_000 5_000)
+    |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
+    (*     |> QC.set_stats steps_stats *)
+  in
   QC.Test.make ~long_factor:2 ~count:10 ~name:"simplex2_scalable"
-    Step.(rand_for 3_000 5_000) prop
-
+     ar prop
 
 let props = [
   check_invariants;
@@ -288,9 +312,9 @@ let props = [
 module Reg = struct
   let alco_mk name f = name, `Quick, f
 
-  let reg_prop_sound name l =
+  let reg_prop_sound ?inv name l =
     alco_mk name @@ fun () ->
-    if not (prop_sound l) then Alcotest.fail "fail";
+    if not (prop_sound ?inv l) then Alcotest.fail "fail";
     ()
 
   let reg_prop_invariants name l =
@@ -370,8 +394,33 @@ module Reg = struct
     ] in
     reg_prop_sound "t4" l
 
+  let t5 =
+    let l = [
+      S_new_var 0;
+      S_lt (0, qstr "-45822/1835");
+      S_new_var 2;
+      S_new_var 4;
+      S_define (5, [qstr "40461/27377", 2; qstr"4292/31193", 0]);
+      S_define (6, [qstr "-51582/5441", 5; qstr"-88432/27939", 4]);
+    ] in
+    reg_prop_sound "t5" l
+
+  let t6 =
+    let l = [
+      S_new_var 0;
+      S_new_var 1;
+      S_define (3, [qstr "-21185/6058", 0; qstr "35055/29267", 1]);
+      S_define (4 , [qstr "4013/2790", 1; qstr "-23314/11713", 3]);
+      S_define (5 , [qstr "-15503/1523", 1; qstr "49580/15623", 0]);
+      S_define (13, [qstr "41722/2083", 0; qstr "-20558/8483", 5]);
+      S_define (15, [qstr "-18908/11213", 4; qstr "-66053/8560", 3]);
+      S_leq (13, qstr "-5123/16411");
+      S_lt (15, qstr "-9588/859");
+    ] in
+    reg_prop_sound ~inv:true "t6" l
+
   let tests = [
-    t1; t2_snd; t2_inv; t3_snd; t4_snd_short; t4_snd;
+    t1; t2_snd; t2_inv; t3_snd; t4_snd_short; t4_snd; t5; t6;
   ]
 end
 
