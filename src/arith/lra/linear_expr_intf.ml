@@ -57,51 +57,6 @@ module type VAR = sig
   val pp_lit : lit Fmt.printer
 end
 
-(** {2 Fresh variables}
-
-    Standard interface for variables with an infinite number
-    of 'fresh' variables. A 'fresh' variable should be distinct
-    from any other.
-*)
-module type FRESH = sig
-  type var
-  (** The type of variables. *)
-
-  type t
-  (** A type of state for creating fresh variables. *)
-
-  val copy : t -> t
-  (** Copy state *)
-
-  val fresh : t -> var
-  (** Create a fresh variable using an existing variable as base.
-      TODO: need some explaining, about the difference with {!create}. *)
-end
-
-(** {2 Generative Variable interface}
-
-    Standard interface for variables that are meant to be used
-    in expressions. Furthermore, fresh variables can be generated
-    (which is useful to refactor and/or put problems in specific
-    formats used by algorithms).
-*)
-module type VAR_GEN = sig
-  include VAR
-
-  (** Generate fresh variables on demand *)
-  module Fresh : FRESH with type var := t
-end
-
-module type VAR_EXTENDED = sig
-  type user_var (** original variables *)
-
-  type t =
-    | User of user_var
-    | Internal of int
-
-  include VAR_GEN with type t := t
-end
-
 type bool_op = Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 
 (** {2 Linear expressions & formulas} *)

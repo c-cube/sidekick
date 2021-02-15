@@ -6,7 +6,6 @@ let tests : unit Alcotest.test list = [
 let props =
   List.flatten
     [ Test_simplex2.props;
-      Test_simplex.props;
     ]
 
 let () =
