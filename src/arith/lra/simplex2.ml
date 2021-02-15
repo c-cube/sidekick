@@ -615,6 +615,7 @@ module Make(Var: VAR)
       }
     | E_unsat_basic of {
         x: var_state;
+        x_bound: (Op.t * bound);
         le: (num * V.t) list; (* definition of the basic var *)
         bounds: (Op.t * bound) V_map.t; (* bound for each variable in [le] *)
       }
@@ -624,25 +625,27 @@ module Make(Var: VAR)
 
     let lits = function
       | E_bounds b -> [b.lower.b_lit; b.upper.b_lit]
-      | E_unsat_basic b ->
-        V_map.fold (fun _ (_,bnd) l -> bnd.b_lit :: l) b.bounds []
+      | E_unsat_basic {x_bound=(_,x_bnd); bounds; x=_; le=_;} ->
+        V_map.fold (fun _ (_,bnd) l -> bnd.b_lit :: l) bounds [x_bnd.b_lit]
 
     let pp out (self:t) =
       match self with
       | E_bounds {x;lower;upper} ->
-        Fmt.fprintf out "(@[unsat-bounds@ %a@ :lower %a@ :upper %a@])"
+        Fmt.fprintf out "(@[cert.unsat-bounds@ %a@ :lower %a@ :upper %a@])"
           Var_state.pp x Erat.pp lower.b_val Erat.pp upper.b_val
-      | E_unsat_basic {x; le; bounds} ->
+      | E_unsat_basic {x; x_bound; le; bounds} ->
         let pp_bnd out (v,(op,bnd)) =
           Fmt.fprintf out "(@[%a %s %a@])" Var.pp v (Op.to_string op) Erat.pp bnd.b_val
         in
-        Fmt.fprintf out "(@[cert@ %a :bounds %a@ :defs %a@])"
-          Var_state.pp x
+        Fmt.fprintf out
+          "(@[cert.unsat-basic@ %a@ @[:bound %a@] @[:le %a@]@ @[:le-bounds@ %a@]@])"
+          Var_state.pp x pp_bnd (x.var,x_bound)
           Fmt.(Dump.list pp_bnd) (V_map.to_list bounds)
           Fmt.(Dump.list (Dump.pair pp_q_dbg V.pp)) le
 
     let bounds x ~lower ~upper : t = E_bounds {x; lower; upper}
-    let unsat_basic x le bounds : t = E_unsat_basic {x; le; bounds}
+    let unsat_basic x x_bound le bounds : t =
+      E_unsat_basic {x; x_bound; le; bounds}
   end
 
   exception E_unsat of Unsat_cert.t
@@ -751,7 +754,7 @@ module Make(Var: VAR)
      one of its bound, and whose row is tight on all non-basic variables.
      @param is_lower is true if the lower bound is not respected
      (i.e. [x_i] is too small) *)
-  let cert_of_row_ (self:t) (x_i:var_state) ~is_lower : unsat_cert =
+  let cert_of_row_ (self:t) (x_i:var_state) (bnd:bound) ~is_lower : unsat_cert =
     Log.debugf 50 (fun k->k "(@[simplex.cert-of-row[lower: %B]@ x_i=%a@])"
                       is_lower Var_state.pp x_i);
     assert (Var_state.is_basic x_i);
@@ -783,7 +786,13 @@ module Make(Var: VAR)
           )
         ))
       self.vars;
-    let cert = Unsat_cert.unsat_basic x_i !le !bounds in
+
+    let op =
+      if is_lower then if Q.(bnd.b_val.eps_factor <= zero) then Op.Geq else Op.Gt
+      else if Q.(bnd.b_val.eps_factor >= zero) then Op.Leq else Op.Lt
+    in
+
+    let cert = Unsat_cert.unsat_basic x_i (op, bnd) !le !bounds in
     cert
 
   (* main satisfiability check.
@@ -796,7 +805,7 @@ module Make(Var: VAR)
     try
       while true do
         _check_invariants_internal self;
-        Log.debugf 50 (fun k->k "(@[simplex2.check.iter@ %a@])" pp self);
+        (* Log.debugf 50 (fun k->k "(@[simplex2.check.iter@ %a@])" pp self); *)
 
         (* basic variable that doesn't respect its bound *)
         let x_i, is_lower, bnd = match find_basic_var_ self with
@@ -817,7 +826,7 @@ module Make(Var: VAR)
             with
             | Some x -> x
             | None ->
-              let cert = cert_of_row_ self x_i ~is_lower:true in
+              let cert = cert_of_row_ self x_i bnd ~is_lower:true in
               raise (E_unsat cert)
           in
           assert (Var_state.is_n_basic x_j);
@@ -839,7 +848,7 @@ module Make(Var: VAR)
             with
             | Some x -> x
             | None ->
-              let cert = cert_of_row_ self x_i ~is_lower:false in
+              let cert = cert_of_row_ self x_i bnd ~is_lower:false in
               raise (E_unsat cert)
           in
           assert (Var_state.is_n_basic x_j);
