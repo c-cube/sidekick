@@ -3,6 +3,7 @@ open CCMonomorphic
 
 module Fmt = CCFormat
 module QC = QCheck
+module Log = Sidekick_util.Log
 let spf = Printf.sprintf
 
 module Var = struct
@@ -154,25 +155,38 @@ module Step = struct
   let rand : t list QC.arbitrary = rand_for 1 100
 end
 
+(* add a single step to the simplexe *)
+let add_step simplex (s:Step.t) : unit =
+  begin match s with
+    | Step.S_new_var v -> Spl.add_var simplex v
+    | Step.S_leq (v,n) ->
+      Spl.add_constraint simplex (Spl.Constraint.leq v n) 0
+    | Step.S_lt (v,n) ->
+      Spl.add_constraint simplex (Spl.Constraint.lt v n) 0
+    | Step.S_geq (v,n) ->
+      Spl.add_constraint simplex (Spl.Constraint.geq v n) 0
+    | Step.S_gt (v,n) ->
+      Spl.add_constraint simplex (Spl.Constraint.gt v n) 0
+    | Step.S_define (x,le) ->
+      Spl.define simplex x le
+  end
+
 let add_steps ?(f=fun()->()) (simplex:Spl.t) l : unit =
   f();
   List.iter
-    (fun s ->
-       begin match s with
-         | Step.S_new_var v -> Spl.add_var simplex v
-         | Step.S_leq (v,n) ->
-           Spl.add_constraint simplex (Spl.Constraint.leq v n) 0
-         | Step.S_lt (v,n) ->
-           Spl.add_constraint simplex (Spl.Constraint.lt v n) 0
-         | Step.S_geq (v,n) ->
-           Spl.add_constraint simplex (Spl.Constraint.geq v n) 0
-         | Step.S_gt (v,n) ->
-           Spl.add_constraint simplex (Spl.Constraint.gt v n) 0
-         | Step.S_define (x,le) ->
-           Spl.define simplex x le
-       end;
-       f())
+    (fun s -> add_step simplex s; f())
     l
+
+(* is this simplex's state sat? *)
+let check_simplex_is_sat simplex : bool =
+  (try Spl.check_exn simplex; true
+   with Spl.E_unsat _ -> false)
+
+(* is this problem sat? *)
+let check_pb_is_sat pb : bool =
+  let simplex = Spl.create() in
+  (try add_steps simplex pb; Spl.check_exn simplex; true
+   with Spl.E_unsat _ -> false)
 
 let check_steps l : bool =
   let simplex = Spl.create () in
@@ -284,6 +298,43 @@ let check_invariants =
     ~long_factor:10 ~count:500 ~name:"simplex2_invariants"
     ar prop_invariants
 
+let prop_backtrack pb =
+  let simplex = Spl.create () in
+  let stack = Stack.create() in
+  let res = ref true in
+  begin try
+    List.iter
+      (fun s ->
+         let is_sat = check_simplex_is_sat simplex in
+         Spl.push_level simplex;
+         Stack.push is_sat stack;
+         if not is_sat then (res := false; raise Exit);
+         (try add_step simplex s
+          with Spl.E_unsat _ -> res := false; raise Exit);
+         )
+    pb;
+    with Exit -> ()
+  end;
+  res := !res && check_simplex_is_sat simplex;
+  Log.debugf 50 (fun k->k "res=%b, expected=%b" !res (check_pb_is_sat pb));
+  assert CCBool.(equal !res (check_pb_is_sat pb));
+  (* now backtrack and check at each level *)
+  while not (Stack.is_empty stack) do
+    let res = Stack.pop stack in
+    Spl.pop_levels simplex 1;
+    assert CCBool.(equal res (check_simplex_is_sat simplex))
+  done;
+  true
+
+let check_backtrack =
+  let ar =
+    Step.(rand_for 0 300)
+    |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
+  in
+  QC.Test.make
+    ~long_factor:10 ~count:200 ~name:"simplex2_backtrack"
+    ar prop_backtrack
+
 let check_scalable =
   let prop pb =
     let simplex = Spl.create () in
@@ -304,6 +355,7 @@ let check_scalable =
 let props = [
   check_invariants;
   check_sound;
+  check_backtrack;
   check_scalable;
 ]
 
@@ -320,6 +372,11 @@ module Reg = struct
   let reg_prop_invariants name l =
     alco_mk name @@ fun () ->
     if not (prop_invariants l) then Alcotest.fail "fail";
+    ()
+
+  let reg_prop_backtrack name l =
+    alco_mk name @@ fun () ->
+    if not (prop_backtrack l) then Alcotest.fail "fail";
     ()
 
   open Step
@@ -419,8 +476,16 @@ module Reg = struct
     ] in
     reg_prop_sound ~inv:true "t6" l
 
+  let t7 =
+    let l = [
+      S_new_var 1;
+      S_leq (1, qstr "32908/13565");
+      S_gt (1, qstr "92197/15966");
+    ] in
+    reg_prop_backtrack "t7" l
+
   let tests = [
-    t1; t2_snd; t2_inv; t3_snd; t4_snd_short; t4_snd; t5; t6;
+    t1; t2_snd; t2_inv; t3_snd; t4_snd_short; t4_snd; t5; t6; t7;
   ]
 end
 
