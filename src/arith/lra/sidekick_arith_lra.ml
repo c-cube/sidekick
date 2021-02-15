@@ -293,7 +293,6 @@ module Make(A : ARG) : S with module A = A = struct
 
         | Some (coeff, v), pred ->
           (* [c . v <= const] becomes a direct simplex constraint [v <= const/c] *)
-          let negate = Q.sign coeff < 0 in
           let q = Q.div le_const coeff in
 
           let op = match pred with
@@ -303,7 +302,8 @@ module Make(A : ARG) : S with module A = A = struct
             | Gt -> S_op.Gt
             | Eq | Neq -> assert false
           in
-          let op = if negate then S_op.neg_sign op else op in
+          (* make sure to swap sides if multiplying with a negative coeff *)
+          let op = if Q.(coeff < zero) then S_op.neg_sign op else op in
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (v, op, q)) in
           Log.debugf 10 (fun k->k "lra.preprocess@ :%a@ :into %a" T.pp t T.pp new_t);
