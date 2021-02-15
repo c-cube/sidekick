@@ -379,6 +379,8 @@ module Make(A : ARG) : S with module A = A = struct
      simplex. *)
   let partial_check_ self si acts trail : unit =
     Profile.with_ "lra.partial-check" @@ fun () ->
+
+    let changed = ref false in
     trail
       (fun lit ->
          let sign = SI.Lit.sign lit in
@@ -395,6 +397,7 @@ module Make(A : ARG) : S with module A = A = struct
              (fun k->k "(@[lra.partial-check.assert@ %a@])"
                  SimpSolver.Constraint.pp constr);
            begin
+             changed := true;
              try
                SimpSolver.add_var self.simplex v;
                SimpSolver.add_constraint self.simplex constr (Tag.Lit lit)
@@ -407,7 +410,9 @@ module Make(A : ARG) : S with module A = A = struct
          | _ -> ());
 
     (* incremental check *)
-    ignore (check_simplex_ self si acts : SimpSolver.Subst.t);
+    if !changed then (
+      ignore (check_simplex_ self si acts : SimpSolver.Subst.t);
+    );
     ()
 
   let final_check_ (self:state) si (acts:SI.actions) (_trail:_ Iter.t) : unit =
