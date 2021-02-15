@@ -273,11 +273,17 @@ let steps_stats = [
           (fun n -> function S_define _ | S_new_var _ -> n+1 | _ -> n) 0);
 ]
 
+let enable_stats =
+  match Sys.getenv_opt "TEST_STAT" with Some("1"|"true") -> true | _ -> false
+
+let set_stats_maybe ar =
+  if enable_stats then QC.set_stats steps_stats ar else ar
+
 let check_sound =
   let ar =
     Step.(rand_for 0 300)
     |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
-(*     |> QC.set_stats steps_stats *)
+    |> set_stats_maybe
   in
   QC.Test.make ~long_factor:10 ~count:500 ~name:"simplex2_sound" ar prop_sound
 
@@ -294,6 +300,7 @@ let check_invariants =
   let ar =
     Step.(rand_for 0 300)
     |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
+    |> set_stats_maybe
   in
   QC.Test.make
     ~long_factor:10 ~count:500 ~name:"simplex2_invariants"
@@ -331,6 +338,7 @@ let check_backtrack =
   let ar =
     Step.(rand_for 0 300)
     |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
+    |> set_stats_maybe
   in
   QC.Test.make
     ~long_factor:10 ~count:200 ~name:"simplex2_backtrack"
@@ -348,7 +356,7 @@ let check_scalable =
   let ar =
     Step.(rand_for 3_000 5_000)
     |> QC.set_collect (fun pb -> if check_steps pb then "sat" else "unsat")
-    (*     |> QC.set_stats steps_stats *)
+    |> set_stats_maybe
   in
   QC.Test.make ~long_factor:2 ~count:10 ~name:"simplex2_scalable"
      ar prop
@@ -492,27 +500,3 @@ end
 
 let tests =
   "simplex2", List.flatten [ Reg.tests ]
-
-(*
-let check_invariants =
-  let prop pb =
-    let simplex = Spl.create (Var.Fresh.create()) in
-    add_problem simplex pb;
-    Spl.check_invariants simplex
-  in
-  QC.Test.make ~long_factor:10 ~count:50 ~name:"simplex_invariants" (Problem.rand 20) prop
-
-
-let check_invariants_after_solve =
-  let prop pb =
-    let simplex = Spl.create (Var.Fresh.create()) in
-    add_problem simplex pb;
-    ignore (Spl.solve simplex);
-    if Spl.check_invariants simplex then true
-    else (
-      QC.Test.fail_reportf "(@[bad-invariants@ %a@])" Spl.pp_full_state simplex
-    )
-  in
-  QC.Test.make ~long_factor:10 ~count:50 ~name:"simplex_invariants_after_solve" (Problem.rand 20) prop
-
-   *)
