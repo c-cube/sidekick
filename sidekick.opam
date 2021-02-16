@@ -18,6 +18,9 @@ depends: [
   "ocaml" { >= "4.03" }
   "alcotest" {with-test}
 ]
+depopts: [
+  "mtime"   # for profiling stuff
+]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
 dev-repo: "git+https://github.com/c-cube/sidekick.git"
