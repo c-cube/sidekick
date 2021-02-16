@@ -64,6 +64,7 @@ module type S = sig
 
   module Subst : sig
     type t = num V_map.t
+    val eval : t -> V.t -> Q.t
     val pp : t Fmt.printer
     val to_string : t -> string
   end
@@ -155,6 +156,7 @@ module Make(Var: VAR)
 
   module Subst = struct
     type t = num V_map.t
+    let eval self t = try V_map.find t self with Not_found -> Q.zero
     let pp out (self:t) : unit =
       let pp_pair out (v,n) =
         Fmt.fprintf out "(@[%a := %a@])" V.pp v pp_q_dbg n in
@@ -533,7 +535,7 @@ module Make(Var: VAR)
       assert (Var_state.is_basic x_j);
       (* value of [x_j] by [a_ji * diff] *)
       let new_val = Erat.(x_j.value + a_ji * diff) in
-      Log.debugf 50 (fun k->k "new-val %a@ := %a" Var_state.pp x_j Erat.pp new_val);
+      (* Log.debugf 50 (fun k->k "new-val %a@ := %a" Var_state.pp x_j Erat.pp new_val); *)
       x_j.value <- new_val;
     done;
     x.value <- v;

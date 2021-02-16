@@ -71,6 +71,8 @@ module Make(C : COEFF)(Var : VAR) = struct
 
     include Infix
 
+    let iter = Var_map.iter
+
     let of_list l = List.fold_left (fun e (c,x) -> add c x e) empty l
     let to_list e = Var_map.bindings e |> List.rev_map CCPair.swap
 

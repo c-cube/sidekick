@@ -312,9 +312,7 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   type term = S.T.Term.t
   type ty = S.T.Ty.t
 
-  let mk_and = Form.and_
-  let mk_or = Form.or_
-
+  let mk_eq = Form.eq
   let mk_lra = T.lra
   let view_as_lra t = match T.view t with
     | T.LRA l -> l

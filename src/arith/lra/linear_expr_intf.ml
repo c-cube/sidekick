@@ -118,7 +118,6 @@ module type S = sig
     val add : C.t -> var -> t -> t
     (** [add n v t] adds the monome [n * v] to the combination [t]. *)
 
-
     (** Infix operations on combinations
 
         This module defines usual operations on linear combinations,
@@ -135,6 +134,8 @@ module type S = sig
     end
     include module type of Infix
     (** Include the previous module. *)
+
+    val iter : (var -> C.t -> unit) -> t -> unit
 
     val of_list : (C.t * var) list -> t
 
