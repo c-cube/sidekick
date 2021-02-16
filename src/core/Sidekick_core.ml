@@ -216,6 +216,9 @@ module type CC_S = sig
   (** Add the term to the congruence closure, if not present already.
       Will be backtracked. *)
 
+  val mem_term : t -> term -> bool
+  (** Returns [true] if the term is explicitly present in the congruence closure *)
+
   type ev_on_pre_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
   type ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   type ev_on_new_term = t -> N.t -> term -> unit
@@ -456,6 +459,10 @@ module type SOLVER_INTERNAL = sig
 
   val cc_add_term : t -> term -> CC.N.t
   (** Add/retrieve congruence closure node for this term.
+      To be used in theories *)
+
+  val cc_mem_term : t -> term -> bool
+  (** Return [true] if the term is explicitly in the congruence closure.
       To be used in theories *)
 
   val on_cc_pre_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit

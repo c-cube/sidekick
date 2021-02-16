@@ -282,6 +282,7 @@ module Make(A : ARG)
     let on_cc_propagate self f = CC.on_propagate (cc self) f
 
     let cc_add_term self t = CC.add_term (cc self) t
+    let cc_mem_term self t = CC.mem_term (cc self) t
     let cc_find self n = CC.find (cc self) n
     let cc_are_equal self t1 t2 =
       let n1 = cc_add_term self t1 in

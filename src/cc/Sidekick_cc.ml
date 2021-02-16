@@ -558,6 +558,8 @@ module Make (A: CC_ARG)
 
   let[@inline] add_term cc t : node = add_term_rec_ cc t
 
+  let mem_term = mem
+
   let set_as_lit cc (n:node) (lit:lit) : unit =
     match n.n_as_lit with
     | Some _ -> ()
