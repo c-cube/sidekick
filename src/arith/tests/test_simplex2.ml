@@ -243,21 +243,9 @@ let prop_sound ?(inv=false) pb =
       in
       List.for_all check_step pb
 
-    | Spl.Unsat _cert ->
+    | Spl.Unsat cert ->
+      Spl._check_cert cert;
       true
-      (* TODO
-      begin match Spl.check_cert simplex cert with
-        | `Ok _ -> true
-        | `Bad_bounds (low, up) ->
-          QC.Test.fail_reportf
-            "(@[<hv>bad-certificat@ :problem %a@ :cert %a@ :low %s :up %s@ :simplex %a@])"
-            Problem.pp pb Spl.pp_cert cert low up Spl.pp_full_state simplex
-        | `Diff_not_0 e ->
-          QC.Test.fail_reportf
-            "(@[<hv>bad-certificat@ :problem %a@ :cert %a@ :diff %a@ :simplex %a@])"
-            Problem.pp pb Spl.pp_cert cert Comb.pp (Comb.of_map e) Spl.pp_full_state simplex
-      end
-         *)
     | exception Spl.E_unsat _cert ->
       true (* TODO : check certificate *)
   end
@@ -493,8 +481,20 @@ module Reg = struct
     ] in
     reg_prop_backtrack "t7" l
 
+  (* regression for simplex certificate checking *)
+  let t8 =
+    let l = [
+      S_new_var 0;
+      S_lt (0, qstr "-8675/8802");
+      S_new_var 5;
+      S_define (7, [qstr "95221/14629", 5; qstr "60092/7011", 0]);
+      S_lt (5, qstr "-80423/7787");
+      S_geq (7, qstr "-10544/35599");
+    ] in
+    reg_prop_sound "t8" l
+
   let tests = [
-    t1; t2_snd; t2_inv; t3_snd; t4_snd_short; t4_snd; t5; t6; t7;
+    t1; t2_snd; t2_inv; t3_snd; t4_snd_short; t4_snd; t5; t6; t7; t8;
   ]
 end
 
