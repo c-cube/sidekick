@@ -114,6 +114,8 @@ module type S = sig
   (**/**)
   val _check_invariants : t -> unit
   (* check internal invariants *)
+
+  val _check_cert : unsat_cert -> unit
   (**/**)
 end
 
@@ -978,58 +980,42 @@ module Make(Var: VAR)
       Sat m
     with E_unsat c -> Unsat c
 
-  (* TODO
-
-  (* maybe invert bounds, if [c < 0] *)
-  let scale_bounds c (l,u) : bound * bound =
-    match Q.compare c Q.zero with
-      | 0 ->
-        let b = { value = Erat.zero; reason = None; } in
-        b, b
-      | n when n<0 ->
-        { u with value = Erat.mul c u.value; },
-        { l with value = Erat.mul c l.value; }
-      | _ ->
-        { l with value = Erat.mul c l.value; },
-        { u with value = Erat.mul c u.value; }
-
-
-  let check_cert (t:t) (c:cert) =
-    let x = M.get c.cert_var t.var_states |> CCOpt.get_lazy (fun()->assert false) in
-    let { value = low_x; reason = low_x_reason; } = x.l_bound in
-    let { value = up_x; reason = upp_x_reason; } = x.u_bound in
-    begin match c.cert_expr with
-      | [] ->
-        if Erat.compare low_x up_x > 0
-        then `Ok (add_to_unsat_core (add_to_unsat_core [] low_x_reason) upp_x_reason)
-        else `Bad_bounds (str_of_erat low_x, str_of_erat up_x)
-      | expr ->
-        let e0 = deref_var_ t x (Q.neg Q.one) M.empty in
-        (* compute bounds for the expression [c.cert_expr],
-           and also compute [c.cert_expr - x] to check if it's 0] *)
-        let low, low_unsat_core, up, up_unsat_core, expr_minus_x =
-          List.fold_left
-            (fun (l, luc, u, uuc, expr_minus_x) (c, y) ->
-               let y = M.get y t.var_states |> CCOpt.get_lazy (fun ()->assert false) in
-               let ly, uy = scale_bounds c (get_bounds y) in
-               assert (Erat.compare ly.value uy.value <= 0);
-               let expr_minus_x = deref_var_ t y c expr_minus_x in
-               let luc = add_to_unsat_core luc ly.reason in
-               let uuc = add_to_unsat_core uuc uy.reason in
-               Erat.sum l ly.value, luc, Erat.sum u uy.value, uuc, expr_minus_x)
-            (Erat.zero, [], Erat.zero, [], e0)
-            expr
-        in
-        (* check that the expanded expression is [x], and that
-           one of the bounds on [x] is incompatible with bounds of [c.cert_expr] *)
-        if M.is_empty expr_minus_x then (
-          if Erat.compare low_x up > 0
-          then `Ok (add_to_unsat_core up_unsat_core low_x_reason)
-          else if Erat.compare up_x low < 0
-          then `Ok (add_to_unsat_core low_unsat_core upp_x_reason)
-          else `Bad_bounds (str_of_erat low, str_of_erat up)
-        ) else `Diff_not_0 expr_minus_x
-    end
-     *)
-
+  let _check_cert (cert:unsat_cert) : unit =
+    match cert with
+    | E_bounds {x=_; lower; upper} ->
+      (* unsat means [lower > upper] *)
+      if not Erat.(lower.b_val > upper.b_val) then (
+        Error.errorf "invalid simplex cert: %a" Unsat_cert.pp cert
+      );
+    | E_unsat_basic { x=_; x_bound; le; bounds } ->
+      (* sum of [bounds], weighted by coefficient from [le] *)
+      let is_lower, x_b =
+        match x_bound with
+        | (Leq | Lt), b -> false, b.b_val
+        | (Geq|Gt), b -> true, b.b_val
+      in
+      let sum =
+        List.fold_left
+          (fun sum (c, x) ->
+             match V_map.find x bounds with
+             | exception Not_found ->
+               Error.errorf "invalid simplex cert:@ %a@ var %a has no bound"
+                 Unsat_cert.pp cert Var.pp x
+             | Op.(Geq | Gt), _ when CCBool.equal is_lower Q.(c > zero) ->
+               Error.errorf
+                 "invalid simplex cert:@ %a@ variable %a has coeff of the wrong sign %a"
+                 Unsat_cert.pp cert Var.pp x Q.pp_print c
+             | Op.(Lt | Leq), _ when CCBool.equal is_lower Q.(c < zero) ->
+               Error.errorf
+                 "invalid simplex cert:@ %a@ variable %a has coeff of the wrong sign %a"
+                 Unsat_cert.pp cert Var.pp x Q.pp_print c
+             | _, b -> Erat.(sum + c * b.b_val))
+          Erat.zero le
+      in
+      (* unsat if lower bound [x_b] is > [sum], which is an upper bound *)
+      let ok = if is_lower then Erat.(x_b > sum) else Erat.(x_b < sum) in
+      if not ok then (
+        Error.errorf "invalid simplex cert:@ %a@ sum of linexpr is %a"
+          Unsat_cert.pp cert Erat.pp sum
+      )
 end

@@ -323,7 +323,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* raise conflict from certificate *)
   let fail_with_cert si acts cert : 'a =
-    (* TODO: check certificate *)
+    Profile.with1 "simplex.check-cert" SimpSolver._check_cert cert;
     let confl =
       SimpSolver.Unsat_cert.lits cert
       |> CCList.flat_map (Tag.to_lits si)
