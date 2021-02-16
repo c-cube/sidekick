@@ -378,9 +378,11 @@ module Make(Var: VAR)
   }
 
   let push_level self : unit =
+    Log.debug 10 "(simplex2.push-level)";
     Backtrack_stack.push_level self.bound_stack
 
   let pop_levels self n : unit =
+    Log.debugf 10 (fun k->k "(simplex2.pop-levels %d)" n);
     Backtrack_stack.pop_levels self.bound_stack n
       ~f:(fun (var, kind, bnd) ->
           match kind with
@@ -981,7 +983,7 @@ module Make(Var: VAR)
            V_map.add x.var v subst)
         V_map.empty
     in
-    Log.debugf 5
+    Log.debugf 10
       (fun k->k "(@[simplex2.model@ %a@])" Subst.pp subst);
     subst
 

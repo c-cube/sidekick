@@ -405,9 +405,12 @@ module Make(A : ARG) : S with module A = A = struct
                     Log.debugf 50
                       (fun k->k "(@[LRA.th-comb.check-pair[val=%a]@ %a@ %a@])"
                           Q.pp_print _q T.pp t1 T.pp t2);
-                    (* FIXME: we need these equalities to be considered
-                       by the congruence closure *)
-                    if not (SI.cc_are_equal si t1 t2) then (
+                    (* if both [t1] and [t2] are relevant to the congruence
+                       closure, and are not equal in it yet, add [t1=t2] as
+                       the next decision to do *)
+                    if SI.cc_mem_term si t1 &&
+                       SI.cc_mem_term si t2 &&
+                       not (SI.cc_are_equal si t1 t2) then (
                       Log.debug 50 "LRA.th-comb.must-decide-equal";
                       let t = A.mk_eq (SI.tst si) t1 t2 in
                       let lit = SI.mk_lit si acts t in
