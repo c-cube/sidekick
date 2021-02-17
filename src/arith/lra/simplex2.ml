@@ -71,7 +71,7 @@ module type S = sig
 
   type t
 
-  val create : unit -> t
+  val create : ?stat:Stat.t -> unit -> t
   (** Create a new simplex. *)
 
   val push_level : t -> unit
@@ -372,6 +372,9 @@ module Make(Var: VAR)
     vars: var_state Vec.t; (* index -> var with this index *)
     mutable var_tbl: var_state V_map.t; (* var -> its state *)
     bound_stack: (var_state * [`Upper|`Lower] * bound option) Backtrack_stack.t;
+    stat_check: int Stat.counter;
+    stat_unsat: int Stat.counter;
+    stat_define: int Stat.counter;
   }
 
   let push_level self : unit =
@@ -438,6 +441,7 @@ module Make(Var: VAR)
   (* define [x] as a basic variable *)
   let define (self:t) (x:V.t) (le:_ list) : unit =
     assert (not (has_var_ self x));
+    Stat.incr self.stat_define;
     (* Log.debugf 50 (fun k->k "define-in: %a" pp self); *)
     let le = List.map (fun (q,v) -> q, find_var_ self v) le in
 
@@ -685,6 +689,7 @@ module Make(Var: VAR)
         | _, Some upper when Erat.(new_bnd.b_val > upper.b_val) ->
           (* [b_val <= x <= upper], but [b_val > upper] *)
           let cert = Unsat_cert.bounds vs ~lower:new_bnd ~upper in
+          Stat.incr self.stat_unsat;
           raise (E_unsat cert)
         | Some lower, _ when Erat.(lower.b_val >= new_bnd.b_val) ->
           () (* subsumed by existing constraint, do nothing *)
@@ -704,6 +709,7 @@ module Make(Var: VAR)
         | Some lower, _ when Erat.(new_bnd.b_val < lower.b_val) ->
           (* [lower <= x <= b_val], but [b_val < lower] *)
           let cert = Unsat_cert.bounds vs ~lower ~upper:new_bnd in
+          Stat.incr self.stat_unsat;
           raise (E_unsat cert)
         | _, Some upper when Erat.(upper.b_val <= new_bnd.b_val) ->
           () (* subsumed *)
@@ -810,6 +816,7 @@ module Make(Var: VAR)
   let check_exn (self:t) : unit =
     let exception Stop in
     Log.debugf 20 (fun k->k "(@[simplex2.check@ %a@])" pp_stats self);
+    Stat.incr self.stat_check;
 
     let m = self.matrix in
     try
@@ -837,6 +844,7 @@ module Make(Var: VAR)
             | Some x -> x
             | None ->
               let cert = cert_of_row_ self x_i bnd ~is_lower:true in
+              Stat.incr self.stat_unsat;
               raise (E_unsat cert)
           in
           assert (Var_state.is_n_basic x_j);
@@ -859,6 +867,7 @@ module Make(Var: VAR)
             | Some x -> x
             | None ->
               let cert = cert_of_row_ self x_i bnd ~is_lower:false in
+              Stat.incr self.stat_unsat;
               raise (E_unsat cert)
           in
           assert (Var_state.is_n_basic x_j);
@@ -874,12 +883,15 @@ module Make(Var: VAR)
       Log.debugf 50 (fun k->k "(@[simplex2.check.done@])");
       ()
 
-  let create () : t =
+  let create ?(stat=Stat.global) () : t =
     let self = {
       matrix=Matrix.create();
       vars=Vec.create();
       var_tbl=V_map.empty;
       bound_stack=Backtrack_stack.create();
+      stat_check=Stat.mk_int stat "simplex.check";
+      stat_unsat=Stat.mk_int stat "simplex.unsat";
+      stat_define=Stat.mk_int stat "simplex.define";
     } in
     self
 

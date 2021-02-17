@@ -74,7 +74,7 @@ module type S = sig
 
   type state
 
-  val create : A.S.T.Term.state -> state
+  val create : ?stat:Stat.t -> A.S.T.Term.state -> state
 
   val theory : A.S.theory
 end
@@ -133,7 +133,7 @@ module Make(A : ARG) : S with module A = A = struct
     simplex: SimpSolver.t;
   }
 
-  let create tst : state =
+  let create ?stat tst : state =
     { tst;
       simps=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
@@ -141,7 +141,7 @@ module Make(A : ARG) : S with module A = A = struct
       needs_th_combination=T.Tbl.create 8;
       encoded_le=Comb_map.empty;
       local_eqs = Backtrack_stack.create();
-      simplex=SimpSolver.create ();
+      simplex=SimpSolver.create ?stat ();
     }
 
   let push_level self =
@@ -477,7 +477,8 @@ module Make(A : ARG) : S with module A = A = struct
 
   let create_and_setup si =
     Log.debug 2 "(th-lra.setup)";
-    let st = create (SI.tst si) in
+    let stat = SI.stats si in
+    let st = create ~stat (SI.tst si) in
     (* TODO    SI.add_simplifier si (simplify st); *)
     SI.add_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
