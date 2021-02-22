@@ -55,6 +55,8 @@ module type VAR = sig
   type lit
 
   val pp_lit : lit Fmt.printer
+
+  val not_lit : lit -> lit option
 end
 
 type bool_op = Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq

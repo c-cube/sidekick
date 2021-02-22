@@ -93,22 +93,37 @@ module type S = sig
 
   exception E_unsat of Unsat_cert.t
 
+  type ev_on_propagate = V.lit -> reason:V.lit list -> unit
+
   val add_var : t -> V.t -> unit
   (** Make sure the variable exists in the simplex. *)
 
-  val add_constraint : t -> Constraint.t -> V.lit -> unit
+  val add_constraint :
+    on_propagate:ev_on_propagate ->
+    t -> Constraint.t -> V.lit -> unit
   (** Add a constraint to the simplex.
       @raise Unsat if it's immediately obvious that this is not satisfiable. *)
 
-  val check_exn : t -> unit
+  val declare_bound : t -> Constraint.t -> V.lit -> unit
+  (** Declare that this constraint exists, so we can possibly propagate it.
+      Unlike {!add_constraint} this does {b NOT} assert that the constraint
+      is true *)
+
+  val check_exn :
+    on_propagate:(V.lit -> reason:V.lit list -> unit) ->
+    t -> unit
   (** Check the whole simplex for satisfiability.
+      @param on_propagate is called with arguments [lit, reason] whenever
+      [reason => lit] is found to be true by the simplex.
       @raise Unsat if the constraints are not satisfiable. *)
 
   type result =
     | Sat of Subst.t
     | Unsat of Unsat_cert.t
 
-  val check : t -> result
+  val check :
+    on_propagate:(V.lit -> reason:V.lit list -> unit) ->
+    t -> result
   (** Call {!check_exn} and return a model or a proof of unsat. *)
 
   (**/**)
@@ -218,6 +233,7 @@ module Make(Var: VAR)
     b_lit: Var.lit;
   }
 
+  type is_lower = bool
   type var_state = {
     var: V.t;
     mutable value: erat;
@@ -225,6 +241,7 @@ module Make(Var: VAR)
     mutable basic_idx: int; (* index of the row in the matrix, if any. -1 otherwise *)
     mutable l_bound: bound option;
     mutable u_bound: bound option;
+    mutable all_bound_lits : (is_lower * bound) list; (* all known literals on this var *)
   }
 
   (** {2 Matrix}
@@ -375,6 +392,7 @@ module Make(Var: VAR)
     stat_check: int Stat.counter;
     stat_unsat: int Stat.counter;
     stat_define: int Stat.counter;
+    stat_propagate: int Stat.counter;
   }
 
   let push_level self : unit =
@@ -462,6 +480,7 @@ module Make(Var: VAR)
               basic_idx=row_idx;
               l_bound=None;
               u_bound=None;
+              all_bound_lits=[];
             })
     in
     Log.debugf 5 (fun k->k "(@[simplex.define@ @[v%d :var %a@]@ :linexpr %a@])"
@@ -516,6 +535,7 @@ module Make(Var: VAR)
         l_bound=None;
         u_bound=None;
         value=Erat.zero;
+        all_bound_lits=[];
       } in
       assert (Var_state.is_n_basic vs);
       self.var_tbl <- V_map.add x vs self.var_tbl;
@@ -666,11 +686,13 @@ module Make(Var: VAR)
 
   exception E_unsat of Unsat_cert.t
 
+  type ev_on_propagate = V.lit -> reason:V.lit list -> unit
+
   let add_var self (v:V.t) : unit =
     ignore (find_or_create_n_basic_var_ self v : var_state);
     ()
 
-  let add_constraint (self:t) (c:Constraint.t) (lit:V.lit) : unit =
+  let add_constraint ~on_propagate (self:t) (c:Constraint.t) (lit:V.lit) : unit =
     let open Constraint in
 
     let vs = find_or_create_n_basic_var_ self c.lhs in
@@ -700,6 +722,23 @@ module Make(Var: VAR)
           Backtrack_stack.push self.bound_stack (vs, `Lower, vs.l_bound);
           vs.l_bound <- Some new_bnd;
 
+          (* propagate *)
+          List.iter
+            (fun (is_lower', bnd) ->
+               if is_lower' && Erat.(bnd.b_val < new_bnd.b_val) then (
+                 (* subsumed *)
+                 Stat.incr self.stat_propagate;
+                 on_propagate (bnd.b_lit) ~reason:[new_bnd.b_lit];
+               ) else if not is_lower' && Erat.(bnd.b_val < new_bnd.b_val) then (
+                 (* incompatible upper bound *)
+                 match V.not_lit bnd.b_lit with
+                 | Some l' ->
+                   Stat.incr self.stat_propagate;
+                   on_propagate l' ~reason:[new_bnd.b_lit];
+                 | None -> ()
+               )
+            ) vs.all_bound_lits;
+
           if Var_state.is_n_basic vs &&
              Erat.(vs.value < new_bnd.b_val) then (
             (* line 5: need to update non-basic variable *)
@@ -719,6 +758,23 @@ module Make(Var: VAR)
           Backtrack_stack.push self.bound_stack (vs, `Upper, vs.u_bound);
           vs.u_bound <- Some new_bnd;
 
+          (* propagate *)
+          List.iter
+            (fun (is_lower', bnd) ->
+               if not is_lower' && Erat.(bnd.b_val > new_bnd.b_val) then (
+                 (* subsumed *)
+                 Stat.incr self.stat_propagate;
+                 on_propagate (bnd.b_lit) ~reason:[new_bnd.b_lit];
+               ) else if is_lower' && Erat.(bnd.b_val > new_bnd.b_val) then (
+                 (* incompatible lower bound *)
+                 match V.not_lit bnd.b_lit with
+                 | Some l' ->
+                   Stat.incr self.stat_propagate;
+                   on_propagate l' ~reason:[new_bnd.b_lit];
+                 | None -> ()
+               )
+            ) vs.all_bound_lits;
+
           if Var_state.is_n_basic vs &&
              Erat.(vs.value > new_bnd.b_val) then (
             (* line 5: need to update non-basic variable *)
@@ -726,6 +782,22 @@ module Make(Var: VAR)
           )
       end
     )
+
+  let declare_bound (self:t) (c:Constraint.t) (lit:V.lit) : unit =
+    let vs = find_or_create_n_basic_var_ self c.lhs in
+    Log.debugf 10
+      (fun k->k "(@[simplex2.declare-bound@ %a@ :lit %a@])"
+          Constraint.pp c V.pp_lit lit);
+
+    let is_lower_bnd, new_bnd_val =
+      match c.op with
+      | Leq -> false, Erat.make_q c.rhs
+      | Lt -> false, Erat.make c.rhs Q.minus_one
+      | Geq -> true, Erat.make_q c.rhs
+      | Gt -> true, Erat.make c.rhs Q.one
+    in
+    let new_bnd = is_lower_bnd, {b_val=new_bnd_val; b_lit=lit} in
+    vs.all_bound_lits <- new_bnd :: vs.all_bound_lits
 
   (* try to find basic variable that doesn't respect one of its bounds *)
   let find_basic_var_ (self:t) : (var_state * [`Lower | `Upper] * bound) option =
@@ -815,7 +887,7 @@ module Make(Var: VAR)
 
   (* main satisfiability check.
      page 15, figure 3.2 *)
-  let check_exn (self:t) : unit =
+  let check_exn ~on_propagate:_ (self:t) : unit =
     let exception Stop in
     Log.debugf 20 (fun k->k "(@[simplex2.check@ %a@])" pp_stats self);
     Stat.incr self.stat_check;
@@ -894,6 +966,7 @@ module Make(Var: VAR)
       stat_check=Stat.mk_int stat "simplex.check";
       stat_unsat=Stat.mk_int stat "simplex.unsat";
       stat_define=Stat.mk_int stat "simplex.define";
+      stat_propagate=Stat.mk_int stat "simplex.propagate";
     } in
     self
 
@@ -987,9 +1060,9 @@ module Make(Var: VAR)
       (fun k->k "(@[simplex2.model@ %a@])" Subst.pp subst);
     subst
 
-  let check (self:t) : result =
+  let check ~on_propagate (self:t) : result =
     try
-      check_exn self;
+      check_exn ~on_propagate self;
       let m = model_ self in
       Sat m
     with E_unsat c -> Unsat c

@@ -120,6 +120,9 @@ module Make(A : ARG) : S with module A = A = struct
     let compare = A.S.T.Term.compare
     type lit = Tag.t
     let pp_lit = Tag.pp
+    let not_lit = function
+      | Tag.Lit l -> Some (Tag.Lit (Lit.neg l))
+      | _ -> None
   end
 
   module LE_ = Linear_expr.Make(struct include Q let pp=pp_print end)(SimpVar)
@@ -213,8 +216,10 @@ module Make(A : ARG) : S with module A = A = struct
         if LE_.Comb.is_empty le_comb then (
           Log.debug 50 "(lra.encode-le.is-trivially-0)";
           SimpSolver.add_constraint self.simplex
+            ~on_propagate:(fun _ ~reason:_ -> ())
             (SimpSolver.Constraint.leq proxy Q.zero) Tag.By_def;
           SimpSolver.add_constraint self.simplex
+            ~on_propagate:(fun _ ~reason:_ -> ())
             (SimpSolver.Constraint.geq proxy Q.zero) Tag.By_def;
         ) else (
           LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
@@ -280,6 +285,11 @@ module Make(A : ARG) : S with module A = A = struct
           in
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (proxy, op, le_const)) in
+          begin
+            let lit = mk_lit new_t in
+            let constr = SimpSolver.Constraint.mk proxy op le_const in
+            SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
+          end;
 
           Log.debugf 10 (fun k->k "lra.preprocess:@ %a@ :into %a" T.pp t T.pp new_t);
           Some new_t
@@ -300,6 +310,11 @@ module Make(A : ARG) : S with module A = A = struct
           let op = if Q.(coeff < zero) then S_op.neg_sign op else op in
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (v, op, q)) in
+          begin
+            let lit = mk_lit new_t in
+            let constr = SimpSolver.Constraint.mk v op q in
+            SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
+          end;
 
           Log.debugf 10 (fun k->k "lra.preprocess@ :%a@ :into %a" T.pp t T.pp new_t);
           Some new_t
@@ -387,9 +402,21 @@ module Make(A : ARG) : S with module A = A = struct
     in
     SI.raise_conflict si acts confl SI.P.default
 
+  let on_propagate_ si acts lit ~reason =
+    match lit with
+    | Tag.Lit lit ->
+      SI.propagate si acts lit
+        (fun() -> CCList.flat_map (Tag.to_lits si) reason)
+    | _ -> ()
+
   let check_simplex_ self si acts : SimpSolver.Subst.t =
     Log.debug 5 "lra: call arith solver";
-    let res = Profile.with1 "simplex.solve" SimpSolver.check self.simplex in
+    let res =
+      Profile.with_ "simplex.solve"
+        (fun () ->
+           SimpSolver.check self.simplex
+             ~on_propagate:(on_propagate_ si acts))
+    in
     begin match res with
       | SimpSolver.Sat m -> m
       | SimpSolver.Unsat cert ->
@@ -416,9 +443,11 @@ module Make(A : ARG) : S with module A = A = struct
     begin
       try
         let c1 = SimpSolver.Constraint.geq v le_const in
-        SimpSolver.add_constraint self.simplex c1 lit;
+        SimpSolver.add_constraint self.simplex c1 lit
+          ~on_propagate:(on_propagate_ si acts);
         let c2 = SimpSolver.Constraint.leq v le_const in
-        SimpSolver.add_constraint self.simplex c2 lit;
+        SimpSolver.add_constraint self.simplex c2 lit
+          ~on_propagate:(on_propagate_ si acts);
       with SimpSolver.E_unsat cert ->
         fail_with_cert si acts cert
     end;
@@ -492,6 +521,8 @@ module Make(A : ARG) : S with module A = A = struct
       (fun lit ->
          let sign = SI.Lit.sign lit in
          let lit_t = SI.Lit.term lit in
+         Log.debugf 50 (fun k->k "(@[lra.partial-check.add@ :lit %a@ :lit-t %a@])"
+                           SI.Lit.pp lit T.pp lit_t);
          match A.view_as_lra lit_t with
          | LRA_simplex_pred (v, op, q) ->
 
@@ -508,6 +539,7 @@ module Make(A : ARG) : S with module A = A = struct
              try
                SimpSolver.add_var self.simplex v;
                SimpSolver.add_constraint self.simplex constr (Tag.Lit lit)
+                 ~on_propagate:(on_propagate_ si acts);
              with SimpSolver.E_unsat cert ->
                Log.debugf 10
                  (fun k->k "(@[lra.partial-check.unsat@ :cert %a@])"

@@ -14,6 +14,7 @@ module Var = struct
   let rand n : t QC.arbitrary = QC.make ~print:(Fmt.to_string pp) @@ QC.Gen.(0--n)
   type lit = int
   let pp_lit = Fmt.int
+  let not_lit i = Some (- i)
 end
 
 module Spl = Sidekick_arith_lra.Simplex2.Make(Var)
@@ -155,18 +156,20 @@ module Step = struct
   let rand : t list QC.arbitrary = rand_for 1 100
 end
 
+let on_propagate _ ~reason:_ = ()
+
 (* add a single step to the simplexe *)
 let add_step simplex (s:Step.t) : unit =
   begin match s with
     | Step.S_new_var v -> Spl.add_var simplex v
     | Step.S_leq (v,n) ->
-      Spl.add_constraint simplex (Spl.Constraint.leq v n) 0
+      Spl.add_constraint simplex (Spl.Constraint.leq v n) 0 ~on_propagate
     | Step.S_lt (v,n) ->
-      Spl.add_constraint simplex (Spl.Constraint.lt v n) 0
+      Spl.add_constraint simplex (Spl.Constraint.lt v n) 0 ~on_propagate
     | Step.S_geq (v,n) ->
-      Spl.add_constraint simplex (Spl.Constraint.geq v n) 0
+      Spl.add_constraint simplex (Spl.Constraint.geq v n) 0 ~on_propagate
     | Step.S_gt (v,n) ->
-      Spl.add_constraint simplex (Spl.Constraint.gt v n) 0
+      Spl.add_constraint simplex (Spl.Constraint.gt v n) 0 ~on_propagate
     | Step.S_define (x,le) ->
       Spl.define simplex x le
   end
@@ -179,18 +182,18 @@ let add_steps ?(f=fun()->()) (simplex:Spl.t) l : unit =
 
 (* is this simplex's state sat? *)
 let check_simplex_is_sat simplex : bool =
-  (try Spl.check_exn simplex; true
+  (try Spl.check_exn ~on_propagate simplex; true
    with Spl.E_unsat _ -> false)
 
 (* is this problem sat? *)
 let check_pb_is_sat pb : bool =
   let simplex = Spl.create() in
-  (try add_steps simplex pb; Spl.check_exn simplex; true
+  (try add_steps simplex pb; Spl.check_exn ~on_propagate simplex; true
    with Spl.E_unsat _ -> false)
 
 let check_steps l : bool =
   let simplex = Spl.create () in
-  try add_steps simplex l; Spl.check_exn simplex; true
+  try add_steps simplex l; Spl.check_exn ~on_propagate simplex; true
   with _ -> false
 
 (* basic debug printer for Q.t *)
@@ -200,7 +203,7 @@ let prop_sound ?(inv=false) pb =
   let simplex = Spl.create () in
   begin match
       add_steps simplex pb;
-      Spl.check simplex
+      Spl.check ~on_propagate simplex
     with
     | Sat subst ->
 
@@ -279,7 +282,7 @@ let prop_invariants pb =
   let simplex = Spl.create () in
   (try
     add_steps simplex pb ~f:(fun () -> Spl._check_invariants simplex);
-    Spl.check_exn simplex
+    Spl.check_exn ~on_propagate simplex
    with Spl.E_unsat _ -> ());
   Spl._check_invariants simplex;
   true
@@ -337,7 +340,7 @@ let check_scalable =
     let simplex = Spl.create () in
     (try
       add_steps simplex pb;
-      Spl.check_exn simplex
+      Spl.check_exn ~on_propagate simplex
      with _ -> ());
     true
   in
