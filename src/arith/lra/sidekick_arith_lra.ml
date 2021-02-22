@@ -239,8 +239,6 @@ module Make(A : ARG) : S with module A = A = struct
         | None, _ ->
           (* non trivial linexp, give it a fresh name in the simplex *)
           let proxy = var_encoding_comb self ~pre:"_le" le_comb in
-          T.Tbl.replace self.needs_th_combination proxy ();
-
           let new_t =
             match pred with
             | Eq | Neq -> assert false (* unreachable *)
@@ -251,8 +249,6 @@ module Make(A : ARG) : S with module A = A = struct
           in
 
           Log.debugf 10 (fun k->k "lra.preprocess:@ %a@ :into %a" T.pp t T.pp new_t);
-
-          T.Tbl.add self.needs_th_combination new_t ();
           Some new_t
 
         | Some (coeff, v), pred ->
@@ -271,8 +267,6 @@ module Make(A : ARG) : S with module A = A = struct
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (v, op, q)) in
           Log.debugf 10 (fun k->k "lra.preprocess@ :%a@ :into %a" T.pp t T.pp new_t);
-
-          T.Tbl.add self.needs_th_combination new_t ();
           Some new_t
       end
 
@@ -314,9 +308,7 @@ module Make(A : ARG) : S with module A = A = struct
         Some proxy
       )
 
-    | LRA_other t when A.has_ty_real t ->
-      T.Tbl.replace self.needs_th_combination t ();
-      None
+    | LRA_other t when A.has_ty_real t -> None
     | LRA_const _ | LRA_simplex_pred _ | LRA_simplex_var _ | LRA_other _ -> None
 
   module Q_map = CCMap.Make(Q)
@@ -478,6 +470,14 @@ module Make(A : ARG) : S with module A = A = struct
     do_th_combination self si acts model;
     ()
 
+  (* look for subterms of type Real, for they will need theory combination *)
+  let on_subterm (self:state) _ (t:T.t) : unit =
+    if A.has_ty_real t &&
+       not (T.Tbl.mem self.needs_th_combination t) then (
+      Log.debugf 5 (fun k->k "(@[lra.needs-th-combination@ %a@])" T.pp t);
+      T.Tbl.add self.needs_th_combination t ()
+    )
+
   let create_and_setup si =
     Log.debug 2 "(th-lra.setup)";
     let stat = SI.stats si in
@@ -486,6 +486,7 @@ module Make(A : ARG) : S with module A = A = struct
     SI.add_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
+    SI.on_cc_is_subterm si (on_subterm st);
     SI.on_cc_post_merge si
       (fun _ _ n1 n2 ->
          if A.has_ty_real (N.term n1) then (

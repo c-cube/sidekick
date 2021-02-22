@@ -280,6 +280,7 @@ module Make(A : ARG)
     let on_cc_post_merge self f = CC.on_post_merge (cc self) f
     let on_cc_conflict self f = CC.on_conflict (cc self) f
     let on_cc_propagate self f = CC.on_propagate (cc self) f
+    let on_cc_is_subterm self f = CC.on_is_subterm (cc self) f
 
     let cc_add_term self t = CC.add_term (cc self) t
     let cc_mem_term self t = CC.mem_term (cc self) t

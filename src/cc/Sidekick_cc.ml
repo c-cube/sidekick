@@ -260,6 +260,7 @@ module Make (A: CC_ARG)
     mutable on_new_term: ev_on_new_term list;
     mutable on_conflict: ev_on_conflict list;
     mutable on_propagate: ev_on_propagate list;
+    mutable on_is_subterm : ev_on_is_subterm list;
     mutable new_merges: bool;
     bitgen: Bits.bitfield_gen;
     field_marked_explain: Bits.field; (* used to mark traversed nodes when looking for a common ancestor *)
@@ -281,6 +282,7 @@ module Make (A: CC_ARG)
   and ev_on_new_term = t -> N.t -> term -> unit
   and ev_on_conflict = t -> th:bool -> lit list -> unit
   and ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
+  and ev_on_is_subterm = N.t -> term -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
   let[@inline] n_true cc = Lazy.force cc.true_
@@ -535,6 +537,7 @@ module Make (A: CC_ARG)
         on_backtrack self (fun () -> sub_r.n_parents <- old_parents);
         sub_r.n_parents <- Bag.cons n sub_r.n_parents;
       end;
+      List.iter (fun f -> f sub u) self.on_is_subterm;
       sub
     in
     let[@inline] return x = Some x in
@@ -847,9 +850,11 @@ module Make (A: CC_ARG)
   let on_new_term cc f = cc.on_new_term <- f :: cc.on_new_term
   let on_conflict cc f = cc.on_conflict <- f :: cc.on_conflict
   let on_propagate cc f = cc.on_propagate <- f :: cc.on_propagate
+  let on_is_subterm cc f = cc.on_is_subterm <- f :: cc.on_is_subterm
 
   let create ?(stat=Stat.global)
-      ?(on_pre_merge=[]) ?(on_post_merge=[]) ?(on_new_term=[]) ?(on_conflict=[]) ?(on_propagate=[])
+      ?(on_pre_merge=[]) ?(on_post_merge=[]) ?(on_new_term=[])
+      ?(on_conflict=[]) ?(on_propagate=[]) ?(on_is_subterm=[])
       ?(size=`Big)
       (tst:term_state) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
@@ -865,6 +870,7 @@ module Make (A: CC_ARG)
       on_new_term;
       on_conflict;
       on_propagate;
+      on_is_subterm;
       pending=Vec.create();
       combine=Vec.create();
       undo=Backtrack_stack.create();

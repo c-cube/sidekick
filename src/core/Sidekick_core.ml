@@ -224,6 +224,7 @@ module type CC_S = sig
   type ev_on_new_term = t -> N.t -> term -> unit
   type ev_on_conflict = t -> th:bool -> lit list -> unit
   type ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
+  type ev_on_is_subterm = N.t -> term -> unit
 
   val create :
     ?stat:Stat.t ->
@@ -232,6 +233,7 @@ module type CC_S = sig
     ?on_new_term:ev_on_new_term list ->
     ?on_conflict:ev_on_conflict list ->
     ?on_propagate:ev_on_propagate list ->
+    ?on_is_subterm:ev_on_is_subterm list ->
     ?size:[`Small | `Big] ->
     term_state ->
     t
@@ -260,6 +262,9 @@ module type CC_S = sig
 
   val on_propagate : t -> ev_on_propagate -> unit
   (** Called when the congruence closure propagates a literal *)
+
+  val on_is_subterm : t -> ev_on_is_subterm -> unit
+  (** Called on terms that are subterms of function symbols *)
 
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
@@ -474,6 +479,10 @@ module type SOLVER_INTERNAL = sig
   val on_cc_new_term : t -> (CC.t -> CC.N.t -> term -> unit) -> unit
   (** Callback to add data on terms when they are added to the congruence
       closure *)
+
+  val on_cc_is_subterm : t -> (CC.N.t -> term -> unit) -> unit
+  (** Callback for when a term is a subterm of another term in the
+      congruence closure *)
 
   val on_cc_conflict : t -> (CC.t -> th:bool -> lit list -> unit) -> unit
   (** Callback called on every CC conflict *)
