@@ -1,0 +1,6 @@
+(set-logic QF_UFLRA)
+(set-info :status unsat)
+(declare-fun f0_2 (Real Real) Real)
+(assert (and (not (< (f0_2 (- 0.0 0.0) 0.0) 10)) (< (f0_2 0.0 0.0) 0)))
+(check-sat)
+(exit)
