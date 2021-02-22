@@ -134,6 +134,7 @@ let imply_l st xs y = match xs with
   | _ -> T.app_fun st Funs.imply (IArray.of_list @@ y :: xs)
 
 let imply st a b = imply_a st (IArray.singleton a) b
+let xor st a b = not_ st (equiv st a b)
 
 let distinct_l tst l =
   match l with

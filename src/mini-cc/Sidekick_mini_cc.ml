@@ -147,13 +147,14 @@ module Make(A: ARG) = struct
     self
 
   let clear (self:t) : unit =
+    let {ok=_; tbl; sig_tbl; pending=_; combine=_; true_; false_} = self in
     self.ok <- true;
-    T_tbl.clear self.tbl;
-    Sig_tbl.clear self.sig_tbl;
     self.pending <- [];
     self.combine <- [];
-    T_tbl.add self.tbl self.true_.n_t self.true_;
-    T_tbl.add self.tbl self.false_.n_t self.false_;
+    T_tbl.clear tbl;
+    Sig_tbl.clear sig_tbl;
+    T_tbl.add tbl true_.n_t true_;
+    T_tbl.add tbl false_.n_t false_;
     ()
 
   let sub_ t k : unit =
@@ -317,5 +318,4 @@ module Make(A: ARG) = struct
     |> Iter.filter Node.is_root
     |> Iter.map
       (fun n -> Node.iter_cls n |> Iter.map Node.term)
-    
 end

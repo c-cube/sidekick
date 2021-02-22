@@ -216,11 +216,15 @@ module type CC_S = sig
   (** Add the term to the congruence closure, if not present already.
       Will be backtracked. *)
 
+  val mem_term : t -> term -> bool
+  (** Returns [true] if the term is explicitly present in the congruence closure *)
+
   type ev_on_pre_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
   type ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   type ev_on_new_term = t -> N.t -> term -> unit
   type ev_on_conflict = t -> th:bool -> lit list -> unit
   type ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
+  type ev_on_is_subterm = N.t -> term -> unit
 
   val create :
     ?stat:Stat.t ->
@@ -229,6 +233,7 @@ module type CC_S = sig
     ?on_new_term:ev_on_new_term list ->
     ?on_conflict:ev_on_conflict list ->
     ?on_propagate:ev_on_propagate list ->
+    ?on_is_subterm:ev_on_is_subterm list ->
     ?size:[`Small | `Big] ->
     term_state ->
     t
@@ -258,6 +263,9 @@ module type CC_S = sig
   val on_propagate : t -> ev_on_propagate -> unit
   (** Called when the congruence closure propagates a literal *)
 
+  val on_is_subterm : t -> ev_on_is_subterm -> unit
+  (** Called on terms that are subterms of function symbols *)
+
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
 
@@ -279,6 +287,10 @@ module type CC_S = sig
 
   val assert_lits : t -> lit Iter.t -> unit
   (** Addition of many literals *)
+
+  val explain_eq : t -> N.t -> N.t -> lit list
+  (** Explain why the two nodes are equal.
+      Fails if they are not, in an unspecified way *)
 
   val raise_conflict_from_expl : t -> actions -> Expl.t -> 'a
   (** Raise a conflict with the given explanation
@@ -390,9 +402,18 @@ module type SOLVER_INTERNAL = sig
   (** {3 hooks for the theory} *)
 
   val propagate : t -> actions -> lit -> reason:(unit -> lit list) -> proof -> unit
+  (** Propagate a literal for a reason. This is similar to asserting
+      the clause [reason => lit], but more lightweight, and in a way
+      that is backtrackable. *)
 
   val raise_conflict : t -> actions -> lit list -> proof -> 'a
   (** Give a conflict clause to the solver *)
+
+  val push_decision : t -> actions -> lit -> unit
+  (** Ask the SAT solver to decide the given literal in an extension of the
+      current trail. This is useful for theory combination.
+      If the SAT solver backtracks, this (potential) decision is removed
+      and forgotten. *)
 
   val propagate: t -> actions -> lit -> (unit -> lit list) -> unit
   (** Propagate a boolean using a unit clause.
@@ -429,6 +450,9 @@ module type SOLVER_INTERNAL = sig
   val cc_find : t -> CC.N.t -> CC.N.t
   (** Find representative of the node *)
 
+  val cc_are_equal : t -> term -> term -> bool
+  (** Are these two terms equal in the congruence closure? *)
+
   val cc_merge : t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit
   (** Merge these two nodes in the congruence closure, given this explanation.
       It must be a theory tautology that [expl ==> n1 = n2].
@@ -442,6 +466,10 @@ module type SOLVER_INTERNAL = sig
   (** Add/retrieve congruence closure node for this term.
       To be used in theories *)
 
+  val cc_mem_term : t -> term -> bool
+  (** Return [true] if the term is explicitly in the congruence closure.
+      To be used in theories *)
+
   val on_cc_pre_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit
   (** Callback for when two classes containing data for this key are merged (called before) *)
 
@@ -451,6 +479,10 @@ module type SOLVER_INTERNAL = sig
   val on_cc_new_term : t -> (CC.t -> CC.N.t -> term -> unit) -> unit
   (** Callback to add data on terms when they are added to the congruence
       closure *)
+
+  val on_cc_is_subterm : t -> (CC.N.t -> term -> unit) -> unit
+  (** Callback for when a term is a subterm of another term in the
+      congruence closure *)
 
   val on_cc_conflict : t -> (CC.t -> th:bool -> lit list -> unit) -> unit
   (** Callback called on every CC conflict *)
@@ -481,11 +513,16 @@ module type SOLVER_INTERNAL = sig
 
   type preprocess_hook =
     t ->
+    recurse:(term -> term) ->
     mk_lit:(term -> lit) ->
     add_clause:(lit list -> unit) ->
     term -> term option
   (** Given a term, try to preprocess it. Return [None] if it didn't change.
-      Can also add clauses to define new terms. *)
+      Can also add clauses to define new terms.
+      @param recurse call preprocessor on subterms.
+      @param mk_lit creates a new literal for a boolean term.
+      @param add_clause pushes a new clause into the SAT solver.
+  *)
 
   val add_preprocess : t -> preprocess_hook -> unit
 end

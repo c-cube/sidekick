@@ -4,7 +4,7 @@ module Fmt = CCFormat
 
 module CC_view = Sidekick_core.CC_view
 
-type lra_pred = Sidekick_arith_lra.FM.Pred.t = Lt | Leq | Geq | Gt | Neq | Eq
+type lra_pred = Sidekick_arith_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 type lra_op = Sidekick_arith_lra.op = Plus | Minus
 
 type 'a lra_view = 'a Sidekick_arith_lra.lra_view =
@@ -12,6 +12,8 @@ type 'a lra_view = 'a Sidekick_arith_lra.lra_view =
   | LRA_op of lra_op * 'a * 'a
   | LRA_mult of Q.t * 'a
   | LRA_const of Q.t
+  | LRA_simplex_var of 'a
+  | LRA_simplex_pred of 'a * Sidekick_arith_lra.S_op.t * Q.t
   | LRA_other of 'a
 
 (* main term cell. *)
@@ -209,7 +211,7 @@ let string_of_lra_pred = function
   | Leq -> "<="
   | Neq -> "!="
   | Eq -> "="
-  | Gt-> ">"
+  | Gt -> ">"
   | Geq -> ">="
 let pp_pred out p = Fmt.string out (string_of_lra_pred p)
 
@@ -238,6 +240,10 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
       | LRA_mult (n, x) ->
         Fmt.fprintf out "(@[*@ %a@ %a@])" Q.pp_print n pp_t x
       | LRA_const q -> Q.pp_print out q
+      | LRA_simplex_var v -> pp_t out v
+      | LRA_simplex_pred (v, op, q) ->
+        Fmt.fprintf out "(@[%a@ %s %a@])"
+          pp_t v (Sidekick_arith_lra.S_op.to_string op) Q.pp_print q
       | LRA_other x -> pp_t out x
     end
 
@@ -593,6 +599,8 @@ end = struct
     let sub_hash = A.hash
     let sub_eq = A.equal
 
+    let hash_q q = Hash.string (Q.to_string q)
+
     let hash (t:A.t view) : int = match t with
       | Bool b -> Hash.bool b
       | App_fun (f,l) ->
@@ -607,8 +615,11 @@ end = struct
           | LRA_op (p, a, b) ->
             Hash.combine4 82 (Hash.poly p) (sub_hash a) (sub_hash b)
           | LRA_mult (n, x) ->
-            Hash.combine3 83 (Hash.string @@ Q.to_string n) (sub_hash x)
-          | LRA_const q -> Hash.combine2 84 (Hash.string @@ Q.to_string q)
+            Hash.combine3 83 (hash_q n) (sub_hash x)
+          | LRA_const q -> Hash.combine2 84 (hash_q q)
+          | LRA_simplex_var v -> Hash.combine2 99 (sub_hash v)
+          | LRA_simplex_pred (v,op,q) ->
+            Hash.combine4 120 (sub_hash v) (Hash.poly op) (hash_q q)
           | LRA_other x -> sub_hash x
         end
 
@@ -630,8 +641,11 @@ end = struct
           | LRA_const a1, LRA_const a2 -> Q.equal a1 a2
           | LRA_mult (n1,x1), LRA_mult (n2,x2) -> Q.equal n1 n2 && sub_eq x1 x2
           | LRA_other x1, LRA_other x2 -> sub_eq x1 x2
-          | (LRA_pred _ | LRA_op _ | LRA_const _
-            | LRA_mult _ | LRA_other _), _ -> false
+          | LRA_simplex_var v1, LRA_simplex_var v2 -> sub_eq v1 v2
+          | LRA_simplex_pred (v1,op1,q1), LRA_simplex_pred (v2,op2,q2) ->
+            sub_eq v1 v2 && (op1==op2) && Q.equal q1 q2
+          | (LRA_pred _ | LRA_op _ | LRA_const _ | LRA_simplex_var _
+            | LRA_mult _ | LRA_other _ | LRA_simplex_pred _), _ -> false
         end
       | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _ | LRA _), _
         -> false
@@ -700,8 +714,8 @@ end = struct
       end
     | LRA l ->
       begin match l with
-        | LRA_pred _ -> Ty.bool
-        | LRA_op _ | LRA_const _ | LRA_mult _ -> Ty.real
+        | LRA_pred _ | LRA_simplex_pred _ -> Ty.bool
+        | LRA_op _ | LRA_const _ | LRA_mult _ | LRA_simplex_var _ -> Ty.real
         | LRA_other x -> x.term_ty
       end
 
@@ -716,6 +730,8 @@ end = struct
       begin match l with
         | LRA_pred (_, a, b)|LRA_op (_, a, b) -> f a; f b
         | LRA_mult (_,x) | LRA_other x -> f x
+        | LRA_simplex_var x -> f x
+        | LRA_simplex_pred (x,_,_) -> f x
         | LRA_const _ -> ()
       end
 
@@ -914,6 +930,8 @@ end = struct
     | Eq (a,b) -> C.Eq (a, b)
     | Not u -> C.Not u
     | Ite (a,b,c) -> C.If (a,b,c)
+    | LRA (LRA_pred (Eq, a, b)) ->
+      C.Eq (a,b) (* need congruence closure on this one, for theory combination *)
     | LRA _ -> C.Opaque t (* no congruence here *)
 
   module As_key = struct

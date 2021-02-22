@@ -1,6 +1,7 @@
 (** {2 Conversion into {!Term.t}} *)
 
 module BT = Sidekick_base_term
+module Profile = Sidekick_util.Profile
 open Sidekick_base_term
 
 [@@@ocaml.warning "-32"]
@@ -156,8 +157,10 @@ let solve
   let on_progress =
     if progress then Some (mk_progress s) else None in
   let res =
-    Solver.solve ~assumptions ?on_progress s
+    Profile.with_ "solve" begin fun () ->
+      Solver.solve ~assumptions ?on_progress s
     (* ?gc ?restarts ?time ?memory ?progress *)
+    end
   in
   let t2 = Sys.time () in
   Printf.printf "\r"; flush stdout;
@@ -179,11 +182,12 @@ let solve
       Format.printf "Unsat (%.3f/%.3f/-)@." t1 (t2-.t1);
     | Solver.Unsat {proof=Some p;_} ->
       if check then (
-        Solver.Proof.check p;
+        Profile.with_ "unsat.check" (fun () -> Solver.Proof.check p);
       );
       begin match dot_proof with
         | None ->  ()
         | Some file ->
+          Profile.with_ "dot.proof" @@ fun () ->
           CCIO.with_out file
             (fun oc ->
                Log.debugf 1 (fun k->k "write proof into `%s`" file);
@@ -309,12 +313,17 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   module S = Solver
   module T = BT.Term
   type term = S.T.Term.t
+  type ty = S.T.Ty.t
 
+  let mk_eq = Form.eq
   let mk_lra = T.lra
   let view_as_lra t = match T.view t with
     | T.LRA l -> l
     | T.Eq (a,b) when Ty.equal (T.ty a) Ty.real -> LRA_pred (Eq, a, b)
     | _ -> LRA_other t
+
+  let ty_lra _st = Ty.real
+  let has_ty_real t = Ty.equal (T.ty t) Ty.real
 
   module Gensym = struct
     type t = {
@@ -323,6 +332,8 @@ module Th_lra = Sidekick_arith_lra.Make(struct
     }
 
     let create tst : t = {tst; fresh=0}
+    let tst self = self.tst
+    let copy s = {s with tst=s.tst}
 
     let fresh_term (self:t) ~pre (ty:Ty.t) : T.t =
       let name = Printf.sprintf "_sk_lra_%s%d" pre self.fresh in
