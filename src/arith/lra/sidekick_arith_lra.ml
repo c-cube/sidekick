@@ -134,9 +134,10 @@ module Make(A : ARG) : S with module A = A = struct
     mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
     local_eqs: (N.t * N.t) Backtrack_stack.t; (* inferred by the congruence closure *)
     simplex: SimpSolver.t;
+    stat_th_comb: int Stat.counter;
   }
 
-  let create ?stat tst : state =
+  let create ?(stat=Stat.create()) tst : state =
     { tst;
       simps=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
@@ -144,7 +145,8 @@ module Make(A : ARG) : S with module A = A = struct
       needs_th_combination=T.Tbl.create 8;
       encoded_le=Comb_map.empty;
       local_eqs = Backtrack_stack.create();
-      simplex=SimpSolver.create ?stat ();
+      simplex=SimpSolver.create ~stat ();
+      stat_th_comb=Stat.mk_int stat "lra.th-comb";
     }
 
   let push_level self =
@@ -433,6 +435,9 @@ module Make(A : ARG) : S with module A = A = struct
                        the next decision to do *)
                     if not (SI.cc_are_equal si t1 t2) then (
                       Log.debug 50 "LRA.th-comb.must-decide-equal";
+                      Stat.incr self.stat_th_comb;
+                      Profile.instant "lra.th-comb-assert-eq";
+
                       let t = A.mk_eq (SI.tst si) t1 t2 in
                       let lit = SI.mk_lit si acts t in
                       SI.push_decision si acts lit
