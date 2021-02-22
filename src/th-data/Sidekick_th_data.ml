@@ -390,7 +390,11 @@ module Make(A : ARG) : S with module A = A = struct
       let pp_entry out (n,node) =
         Fmt.fprintf out "@[<1>@[graph_node[%a]@]@ := %a@]" N.pp n pp_node node
       in
-      Fmt.fprintf out "(@[graph@ %a@])" (Fmt.iter pp_entry) (N_tbl.to_iter g)
+      if N_tbl.length g = 0 then (
+        Fmt.string out "(graph ø)"
+      ) else (
+        Fmt.fprintf out "(@[graph@ %a@])" (Fmt.iter pp_entry) (N_tbl.to_iter g)
+      )
 
     let mk_graph (self:t) cc : graph =
       let g: graph = N_tbl.create ~size:32 () in

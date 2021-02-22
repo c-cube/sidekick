@@ -534,10 +534,13 @@ module Make (A: CC_ARG)
       begin
         let sub_r = find_ sub in
         let old_parents = sub_r.n_parents in
+        if Bag.is_empty old_parents then (
+          (* first time it has parents: call watchers that this is a subterm *)
+          List.iter (fun f -> f sub u) self.on_is_subterm;
+        );
         on_backtrack self (fun () -> sub_r.n_parents <- old_parents);
         sub_r.n_parents <- Bag.cons n sub_r.n_parents;
       end;
-      List.iter (fun f -> f sub u) self.on_is_subterm;
       sub
     in
     let[@inline] return x = Some x in

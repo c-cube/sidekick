@@ -89,14 +89,17 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Tag = struct
     type t =
+      | By_def
       | Lit of Lit.t
       | CC_eq of N.t * N.t
 
     let pp out = function
+      | By_def -> Fmt.string out "by-def"
       | Lit l -> Fmt.fprintf out "(@[lit %a@])" Lit.pp l
       | CC_eq (n1,n2) -> Fmt.fprintf out "(@[cc-eq@ %a@ %a@])" N.pp n1 N.pp n2
 
     let to_lits si = function
+      | By_def -> []
       | Lit l -> [l]
       | CC_eq (n1,n2) ->
         SI.CC.explain_eq (SI.cc si) n1 n2
@@ -196,16 +199,31 @@ module Make(A : ARG) : S with module A = A = struct
         let proxy = fresh_term self ~pre (A.ty_lra self.tst) in
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
         Log.debugf 50
-          (fun k->k "(@[lra.encode-le@ %a@ :into-var %a@])" LE_.Comb.pp le_comb T.pp proxy);
+          (fun k->k "(@[lra.encode-le@ `%a`@ :into-var %a@])" LE_.Comb.pp le_comb T.pp proxy);
 
-        LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
-        SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
+        (* it's actually 0 *)
+        if LE_.Comb.is_empty le_comb then (
+          Log.debug 50 "(lra.encode-le.is-trivially-0)";
+          SimpSolver.add_constraint self.simplex
+            (SimpSolver.Constraint.leq proxy Q.zero) Tag.By_def;
+          SimpSolver.add_constraint self.simplex
+            (SimpSolver.Constraint.geq proxy Q.zero) Tag.By_def;
+        ) else (
+          LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
+          SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
+        );
         proxy
 
   (* preprocess linear expressions away *)
   let preproc_lra (self:state) si ~recurse ~mk_lit ~add_clause (t:T.t) : T.t option =
     Log.debugf 50 (fun k->k "lra.preprocess %a" T.pp t);
     let tst = SI.tst si in
+
+    (* tell the CC this term exists *)
+    let declare_term_to_cc t =
+      Log.debugf 50 (fun k->k "(@[simplex2.declare-term-to-cc@ %a@])" T.pp t);
+      ignore (SI.CC.add_term (SI.cc si) t : SI.CC.N.t);
+    in
 
     match A.view_as_lra t with
     | LRA_pred ((Eq | Neq), t1, t2) ->
@@ -219,8 +237,8 @@ module Make(A : ARG) : S with module A = A = struct
 
         (* encode [t <=> (u1 /\ u2)] *)
         let lit_t = mk_lit t in
-        let lit_u1 = mk_lit u1 in
-        let lit_u2 = mk_lit u2 in
+        let lit_u1 = mk_lit (recurse u1) in
+        let lit_u2 = mk_lit (recurse u2) in
         add_clause [SI.Lit.neg lit_t; lit_u1];
         add_clause [SI.Lit.neg lit_t; lit_u2];
         add_clause [SI.Lit.neg lit_u1; SI.Lit.neg lit_u2; lit_t];
@@ -239,6 +257,8 @@ module Make(A : ARG) : S with module A = A = struct
         | None, _ ->
           (* non trivial linexp, give it a fresh name in the simplex *)
           let proxy = var_encoding_comb self ~pre:"_le" le_comb in
+          declare_term_to_cc proxy;
+
           let new_t =
             match pred with
             | Eq | Neq -> assert false (* unreachable *)
@@ -254,6 +274,7 @@ module Make(A : ARG) : S with module A = A = struct
         | Some (coeff, v), pred ->
           (* [c . v <= const] becomes a direct simplex constraint [v <= const/c] *)
           let q = Q.div le_const coeff in
+          declare_term_to_cc v;
 
           let op = match pred with
             | Leq -> S_op.Leq
@@ -266,6 +287,7 @@ module Make(A : ARG) : S with module A = A = struct
           let op = if Q.(coeff < zero) then S_op.neg_sign op else op in
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (v, op, q)) in
+
           Log.debugf 10 (fun k->k "lra.preprocess@ :%a@ :into %a" T.pp t T.pp new_t);
           Some new_t
       end
@@ -278,6 +300,8 @@ module Make(A : ARG) : S with module A = A = struct
         (* if there is no constant, define [proxy] as [proxy := le_comb] and
            return [proxy] *)
         let proxy = var_encoding_comb self ~pre:"_le" le_comb in
+        declare_term_to_cc proxy;
+
         Some proxy
       ) else (
         (* a bit more complicated: we cannot just define [proxy := le_comb]
@@ -297,6 +321,9 @@ module Make(A : ARG) : S with module A = A = struct
         Log.debugf 50
           (fun k->k "(@[lra.encode-le.with-offset@ %a@ :var %a@ :diff-var %a@])"
               LE_.Comb.pp le_comb T.pp proxy T.pp proxy2);
+
+        declare_term_to_cc proxy;
+        declare_term_to_cc proxy2;
 
         add_clause [
           mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, Q.neg le_const)))
@@ -367,10 +394,10 @@ module Make(A : ARG) : S with module A = A = struct
     if n_th_comb > 0 then (
       Log.debugf 5
         (fun k->k "(@[LRA.needs-th-combination@ :n-lits %d@])" n_th_comb);
+      Log.debugf 50
+        (fun k->k "(@[LRA.needs-th-combination@ :terms [@[%a@]]@])"
+            (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
     );
-    Log.debugf 50
-      (fun k->k "(@[LRA.needs-th-combination@ :lits %a@])"
-          (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
 
     (* theory combination: for [t1,t2] terms in [self.needs_th_combination]
        that have same value, but are not provably equal, push
@@ -397,12 +424,12 @@ module Make(A : ARG) : S with module A = A = struct
                     Log.debugf 50
                       (fun k->k "(@[LRA.th-comb.check-pair[val=%a]@ %a@ %a@])"
                           Q.pp_print _q T.pp t1 T.pp t2);
+                    assert(SI.cc_mem_term si t1);
+                    assert(SI.cc_mem_term si t2);
                     (* if both [t1] and [t2] are relevant to the congruence
                        closure, and are not equal in it yet, add [t1=t2] as
                        the next decision to do *)
-                    if SI.cc_mem_term si t1 &&
-                       SI.cc_mem_term si t2 &&
-                       not (SI.cc_are_equal si t1 t2) then (
+                    if not (SI.cc_are_equal si t1 t2) then (
                       Log.debug 50 "LRA.th-comb.must-decide-equal";
                       let t = A.mk_eq (SI.tst si) t1 t2 in
                       let lit = SI.mk_lit si acts t in
@@ -472,6 +499,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* look for subterms of type Real, for they will need theory combination *)
   let on_subterm (self:state) _ (t:T.t) : unit =
+    Log.debugf 50 (fun k->k "lra: cc-on-subterm %a" T.pp t);
     if A.has_ty_real t &&
        not (T.Tbl.mem self.needs_th_combination t) then (
       Log.debugf 5 (fun k->k "(@[lra.needs-th-combination@ %a@])" T.pp t);
