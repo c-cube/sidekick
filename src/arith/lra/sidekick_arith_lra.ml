@@ -259,14 +259,16 @@ module Make(A : ARG) : S with module A = A = struct
           let proxy = var_encoding_comb self ~pre:"_le" le_comb in
           declare_term_to_cc proxy;
 
-          let new_t =
+          let op =
             match pred with
             | Eq | Neq -> assert false (* unreachable *)
-            | Leq -> A.mk_lra tst (LRA_simplex_pred (proxy, S_op.Leq, le_const))
-            | Lt -> A.mk_lra tst (LRA_simplex_pred (proxy, S_op.Lt, le_const))
-            | Geq -> A.mk_lra tst (LRA_simplex_pred (proxy, S_op.Geq, le_const))
-            | Gt -> A.mk_lra tst (LRA_simplex_pred (proxy, S_op.Gt, le_const))
+            | Leq -> S_op.Leq
+            | Lt -> S_op.Lt
+            | Geq -> S_op.Geq
+            | Gt -> S_op.Gt
           in
+
+          let new_t = A.mk_lra tst (LRA_simplex_pred (proxy, op, le_const)) in
 
           Log.debugf 10 (fun k->k "lra.preprocess:@ %a@ :into %a" T.pp t T.pp new_t);
           Some new_t
