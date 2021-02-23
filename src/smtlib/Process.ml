@@ -317,6 +317,7 @@ module Th_lra = Sidekick_arith_lra.Make(struct
 
   let mk_eq = Form.eq
   let mk_lra = T.lra
+  let mk_bool = T.bool
   let view_as_lra t = match T.view t with
     | T.LRA l -> l
     | T.Eq (a,b) when Ty.equal (T.ty a) Ty.real -> LRA_pred (Eq, a, b)

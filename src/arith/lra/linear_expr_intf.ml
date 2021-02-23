@@ -165,6 +165,7 @@ module type S = sig
     val const : t -> C.t
 
     val is_zero : t -> bool
+    val is_const : t -> bool
 
     val compare : t -> t -> int
     (** Standard comparison function on expressions. *)

@@ -119,6 +119,7 @@ module Make(C : COEFF)(Var : VAR) = struct
     let zero = of_const C.zero
 
     let is_zero e = C.equal C.zero e.const  && Comb.is_empty e.comb
+    let is_const e = Comb.is_empty e.comb
 
     let map2 f g e e' = make (f e.comb e'.comb) (g e.const e'.const)
 

@@ -44,6 +44,8 @@ module type ARG = sig
   val view_as_lra : term -> term lra_view
   (** Project the term into the theory view *)
 
+  val mk_bool : S.T.Term.state -> bool -> term
+
   val mk_lra : S.T.Term.state -> term lra_view -> term
   (** Make a term from the given theory view *)
 
@@ -342,6 +344,30 @@ module Make(A : ARG) : S with module A = A = struct
     | LRA_other t when A.has_ty_real t -> None
     | LRA_const _ | LRA_simplex_pred _ | LRA_simplex_var _ | LRA_other _ -> None
 
+  let simplify (self:state) (_recurse:_) (t:T.t) : T.t option =
+    match A.view_as_lra t with
+    | LRA_op _ | LRA_mult _ ->
+      let le = as_linexp_id t in
+      if LE.is_const le then (
+        let c = LE.const le in
+        Some (A.mk_lra self.tst (LRA_const c))
+      ) else None
+    | LRA_pred (pred, l1, l2) ->
+      let le = LE.(as_linexp_id l1 - as_linexp_id l2) in
+      if LE.is_const le then (
+        let c = LE.const le in
+        let is_true = match pred with
+          | Leq -> Q.(c <= zero)
+          | Geq -> Q.(c >= zero)
+          | Lt -> Q.(c < zero)
+          | Gt -> Q.(c > zero)
+          | Eq -> Q.(c = zero)
+          | Neq -> Q.(c <> zero)
+        in
+        Some (A.mk_bool self.tst is_true)
+      ) else None
+    | _ -> None
+
   module Q_map = CCMap.Make(Q)
 
   (* raise conflict from certificate *)
@@ -517,7 +543,7 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debug 2 "(th-lra.setup)";
     let stat = SI.stats si in
     let st = create ~stat (SI.tst si) in
-    (* TODO    SI.add_simplifier si (simplify st); *)
+    SI.add_simplifier si (simplify st);
     SI.add_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
