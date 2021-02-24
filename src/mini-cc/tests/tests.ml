@@ -12,7 +12,7 @@ module Setup() = struct
   let tst = Term.create()
   let (@->) l ret = Ty.Fun.mk l ret
   let ty_i = Ty.atomic_uninterpreted (ID.make "$i")
-  let ty_bool = Ty.bool
+  let ty_bool = Ty.bool ()
 
   let fun_f = Fun.mk_undef (ID.make "f") ([ty_i] @-> ty_i)
   let fun_g = Fun.mk_undef (ID.make "g") ([ty_i; ty_i] @-> ty_i)

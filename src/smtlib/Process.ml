@@ -320,11 +320,11 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   let mk_bool = T.bool
   let view_as_lra t = match T.view t with
     | T.LRA l -> l
-    | T.Eq (a,b) when Ty.equal (T.ty a) Ty.real -> LRA_pred (Eq, a, b)
+    | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.real()) -> LRA_pred (Eq, a, b)
     | _ -> LRA_other t
 
-  let ty_lra _st = Ty.real
-  let has_ty_real t = Ty.equal (T.ty t) Ty.real
+  let ty_lra _st = Ty.real()
+  let has_ty_real t = Ty.equal (T.ty t) (Ty.real())
 
   module Gensym = struct
     type t = {

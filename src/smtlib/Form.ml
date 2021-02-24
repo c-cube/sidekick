@@ -32,7 +32,7 @@ let view_as_bool (t:T.t) : T.t bool_view =
   | _ -> B_atom t
 
 module Funs = struct
-  let get_ty _ _ = Ty.bool
+  let get_ty _ _ = Ty.bool()
 
   let abs ~self _a =
     match T.view self with

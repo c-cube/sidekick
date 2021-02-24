@@ -77,7 +77,7 @@ let ill_typed ctx fmt =
   errorf_ctx ctx ("ill-typed: " ^^ fmt)
 
 let check_bool_ ctx t =
-  if not (Ty.equal (T.ty t) Ty.bool) then (
+  if not (Ty.equal (T.ty t) (Ty.bool())) then (
     ill_typed ctx "expected bool, got `@[%a : %a@]`" T.pp t Ty.pp (T.ty t)
   )
 
@@ -87,8 +87,8 @@ let find_id_ ctx (s:string): ID.t * Ctx.kind =
 
 (* parse a type *)
 let rec conv_ty ctx (t:PA.ty) : Ty.t = match t with
-  | PA.Ty_bool -> Ty.bool
-  | PA.Ty_real -> Ty.real
+  | PA.Ty_bool -> Ty.bool()
+  | PA.Ty_real -> Ty.real()
   | PA.Ty_app ("Int",[]) ->
     ill_typed ctx "cannot handle ints for now"
     (* TODO: A.Ty.int , Ctx.K_ty Ctx.K_other *)

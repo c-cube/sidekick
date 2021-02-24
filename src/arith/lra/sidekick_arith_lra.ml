@@ -76,7 +76,10 @@ module type S = sig
 
   type state
 
-  val create : ?stat:Stat.t -> A.S.T.Term.state -> state
+  val create : ?stat:Stat.t ->
+    A.S.T.Term.state ->
+    A.S.T.Ty.state ->
+    state
 
   val theory : A.S.theory
 end
@@ -129,6 +132,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   type state = {
     tst: T.state;
+    ty_st: Ty.state;
     simps: T.t T.Tbl.t; (* cache *)
     gensym: A.Gensym.t;
     encoded_eqs: unit T.Tbl.t; (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
@@ -139,8 +143,8 @@ module Make(A : ARG) : S with module A = A = struct
     stat_th_comb: int Stat.counter;
   }
 
-  let create ?(stat=Stat.create()) tst : state =
-    { tst;
+  let create ?(stat=Stat.create()) tst ty_st : state =
+    { tst; ty_st;
       simps=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
       encoded_eqs=T.Tbl.create 8;
@@ -163,7 +167,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
   let fresh_lit (self:state) ~mk_lit ~pre : Lit.t =
-    let t = fresh_term ~pre self Ty.bool in
+    let t = fresh_term ~pre self (Ty.bool self.ty_st) in
     mk_lit t
 
   let pp_pred_def out (p,l1,l2) : unit =
@@ -542,7 +546,7 @@ module Make(A : ARG) : S with module A = A = struct
   let create_and_setup si =
     Log.debug 2 "(th-lra.setup)";
     let stat = SI.stats si in
-    let st = create ~stat (SI.tst si) in
+    let st = create ~stat (SI.tst si) (SI.ty_st si) in
     SI.add_simplifier si (simplify st);
     SI.add_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);

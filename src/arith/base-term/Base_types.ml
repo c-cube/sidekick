@@ -260,6 +260,7 @@ let pp_term_view = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:pp_term
 
 module Ty : sig
   type t = ty
+  type state = unit
   type view = ty_view =
     | Ty_bool
     | Ty_real
@@ -283,8 +284,8 @@ module Ty : sig
   val id : t -> int
   val view : t -> view
 
-  val bool : t
-  val real : t
+  val bool : state -> t
+  val real : state -> t
   val atomic : def -> t list -> t
 
   val atomic_uninterpreted : ID.t -> t
@@ -316,6 +317,7 @@ module Ty : sig
   end
 end = struct
   type t = ty
+  type state = unit
   type view = ty_view =
     | Ty_bool
     | Ty_real
@@ -390,8 +392,8 @@ end = struct
     | Ty_bool | Ty_real -> assert false
     | Ty_atomic r -> r.finite <- b
 
-  let bool = make_ Ty_bool
-  let real = make_ Ty_real
+  let bool () = make_ Ty_bool
+  let real () = make_ Ty_real
 
   let atomic def args : t =
     make_ (Ty_atomic {def; args; finite=true;})
@@ -684,7 +686,7 @@ end = struct
   let[@inline] lra l : t = LRA l
 
   let ty (t:t): Ty.t = match t with
-    | Bool _ | Eq _ | Not _ -> Ty.bool
+    | Bool _ | Eq _ | Not _ -> Ty.bool ()
     | Ite (_, b, _) -> b.term_ty
     | App_fun (f, args) ->
       begin match Fun.view f with
@@ -707,15 +709,15 @@ end = struct
                ))
             ty_args;
           ty_ret
-        | Fun_is_a _ -> Ty.bool
+        | Fun_is_a _ -> Ty.bool ()
         | Fun_def def -> def.ty f.fun_id args
         | Fun_select s -> Lazy.force s.select_ty
         | Fun_cstor c -> Lazy.force c.cstor_ty
       end
     | LRA l ->
       begin match l with
-        | LRA_pred _ | LRA_simplex_pred _ -> Ty.bool
-        | LRA_op _ | LRA_const _ | LRA_mult _ | LRA_simplex_var _ -> Ty.real
+        | LRA_pred _ | LRA_simplex_pred _ -> Ty.bool ()
+        | LRA_op _ | LRA_const _ | LRA_mult _ | LRA_simplex_var _ -> Ty.real ()
         | LRA_other x -> x.term_ty
       end
 
@@ -864,7 +866,7 @@ end = struct
   }
 
   let[@inline] make st (c:t term_view) : t =
-    let t = {term_id= -1; term_ty=Ty.bool; term_view=c} in
+    let t = {term_id= -1; term_ty=Ty.bool(); term_view=c} in
     let t' = H.hashcons st.tbl t in
     if t == t' then (
       t'.term_ty <- Term_cell.ty c;

@@ -44,7 +44,7 @@ module type S = sig
 
   type state
 
-  val create : A.S.T.Term.state -> state
+  val create : A.S.T.Term.state -> A.S.T.Ty.state -> state
 
   val simplify : state -> A.S.Solver_internal.simplify_hook
   (** Simplify given term *)
@@ -64,13 +64,14 @@ module Make(A : ARG) : S with module A = A = struct
 
   type state = {
     tst: T.state;
+    ty_st: Ty.state;
     simps: T.t T.Tbl.t; (* cache *)
     cnf: Lit.t T.Tbl.t; (* tseitin CNF *)
     gensym: A.Gensym.t;
   }
 
-  let create tst : state =
-    { tst; simps=T.Tbl.create 128;
+  let create tst ty_st : state =
+    { tst; ty_st; simps=T.Tbl.create 128;
       cnf=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
     }
@@ -129,7 +130,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
   let fresh_lit (self:state) ~mk_lit ~pre : Lit.t =
-    let t = fresh_term ~pre self Ty.bool in
+    let t = fresh_term ~pre self (Ty.bool self.ty_st) in
     mk_lit t
 
   (* preprocess "ite" away *)
@@ -243,7 +244,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   let create_and_setup si =
     Log.debug 2 "(th-bool.setup)";
-    let st = create (SI.tst si) in
+    let st = create (SI.tst si) (SI.ty_st si) in
     SI.add_simplifier si (simplify st);
     SI.add_preprocess si (preproc_ite st);
     SI.add_preprocess si (cnf st);

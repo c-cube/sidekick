@@ -95,7 +95,8 @@ module Dimacs = struct
         match Util.Int_tbl.find atoms (abs i) with
         | x -> Term.const tst x
         | exception Not_found ->
-          let f = Sidekick_base_term.Fun.mk_undef_const (ID.makef "%d" (abs i)) Ty.bool in
+          let f = Sidekick_base_term.Fun.mk_undef_const
+              (ID.makef "%d" (abs i)) (Ty.bool()) in
           Util.Int_tbl.add atoms (abs i) f;
           Term.const tst f
       in
@@ -145,12 +146,12 @@ let main () =
   let solver =
     let theories =
       if is_cnf then [] else [
-        Process.th_bool ;
+        Process.th_bool;
         Process.th_data;
         Process.th_lra;
       ]
     in
-    Process.Solver.create ~store_proof:!check ~theories tst ()
+    Process.Solver.create ~store_proof:!check ~theories tst () ()
   in
   if !check then (
     (* might have to check conflicts *)

@@ -56,7 +56,9 @@ module type TERM = sig
     val hash : t -> int
     val pp : t Fmt.printer
 
-    val bool : t
+    type state
+
+    val bool : state -> t
     val is_bool : t -> bool
   end
 
@@ -341,6 +343,7 @@ module type SOLVER_INTERNAL = sig
   type ty = T.Ty.t
   type term = T.Term.t
   type term_state = T.Term.state
+  type ty_state = T.Ty.state
   type proof = P.t
 
   (** {3 Main type for a solver} *)
@@ -348,6 +351,7 @@ module type SOLVER_INTERNAL = sig
   type solver = t
 
   val tst : t -> term_state
+  val ty_st : t -> ty_state
   val stats : t -> Stat.t
 
   (** {3 Actions for the theories} *)
@@ -380,6 +384,7 @@ module type SOLVER_INTERNAL = sig
     type t
 
     val tst : t -> term_state
+    val ty_st : t -> ty_state
 
     val clear : t -> unit
     (** Reset internal cache, etc. *)
@@ -662,6 +667,7 @@ module type SOLVER = sig
     ?store_proof:bool ->
     theories:theory list ->
     T.Term.state ->
+    T.Ty.state ->
     unit ->
     t
   (** Create a new solver.

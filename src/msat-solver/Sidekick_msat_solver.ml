@@ -105,6 +105,7 @@ module Make(A : ARG)
     type ty = Ty.t
     type lit = Lit.t
     type term_state = Term.state
+    type ty_state = Ty.state
 
     type th_states =
       | Ths_nil
@@ -120,13 +121,16 @@ module Make(A : ARG)
     module Simplify = struct
       type t = {
         tst: term_state;
+        ty_st: ty_state;
         mutable hooks: hook list;
         cache: Term.t Term.Tbl.t;
       }
       and hook = t -> term -> term option
 
-      let create tst : t = {tst; hooks=[]; cache=Term.Tbl.create 32;}
+      let create tst ty_st : t =
+        {tst; ty_st; hooks=[]; cache=Term.Tbl.create 32;}
       let[@inline] tst self = self.tst
+      let[@inline] ty_st self = self.ty_st
       let add_hook self f = self.hooks <- f :: self.hooks
       let clear self = Term.Tbl.clear self.cache
 
@@ -156,6 +160,7 @@ module Make(A : ARG)
 
     type t = {
       tst: Term.state; (** state for managing terms *)
+      ty_st: Ty.state;
       cc: CC.t lazy_t; (** congruence closure *)
       stat: Stat.t;
       count_axiom: int Stat.counter;
@@ -194,6 +199,7 @@ module Make(A : ARG)
 
     let[@inline] cc (t:t) = Lazy.force t.cc
     let[@inline] tst t = t.tst
+    let[@inline] ty_st t = t.ty_st
     let stats t = t.stat
 
     let simplifier self = self.simp
@@ -381,16 +387,17 @@ module Make(A : ARG)
       CC.mk_model (cc self) m
        *)
 
-    let create ~stat (tst:Term.state) () : t =
+    let create ~stat (tst:Term.state) (ty_st:Ty.state) () : t =
       let rec self = {
         tst;
+        ty_st;
         cc = lazy (
           (* lazily tie the knot *)
           CC.create ~size:`Big self.tst;
         );
         th_states=Ths_nil;
         stat;
-        simp=Simplify.create tst;
+        simp=Simplify.create tst ty_st;
         on_progress=(fun () -> ());
         preprocess=[];
         preprocess_cache=Term.Tbl.create 32;
@@ -467,9 +474,9 @@ module Make(A : ARG)
   let add_theory_l self = List.iter (add_theory self)
 
   (* create a new solver *)
-  let create ?(stat=Stat.global) ?size ?store_proof ~theories tst () : t =
+  let create ?(stat=Stat.global) ?size ?store_proof ~theories tst ty_st () : t =
     Log.debug 5 "msat-solver.create";
-    let si = Solver_internal.create ~stat tst () in
+    let si = Solver_internal.create ~stat tst ty_st () in
     let self = {
       si;
       solver=Sat_solver.create ?store_proof ?size si;
