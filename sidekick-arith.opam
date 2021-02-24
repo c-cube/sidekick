@@ -15,7 +15,8 @@ depends: [
   "containers" { >= "3.0" & < "4.0" }
   "iter" { >= "1.0" & < "2.0" }
   "ocaml" { >= "4.03" }
-  "zarith" { >= "1.8" } # for infix ops
+  "sidekick" { = version }
+  "zarith" { >= "1.8" } # constraint for infix ops
   "alcotest" {with-test}
   "qcheck" {with-test & >= "0.16" }
 ]
