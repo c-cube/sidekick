@@ -13,7 +13,7 @@ build: [
 depends: [
   "dune" { >= "1.1" }
   "containers" { >= "3.0" & < "4.0" }
-  "iter"
+  "iter" { >= "1.0" & < "2.0" }
   "zarith"
   "smtlib-utils" { >= "0.1" & < "0.3" }
   "sidekick" { = version }
