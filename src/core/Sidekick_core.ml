@@ -659,6 +659,7 @@ module type SOLVER = sig
 
   val stats : t -> Stat.t
   val tst : t -> T.Term.state
+  val ty_st : t -> T.Ty.state
 
   val create :
     ?stat:Stat.t ->

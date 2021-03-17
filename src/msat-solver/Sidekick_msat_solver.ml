@@ -498,6 +498,7 @@ module Make(A : ARG)
   let[@inline] cc self = Solver_internal.cc self.si
   let[@inline] stats self = self.stat
   let[@inline] tst self = Solver_internal.tst self.si
+  let[@inline] ty_st self = Solver_internal.ty_st self.si
 
   let[@inline] mk_atom_lit_ self lit : Atom.t = Sat_solver.make_atom self.solver lit
 
