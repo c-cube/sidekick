@@ -92,6 +92,11 @@ let to_array_map = Array.map
 let of_array_unsafe a = a (* careful with that axe, Eugene *)
 
 let to_iter a k = iter k a
+let to_iter_sub a i len k =
+  if i<0 || i+len > Array.length a then invalid_arg "IArray.iter_sub";
+  for j=i to i+len-1 do
+    k (Array.unsafe_get a j)
+  done
 
 let of_iter s =
   let l = ref [] in

@@ -1,11 +1,11 @@
 (** {2 Signatures for booleans} *)
 
-type 'a bool_view =
+type ('a, 'args) bool_view =
   | B_bool of bool
   | B_not of 'a
-  | B_and of 'a IArray.t
-  | B_or of 'a IArray.t
-  | B_imply of 'a IArray.t * 'a
+  | B_and of 'args
+  | B_or of 'args
+  | B_imply of 'args * 'a
   | B_equiv of 'a * 'a
   | B_eq of 'a * 'a
   | B_ite of 'a * 'a * 'a
@@ -17,10 +17,10 @@ module type ARG = sig
 
   type term = S.T.Term.t
 
-  val view_as_bool : term -> term bool_view
+  val view_as_bool : term -> (term, term Iter.t) bool_view
   (** Project the term into the boolean view *)
 
-  val mk_bool : S.T.Term.state -> term bool_view -> term
+  val mk_bool : S.T.Term.state -> (term, term IArray.t) bool_view -> term
   (** Make a term from the given boolean view *)
 
   val check_congruence_classes : bool
@@ -95,18 +95,19 @@ module Make(A : ARG) : S with module A = A = struct
     | B_not _ -> None
     | B_opaque_bool _ -> None
     | B_and a ->
-      if IArray.exists is_false a then Some (T.bool tst false)
-      else if IArray.for_all is_true a then Some (T.bool tst true)
+      if Iter.exists is_false a then Some (T.bool tst false)
+      else if Iter.for_all is_true a then Some (T.bool tst true)
       else None
     | B_or a ->
-      if IArray.exists is_true a then Some (T.bool tst true)
-      else if IArray.for_all is_false a then Some (T.bool tst false)
+      if Iter.exists is_true a then Some (T.bool tst true)
+      else if Iter.for_all is_false a then Some (T.bool tst false)
       else None
     | B_imply (args, u) ->
       (* turn into a disjunction *)
       let u =
-        or_a tst @@
-        IArray.append (IArray.map (not_ tst) args) (IArray.singleton u)
+        let args =
+          args |> Iter.map (not_ tst) |> IArray.of_iter in
+        or_a tst @@ IArray.append args (IArray.singleton u)
       in
       Some u
     | B_ite (a,b,c) ->
@@ -176,14 +177,14 @@ module Make(A : ARG) : S with module A = A = struct
         let lit = get_lit u in
         Lit.neg lit
       | B_and l ->
-        let subs = IArray.to_list_map get_lit l in
+        let subs = l |> Iter.map get_lit |> Iter.to_list in
         let proxy = fresh_lit ~mk_lit ~pre:"and_" self in
         (* add clauses *)
         List.iter (fun u -> add_clause [Lit.neg proxy; u]) subs;
         add_clause (proxy :: List.map Lit.neg subs);
         proxy
       | B_or l ->
-        let subs = IArray.to_list_map get_lit l in
+        let subs = l |> Iter.map get_lit |> Iter.to_list in
         let proxy = fresh_lit ~mk_lit ~pre:"or_" self in
         (* add clauses *)
         List.iter (fun u -> add_clause [Lit.neg u; proxy]) subs;
@@ -191,8 +192,10 @@ module Make(A : ARG) : S with module A = A = struct
         proxy
       | B_imply (args, u) ->
         let t' =
-          or_a self.tst @@
-          IArray.append (IArray.map (not_ self.tst) args) (IArray.singleton u) in
+          let args =
+            args |> Iter.map (not_ self.tst) |> IArray.of_iter
+          in
+          or_a self.tst @@ IArray.append args (IArray.singleton u) in
         get_lit t'
       | B_ite _ | B_eq _ -> mk_lit t
       | B_equiv (a,b) ->

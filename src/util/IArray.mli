@@ -76,6 +76,8 @@ val of_array_unsafe : 'a array -> 'a t
 
 val to_iter : 'a t -> 'a iter
 
+val to_iter_sub : 'a t -> int -> int -> 'a iter
+
 val of_iter : 'a iter -> 'a t
 
 val of_gen : 'a gen -> 'a t

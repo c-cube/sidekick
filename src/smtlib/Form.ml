@@ -10,18 +10,18 @@ let id_imply = ID.make "=>"
 
 let view_id fid args =
   if ID.equal fid id_and then (
-    B_and args
+    B_and (IArray.to_iter args)
   ) else if ID.equal fid id_or then (
-    B_or args
+    B_or (IArray.to_iter args)
   ) else if ID.equal fid id_imply && IArray.length args >= 2 then (
     (* conclusion is stored first *)
     let len = IArray.length args in
-    B_imply (IArray.sub args 1 (len-1), IArray.get args 0)
+    B_imply (IArray.to_iter_sub args 1 (len-1), IArray.get args 0)
   ) else (
     raise_notrace Not_a_th_term
   )
 
-let view_as_bool (t:T.t) : T.t bool_view =
+let view_as_bool (t:T.t) : (T.t, _) bool_view =
   match T.view t with
   | Bool b -> B_bool b
   | Not u -> B_not u
@@ -47,13 +47,13 @@ module Funs = struct
     match view_id id args with
     | B_bool b -> Value.bool b
     | B_not (V_bool b) -> Value.bool (not b)
-    | B_and a when IArray.for_all Value.is_true a -> Value.true_
-    | B_and a when IArray.exists Value.is_false a -> Value.false_
-    | B_or a when IArray.exists Value.is_true a -> Value.true_
-    | B_or a when IArray.for_all Value.is_false a -> Value.false_
+    | B_and a when Iter.for_all Value.is_true a -> Value.true_
+    | B_and a when Iter.exists Value.is_false a -> Value.false_
+    | B_or a when Iter.exists Value.is_true a -> Value.true_
+    | B_or a when Iter.for_all Value.is_false a -> Value.false_
     | B_imply (_, V_bool true) -> Value.true_
-    | B_imply (a,_) when IArray.exists Value.is_false a -> Value.true_
-    | B_imply (a,b) when IArray.for_all Value.is_bool a && Value.is_bool b -> Value.false_
+    | B_imply (a,_) when Iter.exists Value.is_false a -> Value.true_
+    | B_imply (a,b) when Iter.for_all Value.is_bool a && Value.is_bool b -> Value.false_
     | B_ite(a,b,c) ->
       if Value.is_true a then b
       else if Value.is_false a then c
