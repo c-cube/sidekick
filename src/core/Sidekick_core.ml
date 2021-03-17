@@ -609,6 +609,7 @@ module type SOLVER = sig
     val hash : t -> int
     val pp : t CCFormat.printer
 
+    val neg : t -> t
     val formula : t -> lit
     val sign : t -> bool
   end
