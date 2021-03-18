@@ -518,13 +518,11 @@ module type SOLVER_INTERNAL = sig
 
   type preprocess_hook =
     t ->
-    recurse:(term -> term) ->
     mk_lit:(term -> lit) ->
     add_clause:(lit list -> unit) ->
     term -> term option
   (** Given a term, try to preprocess it. Return [None] if it didn't change.
       Can also add clauses to define new terms.
-      @param recurse call preprocessor on subterms.
       @param mk_lit creates a new literal for a boolean term.
       @param add_clause pushes a new clause into the SAT solver.
   *)
