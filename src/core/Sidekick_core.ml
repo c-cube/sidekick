@@ -437,7 +437,11 @@ module type SOLVER_INTERNAL = sig
       not be backtracked. *)
 
   val mk_lit : t -> actions -> ?sign:bool -> term -> lit
-  (** Create a literal *)
+  (** Create a literal. This automatically preprocesses the term. *)
+
+  val preprocess_term :
+    t -> add_clause:(Lit.t list -> unit) -> term -> term
+  (** Preprocess a term. *)
 
   val add_lit : t -> actions -> lit -> unit
   (** Add the given literal to the SAT solver, so it gets assigned

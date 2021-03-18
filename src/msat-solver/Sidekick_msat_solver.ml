@@ -226,8 +226,9 @@ module Make(A : ARG)
       Stat.incr self.count_axiom;
       acts.Msat.acts_add_clause ~keep lits P.default
 
-    let preprocess_lit_ (self:t) ~add_clause (lit:lit) : lit =
-      let mk_lit t = Lit.atom self.tst t in
+    let preprocess_term_ (self:t) ~add_clause (t:term) : term =
+      let mk_lit t = Lit.atom self.tst t in (* no further simplification *)
+
       (* compute and cache normal form of [t] *)
       let rec aux t =
         match Term.Tbl.find self.preprocess_cache t with
@@ -255,18 +256,26 @@ module Make(A : ARG)
           | None -> aux_rec t hooks_tl
           | Some u -> aux u
       in
-      let t = Lit.term lit |> simp_t self |> aux in
+      t |> simp_t self |> aux
+
+    let preprocess_lit_ (self:t) ~add_clause (lit:lit) : lit =
+      let t = Lit.term lit |> preprocess_term_ self ~add_clause in
       let lit' = Lit.atom self.tst ~sign:(Lit.sign lit) t in
       Log.debugf 10
         (fun k->k "(@[msat-solver.preprocess.lit@ :lit %a@ :into %a@])" Lit.pp lit Lit.pp lit');
       lit'
 
-    let mk_lit self acts ?sign t : Lit.t =
-      let add_clause lits =
-        Stat.incr self.count_preprocess_clause;
-        add_sat_clause_ self acts ~keep:true lits
-      in
+    (* add a clause using [acts] *)
+    let add_clause_ self acts lits : unit =
+      Stat.incr self.count_preprocess_clause;
+      add_sat_clause_ self acts ~keep:true lits
+
+    let mk_lit self acts ?sign t =
+      let add_clause = add_clause_ self acts in
       preprocess_lit_ self ~add_clause @@ Lit.atom self.tst ?sign t
+
+    let[@inline] preprocess_term self ~add_clause (t:term) : term =
+      preprocess_term_ self ~add_clause t
 
     let[@inline] add_clause_temp self acts lits : unit =
       add_sat_clause_ self acts ~keep:false lits

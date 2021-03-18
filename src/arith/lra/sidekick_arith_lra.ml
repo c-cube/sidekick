@@ -227,8 +227,8 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debugf 50 (fun k->k "lra.preprocess %a" T.pp t);
     let tst = SI.tst si in
 
-    (* simplify subterm *)
-    let simp_t = SI.simp_t si in
+    (* preprocess subterm *)
+    let preproc_t = SI.preprocess_term ~add_clause si in
 
     (* tell the CC this term exists *)
     let declare_term_to_cc t =
@@ -257,8 +257,8 @@ module Make(A : ARG) : S with module A = A = struct
       None
 
     | LRA_pred (pred, t1, t2) ->
-      let l1 = as_linexp ~f:simp_t t1 in
-      let l2 = as_linexp ~f:simp_t t2 in
+      let l1 = as_linexp ~f:preproc_t t1 in
+      let l2 = as_linexp ~f:preproc_t t2 in
       let le = LE.(l1 - l2) in
       let le_comb, le_const = LE.comb le, LE.const le in
       let le_const = Q.neg le_const in
@@ -306,7 +306,7 @@ module Make(A : ARG) : S with module A = A = struct
       end
 
     | LRA_op _ | LRA_mult _ ->
-      let le = as_linexp ~f:simp_t t in
+      let le = as_linexp ~f:preproc_t t in
       let le_comb, le_const = LE.comb le, LE.const le in
 
       if Q.(le_const = zero) then (
