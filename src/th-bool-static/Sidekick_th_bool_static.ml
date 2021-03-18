@@ -219,12 +219,16 @@ module Make(A : ARG) : S with module A = A = struct
         add_clause (Lit.neg proxy :: subs);
         proxy
       | B_imply (args, u) ->
-        let t' =
-          let args =
-            args |> Iter.map (not_ self.tst) |> IArray.of_iter
-          in
-          or_a self.tst @@ IArray.append args (IArray.singleton u) in
-        get_lit t'
+        (* transform into [¬args \/ u] on the fly *)
+        let args = args |> Iter.map get_lit |> Iter.map Lit.neg |> Iter.to_list in
+        let u = get_lit u in
+        let subs = u :: args in
+        (* now the or-encoding *)
+        let proxy = fresh_lit ~for_:t ~mk_lit ~pre:"implies_" self in
+        (* add clauses *)
+        List.iter (fun u -> add_clause [Lit.neg u; proxy]) subs;
+        add_clause (Lit.neg proxy :: subs);
+        proxy
       | B_ite _ | B_eq _ | B_neq _ -> mk_lit t
       | B_equiv (a,b) -> equiv_ ~for_:t ~is_xor:false a b
       | B_xor  (a,b) -> equiv_ ~for_:t ~is_xor:true a b
