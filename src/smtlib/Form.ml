@@ -142,7 +142,7 @@ let distinct_l tst l =
   | l ->
     (* turn into [and_{i<j} t_i != t_j] *)
     let cs =
-      CCList.diagonal l |> List.map (fun (a,b) -> neq tst a b) 
+      CCList.diagonal l |> List.map (fun (a,b) -> neq tst a b)
     in
     and_l tst cs
 
