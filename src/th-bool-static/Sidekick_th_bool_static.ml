@@ -105,13 +105,9 @@ module Make(A : ARG) : S with module A = A = struct
       else if Iter.for_all is_false a then Some (T.bool tst false)
       else None
     | B_imply (args, u) ->
-      (* turn into a disjunction *)
-      let u =
-        let args =
-          args |> Iter.map (not_ tst) |> IArray.of_iter in
-        or_a tst @@ IArray.append args (IArray.singleton u)
-      in
-      Some u
+      if Iter.exists is_false args then Some (T.bool tst true)
+      else if is_true u then Some (T.bool tst true)
+      else None
     | B_ite (a,b,c) ->
       (* directly simplify [a] so that maybe we never will simplify one
          of the branches *)
