@@ -304,7 +304,8 @@ module Make(A : ARG) : S with module A = A = struct
           Log.debugf 5
             (fun k->k "(@[%s.on-new-term.is-a.reduce@ :t %a@ :to %B@ :n %a@ :sub-cstor %a@])"
                 name T.pp t is_true N.pp n Monoid_cstor.pp cstor);
-          SI.CC.merge cc n (SI.CC.n_bool cc is_true) (Expl.mk_theory @@ Expl.mk_merge n_u repr_u)
+          SI.CC.merge cc n (SI.CC.n_bool cc is_true)
+            Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
       end
     | T_select (c_t, i, u) ->
       let n_u = SI.CC.add_term cc u in
@@ -317,7 +318,7 @@ module Make(A : ARG) : S with module A = A = struct
           assert (i < IArray.length cstor.c_args);
           let u_i = IArray.get cstor.c_args i in
           let n_u_i = SI.CC.add_term cc u_i in
-          SI.CC.merge cc n n_u_i (Expl.mk_theory @@ Expl.mk_merge n_u repr_u)
+          SI.CC.merge cc n n_u_i Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
         | Some _ -> ()
         | None ->
           N_tbl.add self.to_decide repr_u (); (* needs to be decided *)
