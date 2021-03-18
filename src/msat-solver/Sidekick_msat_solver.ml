@@ -238,6 +238,13 @@ module Make(A : ARG)
           (* then map subterms *)
           let t2 = Term.map_shallow self.tst aux t1 in (* map subterms *)
           let u = if t != t2 then aux t2 (* fixpoint *) else t2 in
+
+          if t != u then (
+            Log.debugf 5
+              (fun k->k "(@[msat-solver.preprocess.term@ \
+                         :from %a@ :to %a@])" Term.pp t Term.pp u);
+          );
+
           Term.Tbl.add self.preprocess_cache t u;
           u
       (* try each function in [hooks] successively *)
@@ -246,16 +253,12 @@ module Make(A : ARG)
         | h :: hooks_tl ->
           match h self ~mk_lit ~add_clause t with
           | None -> aux_rec t hooks_tl
-          | Some u ->
-            Log.debugf 30
-              (fun k->k "(@[msat-solver.preprocess.step@ :from %a@ :to %a@])"
-                  Term.pp t Term.pp u);
-            aux u
+          | Some u -> aux u
       in
       let t = Lit.term lit |> simp_t self |> aux in
       let lit' = Lit.atom self.tst ~sign:(Lit.sign lit) t in
       Log.debugf 10
-        (fun k->k "(@[msat-solver.preprocess@ :lit %a@ :into %a@])" Lit.pp lit Lit.pp lit');
+        (fun k->k "(@[msat-solver.preprocess.lit@ :lit %a@ :into %a@])" Lit.pp lit Lit.pp lit');
       lit'
 
     let mk_lit self acts ?sign t : Lit.t =
