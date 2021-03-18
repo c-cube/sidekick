@@ -59,6 +59,7 @@ module Funs = struct
       else if Value.is_false a then c
       else Error.errorf "non boolean value %a in ite" Value.pp a
     | B_equiv (a,b) | B_eq(a,b) -> Value.bool (Value.equal a b)
+    | B_xor (a,b) | B_neq(a,b) -> Value.bool (not (Value.equal a b))
     | B_atom v -> v
     | B_opaque_bool t -> Error.errorf "cannot evaluate opaque bool %a" pp t
     | B_not _ | B_and _ | B_or _ | B_imply _
@@ -154,7 +155,9 @@ let mk_bool st = function
   | B_imply (a,b) -> imply_a st a b
   | B_ite (a,b,c) -> ite st a b c
   | B_equiv (a,b) -> equiv st a b
+  | B_xor (a,b) -> not_ st (equiv st a b)
   | B_eq (a,b) -> T.eq st a b
+  | B_neq (a,b) -> not_ st (T.eq st a b)
   | B_not t -> not_ st t
   | B_opaque_bool t -> t
 

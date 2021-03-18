@@ -7,7 +7,9 @@ type ('a, 'args) bool_view =
   | B_or of 'args
   | B_imply of 'args * 'a
   | B_equiv of 'a * 'a
+  | B_xor of 'a * 'a
   | B_eq of 'a * 'a
+  | B_neq of 'a * 'a
   | B_ite of 'a * 'a * 'a
   | B_opaque_bool of 'a (* do not enter *)
   | B_atom of 'a
@@ -124,9 +126,14 @@ module Make(A : ARG) : S with module A = A = struct
     | B_equiv (a,b) when is_false a -> Some (not_ tst b)
     | B_equiv (a,b) when is_true b -> Some a
     | B_equiv (a,b) when is_false b -> Some (not_ tst a)
-    | B_equiv _ -> None
+    | B_xor (a,b) when is_false a -> Some b
+    | B_xor (a,b) when is_true a -> Some (not_ tst b)
+    | B_xor (a,b) when is_false b -> Some a
+    | B_xor (a,b) when is_true b -> Some (not_ tst a)
+    | B_equiv _ | B_xor _ -> None
     | B_eq (a,b) when T.equal a b -> Some (T.bool tst true)
-    | B_eq _ -> None
+    | B_neq (a,b) when T.equal a b -> Some (T.bool tst true)
+    | B_eq _ | B_neq _ -> None
     | B_atom _ -> None
 
   let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
@@ -167,6 +174,20 @@ module Make(A : ARG) : S with module A = A = struct
           lit
       in
       if t_sign then lit else Lit.neg lit
+
+    and equiv_ ~is_xor a b : Lit.t =
+      let a = get_lit a in
+      let b = get_lit b in
+      let a = if is_xor then Lit.neg a else a in (* [a xor b] is [(¬a) = b] *)
+      let proxy = fresh_lit ~mk_lit ~pre:"equiv_" self in
+      (* proxy => a<=> b,
+         ¬proxy => a xor b *)
+      add_clause [Lit.neg proxy; Lit.neg a; b];
+      add_clause [Lit.neg proxy; Lit.neg b; a];
+      add_clause [proxy; a; b];
+      add_clause [proxy; Lit.neg a; Lit.neg b];
+      proxy
+
     and get_lit_uncached t : Lit.t =
       match A.view_as_bool t with
       | B_bool b -> mk_lit (T.bool self.tst b)
@@ -195,18 +216,9 @@ module Make(A : ARG) : S with module A = A = struct
           in
           or_a self.tst @@ IArray.append args (IArray.singleton u) in
         get_lit t'
-      | B_ite _ | B_eq _ -> mk_lit t
-      | B_equiv (a,b) ->
-        let a = get_lit a in
-        let b = get_lit b in
-        let proxy = fresh_lit ~mk_lit ~pre:"equiv_" self in
-        (* proxy => a<=> b,
-           ¬proxy => a xor b *)
-        add_clause [Lit.neg proxy; Lit.neg a; b];
-        add_clause [Lit.neg proxy; Lit.neg b; a];
-        add_clause [proxy; a; b];
-        add_clause [proxy; Lit.neg a; Lit.neg b];
-        proxy
+      | B_ite _ | B_eq _ | B_neq _ -> mk_lit t
+      | B_equiv (a,b) -> equiv_ ~is_xor:false a b
+      | B_xor  (a,b) -> equiv_ ~is_xor:true a b
       | B_atom u -> mk_lit u
     in
     let lit = get_lit t in
