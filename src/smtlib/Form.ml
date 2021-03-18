@@ -53,7 +53,7 @@ module Funs = struct
     | B_or a when Iter.for_all Value.is_false a -> Value.false_
     | B_imply (_, V_bool true) -> Value.true_
     | B_imply (a,_) when Iter.exists Value.is_false a -> Value.true_
-    | B_imply (a,b) when Iter.for_all Value.is_bool a && Value.is_bool b -> Value.false_
+    | B_imply (a,b) when Iter.for_all Value.is_true a && Value.is_false b -> Value.false_
     | B_ite(a,b,c) ->
       if Value.is_true a then b
       else if Value.is_false a then c
