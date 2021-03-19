@@ -593,7 +593,7 @@ module Make(A : ARG)
   type res =
     | Sat of Model.t
     | Unsat of {
-        proof: proof option;
+        proof: proof option lazy_t;
         unsat_core: Atom.t list lazy_t;
       }
     | Unknown of Unknown.t
@@ -653,13 +653,13 @@ module Make(A : ARG)
       do_on_exit ();
       Sat m
     | Sat_solver.Unsat us ->
-      let proof =
+      let proof = lazy (
         try
           let pr = us.get_proof () in
           if check then Sat_solver.Proof.check pr;
           Some pr
         with Msat.Solver_intf.No_proof -> None
-      in
+      ) in
       let unsat_core = lazy (us.Msat.unsat_assumptions ()) in
       do_on_exit ();
       Unsat {proof; unsat_core}

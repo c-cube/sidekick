@@ -178,15 +178,16 @@ let solve
          *)
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
-    | Solver.Unsat {proof=None;_} ->
-      Format.printf "Unsat (%.3f/%.3f/-)@." t1 (t2-.t1);
-    | Solver.Unsat {proof=Some p;_} ->
+    | Solver.Unsat {proof;_} ->
       if check then (
-        Profile.with_ "unsat.check" (fun () -> Solver.Proof.check p);
+        match proof with
+        | lazy (Some p) ->
+          Profile.with_ "unsat.check" (fun () -> Solver.Proof.check p);
+        | _ -> ()
       );
-      begin match dot_proof with
-        | None ->  ()
-        | Some file ->
+      begin match dot_proof, proof with
+        | None, _ ->  ()
+        | Some file, lazy (Some p) ->
           Profile.with_ "dot.proof" @@ fun () ->
           CCIO.with_out file
             (fun oc ->
@@ -194,6 +195,7 @@ let solve
                let fmt = Format.formatter_of_out_channel oc in
                Solver.Proof.pp_dot fmt p;
                Format.pp_print_flush fmt (); flush oc)
+        | _ -> ()
       end;
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;

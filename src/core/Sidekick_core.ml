@@ -698,7 +698,7 @@ module type SOLVER = sig
   type res =
     | Sat of Model.t
     | Unsat of {
-        proof: proof option;
+        proof: proof option lazy_t;
         unsat_core: Atom.t list lazy_t;
       }
     | Unknown of Unknown.t
