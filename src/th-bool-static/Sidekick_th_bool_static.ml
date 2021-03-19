@@ -137,6 +137,7 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debugf 20
       (fun k->k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])"
           T.pp u T.pp for_);
+    assert (Ty.equal ty (T.ty u));
     u
 
   let fresh_lit (self:state) ~for_ ~mk_lit ~pre : Lit.t =
