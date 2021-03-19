@@ -532,6 +532,16 @@ module type SOLVER_INTERNAL = sig
   *)
 
   val add_preprocess : t -> preprocess_hook -> unit
+
+  (** {3 Model production} *)
+
+  type model_hook =
+    recurse:(t -> CC.N.t -> term) ->
+    t -> CC.N.t -> term option
+  (** A model-production hook. It takes the solver, a class, and returns
+      a term for this class. *)
+
+  val add_model_hook : t -> model_hook -> unit
 end
 
 (** Public view of the solver *)
@@ -616,6 +626,7 @@ module type SOLVER = sig
     val sign : t -> bool
   end
 
+  (* FIXME: just use terms instead? *)
   (** {3 Semantic values} *)
   module Value : sig
     type t
