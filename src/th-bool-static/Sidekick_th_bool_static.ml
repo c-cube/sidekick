@@ -153,11 +153,11 @@ module Make(A : ARG) : S with module A = A = struct
         | B_bool true -> Some b
         | B_bool false -> Some c
         | _ ->
-          let t_a = fresh_term self ~for_:t ~pre:"ite" (T.ty b) in
+          let t_ite = fresh_term self ~for_:t ~pre:"ite" (T.ty b) in
           let lit_a = mk_lit a in
-          add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_a b)];
-          add_clause [lit_a; mk_lit (eq self.tst t_a c)];
-          Some t_a
+          add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_ite b)];
+          add_clause [lit_a; mk_lit (eq self.tst t_ite c)];
+          Some t_ite
       end
     | _ -> None
 
