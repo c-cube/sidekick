@@ -785,6 +785,7 @@ end = struct
     else None
 
   let on_new_term self cc n (t:T.t) : unit =
+    Log.debugf 50 (fun k->k "@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);
     let maybe_m, l = M.of_term cc n t in
     begin match maybe_m with
       | Some v ->
@@ -800,6 +801,7 @@ end = struct
         Log.debugf 20
           (fun k->k "(@[monoid[%s].on-new-term.sub@ :n %a@ :sub-t %a@ :value %a@])"
               M.name N.pp n N.pp n_u M.pp m_u);
+        let n_u = CC.find cc n_u in
         if N.get_field self.field_has_value n_u then (
           let m_u' =
             try N_tbl.find self.values n_u
