@@ -210,8 +210,8 @@ module Make(A : ARG)
     let simp_t self (t:Term.t) : Term.t = Simplify.normalize self.simp t
     let add_simplifier (self:t) f : unit = Simplify.add_hook self.simp f
 
-    let add_preprocess self f = self.preprocess <- f :: self.preprocess
-    let add_model_hook self f = self.mk_model <- f :: self.mk_model
+    let on_preprocess self f = self.preprocess <- f :: self.preprocess
+    let on_model_gen self f = self.mk_model <- f :: self.mk_model
 
     let push_decision (_self:t) (acts:actions) (lit:lit) : unit =
       let sign = Lit.sign lit in

@@ -532,6 +532,16 @@ module Make(A : ARG) : S with module A = A = struct
     end;
     ()
 
+  let on_model_gen (self:t) ~recurse (si:SI.t) (n:N.t) : T.t option =
+    (* TODO: option to complete model or not (by picking sth at leaves)? *)
+    let cc = SI.cc si in
+    let repr = SI.CC.find cc n in
+    match ST_cstors.get self.cstors repr with
+    | None -> None
+    | Some c ->
+      Log.debugf 1 (fun k->k "FIND CSTOR %a" Monoid_cstor.pp c);
+      None
+
   let create_and_setup (solver:SI.t) : t =
     let self = {
       tst=SI.tst solver;
@@ -545,6 +555,7 @@ module Make(A : ARG) : S with module A = A = struct
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_final_check solver (on_final_check self);
+    SI.on_model_gen solver (on_model_gen self);
     self
 
   let theory =

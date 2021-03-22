@@ -268,8 +268,8 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debug 2 "(th-bool.setup)";
     let st = create (SI.tst si) (SI.ty_st si) in
     SI.add_simplifier si (simplify st);
-    SI.add_preprocess si (preproc_ite st);
-    SI.add_preprocess si (cnf st);
+    SI.on_preprocess si (preproc_ite st);
+    SI.on_preprocess si (cnf st);
     if A.check_congruence_classes then (
       Log.debug 5 "(th-bool.add-final-check)";
       SI.on_final_check si (check_new_terms st);

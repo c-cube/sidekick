@@ -583,7 +583,7 @@ module Make(A : ARG) : S with module A = A = struct
     let stat = SI.stats si in
     let st = create ~stat (SI.tst si) (SI.ty_st si) in
     SI.add_simplifier si (simplify st);
-    SI.add_preprocess si (preproc_lra st);
+    SI.on_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
     SI.on_cc_is_subterm si (on_subterm st);

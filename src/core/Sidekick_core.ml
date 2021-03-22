@@ -531,7 +531,7 @@ module type SOLVER_INTERNAL = sig
       @param add_clause pushes a new clause into the SAT solver.
   *)
 
-  val add_preprocess : t -> preprocess_hook -> unit
+  val on_preprocess : t -> preprocess_hook -> unit
 
   (** {3 Model production} *)
 
@@ -541,7 +541,7 @@ module type SOLVER_INTERNAL = sig
   (** A model-production hook. It takes the solver, a class, and returns
       a term for this class. *)
 
-  val add_model_hook : t -> model_hook -> unit
+  val on_model_gen : t -> model_hook -> unit
 end
 
 (** Public view of the solver *)
