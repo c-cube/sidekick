@@ -149,16 +149,19 @@ module Make(A : ARG) : S with module A = A = struct
     type t = {
       c_n: N.t;
       c_cstor: A.Cstor.t;
-      c_args: T.t IArray.t;
+      c_args: N.t IArray.t;
     }
 
     let pp out (v:t) =
-      Fmt.fprintf out "(@[%s@ :cstor %a@ :n %a@])" name A.Cstor.pp v.c_cstor N.pp v.c_n
+      Fmt.fprintf out "(@[%s@ :cstor %a@ :n %a@ :args [@[%a@]]@])"
+        name A.Cstor.pp v.c_cstor N.pp v.c_n
+        (Util.pp_iarray N.pp) v.c_args
 
     (* attach data to constructor terms *)
-    let of_term n (t:T.t) : _ option * _ list =
+    let of_term cc n (t:T.t) : _ option * _ list =
       match A.view_as_data t with
       | T_cstor (cstor,args) ->
+        let args = IArray.map (SI.CC.add_term cc) args in
         Some {c_n=n;c_cstor=cstor; c_args=args}, []
       | _ -> None, []
 
@@ -179,7 +182,7 @@ module Make(A : ARG) : S with module A = A = struct
         (* same function: injectivity *)
         assert (IArray.length c1.c_args = IArray.length c2.c_args);
         IArray.iter2
-          (fun u1 u2 -> SI.CC.merge_t cc u1 u2 expl)
+          (fun u1 u2 -> SI.CC.merge cc u1 u2 expl)
           c1.c_args c2.c_args;
         Ok c1
       ) else (
@@ -198,13 +201,13 @@ module Make(A : ARG) : S with module A = A = struct
       sel_n: N.t;
       sel_cstor: A.Cstor.t;
       sel_idx: int;
-      sel_arg: T.t;
+      sel_arg: N.t;
     }
 
     type is_a = {
       is_a_n: N.t;
       is_a_cstor: A.Cstor.t;
-      is_a_arg: T.t;
+      is_a_arg: N.t;
     }
 
     (* associate to each class a unique constructor term in the class (if any) *)
@@ -223,15 +226,17 @@ module Make(A : ARG) : S with module A = A = struct
         (Util.pp_list pp_is_a) v.parent_is_a
 
     (* attach data to constructor terms *)
-    let of_term n (t:T.t) : _ option * _ list =
+    let of_term cc n (t:T.t) : _ option * _ list =
       match A.view_as_data t with
       | T_select (c, i, u) ->
+        let u = SI.CC.add_term cc u in
         let m_sel = {
           parent_select=[{sel_n=n; sel_idx=i; sel_cstor=c; sel_arg=u}];
           parent_is_a=[];
         } in
         None, [u, m_sel]
       | T_is_a (c, u) ->
+        let u = SI.CC.add_term cc u in
         let m_sel = {
           parent_is_a=[{is_a_n=n; is_a_cstor=c; is_a_arg=u;}];
           parent_select=[];
@@ -317,8 +322,7 @@ module Make(A : ARG) : S with module A = A = struct
                 name N.pp n i A.Cstor.pp c_t);
           assert (i < IArray.length cstor.c_args);
           let u_i = IArray.get cstor.c_args i in
-          let n_u_i = SI.CC.add_term cc u_i in
-          SI.CC.merge cc n n_u_i Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
+          SI.CC.merge cc n u_i Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
         | Some _ -> ()
         | None ->
           N_tbl.add self.to_decide repr_u (); (* needs to be decided *)
@@ -338,7 +342,7 @@ module Make(A : ARG) : S with module A = A = struct
             name Monoid_parents.pp_is_a is_a2 is_true N.pp n1 N.pp n2 Monoid_cstor.pp c1);
       SI.CC.merge cc is_a2.is_a_n (SI.CC.n_bool cc is_true)
         Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2;
-                       mk_merge_t (N.term n2) is_a2.is_a_arg] |> mk_theory)
+                       mk_merge n2 is_a2.is_a_arg] |> mk_theory)
     in
     let merge_select n1 (c1:Monoid_cstor.t) n2 (sel2:Monoid_parents.select) =
       if A.Cstor.equal c1.c_cstor sel2.sel_cstor then (
@@ -347,10 +351,9 @@ module Make(A : ARG) : S with module A = A = struct
               name N.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
         assert (sel2.sel_idx < IArray.length c1.c_args);
         let u_i = IArray.get c1.c_args sel2.sel_idx in
-        let n_u_i = SI.CC.add_term cc u_i in
-        SI.CC.merge cc sel2.sel_n n_u_i
+        SI.CC.merge cc sel2.sel_n u_i
           Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2;
-                         mk_merge_t (N.term n2) sel2.sel_arg] |> mk_theory);
+                         mk_merge n2 sel2.sel_arg] |> mk_theory);
       )
     in
     let merge_c_p n1 n2 =
@@ -401,9 +404,7 @@ module Make(A : ARG) : S with module A = A = struct
       let g: graph = N_tbl.create ~size:32 () in
       let traverse_sub cstor : _ list =
         IArray.to_list_map
-          (fun sub_t ->
-             let sub_n = SI.CC.add_term cc sub_t in
-             sub_n, SI.CC.find cc sub_n)
+          (fun sub_n -> sub_n, SI.CC.find cc sub_n)
           cstor.Monoid_cstor.c_args
       in
       begin
@@ -540,9 +541,7 @@ module Make(A : ARG) : S with module A = A = struct
     | None -> None
     | Some c ->
       Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
-      let args =
-        IArray.map (fun t -> recurse si (SI.cc_add_term si t))
-          c.c_args in
+      let args = IArray.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t
 

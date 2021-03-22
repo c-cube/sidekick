@@ -32,7 +32,7 @@ module Make(A : ARG) : S with module A = A = struct
       t: T.t;
       n: N.t;
       cstor: Fun.t;
-      args: T.t IArray.t;
+      args: N.t IArray.t;
     }
 
     let name = name
@@ -40,15 +40,17 @@ module Make(A : ARG) : S with module A = A = struct
       Fmt.fprintf out "(@[cstor %a@ :term %a@])" Fun.pp v.cstor T.pp v.t
 
     (* attach data to constructor terms *)
-    let of_term n (t:T.t) : _ option * _ =
+    let of_term cc n (t:T.t) : _ option * _ =
       match A.view_as_cstor t with
-      | T_cstor (cstor,args) -> Some {n; t; cstor; args}, []
+      | T_cstor (cstor,args) ->
+        let args = IArray.map (SI.CC.add_term cc) args in
+        Some {n; t; cstor; args}, []
       | _ -> None, []
 
     let merge cc n1 v1 n2 v2 e_n1_n2 : _ result =
       Log.debugf 5
         (fun k->k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])"
-            name N.pp n1 T.pp v1.t N.pp n2 T.pp v2.t); 
+            name N.pp n1 T.pp v1.t N.pp n2 T.pp v2.t);
       (* build full explanation of why the constructor terms are equal *)
       let expl =
         Expl.mk_list [
@@ -61,7 +63,7 @@ module Make(A : ARG) : S with module A = A = struct
         (* same function: injectivity *)
         assert (IArray.length v1.args = IArray.length v2.args);
         IArray.iter2
-          (fun u1 u2 -> SI.CC.merge_t cc u1 u2 expl)
+          (fun u1 u2 -> SI.CC.merge cc u1 u2 expl)
           v1.args v2.args;
         Ok v1
       ) else (

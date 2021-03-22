@@ -730,13 +730,14 @@ module type MONOID_ARG = sig
   (** name of the monoid's value (short) *)
 
   val of_term :
-    SI.CC.N.t -> SI.T.Term.t ->
-    (t option * (SI.T.Term.t * t) list)
+    SI.CC.t -> SI.CC.N.t -> SI.T.Term.t ->
+    (t option * (SI.CC.N.t * t) list)
   (** [of_term n t], where [t] is the term annotating node [n],
       returns [maybe_m, l], where:
       - [maybe_m = Some m] if [t] has monoid value [m];
         otherwise [maybe_m=None]
-      - [l] is a list of [(u, m_u)] where each [u] is a direct subterm of [t]
+      - [l] is a list of [(u, m_u)] where each [u]'s term
+        is a direct subterm of [t]
         and [m_u] is the monoid value attached to [u].
       *)
 
@@ -784,7 +785,7 @@ end = struct
     else None
 
   let on_new_term self cc n (t:T.t) : unit =
-    let maybe_m, l = M.of_term n t in
+    let maybe_m, l = M.of_term cc n t in
     begin match maybe_m with
       | Some v ->
         Log.debugf 20
@@ -795,14 +796,10 @@ end = struct
       | None -> ()
     end;
     List.iter
-      (fun (u,m_u) ->
+      (fun (n_u,m_u) ->
         Log.debugf 20
           (fun k->k "(@[monoid[%s].on-new-term.sub@ :n %a@ :sub-t %a@ :value %a@])"
-              M.name N.pp n T.pp u M.pp m_u);
-        let n_u =
-          try CC.find_t cc u
-          with Not_found -> Error.errorf "subterm %a does not have a repr" T.pp u
-        in
+              M.name N.pp n N.pp n_u M.pp m_u);
         if N.get_field self.field_has_value n_u then (
           let m_u' =
             try N_tbl.find self.values n_u
@@ -819,7 +816,7 @@ end = struct
             Log.debugf 20
               (fun k->k "(@[monoid[%s].on-new-term.sub.merged@ \
                          :n %a@ :sub-t %a@ :value %a@])"
-                  M.name N.pp n T.pp u M.pp m_u_merged);
+                  M.name N.pp n N.pp n_u M.pp m_u_merged);
             N_tbl.add self.values n_u m_u_merged;
         ) else (
           (* just add to [n_u] *)
