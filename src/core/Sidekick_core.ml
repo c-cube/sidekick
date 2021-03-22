@@ -626,17 +626,6 @@ module type SOLVER = sig
     val sign : t -> bool
   end
 
-  (* FIXME: just use terms instead? *)
-  (** {3 Semantic values} *)
-  module Value : sig
-    type t
-
-    val equal : t -> t -> bool
-    val hash : t -> int
-    val ty : t -> ty
-    val pp : t Fmt.printer
-  end
-
   module Model : sig
     type t
 
@@ -644,9 +633,9 @@ module type SOLVER = sig
 
     val mem : t -> term -> bool
 
-    val find : t -> term -> Value.t option
+    val find : t -> term -> term option
 
-    val eval : t -> term -> Value.t option
+    val eval : t -> term -> term option
 
     val pp : t Fmt.printer
   end

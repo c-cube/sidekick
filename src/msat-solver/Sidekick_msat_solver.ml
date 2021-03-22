@@ -561,13 +561,10 @@ module Make(A : ARG)
       | U_incomplete -> Fmt.string out "incomplete fragment"
   end [@@ocaml.warning "-37"]
 
-  (* just use terms as values *)
-  module Value = Term
-
   module Model = struct
     type t =
       | Empty
-      | Map of Value.t Term.Tbl.t
+      | Map of term Term.Tbl.t
     let empty = Empty
     let mem = function
       | Empty -> fun _ -> false
@@ -580,7 +577,7 @@ module Make(A : ARG)
       | Empty -> Fmt.string out "(model)"
       | Map tbl ->
         let pp_pair out (t,v) =
-          Fmt.fprintf out "(@[<1>%a@ := %a@])" Term.pp t Value.pp v
+          Fmt.fprintf out "(@[<1>%a@ := %a@])" Term.pp t Term.pp v
             in
         Fmt.fprintf out "(@[<hv>model@ %a@])"
           (Util.pp_iter pp_pair) (Term.Tbl.to_iter tbl)
