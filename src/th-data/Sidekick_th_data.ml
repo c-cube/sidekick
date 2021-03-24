@@ -642,16 +642,19 @@ module Make(A : ARG) : S with module A = A = struct
     ()
 
   let on_model_gen (self:t) ~recurse (si:SI.t) (n:N.t) : T.t option =
-    (* TODO: option to complete model or not (by picking sth at leaves)? *)
     let cc = SI.cc si in
     let repr = SI.CC.find cc n in
-    match ST_cstors.get self.cstors repr with
-    | None -> None
-    | Some c ->
+    match ST_cstors.get self.cstors repr, ST_parents.get self.parents repr with
+    | Some c, _ ->
       Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
       let args = IArray.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t
+    | None, Some p ->
+      Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-parents@ %a@])" Monoid_parents.pp p);
+      None (* TODO *)
+    | None, None -> None
+
 
   let create_and_setup (solver:SI.t) : t =
     let self = {
