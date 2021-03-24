@@ -14,3 +14,5 @@ doc/index.html
 papers/
 snapshots/
 perf.*
+.mypy_cache
+*.gz
