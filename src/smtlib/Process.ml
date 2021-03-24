@@ -295,6 +295,7 @@ module Th_data = Sidekick_th_data.Make(struct
         T_is_a (c, IArray.get args 0)
       | _ -> T_other t
 
+    let mk_eq = Term.eq
     let mk_cstor tst c args : Term.t = Term.app_fun tst (Fun.cstor c) args
     let mk_sel tst c i u = Term.app_fun tst (Fun.select_idx c i) (IArray.singleton u)
     let mk_is_a tst c u : Term.t =

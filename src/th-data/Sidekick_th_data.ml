@@ -76,6 +76,7 @@ module type ARG = sig
   val mk_cstor : S.T.Term.state -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
   val mk_is_a: S.T.Term.state -> Cstor.t -> S.T.Term.t -> S.T.Term.t
   val mk_sel : S.T.Term.state -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
+  val mk_eq : S.T.Term.state -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
 end
@@ -632,29 +633,34 @@ module Make(A : ARG) : S with module A = A = struct
           | None -> Error.errorf "th-data:@ %a should have base cstor" N.pp n
           | Some c -> c
         in
-        let t_isa_c = A.mk_is_a self.tst base_cstor t in
+        let cstor_app =
+          let args =
+            A.Cstor.ty_args base_cstor
+            |> Iter.mapi (fun i _ -> A.mk_sel self.tst base_cstor i t)
+            |> IArray.of_iter
+          in
+          A.mk_cstor self.tst base_cstor args
+        in
+        let t_eq_cstor = A.mk_eq self.tst t cstor_app in
         Log.debugf 20
-          (fun k->k "(@[th-data.final-check.model.decide-cstor@ %a@])" T.pp t_isa_c);
-        let lit = SI.mk_lit solver acts t_isa_c in
+          (fun k->k "(@[th-data.final-check.model.decide-cstor@ %a@])" T.pp t_eq_cstor);
+        let lit = SI.mk_lit solver acts t_eq_cstor in
         SI.push_decision solver acts lit;
         Printf.printf ".%!";
     );
     ()
 
   let on_model_gen (self:t) ~recurse (si:SI.t) (n:N.t) : T.t option =
+    (* TODO: option to complete model or not (by picking sth at leaves)? *)
     let cc = SI.cc si in
     let repr = SI.CC.find cc n in
-    match ST_cstors.get self.cstors repr, ST_parents.get self.parents repr with
-    | Some c, _ ->
+    match ST_cstors.get self.cstors repr with
+    | None -> None
+    | Some c ->
       Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
       let args = IArray.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t
-    | None, Some p ->
-      Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-parents@ %a@])" Monoid_parents.pp p);
-      None (* TODO *)
-    | None, None -> None
-
 
   let create_and_setup (solver:SI.t) : t =
     let self = {

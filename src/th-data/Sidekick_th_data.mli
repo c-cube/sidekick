@@ -45,6 +45,9 @@ module type ARG = sig
   val mk_sel : S.T.Term.state -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
   (** Make a selector term *)
 
+  val mk_eq : S.T.Term.state -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
+  (** Make a term equality *)
+
   val ty_is_finite : S.T.Ty.t -> bool
   (** Is the given type known to be finite? *)
 
