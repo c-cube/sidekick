@@ -57,6 +57,8 @@ module C = struct
   let ( ^ ) a b = match a, b with Finite, Finite -> Finite | _ -> Infinite
   let sum = Iter.fold (+) Finite
   let product = Iter.fold ( * ) Finite
+  let to_string = function Finite -> "finite" | Infinite -> "infinite"
+  let pp out self = Fmt.string out (to_string self)
 end
 
 module type ARG = sig
@@ -82,43 +84,108 @@ end
 module Compute_card(A : ARG) : sig
   type t
   val create : unit -> t
+  val base_cstor : t -> A.S.T.Ty.t -> A.Cstor.t option
   val is_finite : t -> A.S.T.Ty.t -> bool
 end = struct
   module Ty = A.S.T.Ty
   module Ty_tbl = CCHashtbl.Make(Ty)
+  type ty_cell = {
+    mutable card: C.t;
+    mutable base_cstor: A.Cstor.t option;
+  }
   type t = {
-    cards: C.t Ty_tbl.t;
+    cards: ty_cell Ty_tbl.t;
   }
 
   let create() : t = { cards=Ty_tbl.create 16}
 
-  let card (self:t) (ty:Ty.t) : C.t =
-    let rec aux (ty:Ty.t) : C.t =
+  let find (self:t) (ty0:Ty.t) : ty_cell =
+    (* TODO: remove
+    (* does [ty] contain a direct reference to [ty0] *)
+    let rec contains_self ty : bool =
+      Ty.equal ty0 ty ||
+      match A.as_datatype ty with
+      | Ty_other -> false
+      | Ty_app {args} -> Iter.exists contains_self args
+      | Ty_arrow (args, ret) -> Iter.exists contains_self args || contains_self ret
+      | Ty_data {cstors} ->
+        Iter.flat_map A.Cstor.ty_args cstors |> Iter.exists contains_self
+    in
+       *)
+
+    let dr_tbl = Ty_tbl.create 16 in
+
+    (* to build [ty], do we need to build [ty0]? *)
+    let rec is_direct_recursion (ty:Ty.t) : bool =
+      Ty.equal ty0 ty ||
+      try Ty_tbl.find dr_tbl ty
+      with Not_found ->
+        Ty_tbl.add dr_tbl ty false; (* cut infinite loop *)
+        let res =
+          match A.as_datatype ty with
+          | Ty_other -> false
+          | Ty_arrow (_, ret) -> is_direct_recursion ret
+          | Ty_app {args} -> Iter.exists is_direct_recursion args
+          | Ty_data {cstors} ->
+            Iter.flat_map A.Cstor.ty_args cstors
+            |> Iter.exists is_direct_recursion
+        in
+        Ty_tbl.replace dr_tbl ty res;
+        res
+    in
+    let is_direct_recursion_cstor (c:A.Cstor.t) : bool =
+      Iter.exists is_direct_recursion (A.Cstor.ty_args c)
+    in
+
+    let rec get_cell (ty:Ty.t) : ty_cell =
       match Ty_tbl.find self.cards ty with
       | c -> c
       | exception Not_found ->
-        Ty_tbl.add self.cards ty C.Infinite; (* temp value, for fixpoint computation *)
-        let c = match A.as_datatype ty with
+        (* insert temp value, for fixpoint computation *)
+        let cell = {card=C.Infinite; base_cstor=None} in
+        Ty_tbl.add self.cards ty cell;
+        let card = match A.as_datatype ty with
           | Ty_other -> if A.ty_is_finite ty then C.Finite else C.Infinite
-          | Ty_app {args} -> Iter.map aux args |> C.product
+          | Ty_app {args} -> Iter.map get_card args |> C.product
           | Ty_arrow (args,ret) ->
-            C.( (aux ret) ^ (C.product @@ Iter.map aux args))
+            C.( (get_card ret) ^ (C.product @@ Iter.map get_card args))
           | Ty_data { cstors; } ->
             let c =
               cstors
-              |> Iter.map (fun c -> C.product (Iter.map aux @@ A.Cstor.ty_args c))
+              |> Iter.map
+                (fun c ->
+                   let card = C.product (Iter.map get_card @@ A.Cstor.ty_args c) in
+                   (* we can use [c] as base constructor if it's finite,
+                      or at least if it doesn't directly depend on [ty] in
+                      its arguments *)
+                   if card = C.Finite ||
+                      (cell.base_cstor == None &&
+                       not (is_direct_recursion_cstor c))
+                   then (
+                     cell.base_cstor <- Some c;
+                   );
+                   card)
               |> C.sum
             in
             A.ty_set_is_finite ty (c=Finite);
+            assert (cell.base_cstor != None);
             c
         in
-        Ty_tbl.replace self.cards ty c;
-        c
+        cell.card <- card;
+        Log.debugf 5
+          (fun k->k "(@[th-data.card-ty@ %a@ :is %a@ :base-cstor %a@])"
+              Ty.pp ty C.pp card (Fmt.Dump.option A.Cstor.pp) cell.base_cstor);
+        cell
+    and get_card ty = (get_cell ty).card
     in
-    aux ty
+    get_cell ty0
+
+  let base_cstor self ty : A.Cstor.t option =
+    let c = find self ty in
+    c.base_cstor
 
   let is_finite self ty : bool =
-    match card self ty with
+    match (find self ty).card with
     | C.Finite -> true
     | C.Infinite -> false
 end
@@ -263,6 +330,7 @@ module Make(A : ARG) : S with module A = A = struct
     parents: ST_parents.t; (* repr -> parents for the class *)
     cards: Card.t; (* remember finiteness *)
     to_decide: unit N_tbl.t; (* set of terms to decide. *)
+    to_decide_for_complete_model: unit N_tbl.t; (* infinite types but we need a cstor in model*)
     case_split_done: unit T.Tbl.t; (* set of terms for which case split is done *)
     (* TODO: bitfield for types with less than 62 cstors, to quickly detect conflict? *)
   }
@@ -292,6 +360,10 @@ module Make(A : ARG) : S with module A = A = struct
         Log.debugf 20
           (fun k->k "(@[%s.on-new-term.must-decide-finite-ty@ %a@])" name T.pp t);
         N_tbl.add self.to_decide n ();
+      ) else if not (N_tbl.mem self.to_decide n) &&
+                not (N_tbl.mem self.to_decide_for_complete_model n) then (
+        (* must pick a constructor for this term in order to build a model *)
+        N_tbl.add self.to_decide_for_complete_model n ();
       )
     | _ -> ()
 
@@ -482,12 +554,40 @@ module Make(A : ARG) : S with module A = A = struct
     in
     Iter.iter check_lit trail
 
+  (* add clauses [∨_c is-c(n)] and [¬(is-a n) ∨ ¬(is-b n)] *)
+  let decide_class_ (self:t) (solver:SI.t) acts (n:N.t) : unit =
+    let t = N.term n in
+    (* [t] might have been expanded already, in case of duplicates in [l] *)
+    if not @@ T.Tbl.mem self.case_split_done t then (
+      T.Tbl.add self.case_split_done t ();
+      let c =
+        cstors_of_ty (T.ty t)
+        |> Iter.map (fun c -> A.mk_is_a self.tst c t)
+        |> Iter.map
+          (fun t ->
+             let lit = SI.mk_lit solver acts t in
+             (* TODO: set default polarity, depending on n° of args? *)
+             lit)
+        |> Iter.to_rev_list
+      in
+      SI.add_clause_permanent solver acts c;
+      Iter.diagonal_l c
+        (fun (c1,c2) ->
+           SI.add_clause_permanent solver acts
+             [SI.Lit.neg c1; SI.Lit.neg c2]);
+    )
+
   (* on final check, check acyclicity,
      then make sure we have done case split on all terms that
      need it. *)
   let on_final_check (self:t) (solver:SI.t) (acts:SI.actions) trail =
+    Profile.with_ "data.final-check" @@ fun () ->
     check_is_a self solver acts trail;
+
+    (* acyclicity check first *)
     Acyclicity_.check self solver acts;
+
+    (* see if some classes that need a cstor have been case-split on already *)
     let remaining_to_decide =
       N_tbl.to_iter self.to_decide
       |> Iter.map (fun (n,_) -> SI.cc_find solver n)
@@ -506,31 +606,39 @@ module Make(A : ARG) : S with module A = A = struct
       | l ->
         Log.debugf 10
           (fun k->k "(@[%s.final-check.must-decide@ %a@])" name (Util.pp_list N.pp) l);
-        (* add clauses [∨_c is-c(t)] and [¬(is-a t) ∨ ¬(is-b t)] *)
-        List.iter
-          (fun n ->
-             let t = N.term n in
-             (* [t] might have been expanded already, in case of duplicates in [l] *)
-             if not @@ T.Tbl.mem self.case_split_done t then (
-               T.Tbl.add self.case_split_done t ();
-               let c =
-                 cstors_of_ty (T.ty t)
-                 |> Iter.map (fun c -> A.mk_is_a self.tst c t)
-                 |> Iter.map
-                   (fun t ->
-                      let lit = SI.mk_lit solver acts t in
-                      (* TODO: set default polarity, depending on n° of args? *)
-                      lit)
-                 |> Iter.to_rev_list
-               in
-               SI.add_clause_permanent solver acts c;
-               Iter.diagonal_l c
-                 (fun (c1,c2) ->
-                    SI.add_clause_permanent solver acts
-                      [SI.Lit.neg c1; SI.Lit.neg c2]);
-             ))
-          l
+        Profile.instant "data.case-split";
+        List.iter (decide_class_ self solver acts) l
     end;
+
+    if remaining_to_decide = [] then (
+      let next_decision =
+        N_tbl.to_iter self.to_decide_for_complete_model
+        |> Iter.map (fun (n,_) -> SI.cc_find solver n)
+        |> Iter.filter
+          (fun n -> not (T.Tbl.mem self.case_split_done (N.term n))
+                    && not (ST_cstors.mem self.cstors n))
+        |> Iter.head
+      in
+      match next_decision with
+      | None -> () (* all decided *)
+      | Some n ->
+        let t = N.term n in
+
+        Profile.instant "data.decide";
+
+        (* use a constructor that will not lead to an infinite loop *)
+        let base_cstor =
+          match Card.base_cstor self.cards (T.ty t) with
+          | None -> Error.errorf "th-data:@ %a should have base cstor" N.pp n
+          | Some c -> c
+        in
+        let t_isa_c = A.mk_is_a self.tst base_cstor t in
+        Log.debugf 20
+          (fun k->k "(@[th-data.final-check.model.decide-cstor@ %a@])" T.pp t_isa_c);
+        let lit = SI.mk_lit solver acts t_isa_c in
+        SI.push_decision solver acts lit;
+        Printf.printf ".%!";
+    );
     ()
 
   let on_model_gen (self:t) ~recurse (si:SI.t) (n:N.t) : T.t option =
@@ -551,6 +659,7 @@ module Make(A : ARG) : S with module A = A = struct
       cstors=ST_cstors.create_and_setup ~size:32 solver;
       parents=ST_parents.create_and_setup ~size:32 solver;
       to_decide=N_tbl.create ~size:16 ();
+      to_decide_for_complete_model=N_tbl.create ~size:16 ();
       case_split_done=T.Tbl.create 16;
       cards=Card.create();
     } in
