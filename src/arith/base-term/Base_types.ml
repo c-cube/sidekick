@@ -146,7 +146,7 @@ type statement =
   | Stmt_define of definition list
   | Stmt_assert of term
   | Stmt_assert_clause of term list
-  | Stmt_check_sat
+  | Stmt_check_sat of (bool * term) list
   | Stmt_exit
 
 let[@inline] term_equal_ (a:term) b = a==b
@@ -1110,14 +1110,19 @@ module Statement = struct
     | Stmt_define of definition list
     | Stmt_assert of term
     | Stmt_assert_clause of term list
-    | Stmt_check_sat
+    | Stmt_check_sat of (bool * term) list
     | Stmt_exit
 
   let pp out = function
     | Stmt_set_logic s -> Fmt.fprintf out "(set-logic %s)" s
     | Stmt_set_option l -> Fmt.fprintf out "(@[set-logic@ %a@])" (Util.pp_list Fmt.string) l
     | Stmt_set_info (a,b) -> Fmt.fprintf out "(@[set-info@ %s@ %s@])" a b
-    | Stmt_check_sat -> Fmt.string out "(check-sat)"
+    | Stmt_check_sat [] -> Fmt.string out "(check-sat)"
+    | Stmt_check_sat l ->
+      let pp_pair out (b,t) =
+        if b then pp_term out t else Fmt.fprintf out "(@[not %a@])" pp_term t in
+      Fmt.fprintf out "(@[check-sat-assuming@ (@[%a@])@])"
+        (Fmt.list pp_pair) l
     | Stmt_ty_decl (s,n) -> Fmt.fprintf out "(@[declare-sort@ %a %d@])" ID.pp s n
     | Stmt_decl (id,args,ret) ->
       Fmt.fprintf out "(@[<1>declare-fun@ %a (@[%a@])@ %a@])"

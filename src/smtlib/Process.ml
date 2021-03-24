@@ -235,10 +235,13 @@ let process_stmt
     | Statement.Stmt_exit ->
       Log.debug 1 "exit";
       raise Exit
-    | Statement.Stmt_check_sat ->
+    | Statement.Stmt_check_sat l ->
+      let assumptions =
+        List.map (fun (sign,t) -> Solver.mk_atom_t solver ~sign t) l
+      in
       solve
         ?gc ?restarts ?dot_proof ~check ?pp_model ?time ?memory ?progress
-        ~assumptions:[] ?hyps
+        ~assumptions ?hyps
         solver;
       E.return()
     | Statement.Stmt_ty_decl (id,n) ->

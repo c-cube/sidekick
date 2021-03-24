@@ -111,7 +111,7 @@ module Dimacs = struct
              (fun c ->
                 let lits = List.rev_map get_lit c in
                 stmts := Statement.Stmt_assert_clause lits :: !stmts);
-           stmts := Statement.Stmt_check_sat :: !stmts;
+           stmts := Statement.Stmt_check_sat [] :: !stmts;
            Ok (List.rev !stmts))
     with e ->
       E.of_exn_trace e

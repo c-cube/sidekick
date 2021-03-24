@@ -513,9 +513,18 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
     let t = conv_term ctx t in
     check_bool_ ctx t;
     [Stmt.Stmt_assert t]
-  | PA.Stmt_check_sat -> [Stmt.Stmt_check_sat]
-  | PA.Stmt_check_sat_assuming _
-  | PA.Stmt_get_assertions 
+  | PA.Stmt_check_sat -> [Stmt.Stmt_check_sat []]
+  | PA.Stmt_check_sat_assuming l ->
+    let l =
+      List.map
+        (fun (t,b) ->
+           let t = conv_term ctx (PA.const t) in
+           check_bool_ ctx t;
+           b,t)
+        l
+    in
+    [Stmt.Stmt_check_sat l]
+  | PA.Stmt_get_assertions
   | PA.Stmt_get_option _
   | PA.Stmt_get_info _
   | PA.Stmt_get_model
