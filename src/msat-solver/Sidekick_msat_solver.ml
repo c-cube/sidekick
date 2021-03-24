@@ -674,12 +674,16 @@ module Make(A : ARG)
       List.iter (fun f->f()) on_exit;
     in
     self.si.on_progress <- (fun () -> on_progress self);
-    let on_conflict =
+
+    (* TODO: msat 0.10
+       let on_conflict =
       if Profile.enabled()
       then Some (fun _ -> Profile.instant "sat.conflict")
       else None
     in
     let r = Sat_solver.solve ?on_conflict ~assumptions (solver self) in
+    *)
+    let r = Sat_solver.solve ~assumptions (solver self) in
     Stat.incr self.count_solve;
     match r with
     | Sat_solver.Sat st ->
