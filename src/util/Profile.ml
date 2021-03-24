@@ -32,6 +32,8 @@ let null_probe = No_probe
 (* where to print events *)
 let out_ : backend option ref = ref None
 
+let[@inline] enabled () = match !out_ with Some _ -> true | None -> false
+
 let begin_with_ (module B:BACKEND) name : probe =
   Probe {name; start=B.get_ts ()}
 

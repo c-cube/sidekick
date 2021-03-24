@@ -5,6 +5,8 @@ type probe
 
 val null_probe : probe
 
+val enabled : unit -> bool
+
 val instant : string -> unit
 
 val begin_ : string -> probe
