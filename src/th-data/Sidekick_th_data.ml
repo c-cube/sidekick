@@ -646,7 +646,6 @@ module Make(A : ARG) : S with module A = A = struct
           (fun k->k "(@[th-data.final-check.model.decide-cstor@ %a@])" T.pp t_eq_cstor);
         let lit = SI.mk_lit solver acts t_eq_cstor in
         SI.push_decision solver acts lit;
-        Printf.printf ".%!";
     );
     ()
 
