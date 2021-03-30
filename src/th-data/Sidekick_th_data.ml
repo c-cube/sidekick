@@ -235,7 +235,7 @@ module Make(A : ARG) : S with module A = A = struct
 
     let merge cc n1 c1 n2 c2 e_n1_n2 : _ result =
       Log.debugf 5
-        (fun k->k "(@[%s.merge@ (@[:c1 %a %a@])@ (@[:c2 %a %a@])@])"
+        (fun k->k "(@[%s.merge@ (@[:c1 %a@ %a@])@ (@[:c2 %a@ %a@])@])"
             name N.pp n1 pp c1 N.pp n2 pp c2);
       (* build full explanation of why the constructor terms are equal *)
       (* TODO: have a sort of lemma (injectivity) here to justify this in the proof *)
