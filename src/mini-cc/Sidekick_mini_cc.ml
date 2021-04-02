@@ -83,8 +83,8 @@ module Make(A: ARG) = struct
       | App_fun (f1,[]), App_fun (f2,[]) -> Fun.equal f1 f2
       | App_fun (f1,l1), App_fun (f2,l2) ->
         Fun.equal f1 f2 && CCList.equal Node.equal l1 l2
-      | App_ho (f1,l1), App_ho (f2,l2) ->
-        Node.equal f1 f2 && CCList.equal Node.equal l1 l2
+      | App_ho (f1,a1), App_ho (f2,a2) ->
+        Node.equal f1 f2 && Node.equal a1 a2
       | Not n1, Not n2 -> Node.equal n1 n2
       | If (a1,b1,c1), If (a2,b2,c2) ->
         Node.equal a1 a2 && Node.equal b1 b2 && Node.equal c1 c2
@@ -100,7 +100,7 @@ module Make(A: ARG) = struct
       match s with
       | Bool b -> H.combine2 10 (H.bool b)
       | App_fun (f, l) -> H.combine3 20 (Fun.hash f) (H.list Node.hash l)
-      | App_ho (f, l) -> H.combine3 30 (Node.hash f) (H.list Node.hash l)
+      | App_ho (f, a) -> H.combine3 30 (Node.hash f) (Node.hash a)
       | Eq (a,b) -> H.combine3 40 (Node.hash a) (Node.hash b)
       | Opaque u -> H.combine2 50 (Node.hash u)
       | If (a,b,c) -> H.combine4 60 (Node.hash a)(Node.hash b)(Node.hash c)
@@ -110,8 +110,7 @@ module Make(A: ARG) = struct
       | Bool b -> Fmt.bool out b
       | App_fun (f, []) -> Fun.pp out f
       | App_fun (f, l) -> Fmt.fprintf out "(@[%a@ %a@])" Fun.pp f (Util.pp_list Node.pp) l
-      | App_ho (f, []) -> Node.pp out f
-      | App_ho (f, l) -> Fmt.fprintf out "(@[%a@ %a@])" Node.pp f (Util.pp_list Node.pp) l
+      | App_ho (f, a) -> Fmt.fprintf out "(@[%a@ %a@])" Node.pp f Node.pp a
       | Opaque t -> Node.pp out t
       | Not u -> Fmt.fprintf out "(@[not@ %a@])" Node.pp u
       | Eq (a,b) -> Fmt.fprintf out "(@[=@ %a@ %a@])" Node.pp a Node.pp b
@@ -161,7 +160,7 @@ module Make(A: ARG) = struct
     match A.cc_view t with
     | Bool _ | Opaque _ -> ()
     | App_fun (_, args) -> args k
-    | App_ho (f, args) -> k f; args k
+    | App_ho (f, a) -> k f; k a
     | Eq (a,b) -> k a; k b
     | Not u -> k u
     | If(a,b,c) -> k a; k b; k c
@@ -201,9 +200,10 @@ module Make(A: ARG) = struct
       if args<>[] then (
         return @@ App_fun (f, args)
       ) else None
-    | App_ho (f, args) ->
-      let args = args |> Iter.map (find_t_ self) |> Iter.to_list in
-      return @@ App_ho (find_t_ self f, args)
+    | App_ho (f, a) ->
+      let f = find_t_ self f in
+      let a = find_t_ self a in
+      return @@ App_ho (f, a)
     | If (a,b,c) ->
       return @@ If(find_t_ self a, find_t_ self b, find_t_ self c)
 

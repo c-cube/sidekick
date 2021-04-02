@@ -4,7 +4,7 @@ module View = Sidekick_core.CC_view
 type ('f, 't, 'ts) view = ('f, 't, 'ts) View.t =
   | Bool of bool
   | App_fun of 'f * 'ts
-  | App_ho of 't * 'ts
+  | App_ho of 't * 't
   | If of 't * 't * 't
   | Eq of 't * 't
   | Not of 't
@@ -13,7 +13,7 @@ type ('f, 't, 'ts) view = ('f, 't, 'ts) View.t =
 module type S = Sidekick_core.CC_S
 
 module Make (A: CC_ARG)
-  : S with module T = A.T 
+  : S with module T = A.T
        and module Lit = A.Lit
        and module P = A.P
        and module Actions = A.Actions
@@ -199,8 +199,8 @@ module Make (A: CC_ARG)
       | App_fun (f1,[]), App_fun (f2,[]) -> Fun.equal f1 f2
       | App_fun (f1,l1), App_fun (f2,l2) ->
         Fun.equal f1 f2 && CCList.equal N.equal l1 l2
-      | App_ho (f1,l1), App_ho (f2,l2) ->
-        N.equal f1 f2 && CCList.equal N.equal l1 l2
+      | App_ho (f1,a1), App_ho (f2,a2) ->
+        N.equal f1 f2 && N.equal a1 a2
       | Not a, Not b -> N.equal a b
       | If (a1,b1,c1), If (a2,b2,c2) ->
         N.equal a1 a2 && N.equal b1 b2 && N.equal c1 c2
@@ -216,7 +216,7 @@ module Make (A: CC_ARG)
       match s with
       | Bool b -> H.combine2 10 (H.bool b)
       | App_fun (f, l) -> H.combine3 20 (Fun.hash f) (H.list N.hash l)
-      | App_ho (f, l) -> H.combine3 30 (N.hash f) (H.list N.hash l)
+      | App_ho (f, a) -> H.combine3 30 (N.hash f) (N.hash a)
       | Eq (a,b) -> H.combine3 40 (N.hash a) (N.hash b)
       | Opaque u -> H.combine2 50 (N.hash u)
       | If (a,b,c) -> H.combine4 60 (N.hash a)(N.hash b)(N.hash c)
@@ -226,8 +226,7 @@ module Make (A: CC_ARG)
       | Bool b -> Fmt.bool out b
       | App_fun (f, []) -> Fun.pp out f
       | App_fun (f, l) -> Fmt.fprintf out "(@[%a@ %a@])" Fun.pp f (Util.pp_list N.pp) l
-      | App_ho (f, []) -> N.pp out f
-      | App_ho (f, l) -> Fmt.fprintf out "(@[%a@ %a@])" N.pp f (Util.pp_list N.pp) l
+      | App_ho (f, a) -> Fmt.fprintf out "(@[%a@ %a@])" N.pp f N.pp a
       | Opaque t -> N.pp out t
       | Not u -> Fmt.fprintf out "(@[not@ %a@])" N.pp u
       | Eq (a,b) -> Fmt.fprintf out "(@[=@ %a@ %a@])" N.pp a N.pp b
@@ -447,9 +446,8 @@ module Make (A: CC_ARG)
           assert (List.length a1 = List.length a2);
           List.fold_left2 (explain_pair cc ~th) acc a1 a2
         | Some (App_ho (f1, a1)), Some (App_ho (f2, a2)) ->
-          assert (List.length a1 = List.length a2);
           let acc = explain_pair cc ~th acc f1 f2 in
-          List.fold_left2 (explain_pair cc ~th) acc a1 a2
+          explain_pair cc ~th acc a1 a2
         | Some (If (a1,b1,c1)), Some (If (a2,b2,c2)) ->
           let acc = explain_pair cc ~th acc a1 a2 in
           let acc = explain_pair cc ~th acc b1 b2 in
@@ -556,9 +554,10 @@ module Make (A: CC_ARG)
       if args<>[] then (
         return @@ App_fun (f, args)
       ) else None
-    | App_ho (f, args) ->
-      let args = args |> Iter.map deref_sub |> Iter.to_list in
-      return @@ App_ho (deref_sub f, args)
+    | App_ho (f, a ) ->
+      let f = deref_sub f in
+      let a = deref_sub a in
+      return @@ App_ho (f, a)
     | If (a,b,c) ->
       return @@ If (deref_sub a, deref_sub b, deref_sub c)
 
@@ -597,7 +596,7 @@ module Make (A: CC_ARG)
         (* if [a=b] is now true, merge [(a=b)] and [true] *)
         if same_class a b then (
           let expl = Expl.mk_merge a b in
-          Log.debugf 5 
+          Log.debugf 5
             (fun k->k "(@[pending.eq@ %a@ :r1 %a@ :r2 %a@])" N.pp n N.pp a N.pp b);
           merge_classes cc n (n_true cc) expl
         )
