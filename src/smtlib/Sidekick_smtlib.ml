@@ -1,7 +1,6 @@
 (** {1 Process Statements} *)
 
 module ID = Sidekick_base_term.ID
-module Fmt = CCFormat
 module E = CCResult
 module Loc = Smtlib_utils.V_2_6.Loc
 module Parse_ast = Smtlib_utils.V_2_6.Ast
@@ -9,11 +8,7 @@ module Process = Process
 module Solver = Process.Solver
 module Term = Sidekick_base_term.Term
 module Stmt = Sidekick_base_term.Statement
-
-module Proof = struct
-  type t = Proof_default
-  let default = Proof_default
-end
+module Proof = Proof
 
 type 'a or_error = ('a, string) CCResult.t
 

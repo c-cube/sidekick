@@ -25,6 +25,7 @@ val process_stmt :
   ?restarts:bool ->
   ?pp_cnf:bool ->
   ?dot_proof:string ->
+  ?pp_proof:bool ->
   ?pp_model:bool ->
   ?check:bool ->
   ?time:float ->

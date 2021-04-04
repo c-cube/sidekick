@@ -13,7 +13,7 @@ module Log = Msat.Log
 module type ARG = sig
   open Sidekick_core
   module T : TERM
-  module P : PROOF
+  module P : PROOF with type term = T.Term.t
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 
@@ -435,6 +435,7 @@ module Make(A : ARG)
     include Sat_solver.Proof
     module Dot = Msat_backend.Dot.Make(Sat_solver)(Msat_backend.Dot.Default(Sat_solver))
     let pp_dot = Dot.pp
+    let pp out (_self:t) = Fmt.string out "<Proof>" (* TODO *)
   end
 
   type proof = Proof.t

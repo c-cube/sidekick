@@ -373,14 +373,14 @@ module Make (A: CC_ARG)
         n.n_expl <- FL_none;
     end
 
-  let raise_conflict (cc:t) ~th (acts:actions) (e:lit list) : _ =
+  let raise_conflict_ (cc:t) ~th (acts:actions) (e:lit list) p : _ =
     Profile.instant "cc.conflict";
     (* clear tasks queue *)
     Vec.clear cc.pending;
     Vec.clear cc.combine;
     List.iter (fun f -> f cc ~th e) cc.on_conflict;
     Stat.incr cc.count_conflict;
-    Actions.raise_conflict acts e P.default
+    Actions.raise_conflict acts e p
 
   let[@inline] all_classes cc : repr Iter.t =
     T_tbl.values cc.tbl
@@ -652,7 +652,14 @@ module Make (A: CC_ARG)
         let lits = explain_decompose cc ~th [] e_ab in
         let lits = explain_pair cc ~th lits a ra in
         let lits = explain_pair cc ~th lits b rb in
-        raise_conflict cc ~th:!th acts (List.rev_map Lit.neg lits)
+        let proof =
+          let lits =
+            Iter.of_list lits
+            |> Iter.map (fun lit -> Lit.term lit, Lit.sign lit)
+          in
+          P.make_cc lits
+        in
+        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) proof
       );
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, but always
@@ -833,7 +840,14 @@ module Make (A: CC_ARG)
     let th = ref true in
     let lits = explain_decompose cc ~th [] expl in
     let lits = List.rev_map Lit.neg lits in
-    raise_conflict cc ~th:!th acts lits
+    let proof =
+      let lits =
+        Iter.of_list lits
+        |> Iter.map (fun lit -> Lit.term lit, Lit.sign lit)
+      in
+      P.make_cc lits
+    in
+    raise_conflict_ cc ~th:!th acts lits proof
 
   let merge cc n1 n2 expl =
     Log.debugf 5

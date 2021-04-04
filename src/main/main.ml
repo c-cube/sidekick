@@ -21,7 +21,7 @@ exception Out_of_space
 let file = ref ""
 let p_cnf = ref false
 let p_dot_proof = ref ""
-let p_proof_print = ref false
+let p_proof = ref false
 let p_model = ref false
 let check = ref false
 let time_limit = ref 300.
@@ -71,6 +71,8 @@ let argspec = Arg.align [
     "--no-restarts", Arg.Clear restarts, " disable restarts";
     "--dot", Arg.Set_string p_dot_proof, " if provided, print the dot proof in the given file";
     "--stat", Arg.Set p_stat, " print statistics";
+    "--proof", Arg.Set p_proof, " print proof";
+    "--no-proof", Arg.Clear p_proof, " do not print proof";
     "--model", Arg.Set p_model, " print model";
     "--no-model", Arg.Clear p_model, " do not print model";
     "--gc-stat", Arg.Set p_gc_stat, " outputs statistics about the GC";
@@ -151,7 +153,8 @@ let main () =
         Process.th_lra;
       ]
     in
-    Process.Solver.create ~store_proof:!check ~theories tst () ()
+    let store_proof = !check || !p_proof in
+    Process.Solver.create ~store_proof ~theories tst () ()
   in
   if !check then (
     (* might have to check conflicts *)
@@ -171,7 +174,8 @@ let main () =
            Process.process_stmt
              ~hyps ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
              ~time:!time_limit ~memory:!size_limit
-             ?dot_proof ~pp_model:!p_model ~check:!check ~progress:!p_progress
+             ?dot_proof ~pp_proof:!p_proof ~pp_model:!p_model
+             ~check:!check ~progress:!p_progress
              solver)
         () input
     with Exit ->

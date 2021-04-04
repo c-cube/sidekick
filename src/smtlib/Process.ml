@@ -17,11 +17,7 @@ module Solver_arg = struct
 
   let cc_view = Term.cc_view
   let is_valid_literal _ = true
-  module P = struct
-    type t = Default
-    let default=Default
-    let pp out _ = Fmt.string out "default"
-  end
+  module P = Proof
 end
 module Solver = Sidekick_msat_solver.Make(Solver_arg)
 
@@ -147,6 +143,7 @@ let solve
     ?gc:_
     ?restarts:_
     ?dot_proof
+    ?(pp_proof=false)
     ?(pp_model=false)
     ?(check=false)
     ?time:_ ?memory:_ ?(progress=false)
@@ -179,12 +176,19 @@ let solve
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
     | Solver.Unsat {proof;_} ->
+
+      let proof_opt =
+        if check||pp_proof then Lazy.force proof
+        else None
+      in
+
       if check then (
-        match proof with
-        | lazy (Some p) ->
+        match proof_opt with
+        | Some p ->
           Profile.with_ "unsat.check" (fun () -> Solver.Proof.check p);
         | _ -> ()
       );
+
       begin match dot_proof, proof with
         | None, _ ->  ()
         | Some file, lazy (Some p) ->
@@ -197,8 +201,18 @@ let solve
                Format.pp_print_flush fmt (); flush oc)
         | _ -> ()
       end;
+
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
+
+      (* TODO: allow to print proof into a file, more realistic for checking *)
+      if pp_proof then (
+        match proof_opt with
+        | None -> Error.errorf "cannot print proof, none was generated"
+        | Some p ->
+          Fmt.printf "(@[proof@ %a@])@." Solver.Proof.pp p;
+      );
+
     | Solver.Unknown reas ->
       Format.printf "Unknown (:reason %a)" Solver.Unknown.pp reas
   end
@@ -206,7 +220,7 @@ let solve
 (* process a single statement *)
 let process_stmt
     ?hyps
-    ?gc ?restarts ?(pp_cnf=false) ?dot_proof ?pp_model ?(check=false)
+    ?gc ?restarts ?(pp_cnf=false) ?dot_proof ?pp_proof ?pp_model ?(check=false)
     ?time ?memory ?progress
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
@@ -240,7 +254,8 @@ let process_stmt
         List.map (fun (sign,t) -> Solver.mk_atom_t solver ~sign t) l
       in
       solve
-        ?gc ?restarts ?dot_proof ~check ?pp_model ?time ?memory ?progress
+        ?gc ?restarts ?dot_proof ~check ?pp_proof ?pp_model
+        ?time ?memory ?progress
         ~assumptions ?hyps
         solver;
       E.return()

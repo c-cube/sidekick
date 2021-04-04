@@ -146,10 +146,11 @@ module type TERM = sig
 end
 
 module type PROOF = sig
+  type term
   type t
   val pp : t Fmt.printer
-
   val default : t
+  val make_cc : (term*bool) Iter.t -> t
 end
 
 (** Literals
@@ -192,8 +193,9 @@ end
     is inconsistent *)
 module type CC_ACTIONS = sig
   module T : TERM
-  module P : PROOF
   module Lit : LIT with module T = T
+
+  module P : PROOF with type term = T.Term.t
 
   type t
   (** An action handle. It is used by the congruence closure
@@ -220,7 +222,7 @@ end
 (** Arguments to a congruence closure's implementation *)
 module type CC_ARG = sig
   module T : TERM
-  module P : PROOF
+  module P : PROOF with type term = T.Term.t
   module Lit : LIT with module T = T
   module Actions : CC_ACTIONS with module T=T and module P = P and module Lit = Lit
 
@@ -231,7 +233,7 @@ end
 (** Signature of the congruence closure *)
 module type CC_S = sig
   module T : TERM
-  module P : PROOF
+  module P : PROOF with type term = T.Term.t
   module Lit : LIT with module T = T
   module Actions : CC_ACTIONS with module T = T and module Lit = Lit and module P = P
   type term_state = T.Term.state
@@ -491,7 +493,7 @@ end
     new lemmas, propagate literals, access the congruence closure, etc. *)
 module type SOLVER_INTERNAL = sig
   module T : TERM
-  module P : PROOF
+  module P : PROOF with type term = T.Term.t
 
   type ty = T.Ty.t
   type term = T.Term.t
@@ -728,7 +730,8 @@ end
     Theory implementors will mostly interact with {!SOLVER_INTERNAL}. *)
 module type SOLVER = sig
   module T : TERM
-  module P : PROOF
+  module P : PROOF with type term = T.Term.t
+
   module Lit : LIT with module T = T
 
   module Solver_internal
@@ -854,6 +857,7 @@ module type SOLVER = sig
     type t
     val check : t -> unit
     val pp_dot : t Fmt.printer
+    val pp : t Fmt.printer
   end
   type proof = Proof.t
 
