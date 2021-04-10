@@ -433,9 +433,69 @@ module Make(A : ARG)
   module Atom = Sat_solver.Atom
   module Proof = struct
     include Sat_solver.Proof
-    module Dot = Msat_backend.Dot.Make(Sat_solver)(Msat_backend.Dot.Default(Sat_solver))
-    let pp_dot = Dot.pp
-    let pp out (_self:t) = Fmt.string out "<Proof>" (* TODO *)
+    module SC = Sat_solver.Clause
+
+    let pp_dot =
+      let module Dot =
+        Msat_backend.Dot.Make(Sat_solver)(Msat_backend.Dot.Default(Sat_solver)) in
+      Dot.pp
+
+    let pp out (self:t) : unit =
+      let n_step = ref 0 in
+      let n_tbl_ = SC.Tbl.create 32 in (* node.concl -> unique idx *)
+
+      let find_idx_of_proof_ (p:t) : int =
+        try SC.Tbl.find n_tbl_ (conclusion p)
+        with Not_found ->
+          Error.errorf "proof print: cannot find proof step with conclusion %a" SC.pp (conclusion p)
+      in
+
+      let pp_node () n_init : unit =
+        let {conclusion=c; step} = n_init in
+
+        if SC.Tbl.mem n_tbl_ c then ()
+        else (
+          let idx = !n_step in
+          incr n_step;
+
+          SC.Tbl.add n_tbl_ c idx;
+
+          let atoms = Sat_solver.Clause.atoms_l c in
+          let pp_atom out a =
+            let lit = Sat_solver.Atom.formula a in
+            let sign = if Sat_solver.Atom.sign a then "+" else "-" in
+            Fmt.fprintf out "(@[%s %a@])" sign T.Term.pp (Lit.term lit)
+          in
+
+          let pp_step out (s:step) : unit =
+            match s with
+            | Hypothesis l ->
+              Fmt.fprintf out "(@[hyp@ %a@])" P.pp l
+            | Assumption -> Fmt.string out "assumption"
+            | Lemma l -> Fmt.fprintf out "(@[lemma@ %a@])" P.pp l
+            | Duplicate (c, _) ->
+              let n = find_idx_of_proof_ c in
+              Fmt.fprintf out "(@[dedup@ %d@])" n
+            | Hyper_res { hr_init=init; hr_steps=steps } ->
+              let n_init = find_idx_of_proof_ init in
+              let pp_step out (pivot,p') =
+                let n_p' = find_idx_of_proof_ p' in
+                Fmt.fprintf out "(@[%d@ :pivot %a@])" n_p' pp_atom pivot
+              in
+              Fmt.fprintf out "(@[hres@ %d@ (@[%a@])@])"
+                n_init Fmt.(list ~sep:(return "@ ") pp_step) steps
+
+          in
+
+          Fmt.fprintf out "(@[step %d@ (@[cl %a@])@ (@[<1>src@ %a@])@])@ "
+            idx Fmt.(list ~sep:(return "@ ") pp_atom) atoms
+            pp_step step;
+        )
+      in
+      Fmt.fprintf out "(@[<v>proof@ ";
+      Sat_solver.Proof.fold pp_node () self;
+      Fmt.fprintf out "@])@.";
+      ()
   end
 
   type proof = Proof.t
