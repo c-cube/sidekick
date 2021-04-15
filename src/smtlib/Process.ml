@@ -271,7 +271,7 @@ let process_stmt
       );
       let atom = Solver.mk_atom_t solver t in
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
-      Solver.add_clause solver (IArray.singleton atom);
+      Solver.add_clause solver (IArray.singleton atom) (Proof.assertion t);
       E.return()
     | Statement.Stmt_assert_clause c ->
       if pp_cnf then (

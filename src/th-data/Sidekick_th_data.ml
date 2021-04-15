@@ -24,6 +24,7 @@ let name = "th-data"
 module type DATA_TY = sig
   type t
   type cstor
+  type proof
 
   val equal : t -> t -> bool
 
@@ -73,6 +74,10 @@ module type ARG = sig
   val mk_eq : S.T.Term.state -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
+
+  val proof_isa_split : S.T.Term.t Iter.t -> S.P.t
+  val proof_isa_disj : S.T.Term.t -> S.T.Term.t -> S.P.t
+  val proof_cstor_inj : Cstor.t -> S.T.Term.t list -> S.T.Term.t list -> S.P.t
 end
 
 (** Helper to compute the cardinality of types *)
@@ -565,11 +570,13 @@ module Make(A : ARG) : S with module A = A = struct
              lit)
         |> Iter.to_rev_list
       in
-      SI.add_clause_permanent solver acts c;
+      SI.add_clause_permanent solver acts c
+        (A.proof_isa_split @@ (Iter.of_list c|>Iter.map SI.Lit.term));
       Iter.diagonal_l c
         (fun (c1,c2) ->
+           let proof = A.proof_isa_disj (SI.Lit.term c1) (SI.Lit.term c2) in
            SI.add_clause_permanent solver acts
-             [SI.Lit.neg c1; SI.Lit.neg c2]);
+             [SI.Lit.neg c1; SI.Lit.neg c2] proof);
     )
 
   (* on final check, check acyclicity,
