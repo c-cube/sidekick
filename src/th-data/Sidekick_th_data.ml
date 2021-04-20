@@ -24,7 +24,6 @@ let name = "th-data"
 module type DATA_TY = sig
   type t
   type cstor
-  type proof
 
   val equal : t -> t -> bool
 
@@ -75,9 +74,9 @@ module type ARG = sig
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
 
-  val proof_isa_split : S.T.Term.t Iter.t -> S.P.t
-  val proof_isa_disj : S.T.Term.t -> S.T.Term.t -> S.P.t
-  val proof_cstor_inj : Cstor.t -> S.T.Term.t list -> S.T.Term.t list -> S.P.t
+  val proof_isa_split : S.T.Ty.t -> S.T.Term.t Iter.t -> S.P.t
+  val proof_isa_disj : S.T.Ty.t -> S.T.Term.t -> S.T.Term.t -> S.P.t
+  val proof_cstor_inj : Cstor.t -> int -> S.T.Term.t list -> S.T.Term.t list -> S.P.t
 end
 
 (** Helper to compute the cardinality of types *)
@@ -247,6 +246,7 @@ module Make(A : ARG) : S with module A = A = struct
       in
       if A.Cstor.equal c1.c_cstor c2.c_cstor then (
         (* same function: injectivity *)
+        (* FIXME proof *)
         assert (IArray.length c1.c_args = IArray.length c2.c_args);
         IArray.iter2
           (fun u1 u2 -> SI.CC.merge cc u1 u2 expl)
@@ -254,6 +254,7 @@ module Make(A : ARG) : S with module A = A = struct
         Ok c1
       ) else (
         (* different function: disjointness *)
+        (* FIXME proof *)
         Error expl
       )
   end
@@ -571,10 +572,10 @@ module Make(A : ARG) : S with module A = A = struct
         |> Iter.to_rev_list
       in
       SI.add_clause_permanent solver acts c
-        (A.proof_isa_split @@ (Iter.of_list c|>Iter.map SI.Lit.term));
+        (A.proof_isa_split (T.ty t) @@ (Iter.of_list c|>Iter.map SI.Lit.term));
       Iter.diagonal_l c
         (fun (c1,c2) ->
-           let proof = A.proof_isa_disj (SI.Lit.term c1) (SI.Lit.term c2) in
+           let proof = A.proof_isa_disj (T.ty t) (SI.Lit.term c1) (SI.Lit.term c2) in
            SI.add_clause_permanent solver acts
              [SI.Lit.neg c1; SI.Lit.neg c2] proof);
     )

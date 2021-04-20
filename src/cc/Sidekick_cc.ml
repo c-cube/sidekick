@@ -661,7 +661,7 @@ module Make (A: CC_ARG)
         let proof =
           let lits =
             Iter.of_list lits
-            |> Iter.map (fun lit -> Lit.term lit, Lit.sign lit)
+            |> Iter.map (fun lit -> P.lit_st (Lit.signed_term lit))
           in
           P.cc_lemma lits
         in
@@ -782,7 +782,8 @@ module Make (A: CC_ARG)
                let lits = explain_pair cc ~th acc u1 t1 in
                let p =
                  A.P.cc_lemma
-                   (Iter.of_list lits |> Iter.map (fun l -> Lit.term l, Lit.sign l))
+                   (Iter.of_list lits
+                    |> Iter.map (fun l -> A.P.(lit_st (Lit.signed_term l))))
                in
                lits, p
              ) in
@@ -854,7 +855,7 @@ module Make (A: CC_ARG)
     let proof =
       let lits =
         Iter.of_list lits
-        |> Iter.map (fun lit -> Lit.term lit, Lit.sign lit)
+        |> Iter.map (fun lit -> P.lit_st (Lit.signed_term lit))
       in
       P.cc_lemma lits
     in

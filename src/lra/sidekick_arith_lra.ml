@@ -57,8 +57,9 @@ module type ARG = sig
   val has_ty_real : term -> bool
   (** Does this term have the type [Real] *)
 
-  (** TODO: actual proof *)
-  val proof_lra : S.lemma
+  (** TODO: more accurate certificates *)
+  val proof_lra : S.P.lit Iter.t -> S.lemma
+  val proof_lra_l : S.P.lit list -> S.lemma
 
   module Gensym : sig
     type t
@@ -268,9 +269,10 @@ module Make(A : ARG) : S with module A = A = struct
         let lit_t = mk_lit t in
         let lit_u1 = mk_lit u1 in
         let lit_u2 = mk_lit u2 in
-        add_clause [SI.Lit.neg lit_t; lit_u1] A.proof_lra;
-        add_clause [SI.Lit.neg lit_t; lit_u2] A.proof_lra;
-        add_clause [SI.Lit.neg lit_u1; SI.Lit.neg lit_u2; lit_t] A.proof_lra;
+        add_clause [SI.Lit.neg lit_t; lit_u1] A.S.P.(A.proof_lra_l [na t; a u1]) ;
+        add_clause [SI.Lit.neg lit_t; lit_u2] A.S.P.(A.proof_lra_l [na t; a u2]);
+        add_clause [SI.Lit.neg lit_u1; SI.Lit.neg lit_u2; lit_t]
+          A.S.P.(A.proof_lra_l [a t;na u1;na u2]);
       );
       None
 
@@ -332,7 +334,7 @@ module Make(A : ARG) : S with module A = A = struct
           end;
 
           Log.debugf 10 (fun k->k "lra.preprocess@ :%a@ :into %a" T.pp t T.pp new_t);
-          let proof = A.proof_lra in
+          let proof = A.S.P.sorry in (* TODO: some sort of equality + def? *)
           Some (new_t, proof)
       end
 
@@ -393,7 +395,7 @@ module Make(A : ARG) : S with module A = A = struct
       let le = as_linexp_id t in
       if LE.is_const le then (
         let c = LE.const le in
-        Some (A.mk_lra self.tst (LRA_const c), A.proof_lra)
+        Some (A.mk_lra self.tst (LRA_const c), A.S.P.sorry)
       ) else None
     | LRA_pred (pred, l1, l2) ->
       let le = LE.(as_linexp_id l1 - as_linexp_id l2) in
@@ -407,11 +409,13 @@ module Make(A : ARG) : S with module A = A = struct
           | Eq -> Q.(c = zero)
           | Neq -> Q.(c <> zero)
         in
-        Some (A.mk_bool self.tst is_true, A.proof_lra)
+        Some (A.mk_bool self.tst is_true, A.S.P.sorry)
       ) else None
     | _ -> None
 
   module Q_map = CCMap.Make(Q)
+
+  let plit_of_lit lit = A.S.P.lit_st (Lit.signed_term lit)
 
   (* raise conflict from certificate *)
   let fail_with_cert si acts cert : 'a =
@@ -422,14 +426,19 @@ module Make(A : ARG) : S with module A = A = struct
       |>  List.rev_map SI.Lit.neg
     in
     (* TODO: more detailed proof certificate *)
-    SI.raise_conflict si acts confl A.proof_lra
+    let pr =
+      A.(S.P.(proof_lra (Iter.of_list confl |> Iter.map plit_of_lit))) in
+    SI.raise_conflict si acts confl pr
 
   let on_propagate_ si acts lit ~reason =
     match lit with
     | Tag.Lit lit ->
       (* TODO: more detailed proof certificate *)
       SI.propagate si acts lit
-        (fun() -> CCList.flat_map (Tag.to_lits si) reason, A.proof_lra)
+        (fun() ->
+           let lits = CCList.flat_map (Tag.to_lits si) reason in
+           let proof = A.proof_lra Iter.(cons lit (of_list lits) |> map plit_of_lit) in
+           CCList.flat_map (Tag.to_lits si) reason, proof)
     | _ -> ()
 
   let check_simplex_ self si acts : SimpSolver.Subst.t =

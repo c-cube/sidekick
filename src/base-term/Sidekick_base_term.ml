@@ -10,6 +10,7 @@ module Ty = Base_types.Ty
 module Statement = Base_types.Statement
 module Data = Base_types.Data
 module Select = Base_types.Select
+module Proof = Proof
 
 module Arg
   : Sidekick_core.TERM

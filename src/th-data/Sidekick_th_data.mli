@@ -73,6 +73,10 @@ module type ARG = sig
   (** Modify the "finite" field (see {!ty_is_finite}) *)
 
   (* TODO: should we store this ourself? would be simpler… *)
+
+  val proof_isa_split : S.T.Ty.t -> S.T.Term.t Iter.t -> S.P.t
+  val proof_isa_disj : S.T.Ty.t -> S.T.Term.t -> S.T.Term.t -> S.P.t
+  val proof_cstor_inj : Cstor.t -> int -> S.T.Term.t list -> S.T.Term.t list -> S.P.t
 end
 
 module type S = sig

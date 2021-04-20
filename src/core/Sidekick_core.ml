@@ -147,22 +147,53 @@ end
 
 module type PROOF = sig
   type term
-  type clause
+  type ty
   type t
   val pp : t Fmt.printer
 
-  (** hyper-resolution steps: resolution, unit resolution; bool paramodulation, unit bool paramodulation *)
-  type hres_step = | R | R1 | P | P1
+  type hres_step
+  (** hyper-resolution steps: resolution, unit resolution;
+      bool paramodulation, unit bool paramodulation *)
 
-  val hres_iter : t -> (hres_step * t) Iter.t -> t (* hyper-res *)
-  val hres_l : t -> (hres_step * t) list -> t (* hyper-res *)
+  val r : t -> pivot:term -> hres_step
+  (** Resolution step on given pivot term *)
+
+  val r1 : t -> hres_step
+  (** Unit resolution; pivot is obvious *)
+
+  val p : t -> lhs:term -> rhs:term -> hres_step
+  (** Paramodulation using proof whose conclusion has a literal [lhs=rhs] *)
+
+  val p1 : t -> hres_step
+  (** Unit paramodulation *)
+
+  type lit
+  (** Proof representation of literals *)
+
+  val pp_lit : lit Fmt.printer
+  val a : term -> lit
+  val na : term -> lit
+  val lit_st : term * bool -> lit
+  val eq : term -> term -> lit
+  val neq : term -> term -> lit
+  val not : lit -> lit
+
+  val assertion : term -> t
+  val assertion_c : lit Iter.t -> t
+  val assertion_c_l : lit list -> t
+  val hres_iter : t -> hres_step Iter.t -> t (* hyper-res *)
+  val hres_l : t -> hres_step list -> t (* hyper-res *)
   val refl : term -> t (* proof of [| t=t] *)
   val true_is_true : t (* proof of [|- true] *)
   val true_neq_false : t (* proof of [|- not (true=false)] *)
-  val cc_lemma : (term*bool) Iter.t -> t (* equality tautology, unsigned *)
+  val cc_lemma : lit Iter.t -> t (* equality tautology, unsigned *)
   val cc_imply2 : t -> t -> term -> term -> t (* tautology [p1, p2 |- t=u] *)
   val cc_imply_l : t list -> term -> term -> t (* tautology [hyps |- t=u] *)
   val sorry : t [@@alert cstor "sorry used"] (* proof hole when we don't know how to produce a proof *)
+  val sorry_c : lit Iter.t -> t
+  [@@alert cstor "sorry used"] (* proof hole when we don't know how to produce a proof *)
+
+  val sorry_c_l : lit list -> t
 
   val default : t [@@alert cstor "do not use default constructor"]
 end
@@ -193,6 +224,8 @@ module type LIT = sig
 
   val abs : t -> t
   (** [abs lit] is like [lit] but always positive, i.e. [sign (abs lit) = true] *)
+
+  val signed_term : t -> T.Term.t * bool
 
   val equal : t -> t -> bool
   val hash : t -> int

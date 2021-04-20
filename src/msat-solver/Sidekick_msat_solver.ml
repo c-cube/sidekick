@@ -49,6 +49,7 @@ module Make(A : ARG)
     let[@inline] sign t = t.lit_sign
     let[@inline] abs t = {t with lit_sign=true}
     let[@inline] term (t:t): term = t.lit_term
+    let[@inline] signed_term t = term t, sign t
 
     let make ~sign t = {lit_sign=sign; lit_term=t}
 
@@ -512,6 +513,19 @@ module Make(A : ARG)
         Msat_backend.Dot.Make(Sat_solver)(Msat_backend.Dot.Default(Sat_solver)) in
       Dot.pp
 
+    (* TODO: instead export to regular proof, which must get:
+       - [defc name cl proof] to bind [name] to given clause and proof
+       - [deft name t] to define [name] as a shortcut for [t] (tseitin, etc.).
+         Checker will always expand these.
+       - [steps <defc>+] for a structure proof with definitions, returning last one
+       - [subproof (assms <lit>* ) (proof)] which uses [proof] to get
+         clause [c] under given assumptions (each assm is a lit),
+         and return [-a1 \/ … \/ -an \/ c], discharging assumptions
+
+       proof must provide a mutable builder for "steps" which is passed along
+       in main solver context so that theories can use it for their global
+       definitions. This is also what resolution should use to translate the proof.
+    *)
     let pp out (self:t) : unit =
       let n_step = ref 0 in
       let n_tbl_ = SC.Tbl.create 32 in (* node.concl -> unique idx *)
@@ -560,18 +574,18 @@ module Make(A : ARG)
                   Fmt.fprintf out "(@[r c%d@ :pivot %a@])" n_p' pp_atom pivot
                 )
               in
-              Fmt.fprintf out "(@[hres@ %d@ (@[%a@])@])"
+              Fmt.fprintf out "(@[hres@ c%d@ (@[%a@])@])"
                 n_init Fmt.(list ~sep:(return "@ ") pp_step) steps
           in
 
-          Fmt.fprintf out "(@[defc c%d@ (@[cl %a@])@ (@[<1>src@ %a@])@])@ "
+          Fmt.fprintf out "@ (@[defc c%d@ (@[cl %a@])@ (@[<1>src@ %a@])@])"
             idx Fmt.(list ~sep:(return "@ ") pp_atom) atoms
             pp_step step;
         )
       in
-      Fmt.fprintf out "(@[<v>quip 1@ ";
+      Fmt.fprintf out "(@[<v>quip 1";
       Sat_solver.Proof.fold pp_node () self;
-      Fmt.fprintf out "@])@.";
+      Fmt.fprintf out "@])";
       ()
   end
 

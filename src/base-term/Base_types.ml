@@ -1094,11 +1094,6 @@ module Cstor = struct
   let pp out c = ID.pp out c.cstor_id
 end
 
-module Proof = struct
-  type t = Default
-  let default = Default
-end
-
 module Statement = struct
   type t = statement =
     | Stmt_set_logic of string

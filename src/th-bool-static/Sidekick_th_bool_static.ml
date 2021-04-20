@@ -142,10 +142,10 @@ module Make(A : ARG) : S with module A = A = struct
       let a, pr_a = SI.Simplify.normalize_t simp a in
       begin match A.view_as_bool a with
         | B_bool true ->
-          let pr = SI.P.(hres_l (A.proof_ite_true t) [R1, pr_a]) in
+          let pr = SI.P.(hres_l (A.proof_ite_true t) [r1 pr_a]) in
           Some (b, pr)
         | B_bool false ->
-          let pr = SI.P.(hres_l (A.proof_ite_false t) [R1, pr_a]) in
+          let pr = SI.P.(hres_l (A.proof_ite_false t) [r1 pr_a]) in
           Some (c, pr)
         | _ ->
           None
@@ -184,11 +184,11 @@ module Make(A : ARG) : S with module A = A = struct
       begin match A.view_as_bool a with
         | B_bool true ->
           (* [a=true |- ite a b c=b], [|- a=true] ==> [|- t=b] *)
-          let proof = SI.P.(hres_l (A.proof_ite_true t) [P1, pr_a]) in
+          let proof = SI.P.(hres_l (A.proof_ite_true t) [p1 pr_a]) in
           Some (b, proof)
         | B_bool false ->
           (* [a=false |- ite a b c=c], [|- a=false] ==> [|- t=c] *)
-          let proof = SI.P.(hres_l (A.proof_ite_false t) [P1, pr_a]) in
+          let proof = SI.P.(hres_l (A.proof_ite_false t) [p1 pr_a]) in
           Some (c, proof)
         | _ ->
           let t_ite = fresh_term self ~for_:t ~pre:"ite" (T.ty b) in

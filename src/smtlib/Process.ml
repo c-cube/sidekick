@@ -273,13 +273,14 @@ let process_stmt
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
       Solver.add_clause solver (IArray.singleton atom) (Proof.assertion t);
       E.return()
-    | Statement.Stmt_assert_clause c ->
+    | Statement.Stmt_assert_clause c_ts ->
       if pp_cnf then (
-        Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c
+        Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c_ts
       );
-      let c = List.map (Solver.mk_atom_t solver) c in
+      let c = List.map (Solver.mk_atom_t solver) c_ts in
       CCOpt.iter (fun h -> Vec.push h c) hyps;
-      Solver.add_clause solver (IArray.of_list c);
+      let proof = Proof.(assertion_c (Iter.of_list c_ts |> Iter.map (fun t->a t))) in
+      Solver.add_clause solver (IArray.of_list c) proof ;
       E.return()
     | Statement.Stmt_data _ ->
       E.return()
@@ -322,12 +323,19 @@ module Th_data = Sidekick_th_data.Make(struct
 
     let ty_is_finite = Ty.finite
     let ty_set_is_finite = Ty.set_finite
+
+    let proof_isa_disj = Proof.isa_disj
+    let proof_isa_split = Proof.isa_split
+    let proof_cstor_inj = Proof.cstor_inj
   end)
 
 module Th_bool = Sidekick_th_bool_static.Make(struct
   module S = Solver
   type term = S.T.Term.t
   include Form
+  let proof_bool = Proof.bool_eq
+  let proof_ite_true = Proof.ite_true
+  let proof_ite_false = Proof.ite_false
 end)
 
 module Th_lra = Sidekick_arith_lra.Make(struct
@@ -346,6 +354,9 @@ module Th_lra = Sidekick_arith_lra.Make(struct
 
   let ty_lra _st = Ty.real()
   let has_ty_real t = Ty.equal (T.ty t) (Ty.real())
+
+  let proof_lra = Proof.lra
+  let proof_lra_l = Proof.lra_l
 
   module Gensym = struct
     type t = {
