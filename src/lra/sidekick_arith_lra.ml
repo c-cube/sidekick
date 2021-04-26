@@ -58,8 +58,8 @@ module type ARG = sig
   (** Does this term have the type [Real] *)
 
   (** TODO: more accurate certificates *)
-  val proof_lra : S.P.lit Iter.t -> S.lemma
-  val proof_lra_l : S.P.lit list -> S.lemma
+  val proof_lra : S.P.lit Iter.t -> S.P.t
+  val proof_lra_l : S.P.lit list -> S.P.t
 
   module Gensym : sig
     type t

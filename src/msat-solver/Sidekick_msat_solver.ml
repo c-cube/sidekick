@@ -36,7 +36,7 @@ module Make(A : ARG)
   module Term = T.Term
   type term = Term.t
   type ty = Ty.t
-  type lemma = P.t
+  type proof = P.t
 
   module Lit_ = struct
     module T = T
@@ -344,7 +344,7 @@ module Make(A : ARG)
       let lit' = Lit.atom self.tst ~sign:(Lit.sign lit) t in
       Log.debugf 10
         (fun k->k "(@[msat-solver.preprocess.lit@ :lit %a@ :into %a@ :proof %a@])"
-            Lit.pp lit Lit.pp lit' P.pp p);
+            Lit.pp lit Lit.pp lit' P.Quip.pp p);
       lit', p
 
     (* add a clause using [acts] *)
@@ -504,92 +504,128 @@ module Make(A : ARG)
   module Sat_solver = Msat.Make_cdcl_t(Solver_internal)
 
   module Atom = Sat_solver.Atom
-  module Proof = struct
-    include Sat_solver.Proof
+
+  module Pre_proof = struct
+    module SP = Sat_solver.Proof
     module SC = Sat_solver.Clause
+
+    type t = {
+      msat: Sat_solver.proof;
+      p: P.t lazy_t;
+    }
+
+    let to_proof (self:t) : P.t = Lazy.force self.p
 
     let pp_dot =
       let module Dot =
         Msat_backend.Dot.Make(Sat_solver)(Msat_backend.Dot.Default(Sat_solver)) in
-      Dot.pp
+      let pp out self = Dot.pp out self.msat in
+      Some pp
 
-    (* TODO: instead export to regular proof, which must get:
+    (* export to proof {!P.t}, translating Msat-level proof ising:
        - [defc name cl proof] to bind [name] to given clause and proof
        - [deft name t] to define [name] as a shortcut for [t] (tseitin, etc.).
-         Checker will always expand these.
+         Checker will always expand these. (TODO)
        - [steps <defc>+] for a structure proof with definitions, returning last one
        - [subproof (assms <lit>* ) (proof)] which uses [proof] to get
          clause [c] under given assumptions (each assm is a lit),
          and return [-a1 \/ … \/ -an \/ c], discharging assumptions
-
-       proof must provide a mutable builder for "steps" which is passed along
-       in main solver context so that theories can use it for their global
-       definitions. This is also what resolution should use to translate the proof.
     *)
-    let pp out (self:t) : unit =
-      let n_step = ref 0 in
-      let n_tbl_ = SC.Tbl.create 32 in (* node.concl -> unique idx *)
+    let conv_proof (msat:Sat_solver.proof) : P.t =
+      let assms = ref [] in
+      let steps = ref [] in
 
-      let find_idx_of_proof_ (p:t) : int =
-        try SC.Tbl.find n_tbl_ (conclusion p)
+      let n_step = ref 0 in
+      let n_tbl_: string SC.Tbl.t = SC.Tbl.create 32 in (* node.concl -> unique idx *)
+
+      (* name of an already processed proof node *)
+      let find_proof_name (p:Sat_solver.proof) : string =
+        try SC.Tbl.find n_tbl_ (SP.conclusion p)
         with Not_found ->
-          Error.errorf "proof print: cannot find proof step with conclusion %a" SC.pp (conclusion p)
+          Error.errorf
+            "msat-solver.pre-proof.to_proof: cannot find proof step with conclusion %a"
+            SC.pp (SP.conclusion p)
       in
 
-      let pp_node () n_init : unit =
-        let {conclusion=c; step} = n_init in
+      let add_step s = steps := s :: !steps in
+
+      (* convert [n_init] into a proof step and adds it to [steps] *)
+      let tr_node_to_step () (n_init:SP.proof_node) : unit =
+        let {SP.conclusion=c; step} = n_init in
 
         if SC.Tbl.mem n_tbl_ c then ()
         else (
-          let idx = !n_step in
+          let name = Printf.sprintf "c%d" !n_step in
           incr n_step;
 
-          SC.Tbl.add n_tbl_ c idx;
+          SC.Tbl.add n_tbl_ c name;
 
-          let atoms = Sat_solver.Clause.atoms_l c in
-          let pp_atom out a =
-            let lit = Sat_solver.Atom.formula a in
-            let sign = if Sat_solver.Atom.sign a then "+" else "-" in
-            Fmt.fprintf out "(@[%s %a@])" sign T.Term.pp (Lit.term lit)
+          (* build conclusion of proof step *)
+          let tr_atom a : P.lit =
+            let sign = Sat_solver.Atom.sign a in
+            let t = Lit.term (Sat_solver.Atom.formula a) in
+            P.lit_st (t,sign)
           in
+          let concl = List.rev_map tr_atom @@ Sat_solver.Clause.atoms_l c in
 
-          let pp_step out (s:step) : unit =
-            match s with
-            | Hypothesis l ->
-              Fmt.fprintf out "(@[hyp@ %a@])" P.pp l
-            | Assumption -> Fmt.string out "assumption"
-            | Lemma l -> Fmt.fprintf out "(@[lemma@ %a@])" P.pp l
+          (* proof for the node *)
+          let pr_step : P.t =
+            match step with
+            | SP.Hypothesis pr -> pr (* FIXME: should this have a special rule? *)
+
+            | SP.Assumption ->
+              (* push into assumptions and introduce a name for it *)
+              let name = Printf.sprintf "a%d" !n_step in
+              let lit = match concl with
+                | [l] -> l
+                | _ -> Error.errorf "assumption with non-unit clause %a" SC.pp c
+              in
+              incr n_step;
+              assms := (name, lit) :: !assms;
+              P.ref_by_name name
+
+            | Lemma pr -> pr
+
             | Duplicate (c, _) ->
-              let n = find_idx_of_proof_ c in
-              Fmt.fprintf out "(@[dedup@ c%d@])" n
+              let n = find_proof_name c in
+              let p = P.ref_by_name n in
+              (* NOTE: we do not represent this form of transformation for now.
+                 Quip should be able to process clauses as sets. *)
+              p
+
             | Hyper_res { hr_init=init; hr_steps=steps } ->
-              let n_init = find_idx_of_proof_ init in
-              let pp_step out (pivot,p') =
-                let unit_res =
-                  Array.length (SC.atoms (conclusion p')) = 1 in
-                let n_p' = find_idx_of_proof_ p' in
-                if unit_res then (
-                  Fmt.fprintf out "(@[r1 c%d@])" n_p'
+              let proof_init = P.ref_by_name @@ find_proof_name init in
+              let tr_step (pivot,p') : P.hres_step =
+                (* unit resolution? *)
+                let is_r1_step = Array.length (SC.atoms (SP.conclusion p')) = 1 in
+                let proof_p' = P.ref_by_name @@ find_proof_name p' in
+                if is_r1_step then (
+                  P.r1 proof_p'
                 ) else (
-                  Fmt.fprintf out "(@[r c%d@ :pivot %a@])" n_p' pp_atom pivot
+                  let pivot = Lit.term (Sat_solver.Atom.formula pivot) in
+                  P.r proof_p' ~pivot
                 )
               in
-              Fmt.fprintf out "(@[hres@ c%d@ (@[%a@])@])"
-                n_init Fmt.(list ~sep:(return "@ ") pp_step) steps
+              P.hres_iter proof_init
+                (Iter.of_list steps |> Iter.map tr_step)
           in
 
-          Fmt.fprintf out "@ (@[defc c%d@ (@[cl %a@])@ (@[<1>src@ %a@])@])"
-            idx Fmt.(list ~sep:(return "@ ") pp_atom) atoms
-            pp_step step;
+          let step = P.defc ~name concl pr_step in
+          add_step step;
         )
       in
-      Fmt.fprintf out "(@[<v>quip 1";
-      Sat_solver.Proof.fold pp_node () self;
-      Fmt.fprintf out "@])";
-      ()
-  end
 
-  type proof = Proof.t
+      (* this should traverse from the leaves, so that order of [steps] is correct *)
+      Sat_solver.Proof.fold tr_node_to_step () msat;
+      let assms = !assms in
+      P.composite_l ~assms (List.rev !steps)
+
+    let make (msat: Sat_solver.proof) : t =
+      { msat; p=lazy (conv_proof msat) }
+
+    let check self = SP.check self.msat
+    let pp out (self:t) = P.Quip.pp out (to_proof self)
+  end
 
   (* main solver state *)
   type t = {
@@ -747,7 +783,7 @@ module Make(A : ARG)
   type res =
     | Sat of Model.t
     | Unsat of {
-        proof: proof option lazy_t;
+        proof: Pre_proof.t option lazy_t;
         unsat_core: Atom.t list lazy_t;
       }
     | Unknown of Unknown.t
@@ -761,7 +797,7 @@ module Make(A : ARG)
   let add_clause (self:t) (c:Atom.t IArray.t) (proof:P.t) : unit =
     Stat.incr self.count_clause;
     Log.debugf 50 (fun k->k "(@[solver.add-clause@ %a@ :proof %a@])"
-                      (Util.pp_iarray Atom.pp) c P.pp proof);
+                      (Util.pp_iarray Atom.pp) c P.pp_debug proof);
     let pb = Profile.begin_ "add-clause" in
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) proof;
     Profile.exit pb
@@ -860,7 +896,7 @@ module Make(A : ARG)
         try
           let pr = us.get_proof () in
           if check then Sat_solver.Proof.check pr;
-          Some pr
+          Some (Pre_proof.make pr)
         with Msat.Solver_intf.No_proof -> None
       ) in
       let unsat_core = lazy (us.Msat.unsat_assumptions ()) in

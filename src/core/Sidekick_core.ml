@@ -149,7 +149,6 @@ module type PROOF = sig
   type term
   type ty
   type t
-  val pp : t Fmt.printer
 
   type hres_step
   (** hyper-resolution steps: resolution, unit resolution;
@@ -178,8 +177,12 @@ module type PROOF = sig
   val neq : term -> term -> lit
   val not : lit -> lit
 
+  type composite_step
+  val defc : name:string -> lit list -> t -> composite_step
+
   val assertion : term -> t
   val assertion_c : lit Iter.t -> t
+  val ref_by_name : string -> t (* named clause, see {!defc} *)
   val assertion_c_l : lit list -> t
   val hres_iter : t -> hres_step Iter.t -> t (* hyper-res *)
   val hres_l : t -> hres_step list -> t (* hyper-res *)
@@ -189,6 +192,8 @@ module type PROOF = sig
   val cc_lemma : lit Iter.t -> t (* equality tautology, unsigned *)
   val cc_imply2 : t -> t -> term -> term -> t (* tautology [p1, p2 |- t=u] *)
   val cc_imply_l : t list -> term -> term -> t (* tautology [hyps |- t=u] *)
+  val composite_iter : ?assms:(string * lit) list -> composite_step Iter.t -> t
+  val composite_l : ?assms:(string * lit) list -> composite_step list -> t
   val sorry : t [@@alert cstor "sorry used"] (* proof hole when we don't know how to produce a proof *)
   val sorry_c : lit Iter.t -> t
   [@@alert cstor "sorry used"] (* proof hole when we don't know how to produce a proof *)
@@ -196,6 +201,13 @@ module type PROOF = sig
   val sorry_c_l : lit list -> t
 
   val default : t [@@alert cstor "do not use default constructor"]
+
+  val pp_debug : t Fmt.printer
+
+  module Quip : sig
+    val pp : t Fmt.printer
+    (** Printer in Quip format (experimental) *)
+  end
 end
 
 (** Literals
@@ -810,7 +822,7 @@ module type SOLVER = sig
   type term = T.Term.t
   type ty = T.Ty.t
   type lit = Lit.t
-  type lemma = P.t
+  type proof = P.t
 
   (** {3 A theory}
 
@@ -915,19 +927,6 @@ module type SOLVER = sig
        *)
   end
 
-  (** {3 Proof type}
-
-      The representation of a full proof, including toplevel steps
-      with intermediate, named, clauses. Each clause is justified by
-      a {!P.t} lemma. *)
-  module Proof : sig
-    type t
-    val check : t -> unit
-    val pp_dot : t Fmt.printer
-    val pp : t Fmt.printer
-  end
-  type proof = Proof.t
-
   (** {3 Main API} *)
 
   val stats : t -> Stat.t
@@ -980,11 +979,29 @@ module type SOLVER = sig
   val add_clause_l : t -> Atom.t list -> P.t -> unit
   (** Same as {!add_clause} but with a list of atoms. *)
 
+  (** {2 Internal representation of proofs}
+
+      A type or state convertible into {!P.t} *)
+  module Pre_proof : sig
+    type t
+
+    val pp : t Fmt.printer
+
+    val pp_dot : t Fmt.printer option
+    (** Optional printer into DOT/graphviz *)
+
+    val check : t -> unit
+    (** Check the proof (to an unspecified level of confidence;
+        this can be a no-op). May fail. *)
+
+    val to_proof : t -> P.t
+  end
+
   (** Result of solving for the current set of clauses *)
   type res =
     | Sat of Model.t (** Satisfiable *)
     | Unsat of {
-        proof: proof option lazy_t; (** proof of unsat *)
+        proof: Pre_proof.t option lazy_t; (** proof of unsat *)
         unsat_core: Atom.t list lazy_t; (** subset of assumptions responsible for unsat *)
       } (** Unsatisfiable *)
     | Unknown of Unknown.t

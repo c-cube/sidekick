@@ -185,19 +185,18 @@ let solve
       if check then (
         match proof_opt with
         | Some p ->
-          Profile.with_ "unsat.check" (fun () -> Solver.Proof.check p);
+          Profile.with_ "unsat.check" (fun () -> Solver.Pre_proof.check p);
         | _ -> ()
       );
 
-      begin match dot_proof, proof with
-        | None, _ ->  ()
-        | Some file, lazy (Some p) ->
+      begin match dot_proof, proof, Solver.Pre_proof.pp_dot with
+        | Some file, lazy (Some p), Some pp_dot ->
           Profile.with_ "dot.proof" @@ fun () ->
           CCIO.with_out file
             (fun oc ->
                Log.debugf 1 (fun k->k "write proof into `%s`" file);
                let fmt = Format.formatter_of_out_channel oc in
-               Solver.Proof.pp_dot fmt p;
+               pp_dot fmt p;
                Format.pp_print_flush fmt (); flush oc)
         | _ -> ()
       end;
@@ -210,7 +209,8 @@ let solve
         match proof_opt with
         | None -> Error.errorf "cannot print proof, none was generated"
         | Some p ->
-          Fmt.printf "(@[proof@ %a@])@." Solver.Proof.pp p;
+          let p = Solver.Pre_proof.to_proof p in
+          Fmt.printf "(@[proof@ %a@])@." Solver.P.Quip.pp p;
       );
 
     | Solver.Unknown reas ->

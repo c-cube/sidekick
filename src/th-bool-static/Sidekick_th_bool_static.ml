@@ -317,7 +317,7 @@ module Make(A : ARG) : S with module A = A = struct
            | Some (u, pr_t_u) ->
              Log.debugf 5
                (fun k->k "(@[th-bool-static.final-check.cnf@ %a@ :yields %a@ :pr %a@])"
-                   T.pp t T.pp u SI.P.pp pr_t_u);
+                   T.pp t T.pp u SI.P.Quip.pp pr_t_u);
              SI.CC.merge_t cc_ t u (SI.CC.Expl.mk_list []);
              ());
     end;
