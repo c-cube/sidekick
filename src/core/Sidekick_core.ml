@@ -170,15 +170,21 @@ module type PROOF = sig
   (** Proof representation of literals *)
 
   val pp_lit : lit Fmt.printer
-  val a : term -> lit
-  val na : term -> lit
+  val lit_a : term -> lit
+  val lit_na : term -> lit
   val lit_st : term * bool -> lit
-  val eq : term -> term -> lit
-  val neq : term -> term -> lit
-  val not : lit -> lit
+  val lit_eq : term -> term -> lit
+  val lit_neq : term -> term -> lit
+  val lit_not : lit -> lit
 
   type composite_step
   val defc : name:string -> lit list -> t -> composite_step
+  val deft : term -> term -> composite_step (** define a (new) atomic term *)
+
+  val is_trivial_refl : t -> bool
+  (** is this a proof of [|- t=t]? This can be used to remove
+      some trivial steps that would build on the proof (e.g. rewriting
+      using [refl t] is useless). *)
 
   val assertion : term -> t
   val assertion_c : lit Iter.t -> t
@@ -189,6 +195,7 @@ module type PROOF = sig
   val refl : term -> t (* proof of [| t=t] *)
   val true_is_true : t (* proof of [|- true] *)
   val true_neq_false : t (* proof of [|- not (true=false)] *)
+  val with_defs : term list -> t -> t (* proof under definition of given terms *)
   val cc_lemma : lit Iter.t -> t (* equality tautology, unsigned *)
   val cc_imply2 : t -> t -> term -> term -> t (* tautology [p1, p2 |- t=u] *)
   val cc_imply_l : t list -> term -> term -> t (* tautology [hyps |- t=u] *)
@@ -585,8 +592,16 @@ module type SOLVER_INTERNAL = sig
 
   type lit = Lit.t
 
+  (** {3 Proof helpers} *)
+
+  val define_const : t -> const:term -> rhs:term -> unit
+  (** [define_const si ~const ~rhs] adds the definition [const := rhs]
+      to the (future) proof. [const] should be a fresh constant that
+      occurs nowhere else, and [rhs] a term defined without [const]. *)
+
   (** {3 Congruence Closure} *)
 
+  (** Congruence closure instance *)
   module CC : CC_S
     with module T = T
      and module P = P
@@ -966,18 +981,22 @@ module type SOLVER = sig
 
   val add_theory_l : t -> theory list -> unit
 
-  val mk_atom_lit : t -> lit -> Atom.t
-  (** Turn a literal into a SAT solver literal. *)
+  val mk_atom_lit : t -> lit -> Atom.t * P.t
+  (** [mk_atom_lit _ lit] returns [atom, pr]
+      where [atom] is an internal atom for the solver,
+      and [pr] is a proof of [|- lit = atom] *)
 
-  val mk_atom_t : t -> ?sign:bool -> term -> Atom.t
-  (** Turn a boolean term, with a sign, into a SAT solver's literal. *)
+  val mk_atom_t : t -> ?sign:bool -> term -> Atom.t * P.t
+  (** [mk_atom_t _ ~sign t] returns [atom, pr]
+      where [atom] is an internal representation of [± t],
+      and [pr] is a proof of [|- atom = (± t)] *)
 
   val add_clause : t -> Atom.t IArray.t -> P.t -> unit
   (** [add_clause solver cs] adds a boolean clause to the solver.
       Subsequent calls to {!solve} will need to satisfy this clause. *)
 
   val add_clause_l : t -> Atom.t list -> P.t -> unit
-  (** Same as {!add_clause} but with a list of atoms. *)
+  (** Add a clause to the solver, given as a list. *)
 
   (** {2 Internal representation of proofs}
 

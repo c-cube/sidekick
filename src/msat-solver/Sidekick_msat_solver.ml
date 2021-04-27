@@ -196,7 +196,8 @@ module Make(A : ARG)
       simp: Simplify.t;
       mutable preprocess: preprocess_hook list;
       mutable mk_model: model_hook list;
-      preprocess_cache: (Term.t * P.t) Term.Tbl.t;
+      preprocess_cache: (Term.t * P.t list) Term.Tbl.t;
+      mutable t_defs : (term*term) list; (* term definitions *)
       mutable th_states : th_states; (** Set of theories *)
       mutable on_partial_check: (t -> actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> actions -> lit Iter.t -> unit) list;
@@ -231,6 +232,9 @@ module Make(A : ARG)
     let[@inline] ty_st t = t.ty_st
     let stats t = t.stat
 
+    let define_const (self:t) ~const ~rhs : unit =
+      self.t_defs <- (const,rhs) :: self.t_defs
+
     let simplifier self = self.simp
     let simplify_t self (t:Term.t) : _ option = Simplify.normalize self.simp t
     let simp_t self (t:Term.t) : Term.t * P.t = Simplify.normalize_t self.simp t
@@ -262,12 +266,15 @@ module Make(A : ARG)
     let preprocess_term_ (self:t) ~add_clause (t:term) : term * proof =
       let mk_lit t = Lit.atom self.tst t in (* no further simplification *)
 
-      (* compute and cache normal form of [t] *)
-      let rec aux t : term * proof =
+      (* compute and cache normal form [u] of [t].
+         Also cache a list of proofs [ps] such
+         that [ps |- t=u] by CC. *)
+      let rec aux t : term * proof list =
         match Term.Tbl.find self.preprocess_cache t with
-        | up -> up
+        | u, ps ->
+          u, ps
         | exception Not_found ->
-          let sub_p = ref [] in
+          let sub_p: P.t list ref = ref [] in
 
           (* try rewrite at root *)
           let t1 = aux_rec ~sub_p t self.preprocess in
@@ -276,9 +283,9 @@ module Make(A : ARG)
           let t2 =
             Term.map_shallow self.tst
               (fun t_sub ->
-                 let u_sub, p_t = aux t_sub in
+                 let u_sub, ps_t = aux t_sub in
                  if not (Term.equal t_sub u_sub) then (
-                   sub_p := p_t :: !sub_p;
+                   sub_p := List.rev_append ps_t !sub_p;
                  );
                  u_sub)
               t1
@@ -287,9 +294,9 @@ module Make(A : ARG)
           let u =
             if not (Term.equal t t2) then (
               (* fixpoint *)
-              let v, p_t2_v = aux t2 in
+              let v, ps_t2_v = aux t2 in
               if not (Term.equal t2 v) then (
-                sub_p := p_t2_v :: !sub_p
+                sub_p := List.rev_append ps_t2_v !sub_p
               );
               v
             ) else (
@@ -299,18 +306,12 @@ module Make(A : ARG)
 
           if t != u then (
             Log.debugf 5
-              (fun k->k "(@[msat-solver.preprocess.term@ \
-                         :from %a@ :to %a@])" Term.pp t Term.pp u);
+              (fun k->k "(@[msat-solver.preprocess.term@ :from %a@ :to %a@])"
+                  Term.pp t Term.pp u);
           );
 
-          let p_t_u =
-            if t != u then (
-              P.cc_imply_l !sub_p t u (* proof: [sub_p |- t=u] *)
-            ) else P.refl t
-          in
-
-          Term.Tbl.add self.preprocess_cache t (u,p_t_u);
-          u, p_t_u
+          Term.Tbl.add self.preprocess_cache t (u,!sub_p);
+          u, !sub_p
 
       (* try each function in [hooks] successively *)
       and aux_rec ~sub_p t hooks : term =
@@ -319,32 +320,41 @@ module Make(A : ARG)
         | h :: hooks_tl ->
           match h self ~mk_lit ~add_clause t with
           | None -> aux_rec ~sub_p t hooks_tl
-          | Some (u, p_t_u) ->
-            sub_p := p_t_u :: !sub_p;
-            let v, p_u_v = aux u in
+          | Some (u, ps_t_u) ->
+            sub_p := ps_t_u :: !sub_p;
+            let v, ps_u_v = aux u in
             if t != v then (
-              sub_p := p_u_v :: !sub_p;
+              sub_p := List.rev_append ps_u_v !sub_p;
             );
             v
       in
 
       let t1, p_t_t1 = simp_t self t in
 
-      let u, p_t1_u = aux t1 in
-      if t != u then (
-        let pr = P.cc_imply2 p_t_t1 p_t1_u t u in
-        u, pr
-      ) else (
-        u, P.refl u
-      )
+      let u, ps_t1_u = aux t1 in
+
+      let pr_t_u =
+        if t != u then (
+          let hyps =
+            if t == t1 then ps_t1_u
+            else p_t_t1 :: ps_t1_u in
+          P.cc_imply_l hyps t u
+        ) else P.refl u
+      in
+
+      u, pr_t_u
 
     (* return preprocessed lit + proof they are equal *)
     let preprocess_lit_ (self:t) ~add_clause (lit:lit) : lit * proof =
       let t, p = Lit.term lit |> preprocess_term_ self ~add_clause in
       let lit' = Lit.atom self.tst ~sign:(Lit.sign lit) t in
-      Log.debugf 10
-        (fun k->k "(@[msat-solver.preprocess.lit@ :lit %a@ :into %a@ :proof %a@])"
-            Lit.pp lit Lit.pp lit' P.Quip.pp p);
+
+      if not (Lit.equal lit lit') then (
+        Log.debugf 10
+          (fun k->k "(@[msat-solver.preprocess.lit@ :lit %a@ :into %a@ :proof %a@])"
+              Lit.pp lit Lit.pp lit' P.pp_debug p);
+      );
+
       lit', p
 
     (* add a clause using [acts] *)
@@ -491,6 +501,7 @@ module Make(A : ARG)
         count_preprocess_clause = Stat.mk_int stat "solver.preprocess-clause";
         count_propagate = Stat.mk_int stat "solver.th-propagations";
         count_conflict = Stat.mk_int stat "solver.th-conflicts";
+        t_defs=[];
         on_partial_check=[];
         on_final_check=[];
         level=0;
@@ -511,6 +522,7 @@ module Make(A : ARG)
 
     type t = {
       msat: Sat_solver.proof;
+      tdefs: (term*term) list; (* term definitions *)
       p: P.t lazy_t;
     }
 
@@ -531,7 +543,7 @@ module Make(A : ARG)
          clause [c] under given assumptions (each assm is a lit),
          and return [-a1 \/ … \/ -an \/ c], discharging assumptions
     *)
-    let conv_proof (msat:Sat_solver.proof) : P.t =
+    let conv_proof (msat:Sat_solver.proof) (t_defs:_ list) : P.t =
       let assms = ref [] in
       let steps = ref [] in
 
@@ -618,10 +630,13 @@ module Make(A : ARG)
       (* this should traverse from the leaves, so that order of [steps] is correct *)
       Sat_solver.Proof.fold tr_node_to_step () msat;
       let assms = !assms in
-      P.composite_l ~assms (List.rev !steps)
 
-    let make (msat: Sat_solver.proof) : t =
-      { msat; p=lazy (conv_proof msat) }
+      (* gather all term definitions *)
+      let t_defs = CCList.map (fun (c,rhs) -> P.deft c rhs) t_defs in
+      P.composite_l ~assms (CCList.append t_defs (List.rev !steps))
+
+    let make (msat: Sat_solver.proof) (tdefs: _ list) : t =
+      { msat; tdefs; p=lazy (conv_proof msat tdefs) }
 
     let check self = SP.check self.msat
     let pp out (self:t) = P.Quip.pp out (to_proof self)
@@ -726,21 +741,36 @@ module Make(A : ARG)
          CC.set_as_lit cc (CC.add_term cc sub ) (Sat_solver.Atom.formula atom);
          ())
 
-  let rec mk_atom_lit self lit : Atom.t =
-    let lit, _proof = preprocess_lit_ self lit in
+  let rec mk_atom_lit self lit : Atom.t * P.t =
+    let lit, proof = preprocess_lit_ self lit in
     add_bool_subterms_ self (Lit.term lit);
-    Sat_solver.make_atom self.solver lit
+    Sat_solver.make_atom self.solver lit, proof
 
   and preprocess_lit_ self lit : Lit.t * P.t =
     Solver_internal.preprocess_lit_
       ~add_clause:(fun lits proof ->
           (* recursively add these sub-literals, so they're also properly processed *)
           Stat.incr self.si.count_preprocess_clause;
-          let atoms = List.map (mk_atom_lit self) lits in
+          let pr_l = ref [] in
+          let atoms =
+            List.map
+              (fun lit ->
+                 let a, pr = mk_atom_lit self lit in
+                 if not (P.is_trivial_refl pr) then (
+                   pr_l := pr :: !pr_l;
+                 );
+                 a)
+              lits
+          in
+          (* do paramodulation if needed *)
+          let proof =
+            if !pr_l=[] then proof
+            else P.(hres_l proof (List.rev_map p1 !pr_l))
+          in
           Sat_solver.add_clause self.solver atoms proof)
       self.si lit
 
-  let[@inline] mk_atom_t self ?sign t : Atom.t =
+  let[@inline] mk_atom_t self ?sign t : Atom.t * P.t =
     let lit = Lit.atom (tst self) ?sign t in
     mk_atom_lit self lit
 
@@ -896,7 +926,7 @@ module Make(A : ARG)
         try
           let pr = us.get_proof () in
           if check then Sat_solver.Proof.check pr;
-          Some (Pre_proof.make pr)
+          Some (Pre_proof.make pr (List.rev self.si.t_defs))
         with Msat.Solver_intf.No_proof -> None
       ) in
       let unsat_core = lazy (us.Msat.unsat_assumptions ()) in

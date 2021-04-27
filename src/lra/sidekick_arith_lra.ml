@@ -212,6 +212,7 @@ module Make(A : ARG) : S with module A = A = struct
       | exception Not_found ->
         (* new variable to represent [le_comb] *)
         let proxy = fresh_term self ~pre (A.ty_lra self.tst) in
+        (* TODO: define proxy *)
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
         Log.debugf 50
           (fun k->k "(@[lra.encode-le@ `%a`@ :into-var %a@])" LE_.Comb.pp le_comb T.pp proxy);
@@ -269,10 +270,10 @@ module Make(A : ARG) : S with module A = A = struct
         let lit_t = mk_lit t in
         let lit_u1 = mk_lit u1 in
         let lit_u2 = mk_lit u2 in
-        add_clause [SI.Lit.neg lit_t; lit_u1] A.S.P.(A.proof_lra_l [na t; a u1]) ;
-        add_clause [SI.Lit.neg lit_t; lit_u2] A.S.P.(A.proof_lra_l [na t; a u2]);
+        add_clause [SI.Lit.neg lit_t; lit_u1] A.S.P.(A.proof_lra_l [lit_na t; lit_a u1]) ;
+        add_clause [SI.Lit.neg lit_t; lit_u2] A.S.P.(A.proof_lra_l [lit_na t; lit_a u2]);
         add_clause [SI.Lit.neg lit_u1; SI.Lit.neg lit_u2; lit_t]
-          A.S.P.(A.proof_lra_l [a t;na u1;na u2]);
+          A.S.P.(A.proof_lra_l [lit_a t; lit_na u1; lit_na u2]);
       );
       None
 

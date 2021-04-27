@@ -250,8 +250,13 @@ let process_stmt
       Log.debug 1 "exit";
       raise Exit
     | Statement.Stmt_check_sat l ->
+      (* FIXME: how to map [l] to [assumptions] in proof? *)
       let assumptions =
-        List.map (fun (sign,t) -> Solver.mk_atom_t solver ~sign t) l
+        List.map
+          (fun (sign,t) ->
+             let a, _pr = Solver.mk_atom_t solver ~sign t in
+             a)
+          l
       in
       solve
         ?gc ?restarts ?dot_proof ~check ?pp_proof ?pp_model
@@ -265,23 +270,41 @@ let process_stmt
     | Statement.Stmt_decl (f,ty_args,ty_ret) ->
       decl_fun f ty_args ty_ret;
       E.return ()
+
     | Statement.Stmt_assert t ->
       if pp_cnf then (
         Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t
       );
-      let atom = Solver.mk_atom_t solver t in
+      let atom, pr_atom = Solver.mk_atom_t solver t in
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
-      Solver.add_clause solver (IArray.singleton atom) (Proof.assertion t);
+      Solver.add_clause solver (IArray.singleton atom)
+        Proof.(hres_l (assertion t) [p1 pr_atom]);
       E.return()
+
     | Statement.Stmt_assert_clause c_ts ->
       if pp_cnf then (
         Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c_ts
       );
-      let c = List.map (Solver.mk_atom_t solver) c_ts in
+      let pr_l = ref [] in
+      let c =
+        List.map
+          (fun lit ->
+             let a, pr = Solver.mk_atom_t solver lit in
+             if not (Proof.is_trivial_refl pr) then pr_l := pr :: !pr_l;
+             a)
+          c_ts in
       CCOpt.iter (fun h -> Vec.push h c) hyps;
-      let proof = Proof.(assertion_c (Iter.of_list c_ts |> Iter.map (fun t->a t))) in
+
+      let proof =
+        let open Proof in
+        let p = assertion_c (Iter.of_list c_ts |> Iter.map (fun t->lit_a t)) in
+        (* rewrite with preprocessing proofs *)
+        if !pr_l = [] then p else hres_l p (List.rev_map p1 !pr_l)
+      in
+
       Solver.add_clause solver (IArray.of_list c) proof ;
       E.return()
+
     | Statement.Stmt_data _ ->
       E.return()
     | Statement.Stmt_define _ ->
@@ -333,7 +356,8 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
   module S = Solver
   type term = S.T.Term.t
   include Form
-  let proof_bool = Proof.bool_eq
+  let proof_bool_eq = Proof.bool_eq
+  let proof_bool_c = Proof.bool_c
   let proof_ite_true = Proof.ite_true
   let proof_ite_false = Proof.ite_false
 end)

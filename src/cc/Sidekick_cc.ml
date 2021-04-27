@@ -661,7 +661,7 @@ module Make (A: CC_ARG)
         let proof =
           let lits =
             Iter.of_list lits
-            |> Iter.map (fun lit -> P.lit_st (Lit.signed_term lit))
+            |> Iter.map (fun lit -> P.lit_not @@ P.lit_st (Lit.signed_term lit))
           in
           P.cc_lemma lits
         in

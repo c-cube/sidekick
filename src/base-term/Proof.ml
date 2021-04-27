@@ -11,7 +11,7 @@ type lit =
   | L_a of term
   | L_na of term
 
-let not = function
+let lit_not = function
   | L_eq (a,b) -> L_neq(a,b)
   | L_neq (a,b) -> L_eq(a,b)
   | L_a t -> L_na t
@@ -23,11 +23,11 @@ let pp_lit out = function
   | L_a t -> Fmt.fprintf out "(@[+@ %a@])" T.pp t
   | L_na t -> Fmt.fprintf out "(@[-@ %a@])" T.pp t
 
-let a t = L_a t
-let na t = L_na t
-let eq t u = L_eq (t,u)
-let neq t u = L_neq (t,u)
-let lit_st (t,b) = if b then a t else na t
+let lit_a t = L_a t
+let lit_na t = L_na t
+let lit_eq t u = L_eq (t,u)
+let lit_neq t u = L_neq (t,u)
+let lit_st (t,b) = if b then lit_a t else lit_na t
 
 type clause = lit list
 
@@ -48,8 +48,10 @@ type t =
   | Bool_true_is_true
   | Bool_true_neq_false
   | Bool_eq of term * term (* equal by pure boolean reasoning *)
+  | Bool_c of clause (* boolean tautology *)
   | Ite_true of term (* given [if a b c] returns [a=T |- if a b c=b] *)
   | Ite_false of term
+  | With_def of term list * t (* [with_def ts p] is [p] using definitions of [ts] *)
   | LRA of clause
   | Composite of {
       (* some named (atomic) assumptions *)
@@ -63,11 +65,10 @@ and composite_step =
       res: clause; (* result of [proof] *)
       proof: t; (* sub-proof *)
     }
+  | S_define_t of term * term (* [const := t] *)
 
-  (* TODO: do we need that here? or is it only during printing
-     that it becomes important?
-  | S_define_t of string * term (* name this term *)
-     *)
+  (* TODO: step to name a term (not define it), to keep sharing?
+     or do we do that when we print/serialize the proof *)
 
 and hres_step =
   | R of { pivot: term; p: t}
@@ -80,8 +81,12 @@ let r1 p = R1 p
 let p p ~lhs ~rhs : hres_step = P { p; lhs; rhs }
 let p1 p = P1 p
 
-let defc ~name res proof : composite_step =
-  S_define_c {proof;name;res}
+let defc ~name res proof : composite_step = S_define_c {proof;name;res}
+let deft c rhs : composite_step = S_define_t (c,rhs)
+
+let is_trivial_refl = function
+  | Refl _ -> true
+  | _ -> false
 
 let default=Unspecified
 let sorry_c c = Sorry_c (Iter.to_rev_list c)
@@ -96,6 +101,7 @@ let cc_imply2 h1 h2 t u : t = CC_lemma_imply ([h1; h2], t, u)
 let assertion t = Assertion t
 let assertion_c c = Assertion_c (Iter.to_rev_list c)
 let assertion_c_l c = Assertion_c c
+let with_defs ts p = match ts with [] -> p | _ -> With_def (ts, p)
 let composite_l ?(assms=[]) steps : t =
   Composite {assumptions=assms; steps}
 let composite_iter ?(assms=[]) steps : t =
@@ -111,6 +117,7 @@ let ite_false t = Ite_false t
 let true_is_true : t = Bool_true_is_true
 let true_neq_false : t = Bool_true_neq_false
 let bool_eq a b : t = Bool_eq (a,b)
+let bool_c c : t = Bool_c c
 
 let hres_l c l : t = Hres (c,l)
 let hres_iter c i : t = Hres (c, Iter.to_list i)
@@ -142,11 +149,12 @@ module Quip = struct
     | Bool_true_is_true -> Fmt.string out "true-is-true"
     | Bool_true_neq_false -> Fmt.string out "(@[!= T F@])"
     | Bool_eq (a,b) -> Fmt.fprintf out "(@[bool-eq@ %a@ %a@])" T.pp a T.pp b
+    | Bool_c c -> Fmt.fprintf out "(@[bool-c@ %a@])" pp_cl c
     | Assertion t -> Fmt.fprintf out "(@[assert@ %a@])" T.pp t
     | Assertion_c c ->
       Fmt.fprintf out "(@[assert-c@ %a@])" pp_cl c
     | Hres (c, l) ->
-      Fmt.fprintf out "(@[hres@ (@[init@ %a@]) %a@])" pp_rec c
+      Fmt.fprintf out "(@[hres@ (@[init@ %a@])@ %a@])" pp_rec c
         (pp_l pp_hres_step) l
     | DT_isa_split (ty,l) ->
       Fmt.fprintf out "(@[dt.isa.split@ (@[ty %a@])@ (@[cases@ %a@])@])"
@@ -158,6 +166,8 @@ module Quip = struct
         i Cstor.pp c (pp_l T.pp) ts Cstor.pp c (pp_l T.pp) us
     | Ite_true t -> Fmt.fprintf out "(@[ite-true@ %a@])" T.pp t
     | Ite_false t -> Fmt.fprintf out "(@[ite-false@ %a@])" T.pp t
+    | With_def (ts,p) ->
+      Fmt.fprintf out "(@[with-defs (@[%a@])@ %a@])" (pp_l T.pp) ts pp_rec p
     | LRA c -> Fmt.fprintf out "(@[lra@ %a@])" pp_cl c
     | Composite {steps; assumptions} ->
       let pp_ass out (n,a) = Fmt.fprintf out "(@[assuming@ (name %s) %a@])" n pp_lit a in
@@ -166,7 +176,10 @@ module Quip = struct
 
   and pp_composite_step out = function
     | S_define_c {name;res;proof} ->
-      Fmt.fprintf out "(@[defc %s %a@ %a@])" name pp_cl res pp_rec proof
+      Fmt.fprintf out "(@[defc %s@ %a@ %a@])" name pp_cl res pp_rec proof
+    | S_define_t (c,rhs) ->
+      Fmt.fprintf out "(@[deft@ %a@ %a@])" Term.pp c Term.pp rhs
+
   (*
     | S_define_t (name, t) ->
       Fmt.fprintf out "(@[deft %s %a@])" name Term.pp t
