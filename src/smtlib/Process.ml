@@ -145,6 +145,7 @@ let solve
     ?dot_proof
     ?(pp_proof=false)
     ?(pp_model=false)
+    ?proof_file
     ?(check=false)
     ?time:_ ?memory:_ ?(progress=false)
     ?hyps:_
@@ -201,6 +202,17 @@ let solve
         | _ -> ()
       end;
 
+      begin match proof_file, proof with
+        | Some file, lazy (Some p) ->
+          Profile.with_ "proof.write-file" @@ fun () ->
+          let p = Profile.with1 "proof.mk-proof" Solver.Pre_proof.to_proof p in
+          CCIO.with_out file
+            (fun oc ->
+               let fmt = Format.formatter_of_out_channel oc in
+               Fmt.fprintf fmt "%a@." Proof.Quip.pp p);
+        | _ -> ()
+      end;
+
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
 
@@ -220,7 +232,8 @@ let solve
 (* process a single statement *)
 let process_stmt
     ?hyps
-    ?gc ?restarts ?(pp_cnf=false) ?dot_proof ?pp_proof ?pp_model ?(check=false)
+    ?gc ?restarts ?(pp_cnf=false)
+    ?dot_proof ?pp_proof ?proof_file ?pp_model ?(check=false)
     ?time ?memory ?progress
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
@@ -259,7 +272,7 @@ let process_stmt
           l
       in
       solve
-        ?gc ?restarts ?dot_proof ~check ?pp_proof ?pp_model
+        ?gc ?restarts ?dot_proof ~check ?pp_proof ?proof_file ?pp_model
         ?time ?memory ?progress
         ~assumptions ?hyps
         solver;

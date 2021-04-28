@@ -31,6 +31,7 @@ let gc = ref true
 let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
+let proof_file = ref ""
 
 let hyps : Term.t list ref = ref []
 
@@ -73,6 +74,7 @@ let argspec = Arg.align [
     "--stat", Arg.Set p_stat, " print statistics";
     "--proof", Arg.Set p_proof, " print proof";
     "--no-proof", Arg.Clear p_proof, " do not print proof";
+    "-o", Arg.Set_string proof_file, " file into which to output a proof";
     "--model", Arg.Set p_model, " print model";
     "--no-model", Arg.Clear p_model, " do not print model";
     "--gc-stat", Arg.Set p_gc_stat, " outputs statistics about the GC";
@@ -153,9 +155,10 @@ let main () =
         Process.th_lra;
       ]
     in
-    let store_proof = !check || !p_proof in
+    let store_proof = !check || !p_proof || !proof_file <> "" in
     Process.Solver.create ~store_proof ~theories tst () ()
   in
+  let proof_file = if !proof_file ="" then None else Some !proof_file in
   if !check then (
     (* might have to check conflicts *)
     Solver.add_theory solver Process.Check_cc.theory;
@@ -172,7 +175,7 @@ let main () =
       E.fold_l
         (fun () ->
            Process.process_stmt
-             ~hyps ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
+             ~hyps ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf ?proof_file
              ~time:!time_limit ~memory:!size_limit
              ?dot_proof ~pp_proof:!p_proof ~pp_model:!p_model
              ~check:!check ~progress:!p_progress
