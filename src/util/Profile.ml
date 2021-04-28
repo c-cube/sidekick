@@ -90,6 +90,9 @@ let[@inline] with1 name f x =
       exit_with_ b pb;
       raise e
 
+let[@inline] with2 name f x y =
+  with_ name (fun () -> f x y)
+
 module Control = struct
   let setup b =
     assert (!out_ = None);

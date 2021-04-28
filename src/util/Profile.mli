@@ -14,8 +14,8 @@ val begin_ : string -> probe
 val exit : probe -> unit
 
 val with_ : string -> (unit -> 'a) -> 'a
-
 val with1 : string -> ('a -> 'b) -> 'a -> 'b
+val with2 : string -> ('a -> 'b -> 'c) -> 'a -> 'b -> 'c
 
 module type BACKEND = sig
   val get_ts : unit -> float
