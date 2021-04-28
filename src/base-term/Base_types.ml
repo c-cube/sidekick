@@ -799,10 +799,12 @@ module Term : sig
 
   module Iter_dag : sig
     type t
+    type order = Pre | Post
     val create : unit -> t
-    val iter_dag : t -> term -> term Iter.t
+    val iter_dag : ?order:order -> t -> term -> term Iter.t
   end
 
+  val iter_dag_with : order:Iter_dag.order -> t -> t Iter.t
   val iter_dag : t -> t Iter.t
 
   val map_shallow : state -> (t -> t) -> t -> t
@@ -961,21 +963,26 @@ end = struct
 
   module Iter_dag = struct
     type t = unit Tbl.t
+    type order = Pre | Post
     let create () : t = Tbl.create 16
-    let iter_dag (self:t) t yield =
+    let iter_dag ?(order=Pre) (self:t) t yield =
       let rec aux t =
         if not @@ Tbl.mem self t then (
           Tbl.add self t ();
-          yield t;
-          Term_cell.iter aux (view t)
+
+          match order with
+          | Pre -> yield t; Term_cell.iter aux (view t);
+          | Post -> Term_cell.iter aux (view t); yield t
         )
       in
       aux t
   end
 
-  let iter_dag t yield =
+  let iter_dag_with ~order t yield =
     let st = Iter_dag.create() in
-    Iter_dag.iter_dag st t yield
+    Iter_dag.iter_dag ~order st t yield
+
+  let iter_dag t yield = iter_dag_with ~order:Pre t yield
 
   let map_shallow (tst:state) f (t:t) : t =
     match view t with
