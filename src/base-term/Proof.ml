@@ -17,11 +17,12 @@ let lit_not = function
   | L_a t -> L_na t
   | L_na t -> L_a t
 
-let pp_lit out = function
-  | L_eq (t,u) -> Fmt.fprintf out "(@[+@ (@[=@ %a@ %a@])@])" T.pp t T.pp u
-  | L_neq (t,u) -> Fmt.fprintf out "(@[-@ (@[=@ %a@ %a@])@])" T.pp t T.pp u
-  | L_a t -> Fmt.fprintf out "(@[+@ %a@])" T.pp t
-  | L_na t -> Fmt.fprintf out "(@[-@ %a@])" T.pp t
+let pp_lit_with ~pp_t out = function
+  | L_eq (t,u) -> Fmt.fprintf out "(@[+@ (@[=@ %a@ %a@])@])" pp_t t pp_t u
+  | L_neq (t,u) -> Fmt.fprintf out "(@[-@ (@[=@ %a@ %a@])@])" pp_t t pp_t u
+  | L_a t -> Fmt.fprintf out "(@[+@ %a@])" pp_t t
+  | L_na t -> Fmt.fprintf out "(@[-@ %a@])" pp_t t
+let pp_lit = pp_lit_with ~pp_t:Term.pp
 
 let lit_a t = L_a t
 let lit_na t = L_na t
@@ -60,7 +61,7 @@ type t =
     }
 
 and composite_step =
-  | S_define_c of {
+  | S_step_c of {
       name: string; (* name *)
       res: clause; (* result of [proof] *)
       proof: t; (* sub-proof *)
@@ -81,7 +82,7 @@ let r1 p = R1 p
 let p p ~lhs ~rhs : hres_step = P { p; lhs; rhs }
 let p1 p = P1 p
 
-let defc ~name res proof : composite_step = S_define_c {proof;name;res}
+let stepc ~name res proof : composite_step = S_step_c {proof;name;res}
 let deft c rhs : composite_step = S_define_t (c,rhs)
 
 let is_trivial_refl = function

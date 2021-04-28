@@ -178,7 +178,7 @@ module type PROOF = sig
   val lit_not : lit -> lit
 
   type composite_step
-  val defc : name:string -> lit list -> t -> composite_step
+  val stepc : name:string -> lit list -> t -> composite_step
   val deft : term -> term -> composite_step (** define a (new) atomic term *)
 
   val is_trivial_refl : t -> bool

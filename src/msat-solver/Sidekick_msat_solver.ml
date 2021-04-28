@@ -535,7 +535,7 @@ module Make(A : ARG)
       Some pp
 
     (* export to proof {!P.t}, translating Msat-level proof ising:
-       - [defc name cl proof] to bind [name] to given clause and proof
+       - [stepc name cl proof] to bind [name] to given clause and proof
        - [deft name t] to define [name] as a shortcut for [t] (tseitin, etc.).
          Checker will always expand these. (TODO)
        - [steps <defc>+] for a structure proof with definitions, returning last one
@@ -622,7 +622,7 @@ module Make(A : ARG)
                 (Iter.of_list steps |> Iter.map tr_step)
           in
 
-          let step = P.defc ~name concl pr_step in
+          let step = P.stepc ~name concl pr_step in
           add_step step;
         )
       in
