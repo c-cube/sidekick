@@ -34,7 +34,7 @@ let out_ : backend option ref = ref None
 
 let[@inline] enabled () = match !out_ with Some _ -> true | None -> false
 
-let begin_with_ (module B:BACKEND) name : probe =
+let[@inline never] begin_with_ (module B:BACKEND) name : probe =
   Probe {name; start=B.get_ts ()}
 
 let[@inline] begin_ name : probe =
@@ -50,11 +50,11 @@ let[@inline] instant name =
     B.emit_instant_event ~name ~ts:now ()
 
 (* slow path *)
-let exit_full_ (module B : BACKEND) name start =
+let[@inline never] exit_full_ (module B : BACKEND) name start =
   let now = B.get_ts() in
   B.emit_duration_event ~name ~start ~end_:now ()
 
-let exit_with_ b pb =
+let[@inline] exit_with_ b pb =
   match pb with
   | No_probe -> ()
   | Probe {name; start} -> exit_full_ b name start
