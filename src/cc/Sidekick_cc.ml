@@ -573,7 +573,8 @@ module Make (A: CC_ARG)
       on_backtrack cc (fun () -> n.n_as_lit <- None);
       n.n_as_lit <- Some lit
 
-  let n_is_bool (self:t) n : bool =
+  (* is [n] true or false? *)
+  let n_is_bool_value (self:t) n : bool =
     N.equal n (n_true self) || N.equal n (n_false self)
 
   (* main CC algo: add terms from [pending] to the signature table,
@@ -657,8 +658,8 @@ module Make (A: CC_ARG)
          we try to ensure that [size ra <= size rb] in general, but always
          keep values as representative *)
       let r_from, r_into =
-        if n_is_bool cc ra then rb, ra
-        else if n_is_bool cc rb then ra, rb
+        if n_is_bool_value cc ra then rb, ra
+        else if n_is_bool_value cc rb then ra, rb
         else if size_ ra > size_ rb then rb, ra
         else ra, rb
       in
