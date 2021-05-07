@@ -52,7 +52,6 @@ type t =
   | Bool_c of clause (* boolean tautology *)
   | Ite_true of term (* given [if a b c] returns [a=T |- if a b c=b] *)
   | Ite_false of term
-  | With_def of term list * t (* [with_def ts p] is [p] using definitions of [ts] *)
   | LRA of clause
   | Composite of {
       (* some named (atomic) assumptions *)
@@ -111,7 +110,6 @@ let cc_imply2 h1 h2 t u : t = CC_lemma_imply ([h1; h2], t, u)
 let assertion t = Assertion t
 let assertion_c c = Assertion_c (Iter.to_rev_list c)
 let assertion_c_l c = Assertion_c c
-let with_defs ts p = match ts with [] -> p | _ -> With_def (ts, p)
 let composite_a ?(assms=[]) steps : t =
   Composite {assumptions=assms; steps}
 let composite_l ?(assms=[]) steps : t =
@@ -166,7 +164,6 @@ let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
   | Bool_eq (t, u) -> f_t t; f_t u
   | Bool_c c -> f_clause c
   | Ite_true t | Ite_false t -> f_t t
-  | With_def (ts, p) -> List.iter f_t ts; f_p p
   | LRA c -> f_clause c
   | Composite { assumptions; steps } ->
     List.iter (fun (_,lit) -> iter_lit ~f_t lit) assumptions;
@@ -319,8 +316,6 @@ module Quip = struct
         i Cstor.pp c (pp_l pp_t) ts Cstor.pp c (pp_l pp_t) us
     | Ite_true t -> Fmt.fprintf out "(@[ite-true@ %a@])" pp_t t
     | Ite_false t -> Fmt.fprintf out "(@[ite-false@ %a@])" pp_t t
-    | With_def (ts,p) ->
-      Fmt.fprintf out "(@[with-defs (@[%a@])@ %a@])" (pp_l pp_t) ts pp_rec p
     | LRA c -> Fmt.fprintf out "(@[lra@ %a@])" pp_cl c
     | Composite {steps; assumptions} ->
       let pp_ass out (n,a) =

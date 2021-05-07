@@ -198,20 +198,20 @@ module Make(A : ARG) : S with module A = A = struct
           SI.define_const si ~const:t_ite ~rhs:t;
           let lit_a = mk_lit a in
           add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_ite b)]
-            SI.P.(with_defs [t_ite] (A.proof_ite_true t));
+            (A.proof_ite_true t);
           add_clause [lit_a; mk_lit (eq self.tst t_ite c)]
-            SI.P.(with_defs [t_ite] (A.proof_ite_false t));
-          Some (t_ite, SI.P.(with_defs [t_ite] (refl t)))
+            (A.proof_ite_false t);
+          Some (t_ite, SI.P.(refl t))
       end
     | _ -> None
 
   let[@inline] pr_lit lit = SI.P.(lit_st (Lit.signed_term lit))
-  let[@inline] pr_def_refl proxy t = SI.P.(with_defs [proxy] (refl t))
+  let[@inline] pr_def_refl _proxy t = SI.P.(refl t)
 
   (* prove clause [l] by boolean lemma *)
-  let pr_bool_c proxy l : SI.P.t =
+  let pr_bool_c _proxy l : SI.P.t =
     let cl = List.rev_map pr_lit l in
-    SI.P.(with_defs [proxy] (A.proof_bool_c cl))
+    (A.proof_bool_c cl)
 
   (* TODO: polarity? *)
   let cnf (self:state) (si:SI.t) ~mk_lit ~add_clause (t:T.t) : (T.t * SI.P.t) option =
