@@ -105,7 +105,11 @@ let refl t : t = Refl t
 let ref_by_name name : t = Named name
 let make_cc iter : t = CC_lemma (Iter.to_rev_list iter)
 let cc_lemma c : t = CC_lemma (Iter.to_rev_list c)
-let cc_imply_l l t u : t = CC_lemma_imply (l, t, u)
+let cc_imply_l l t u : t =
+  let l = List.filter (fun p -> not (is_trivial_refl p)) l in
+  match l with
+  | [] -> refl t (* only possible way [t=u] *)
+  | l -> CC_lemma_imply (l, t, u)
 let cc_imply2 h1 h2 t u : t = CC_lemma_imply ([h1; h2], t, u)
 let assertion t = Assertion t
 let assertion_c c = Assertion_c (Iter.to_rev_list c)
@@ -186,19 +190,25 @@ module Compress = struct
     | Eq (_, _) | Ite (_, _, _) -> false
     | LRA _ -> false
 
+  type name = N_s of string | N_t of T.t
   type sharing_info = {
-    terms: string shared_status T.Tbl.t; (* sharing for non-small terms *)
+    terms: name shared_status T.Tbl.t; (* sharing for non-small terms *)
   }
 
   let no_sharing : sharing_info =
     { terms = T.Tbl.create 8 }
 
   (* traverse [p] and apply [f_t] to subterms (except to [c] in [c := rhs]) *)
-  let rec traverse_proof_ ~f_t (p:t) : unit =
-    let recurse = traverse_proof_ ~f_t in
+  let rec traverse_proof_ ?on_step ~f_t (p:t) : unit =
+    let recurse = traverse_proof_ ?on_step ~f_t in
+    let f_step s =
+      CCOpt.iter (fun f->f s) on_step;
+      traverse_step_ ~f_t s
+    in
     iter_p p
       ~f_t
-      ~f_clause:(traverse_clause_ ~f_t) ~f_step:(traverse_step_ ~f_t)
+      ~f_clause:(traverse_clause_ ~f_t)
+      ~f_step
       ~f_p:recurse
   and traverse_step_ ~f_t = function
     | S_define_t_name (_, rhs)
@@ -224,7 +234,17 @@ module Compress = struct
              | Some (Shared | Named _) -> ()
            ))
     in
-    traverse_proof_ p ~f_t:traverse_t;
+
+    (* if a term is already name, remember that, do not rename it *)
+    let on_step = function
+      | S_define_t_name (n,rhs) ->
+        T.Tbl.replace self.terms rhs (Named (N_s n));
+      | S_define_t (c,rhs) ->
+        T.Tbl.replace self.terms rhs (Named (N_t c));
+      | S_step_c _ -> ()
+    in
+
+    traverse_proof_ p ~on_step ~f_t:traverse_t;
     self
 
   (** [renaming sharing p] returns a new proof [p'] with more definitions.
@@ -249,7 +269,7 @@ module Compress = struct
                 (* shared, but not named yet *)
                 let name = new_name() in
                 Vec.push new_steps (deft_name name u);
-                T.Tbl.replace sharing.terms u (Named name)
+                T.Tbl.replace sharing.terms u (Named (N_s name))
               | _ -> ())
       in
 
@@ -271,7 +291,6 @@ end
 module Quip = struct
   (*
   TODO: make sure we print terms properly
-  TODO: define/use [deft] for printing shared terms
   *)
 
   let pp_l ppx out l = Fmt.(list ~sep:(return "@ ") ppx) out l
@@ -325,11 +344,14 @@ module Quip = struct
 
   and pp_t sharing out (t:T.t) =
     match T.Tbl.find_opt sharing.Compress.terms t with
-    | Some (Named s) ->
+    | Some (Named (N_s s)) ->
       Fmt.string out s (* use the newly introduced name *)
-    | _ ->
-      Base_types.pp_term_view_gen ~pp_id:ID.pp_name
-        ~pp_t:(pp_t sharing) out (T.view t)
+    | Some (Named (N_t t)) -> pp_t sharing out t (* use name *)
+    | _ -> pp_t_noshare_root sharing out t
+
+  and pp_t_noshare_root sharing out t =
+    Base_types.pp_term_view_gen ~pp_id:ID.pp_name
+      ~pp_t:(pp_t sharing) out (T.view t)
 
   and pp_composite_step sharing out step =
     let pp_t = pp_t sharing in
@@ -338,9 +360,11 @@ module Quip = struct
     | S_step_c {name;res;proof} ->
       Fmt.fprintf out "(@[stepc %s@ %a@ %a@])" name pp_cl res (pp_rec sharing) proof
     | S_define_t (c,rhs) ->
-      Fmt.fprintf out "(@[deft@ %a@ %a@])" Term.pp c pp_t rhs
+      Fmt.fprintf out "(@[deft@ %a@ %a@])"
+        Term.pp c (pp_t_noshare_root sharing) rhs
     | S_define_t_name (c,rhs) ->
-      Fmt.fprintf out "(@[deft@ %s@ %a@])" c pp_t rhs
+      Fmt.fprintf out "(@[deft@ %s@ %a@])"
+        c (pp_t_noshare_root sharing) rhs
 
   (*
     | S_define_t (name, t) ->
