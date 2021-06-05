@@ -49,7 +49,7 @@ type t =
   | Bool_true_is_true
   | Bool_true_neq_false
   | Bool_eq of term * term (* equal by pure boolean reasoning *)
-  | Bool_c of clause (* boolean tautology *)
+  | Bool_c of bool_c_name * clause (* boolean tautology *)
   | Ite_true of term (* given [if a b c] returns [a=T |- if a b c=b] *)
   | Ite_false of term
   | LRA of clause
@@ -58,6 +58,8 @@ type t =
       assumptions: (string * lit) list;
       steps: composite_step array; (* last step is the proof *)
     }
+
+and bool_c_name = string
 
 and composite_step =
   | S_step_c of {
@@ -131,7 +133,7 @@ let ite_false t = Ite_false t
 let true_is_true : t = Bool_true_is_true
 let true_neq_false : t = Bool_true_neq_false
 let bool_eq a b : t = Bool_eq (a,b)
-let bool_c c : t = Bool_c c
+let bool_c name c : t = Bool_c (name, c)
 
 let hres_l c l : t = Hres (c,l)
 let hres_iter c i : t = Hres (c, Iter.to_list i)
@@ -166,7 +168,7 @@ let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
   | DT_cstor_inj (_, _c, ts, us) -> List.iter f_t ts; List.iter f_t us
   | Bool_true_is_true | Bool_true_neq_false -> ()
   | Bool_eq (t, u) -> f_t t; f_t u
-  | Bool_c c -> f_clause c
+  | Bool_c (_,c) -> f_clause c
   | Ite_true t | Ite_false t -> f_t t
   | LRA c -> f_clause c
   | Composite { assumptions; steps } ->
@@ -317,7 +319,7 @@ module Quip = struct
     | Bool_eq (a,b) ->
       Fmt.fprintf out "(@[bool-eq@ %a@ %a@])"
         pp_t a pp_t b
-    | Bool_c c -> Fmt.fprintf out "(@[bool-c@ %a@])" pp_cl c
+    | Bool_c (name,c) -> Fmt.fprintf out "(@[bool-c %s@ %a@])" name pp_cl c
     | Assertion t -> Fmt.fprintf out "(@[assert@ %a@])" pp_t t
     | Assertion_c c ->
       Fmt.fprintf out "(@[assert-c@ %a@])" pp_cl c

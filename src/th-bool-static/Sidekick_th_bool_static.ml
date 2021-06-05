@@ -37,7 +37,7 @@ module type ARG = sig
   val proof_bool_eq : S.T.Term.t -> S.T.Term.t -> S.P.t
 
   (** Basic boolean logic for a clause [|- c] *)
-  val proof_bool_c : S.P.lit list -> S.P.t
+  val proof_bool_c : string -> S.P.lit list -> S.P.t
 
   val mk_bool : S.T.Term.state -> (term, term IArray.t) bool_view -> term
   (** Make a term from the given boolean view. *)
@@ -209,9 +209,9 @@ module Make(A : ARG) : S with module A = A = struct
   let[@inline] pr_def_refl _proxy t = SI.P.(refl t)
 
   (* prove clause [l] by boolean lemma *)
-  let pr_bool_c _proxy l : SI.P.t =
+  let pr_bool_c name _proxy l : SI.P.t =
     let cl = List.rev_map pr_lit l in
-    (A.proof_bool_c cl)
+    (A.proof_bool_c name cl)
 
   (* TODO: polarity? *)
   let cnf (self:state) (si:SI.t) ~mk_lit ~add_clause (t:T.t) : (T.t * SI.P.t) option =
@@ -242,16 +242,16 @@ module Make(A : ARG) : S with module A = A = struct
       let t_proxy, proxy = fresh_lit ~for_ ~mk_lit ~pre:"equiv_" self in
 
       SI.define_const si ~const:t_proxy ~rhs:for_;
-      let add_clause c =
-        add_clause c (pr_bool_c t_proxy c)
+      let add_clause ~elim c =
+        add_clause c (pr_bool_c (if elim then "eq-e" else "eq-i") t_proxy c)
       in
 
       (* proxy => a<=> b,
          ¬proxy => a xor b *)
-      add_clause [Lit.neg proxy; Lit.neg a; b];
-      add_clause [Lit.neg proxy; Lit.neg b; a];
-      add_clause [proxy; a; b];
-      add_clause [proxy; Lit.neg a; Lit.neg b];
+      add_clause ~elim:true [Lit.neg proxy; Lit.neg a; b];
+      add_clause ~elim:true [Lit.neg proxy; Lit.neg b; a];
+      add_clause ~elim:false [proxy; a; b];
+      add_clause ~elim:false [proxy; Lit.neg a; Lit.neg b];
       proxy, pr_def_refl t_proxy for_
 
     (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
@@ -266,8 +266,8 @@ module Make(A : ARG) : S with module A = A = struct
         lit
       in
 
-      let add_clause_by_def_ proxy c : unit =
-        let pr = pr_bool_c proxy c in
+      let add_clause_by_def_ name proxy c : unit =
+        let pr = pr_bool_c name proxy c in
         add_clause c pr
       in
 
@@ -284,9 +284,9 @@ module Make(A : ARG) : S with module A = A = struct
         SI.define_const si ~const:t_proxy ~rhs:t;
         (* add clauses *)
         List.iter
-          (fun u -> add_clause_by_def_ t_proxy [Lit.neg proxy; u])
+          (fun u -> add_clause_by_def_ "and-e" t_proxy [Lit.neg proxy; u])
           subs;
-        add_clause_by_def_ t_proxy (proxy :: List.map Lit.neg subs);
+        add_clause_by_def_ "and-i" t_proxy (proxy :: List.map Lit.neg subs);
         proxy, pr_def_refl t_proxy t
 
       | B_or l ->
@@ -294,8 +294,8 @@ module Make(A : ARG) : S with module A = A = struct
         let t_proxy, proxy = fresh_lit ~for_:t ~mk_lit ~pre:"or_" self in
         SI.define_const si ~const:t_proxy ~rhs:t;
         (* add clauses *)
-        List.iter (fun u -> add_clause_by_def_ t_proxy [Lit.neg u; proxy]) subs;
-        add_clause_by_def_ t_proxy (Lit.neg proxy :: subs);
+        List.iter (fun u -> add_clause_by_def_ "or-i" t_proxy [Lit.neg u; proxy]) subs;
+        add_clause_by_def_ "or-e" t_proxy (Lit.neg proxy :: subs);
         proxy, pr_def_refl t_proxy t
 
       | B_imply (args, u) ->
@@ -309,8 +309,8 @@ module Make(A : ARG) : S with module A = A = struct
         SI.define_const si ~const:t_proxy ~rhs:t;
 
         (* add clauses *)
-        List.iter (fun u -> add_clause_by_def_ t_proxy [Lit.neg u; proxy]) subs;
-        add_clause_by_def_ t_proxy (Lit.neg proxy :: subs);
+        List.iter (fun u -> add_clause_by_def_ "imp-i" t_proxy [Lit.neg u; proxy]) subs;
+        add_clause_by_def_ "imp-e" t_proxy (Lit.neg proxy :: subs);
         proxy, pr_def_refl t_proxy t
 
       | B_ite _ | B_eq _ | B_neq _ -> mk_lit t, SI.P.refl t
