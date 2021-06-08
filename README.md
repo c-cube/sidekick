@@ -1,4 +1,4 @@
-# Sidekick [![Build (travis)](https://travis-ci.org/c-cube/sidekick.svg?branch=master)](https://travis-ci.org/c-cube/sidekick) ![Build (gh)](https://github.com/c-cube/sidekick/workflows/Build%20sidekick-bin/badge.svg)
+# Sidekick ![Build (gh)](https://github.com/c-cube/sidekick/workflows/Build%20sidekick-bin/badge.svg)
 
 Sidekick is an OCaml library with a functor to create SMT solvers following
 the CDCL(T) approach (so called "lazy SMT").
