@@ -19,6 +19,7 @@ depends: [
   "zarith" { >= "1.8" } # constraint for infix ops
   "alcotest" {with-test}
   "qcheck" {with-test & >= "0.16" }
+  "odoc" {with-doc}
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"

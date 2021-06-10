@@ -21,6 +21,7 @@ depends: [
   "menhir"
   "mtime"
   "ocaml" { >= "4.04" }
+  "odoc" {with-doc}
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"

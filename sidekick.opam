@@ -17,6 +17,7 @@ depends: [
   "msat" { >= "0.9" < "0.10" }
   "ocaml" { >= "4.04" }
   "alcotest" {with-test}
+  "odoc" {with-doc}
 ]
 depopts: [
   "mtime"   # for profiling stuff
