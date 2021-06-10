@@ -46,6 +46,7 @@ type t =
   | Bool_true_neq_false
   | Bool_eq of term * term (* equal by pure boolean reasoning *)
   | Bool_c of bool_c_name * term list (* boolean tautology *)
+  | Nn of t (* negation normalization *)
   | Ite_true of term (* given [if a b c] returns [a=T |- if a b c=b] *)
   | Ite_false of term
   | LRA of clause
@@ -130,6 +131,7 @@ let true_is_true : t = Bool_true_is_true
 let true_neq_false : t = Bool_true_neq_false
 let bool_eq a b : t = Bool_eq (a,b)
 let bool_c name c : t = Bool_c (name, c)
+let nn c : t = Nn c
 
 let hres_l p l : t =
   let l = List.filter (function (P1 (Refl _)) -> false | _ -> true) l in
@@ -167,6 +169,7 @@ let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
   | Bool_true_is_true | Bool_true_neq_false -> ()
   | Bool_eq (t, u) -> f_t t; f_t u
   | Bool_c (_, ts) -> List.iter f_t ts
+  | Nn p -> f_p p
   | Ite_true t | Ite_false t -> f_t t
   | LRA c -> f_clause c
   | Composite { assumptions; steps } ->
@@ -322,6 +325,7 @@ module Quip = struct
         pp_t a pp_t b
     | Bool_c (name,ts) ->
       Fmt.fprintf out "(@[bool-c %s@ %a@])" name (pp_l pp_t) ts
+    | Nn p -> Fmt.fprintf out "(@[nn@ %a@])" pp_rec p
     | Assertion t -> Fmt.fprintf out "(@[assert@ %a@])" pp_t t
     | Assertion_c c ->
       Fmt.fprintf out "(@[assert-c@ %a@])" pp_cl c

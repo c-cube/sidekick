@@ -195,6 +195,7 @@ module type PROOF = sig
   val refl : term -> t (* proof of [| t=t] *)
   val true_is_true : t (* proof of [|- true] *)
   val true_neq_false : t (* proof of [|- not (true=false)] *)
+  val nn : t -> t (* negation normalization *)
   val cc_lemma : lit Iter.t -> t (* equality tautology, unsigned *)
   val cc_imply2 : t -> t -> term -> term -> t (* tautology [p1, p2 |- t=u] *)
   val cc_imply_l : t list -> term -> term -> t (* tautology [hyps |- t=u] *)

@@ -285,10 +285,10 @@ module Make(A : ARG) : S with module A = A = struct
           (fun t_u u ->
              add_clause
                [Lit.neg proxy; u]
-               (A.proof_bool_c "and-i" [t_proxy; t_u]))
+               (A.proof_bool_c "and-e" [t_proxy; t_u]))
           t_subs subs;
         add_clause (proxy :: List.map Lit.neg subs)
-          (A.proof_bool_c "and-e" [t_proxy]);
+          (A.proof_bool_c "and-i" [t_proxy]);
         proxy, pr_def_refl t_proxy t
 
       | B_or l ->

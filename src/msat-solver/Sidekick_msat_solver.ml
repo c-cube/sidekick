@@ -767,6 +767,7 @@ module Make(A : ARG)
             if !pr_l=[] then proof
             else P.(hres_l proof (List.rev_map p1 !pr_l))
           in
+          let proof = P.nn proof in (* normalize lits *)
           Sat_solver.add_clause self.solver atoms proof)
       self.si lit
 
