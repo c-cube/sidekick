@@ -21,4 +21,4 @@
 (rule
   (targets test_simplex2.ml)
   (enabled_if (< %{ocaml_version} 4.08.0))
-  (action (with-stdout-to %{targets} (echo "let props=[]"))))
+  (action (with-stdout-to %{targets} (echo "let props=[];; let tests=\"simplex2\",[]"))))
