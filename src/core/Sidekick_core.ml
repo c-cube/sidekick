@@ -51,6 +51,7 @@ module CC_view = struct
     | Opaque t -> f_t t
 end
 
+(** Main representation of Terms and Types *)
 module type TERM = sig
   module Fun : sig
     type t
@@ -117,6 +118,12 @@ module type LIT = sig
   val pp : t Fmt.printer
 end
 
+(** Actions provided to the congruence closure.
+
+    The congruence closure must be able to propagate literals when
+    it detects that they are true or false; it must also
+    be able to create conflicts when the set of (dis)equalities
+    is inconsistent *)
 module type CC_ACTIONS = sig
   module T : TERM
   module P : PROOF
