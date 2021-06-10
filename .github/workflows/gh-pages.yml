@@ -26,7 +26,7 @@ jobs:
         run: opam pin -n .
 
       - name: Depext
-        run: opam depext -yt containers containers-data containers-thread
+        run: opam depext -yt sidekick sidekick-arith
 
       - name: Deps
         run: opam install -d . --deps-only
