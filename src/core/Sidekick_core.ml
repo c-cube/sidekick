@@ -10,7 +10,14 @@
 
 module Fmt = CCFormat
 
+(** View terms through the lens of the Congruence Closure *)
 module CC_view = struct
+  (** A view of a term fron the point of view of the congruence closure.
+
+      - ['f] is the type of function symbols
+      - ['t] is the type of terms
+      - ['ts] is the type of sequences of terms (arguments of function application)
+  *)
   type ('f, 't, 'ts) t =
     | Bool of bool
     | App_fun of 'f * 'ts
@@ -20,6 +27,8 @@ module CC_view = struct
     | Not of 't
     | Opaque of 't (* do not enter *)
 
+(** Map function over a view, one level deep.
+    Each function maps over a different type, e.g. [f_t] maps over terms *)
   let map_view ~f_f ~f_t ~f_ts (v:_ t) : _ t =
     match v with
     | Bool b -> Bool b
@@ -30,6 +39,7 @@ module CC_view = struct
     | Eq (a,b) -> Eq (f_t a, f_t b)
     | Opaque t -> Opaque (f_t t)
 
+  (** Iterate over a view, one level deep. *)
   let iter_view ~f_f ~f_t ~f_ts (v:_ t) : unit =
     match v with
     | Bool _ -> ()

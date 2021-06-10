@@ -1,5 +1,6 @@
 (executable
  (name run_tests)
+ (modules run_tests test_simplex2)
  (libraries containers sidekick-arith.lra zarith iter alcotest qcheck)
  (flags :standard -warn-error -a+8 -color always))
 
@@ -11,3 +12,13 @@
    (progn
      (run ./run_tests.exe alcotest) ; run regressions first
      (run ./run_tests.exe qcheck --verbose))))
+
+(rule
+  (targets test_simplex2.ml)
+  (enabled_if (>= %{ocaml_version} 4.08.0))
+  (action (copy test_simplex2.real.ml %{targets})))
+
+(rule
+  (targets test_simplex2.ml)
+  (enabled_if (< %{ocaml_version} 4.08.0))
+  (action (with-stdout-to %{targets} (echo "let props=[]"))))
