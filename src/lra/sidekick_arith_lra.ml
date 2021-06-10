@@ -416,7 +416,9 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Q_map = CCMap.Make(Q)
 
-  let plit_of_lit lit = A.S.P.lit_st (Lit.signed_term lit)
+  let plit_of_lit lit =
+    let t, sign = Lit.signed_term lit in
+    A.S.P.lit_mk sign t
 
   (* raise conflict from certificate *)
   let fail_with_cert si acts cert : 'a =

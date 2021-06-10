@@ -576,7 +576,7 @@ module Make(A : ARG)
           let tr_atom a : P.lit =
             let sign = Sat_solver.Atom.sign a in
             let t = Lit.term (Sat_solver.Atom.formula a) in
-            P.lit_st (t,sign)
+            P.lit_mk sign t
           in
           let concl = List.rev_map tr_atom @@ Sat_solver.Clause.atoms_l c in
 

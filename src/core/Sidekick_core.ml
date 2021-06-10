@@ -172,7 +172,7 @@ module type PROOF = sig
   val pp_lit : lit Fmt.printer
   val lit_a : term -> lit
   val lit_na : term -> lit
-  val lit_st : term * bool -> lit
+  val lit_mk : bool -> term -> lit
   val lit_eq : term -> term -> lit
   val lit_neq : term -> term -> lit
   val lit_not : lit -> lit

@@ -9,7 +9,7 @@ val isa_disj : ty -> term -> term -> t
 val cstor_inj : Cstor.t -> int -> term list -> term list -> t
 
 val bool_eq : term -> term -> t
-val bool_c : string -> lit list -> t
+val bool_c : string -> term list -> t
 val ite_true : term -> t
 val ite_false : term -> t
 

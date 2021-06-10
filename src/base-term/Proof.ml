@@ -6,29 +6,25 @@ type term = T.t
 type ty = Ty.t
 
 type lit =
-  | L_eq of term * term
-  | L_neq of term * term
-  | L_a of term
-  | L_na of term
+  | L_eq of bool * term * term
+  | L_a of bool * term
 
 let lit_not = function
-  | L_eq (a,b) -> L_neq(a,b)
-  | L_neq (a,b) -> L_eq(a,b)
-  | L_a t -> L_na t
-  | L_na t -> L_a t
+  | L_eq (sign,a,b) -> L_eq(not sign,a,b)
+  | L_a (sign,t) -> L_a (not sign,t)
 
-let pp_lit_with ~pp_t out = function
-  | L_eq (t,u) -> Fmt.fprintf out "(@[+@ (@[=@ %a@ %a@])@])" pp_t t pp_t u
-  | L_neq (t,u) -> Fmt.fprintf out "(@[-@ (@[=@ %a@ %a@])@])" pp_t t pp_t u
-  | L_a t -> Fmt.fprintf out "(@[+@ %a@])" pp_t t
-  | L_na t -> Fmt.fprintf out "(@[-@ %a@])" pp_t t
+let pp_lit_with ~pp_t out =
+  let strsign = function true -> "+" | false -> "-" in
+  function
+  | L_eq (b,t,u) -> Fmt.fprintf out "(@[%s@ (@[=@ %a@ %a@])@])" (strsign b) pp_t t pp_t u
+  | L_a (b,t) -> Fmt.fprintf out "(@[%s@ %a@])" (strsign b) pp_t t
 let pp_lit = pp_lit_with ~pp_t:Term.pp
 
-let lit_a t = L_a t
-let lit_na t = L_na t
-let lit_eq t u = L_eq (t,u)
-let lit_neq t u = L_neq (t,u)
-let lit_st (t,b) = if b then lit_a t else lit_na t
+let lit_a t = L_a (true,t)
+let lit_na t = L_a (false,t)
+let lit_eq t u = L_eq (true,t,u)
+let lit_neq t u = L_eq (false,t,u)
+let lit_mk b t = L_a (b,t)
 
 type clause = lit list
 
@@ -49,7 +45,7 @@ type t =
   | Bool_true_is_true
   | Bool_true_neq_false
   | Bool_eq of term * term (* equal by pure boolean reasoning *)
-  | Bool_c of bool_c_name * clause (* boolean tautology *)
+  | Bool_c of bool_c_name * term list (* boolean tautology *)
   | Ite_true of term (* given [if a b c] returns [a=T |- if a b c=b] *)
   | Ite_false of term
   | LRA of clause
@@ -135,15 +131,17 @@ let true_neq_false : t = Bool_true_neq_false
 let bool_eq a b : t = Bool_eq (a,b)
 let bool_c name c : t = Bool_c (name, c)
 
-let hres_l c l : t = Hres (c,l)
-let hres_iter c i : t = Hres (c, Iter.to_list i)
+let hres_l p l : t =
+  let l = List.filter (function (P1 (Refl _)) -> false | _ -> true) l in
+  if l=[] then p else Hres (p,l)
+let hres_iter c i : t = hres_l c (Iter.to_list i)
 
 let lra_l c : t = LRA c
 let lra c = LRA (Iter.to_rev_list c)
 
 let iter_lit ~f_t = function
-  | L_eq (a,b) | L_neq (a,b) -> f_t a; f_t b
-  | L_a t | L_na t -> f_t t
+  | L_eq (_,a,b) -> f_t a; f_t b
+  | L_a (_,t) -> f_t t
 
 let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
   match p with
@@ -168,7 +166,7 @@ let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
   | DT_cstor_inj (_, _c, ts, us) -> List.iter f_t ts; List.iter f_t us
   | Bool_true_is_true | Bool_true_neq_false -> ()
   | Bool_eq (t, u) -> f_t t; f_t u
-  | Bool_c (_,c) -> f_clause c
+  | Bool_c (_, ts) -> List.iter f_t ts
   | Ite_true t | Ite_false t -> f_t t
   | LRA c -> f_clause c
   | Composite { assumptions; steps } ->
@@ -295,6 +293,9 @@ module Quip = struct
   TODO: make sure we print terms properly
   *)
 
+  (* TODO: print into a buffer, without Format (should be faster) *)
+  (* TODO: print as C-sexp *)
+
   let pp_l ppx out l = Fmt.(list ~sep:(return "@ ") ppx) out l
   let pp_a ppx out l = Fmt.(array ~sep:(return "@ ") ppx) out l
   let pp_cl ~pp_t out c = Fmt.fprintf out "(@[cl@ %a@])" (pp_l (pp_lit_with ~pp_t)) c
@@ -319,7 +320,8 @@ module Quip = struct
     | Bool_eq (a,b) ->
       Fmt.fprintf out "(@[bool-eq@ %a@ %a@])"
         pp_t a pp_t b
-    | Bool_c (name,c) -> Fmt.fprintf out "(@[bool-c %s@ %a@])" name pp_cl c
+    | Bool_c (name,ts) ->
+      Fmt.fprintf out "(@[bool-c %s@ %a@])" name (pp_l pp_t) ts
     | Assertion t -> Fmt.fprintf out "(@[assert@ %a@])" pp_t t
     | Assertion_c c ->
       Fmt.fprintf out "(@[assert-c@ %a@])" pp_cl c
