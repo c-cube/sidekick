@@ -1,4 +1,4 @@
-(** {1 Main Environment}
+(** {1 Main Signatures}
 
     Theories and concrete solvers rely on an environment that defines
     several important types:
@@ -6,6 +6,10 @@
     - sorts
     - terms (to represent logic expressions and formulas)
     - a congruence closure instance
+    - a bridge to some SAT solver
+
+    In this module we define most of the main signatures used
+    throughout Sidekick.
 *)
 
 module Fmt = CCFormat
@@ -53,6 +57,7 @@ end
 
 (** Main representation of Terms and Types *)
 module type TERM = sig
+  (** A function symbol, like "f" or "plus" or "is_human" or "socrates" *)
   module Fun : sig
     type t
     val equal : t -> t -> bool
@@ -60,6 +65,10 @@ module type TERM = sig
     val pp : t Fmt.printer
   end
 
+  (** Types
+
+      Types should be comparable (ideally, in O(1)), and have
+      at least a boolean type available. *)
   module Ty : sig
     type t
 
@@ -73,6 +82,11 @@ module type TERM = sig
     val is_bool : t -> bool
   end
 
+  (** Term structure.
+
+      Terms should be {b hashconsed}, with perfect sharing.
+      This allows, for example, {!Term.Tbl} and {!Term.iter_dag} to be efficient.
+  *)
   module Term : sig
     type t
     val equal : t -> t -> bool
@@ -80,18 +94,52 @@ module type TERM = sig
     val hash : t -> int
     val pp : t Fmt.printer
 
+    (** A state used to create new terms. It is where the hashconsing
+        table should live, along with other all-terms related state. *)
     type state
 
     val ty : t -> Ty.t
-    val bool : state -> bool -> t (* build true/false *)
+
+    val bool : state -> bool -> t (** build true/false *)
+
     val as_bool : t -> bool option
+    (** [as_bool t] is [Some true] if [t] is the term [true], and similarly
+        for [false]. For other terms it is [None]. *)
 
     val abs : state -> t -> t * bool
+    (** [abs t] returns an "absolute value" for the term, along with the
+        sign of [t].
+
+        The idea is that we want to turn [not a] into [(a, false)],
+        or [(a != b)] into [(a=b, false)]. For terms without a negation this
+        should return [(t, true)].
+
+        The state is passed in case a new term needs to be created. *)
 
     val map_shallow : state -> (t -> t) -> t -> t
-    (** Map function on immediate subterms *)
+    (** Map function on immediate subterms. This should not be recursive. *)
 
     val iter_dag : t -> (t -> unit) -> unit
+    (** [iter_dag t f] calls [f] once on each subterm of [t], [t] included.
+        It must {b not} traverse [t] as a tree, but rather as a
+        perfectly shared DAG.
+
+        For example, in:
+        {[
+          let x = 2 in
+          let y = f x x in
+          let z = g y x in
+          z = z
+        ]}
+
+        the DAG has the following nodes:
+
+        {[ n1: 2
+           n2: f n1 n1
+           n3: g n2 n1
+           n4: = n3 n3
+         ]}
+    *)
 
     module Tbl : CCHashtbl.S with type key = t
   end
@@ -104,14 +152,32 @@ module type PROOF = sig
   val default : t
 end
 
+(** Literals
+
+    Literals are a pair of a boolean-sorted term, and a sign.
+    Positive literals are the same as their term, and negative literals
+    are the negation of their term.
+
+    The SAT solver deals only in literals and clauses (sets of literals).
+    Everything else belongs in the SMT solver. *)
 module type LIT = sig
   module T : TERM
+  (** Literals depend on terms *)
+
   type t
+  (** A literal *)
 
   val term : t -> T.Term.t
+  (** Get the (positive) term *)
+
   val sign : t -> bool
+  (** Get the sign. A negated literal has sign [false]. *)
+
   val neg : t -> t
+  (** Take negation of literal. [sign (neg lit) = not (sign lit)]. *)
+
   val abs : t -> t
+  (** [abs lit] is like [lit] but always positive, i.e. [sign (abs lit) = true] *)
 
   val equal : t -> t -> bool
   val hash : t -> int
@@ -128,13 +194,30 @@ module type CC_ACTIONS = sig
   module T : TERM
   module P : PROOF
   module Lit : LIT with module T = T
+
   type t
+  (** An action handle. It is used by the congruence closure
+      to perform the actions below. How it performs the actions
+      is not specified and is solver-specific. *)
 
   val raise_conflict : t -> Lit.t list -> P.t -> 'a
+  (** [raise_conflict acts c pr] declares that [c] is a tautology of
+      the theory of congruence. This does not return (it should raise an
+      exception).
+      @param pr the proof of [c] being a tautology *)
 
   val propagate : t -> Lit.t -> reason:(unit -> Lit.t list) -> P.t -> unit
+  (** [propagate acts lit ~reason pr] declares that [reason() => lit]
+      is a tautology.
+
+      - [reason()] should return a list of literals that are currently true.
+      - [lit] should be a literal of interest (see {!CC_S.set_as_lit}).
+
+      This function might never be called, a congruence closure has the right
+      to not propagate and only trigger conflicts. *)
 end
 
+(** Arguments to a congruence closure's implementation *)
 module type CC_ARG = sig
   module T : TERM
   module P : PROOF
@@ -145,6 +228,7 @@ module type CC_ARG = sig
   (** View the term through the lens of the congruence closure *)
 end
 
+(** Signature of the congruence closure *)
 module type CC_S = sig
   module T : TERM
   module P : PROOF
@@ -158,7 +242,7 @@ module type CC_S = sig
   type actions = Actions.t
 
   type t
-  (** Global state of the congruence closure *)
+  (** State of the congruence closure *)
 
   (** An equivalence class is a set of terms that are currently equal
       in the partial model built by the solver.
@@ -178,6 +262,11 @@ module type CC_S = sig
   *)
   module N : sig
     type t
+    (** An equivalent class, containing terms that are proved
+        to be equal.
+
+        A value of type [t] points to a particular term, but see
+        {!find} to get the representative of the class. *)
 
     val term : t -> term
     val equal : t -> t -> bool
@@ -185,7 +274,8 @@ module type CC_S = sig
     val pp : t Fmt.printer
 
     val is_root : t -> bool
-    (** Is the node a root (ie the representative of its class)? *)
+    (** Is the node a root (ie the representative of its class)?
+        See {!find} to get the root. *)
 
     val iter_class : t -> t Iter.t
     (** Traverse the congruence class.
@@ -203,8 +293,13 @@ module type CC_S = sig
         and are merged automatically when classes are merged. *)
 
     val get_field : bitfield -> t -> bool
+    (** Access the bit field *)
   end
 
+  (** Explanations
+
+      Explanations are specialized proofs, created by the congruence closure
+      when asked to justify why 2 terms are equal. *)
   module Expl : sig
     type t
     val pp : t Fmt.printer
@@ -224,7 +319,7 @@ module type CC_S = sig
 
   type explanation = Expl.t
 
-  (** Accessors *)
+  (** {3 Accessors} *)
 
   val term_state : t -> term_state
 
@@ -238,12 +333,41 @@ module type CC_S = sig
   val mem_term : t -> term -> bool
   (** Returns [true] if the term is explicitly present in the congruence closure *)
 
+  (** {3 Events}
+
+      Events triggered by the congruence closure, to which
+      other plugins can subscribe. *)
+
   type ev_on_pre_merge = t -> actions -> N.t -> N.t -> Expl.t -> unit
+  (** [ev_on_pre_merge cc acts n1 n2 expl] is called right before [n1]
+      and [n2] are merged with explanation [expl].  *)
+
   type ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
+  (** [ev_on_post_merge cc acts n1 n2] is called right after [n1]
+      and [n2] were merged. [find cc n1] and [find cc n2] will return
+      the same node. *)
+
   type ev_on_new_term = t -> N.t -> term -> unit
+  (** [ev_on_new_term cc n t] is called whenever a new term [t]
+      is added to the congruence closure. Its node is [n]. *)
+
   type ev_on_conflict = t -> th:bool -> lit list -> unit
+  (** [ev_on_conflict acts ~th c] is called when the congruence
+      closure triggers a conflict by asserting the tautology [c].
+
+      @param th true if the explanation for this conflict involves
+      at least one "theory" explanation; i.e. some of the equations
+      participating in the conflict are purely syntactic theories
+      like injectivity of constructors. *)
+
   type ev_on_propagate = t -> lit -> (unit -> lit list) -> unit
+  (** [ev_on_propagate cc lit reason] is called whenever [reason() => lit]
+      is a propagated lemma. See {!CC_ACTIONS.propagate}. *)
+
   type ev_on_is_subterm = N.t -> term -> unit
+  (** [ev_on_is_subterm n t] is called when [n] is a subterm of
+      another node for the first time. [t] is the term corresponding to
+      the node [n]. This can be useful for theory combination. *)
 
   val create :
     ?stat:Stat.t ->
@@ -256,7 +380,11 @@ module type CC_S = sig
     ?size:[`Small | `Big] ->
     term_state ->
     t
-  (** Create a new congruence closure. *)
+  (** Create a new congruence closure.
+
+      @param term_state used to be able to create new terms. All terms
+      interacting with this congruence closure must belong in this term state
+      as well. *)
 
   val allocate_bitfield : descr:string -> t -> N.bitfield
   (** Allocate a new bitfield for the nodes.
@@ -317,8 +445,13 @@ module type CC_S = sig
       To be used in theories. *)
 
   val n_true : t -> N.t
+  (** Node for [true] *)
+
   val n_false : t -> N.t
+  (** Node for [false] *)
+
   val n_bool : t -> bool -> N.t
+  (** Node for either true or false *)
 
   val merge : t -> N.t -> N.t -> Expl.t -> unit
   (** Merge these two nodes given this explanation.
@@ -352,7 +485,10 @@ module type CC_S = sig
   (**/**)
 end
 
-(** A view of the solver from a theory's point of view *)
+(** A view of the solver from a theory's point of view.
+
+    Theories should interact with the solver via this module, to assert
+    new lemmas, propagate literals, access the congruence closure, etc. *)
 module type SOLVER_INTERNAL = sig
   module T : TERM
   module P : PROOF
@@ -374,6 +510,7 @@ module type SOLVER_INTERNAL = sig
   (** {3 Actions for the theories} *)
 
   type actions
+  (** Handle that the theories can use to perform actions. *)
 
   (** {3 Literals}
 
@@ -384,7 +521,7 @@ module type SOLVER_INTERNAL = sig
 
   type lit = Lit.t
 
-  (** {2 Congruence Closure} *)
+  (** {3 Congruence Closure} *)
 
   module CC : CC_S
     with module T = T
@@ -397,6 +534,7 @@ module type SOLVER_INTERNAL = sig
 
   (** {3 Simplifiers} *)
 
+  (** Simplify terms *)
   module Simplify : sig
     type t
 
@@ -407,19 +545,27 @@ module type SOLVER_INTERNAL = sig
     (** Reset internal cache, etc. *)
 
     type hook = t -> term -> term option
-    (** Given a term, try to simplify it. Return [None] if it didn't change. *)
+    (** Given a term, try to simplify it. Return [None] if it didn't change.
+
+        A simple example could be a hook that takes a term [t],
+        and if [t] is [app "+" (const x) (const y)] where [x] and [y] are number,
+        returns [Some (const (x+y))], and [None] otherwise. *)
 
     val normalize : t -> term -> term
-    (** Normalize a term using all the hooks. *)
+    (** Normalize a term using all the hooks. This performs
+        a fixpoint, i.e. it only stops when no hook applies anywhere inside
+        the term. *)
   end
 
   type simplify_hook = Simplify.hook
 
   val add_simplifier : t -> Simplify.hook -> unit
+  (** Add a simplifier hook for preprocessing. *)
 
   val simplifier : t -> Simplify.t
 
   val simp_t : t -> term -> term
+  (** Simplify the term using the solver's simplifier (see {!simplifier}) *)
 
   (** {3 hooks for the theory} *)
 
@@ -544,11 +690,17 @@ module type SOLVER_INTERNAL = sig
     term -> term option
   (** Given a term, try to preprocess it. Return [None] if it didn't change.
       Can also add clauses to define new terms.
+
+      Preprocessing might transform terms to make them more amenable
+      to reasoning, e.g. by removing boolean formulas via Tseitin encoding,
+      adding clauses that encode their meaning in the same move.
+
       @param mk_lit creates a new literal for a boolean term.
       @param add_clause pushes a new clause into the SAT solver.
   *)
 
   val on_preprocess : t -> preprocess_hook -> unit
+  (** Add a hook that will be called when terms are preprocessed *)
 
   (** {3 Model production} *)
 
@@ -556,16 +708,29 @@ module type SOLVER_INTERNAL = sig
     recurse:(t -> CC.N.t -> term) ->
     t -> CC.N.t -> term option
   (** A model-production hook. It takes the solver, a class, and returns
-      a term for this class. *)
+      a term for this class. For example, an arithmetic theory
+      might detect that a class contains a numeric constant, and return
+      this constant as a model value.
+
+      If no hook assigns a value to a class, a fake value is created for it.
+  *)
 
   val on_model_gen : t -> model_hook -> unit
+  (** Add a hook that will be called when a model is being produced *)
 end
 
-(** Public view of the solver *)
+(** User facing view of the solver
+
+    This is the solver a user of sidekick can see, after instantiating
+    everything. The user can add some theories, clauses, etc. and asks
+    the solver to check satisfiability.
+
+    Theory implementors will mostly interact with {!SOLVER_INTERNAL}. *)
 module type SOLVER = sig
   module T : TERM
   module P : PROOF
   module Lit : LIT with module T = T
+
   module Solver_internal
     : SOLVER_INTERNAL
       with module T = T
@@ -574,6 +739,8 @@ module type SOLVER = sig
   (** Internal solver, available to theories.  *)
 
   type t
+  (** The solver's state. *)
+
   type solver = t
   type term = T.Term.t
   type ty = T.Ty.t
@@ -581,7 +748,6 @@ module type SOLVER = sig
   type lemma = P.t
 
   (** {3 A theory}
-
 
       Theories are abstracted over the concrete implementation of the solver,
       so they can work with any implementation.
@@ -601,17 +767,25 @@ module type SOLVER = sig
     (** The theory's state *)
 
     val name : string
-    (** Name of the theory *)
+    (** Name of the theory (ideally, unique and short) *)
 
     val create_and_setup : Solver_internal.t -> t
     (** Instantiate the theory's state for the given (internal) solver,
-        register callbacks, create keys, etc. *)
+        register callbacks, create keys, etc.
+
+        Called once for every solver this theory is added to. *)
 
     val push_level : t -> unit
-    (** Push backtracking level *)
+    (** Push backtracking level. When the corresponding pop is called,
+        the theory's state should be restored to a state {b equivalent}
+        to what it was just before [push_level].
+
+        it does not have to be exactly the same state, it just needs to
+        be equivalent. *)
 
     val pop_levels : t -> int -> unit
-    (** Pop backtracking levels, restoring the theory to its former state *)
+    (** [pop_levels theory n] pops [n] backtracking levels,
+        restoring [theory] to its state before calling [push_level] n times. *)
   end
 
   type theory = (module THEORY)
@@ -628,9 +802,12 @@ module type SOLVER = sig
     ?pop_levels:('th -> int -> unit) ->
     unit ->
     theory
-  (** Helper to create a theory *)
+  (** Helper to create a theory. *)
 
-  (** {3 Boolean Atoms} *)
+  (** {3 Boolean Atoms}
+
+      Atoms are the SAT solver's version of our boolean literals
+      (they may have a different representation). *)
   module Atom : sig
     type t
 
@@ -643,6 +820,10 @@ module type SOLVER = sig
     val sign : t -> bool
   end
 
+  (** Models
+
+      A model can be produced when the solver is found to be in a
+      satisfiable state after a call to {!solve}. *)
   module Model : sig
     type t
 
@@ -657,6 +838,7 @@ module type SOLVER = sig
     val pp : t Fmt.printer
   end
 
+  (* TODO *)
   module Unknown : sig
     type t
     val pp : t CCFormat.printer
@@ -692,7 +874,17 @@ module type SOLVER = sig
     unit ->
     t
   (** Create a new solver.
-      @param theories theories to load from the start. *)
+
+      It needs a term state and a type state to manipulate terms and types.
+      All terms and types interacting with this solver will need to come
+      from these exact states.
+
+      @param store_proof if true, proofs from the SAT solver and theories
+      are retained and potentially accessible after {!solve}
+      returns UNSAT.
+      @param size influences the size of initial allocations.
+      @param theories theories to load from the start. Other theories
+      can be added using {!add_theory}. *)
 
   val add_theory : t -> theory -> unit
   (** Add a theory to the solver. This should be called before
@@ -705,21 +897,27 @@ module type SOLVER = sig
   val add_theory_l : t -> theory list -> unit
 
   val mk_atom_lit : t -> lit -> Atom.t
+  (** Turn a literal into a SAT solver literal. *)
 
   val mk_atom_t : t -> ?sign:bool -> term -> Atom.t
+  (** Turn a boolean term, with a sign, into a SAT solver's literal. *)
 
   val add_clause : t -> Atom.t IArray.t -> unit
+  (** [add_clause solver cs] adds a boolean clause to the solver.
+      Subsequent calls to {!solve} will need to satisfy this clause. *)
 
   val add_clause_l : t -> Atom.t list -> unit
+  (** Same as {!add_clause} but with a list of atoms. *)
 
+  (** Result of solving for the current set of clauses *)
   type res =
-    | Sat of Model.t
+    | Sat of Model.t (** Satisfiable *)
     | Unsat of {
-        proof: proof option lazy_t;
-        unsat_core: Atom.t list lazy_t;
-      }
+        proof: proof option lazy_t; (** proof of unsat *)
+        unsat_core: Atom.t list lazy_t; (** subset of assumptions responsible for unsat *)
+      } (** Unsatisfiable *)
     | Unknown of Unknown.t
-    (** Result of solving for the current set of clauses *)
+    (** Unknown, obtained after a timeout, memory limit, etc. *)
 
   val solve :
     ?on_exit:(unit -> unit) list ->
@@ -728,29 +926,42 @@ module type SOLVER = sig
     assumptions:Atom.t list ->
     t ->
     res
-  (** [solve s] checks the satisfiability of the statement added so far to [s]
-      @param check if true, the model is checked before returning
+  (** [solve s] checks the satisfiability of the clauses added so far to [s].
+      @param check if true, the model is checked before returning.
+      @param on_progress called regularly during solving.
       @param assumptions a set of atoms held to be true. The unsat core,
         if any, will be a subset of [assumptions].
       @param on_exit functions to be run before this returns *)
 
+  (* TODO: allow on_progress to return a bool to know whether to stop? *)
+
   val pp_stats : t CCFormat.printer
+  (** Print some statistics. What it prints exactly is unspecified. *)
 end
 
-(** Helper for keeping track of state for each class *)
 
+(** Helper for the congruence closure
+
+    This helps theories keeping track of some state for each class.
+    The state of a class is the monoidal combination of the state for each
+    term in the class (for example, the set of terms in the
+    class whose head symbol is a datatype constructor). *)
 module type MONOID_ARG = sig
   module SI : SOLVER_INTERNAL
+
   type t
+  (** Some type with a monoid structure *)
+
   val pp : t Fmt.printer
+
   val name : string
-  (** name of the monoid's value (short) *)
+  (** name of the monoid structure (short) *)
 
   val of_term :
     SI.CC.t -> SI.CC.N.t -> SI.T.Term.t ->
     (t option * (SI.CC.N.t * t) list)
   (** [of_term n t], where [t] is the term annotating node [n],
-      returns [maybe_m, l], where:
+      must return [maybe_m, l], where:
       - [maybe_m = Some m] if [t] has monoid value [m];
         otherwise [maybe_m=None]
       - [l] is a list of [(u, m_u)] where each [u]'s term
@@ -763,16 +974,42 @@ module type MONOID_ARG = sig
     SI.CC.N.t -> t -> SI.CC.N.t -> t ->
     SI.CC.Expl.t ->
     (t, SI.CC.Expl.t) result
+  (** Monoidal combination of two values.
+
+      [merge cc n1 mon1 n2 mon2 expl] returns the result of merging
+      monoid values [mon1] (for class [n1]) and [mon2] (for class [n2])
+      when [n1] and [n2] are merged with explanation [expl].
+
+      @return [Ok mon] if the merge is acceptable, annotating the class of [n1 ∪ n2];
+      or [Error expl'] if the merge is unsatisfiable. [expl'] can then be
+      used to trigger a conflict and undo the merge.
+    *)
 end
 
-(** Keep track of monoid state per equivalence class *)
+(** State for a per-equivalence-class monoid.
+
+    Helps keep track of monoid state per equivalence class.
+    A theory might use one or more instance(s) of this to
+    aggregate some theory-specific state over all terms, with
+    the information of what terms are already known to be equal
+    potentially saving work for the theory. *)
 module Monoid_of_repr(M : MONOID_ARG) : sig
   type t
   val create_and_setup : ?size:int -> M.SI.t -> t
+  (** Create a new monoid state *)
+
   val push_level : t -> unit
+  (** Push backtracking point *)
+
   val pop_levels : t -> int -> unit
+  (** Pop [n] backtracking points *)
+
   val mem : t -> M.SI.CC.N.t -> bool
+  (** Does the CC node have a monoid value? *)
+
   val get : t -> M.SI.CC.N.t -> M.t option
+  (** Get monoid value for this CC node, if any *)
+
   val iter_all : t -> (M.SI.CC.repr * M.t) Iter.t
   val pp : t Fmt.printer
 end = struct

@@ -2,7 +2,7 @@
   copyright (c) 2014-2018, Guillaume Bury, Simon Cruanes
   *)
 
-(** {1 Modular and incremental implementation of the general simplex}. *)
+(** {1 Modular and incremental implementation of the general simplex} *)
 
 (** The simplex is used as a decision procedure for linear rational arithmetic
     problems.
