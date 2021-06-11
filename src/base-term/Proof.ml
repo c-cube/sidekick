@@ -464,13 +464,21 @@ module Quip = struct
       output_char out ')'
   end
 
+  type out_format = Sexp | CSexp
+  let default_out_format = Sexp
+
+  let out_format_ = match Sys.getenv_opt "PROOF_FMT" with
+    | Some "csexp" -> CSexp
+    | Some "sexp" -> Sexp
+    | Some s -> failwith (Printf.sprintf "unknown proof format %S" s)
+    | None -> default_out_format
+
   let output oc (self:t) : unit =
-    (* canonical sexp *)
-    if true then (
-      let module M = Make(Out_sexp) in M.pp self oc
-    ) else (
+    match out_format_ with
+    | Sexp -> let module M = Make(Out_sexp) in M.pp self oc
+    | CSexp ->
+      (* canonical sexp *)
       let module M = Make(Out_csexp) in M.pp self oc
-    )
 end
 
 let pp_debug ~sharing out p =
