@@ -1,3 +1,4 @@
+(** Theory for datatypes. *)
 
 (** Datatype-oriented view of terms.
     ['c] is the representation of constructors
@@ -20,14 +21,25 @@ type ('c, 'ty) data_ty_view =
     }
   | Ty_other
 
+(** Argument to the functor *)
 module type ARG = sig
   module S : Sidekick_core.SOLVER
 
+(** Constructor symbols.
+
+    A constructor is an injective symbol, part of a datatype (or "sum type").
+    For example, in [type option a = Some a | None],
+    the constructors are [Some] and [None]. *)
   module Cstor : sig
     type t
+    (** Constructor *)
+
     val ty_args : t -> S.T.Ty.t Iter.t
+    (** Type arguments, for a polymorphic constructor *)
+
     val pp : t Fmt.printer
     val equal : t -> t -> bool
+    (** Comparison *)
   end
 
   val as_datatype : S.T.Ty.t -> (Cstor.t Iter.t, S.T.Ty.t) data_ty_view
@@ -49,15 +61,19 @@ module type ARG = sig
   (** Make a term equality *)
 
   val ty_is_finite : S.T.Ty.t -> bool
-  (** Is the given type known to be finite? *)
+  (** Is the given type known to be finite? For example a finite datatype
+      (an "enum" in C parlance), or [Bool], or [Array Bool Bool]. *)
 
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
   (** Modify the "finite" field (see {!ty_is_finite}) *)
+
+  (* TODO: should we store this ourself? would be simpler… *)
 end
 
 module type S = sig
   module A : ARG
   val theory : A.S.theory
+  (** A theory that can be added to {!A.S} to perform datatype reasoning. *)
 end
 
 module Make(A : ARG) : S with module A = A

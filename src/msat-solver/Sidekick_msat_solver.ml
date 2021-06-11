@@ -1,7 +1,15 @@
 (** {1 Implementation of a Solver using Msat} *)
 
-module Log = Msat.Log
+(** {{: https://github.com/Gbury/mSAT/} Msat} is a modular SAT solver in
+    pure OCaml.
 
+    This builds a {!Sidekick_core.SOLVER} on top of it. *)
+
+module Log = Msat.Log
+(** A logging module *)
+
+(** Argument to pass to the functor {!Make} in order to create a
+    new Msat-based SMT solver. *)
 module type ARG = sig
   open Sidekick_core
   module T : TERM
@@ -16,6 +24,7 @@ end
 
 module type S = Sidekick_core.SOLVER
 
+(** Main functor to get a solver. *)
 module Make(A : ARG)
   : S
     with module T = A.T

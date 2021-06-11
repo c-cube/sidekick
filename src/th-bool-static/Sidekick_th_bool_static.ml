@@ -1,5 +1,9 @@
-(** {2 Signatures for booleans} *)
+(** Theory of boolean formulas.
 
+    This handles formulas containing "and", "or", "=>", "if-then-else", etc.
+    *)
+
+(** Boolean-oriented view of terms *)
 type ('a, 'args) bool_view =
   | B_bool of bool
   | B_not of 'a
@@ -14,16 +18,17 @@ type ('a, 'args) bool_view =
   | B_opaque_bool of 'a (* do not enter *)
   | B_atom of 'a
 
+(** Argument to the theory *)
 module type ARG = sig
   module S : Sidekick_core.SOLVER
 
   type term = S.T.Term.t
 
   val view_as_bool : term -> (term, term Iter.t) bool_view
-  (** Project the term into the boolean view *)
+  (** Project the term into the boolean view. *)
 
   val mk_bool : S.T.Term.state -> (term, term IArray.t) bool_view -> term
-  (** Make a term from the given boolean view *)
+  (** Make a term from the given boolean view. *)
 
   val check_congruence_classes : bool
   (** Configuration: add final-check handler to verify if new boolean formulas
@@ -31,16 +36,23 @@ module type ARG = sig
       Only enable if some theories are susceptible to
       create boolean formulas during the proof search. *)
 
+  (** Fresh symbol generator.
+
+      The theory needs to be able to create new terms with fresh names,
+      to be used as placeholders for complex formulas during Tseitin
+      encoding. *)
   module Gensym : sig
     type t
 
     val create : S.T.Term.state -> t
+    (** New (stateful) generator instance. *)
 
     val fresh_term : t -> pre:string -> S.T.Ty.t -> term
     (** Make a fresh term of the given type *)
   end
 end
 
+(** Signature *)
 module type S = sig
   module A : ARG
 
@@ -52,9 +64,16 @@ module type S = sig
   (** Simplify given term *)
 
   val cnf : state -> A.S.Solver_internal.preprocess_hook
-  (** add clauses for the booleans within the term. *)
+  (** preprocesses formulas by giving them names and
+      adding clauses to equate the name with the boolean formula. *)
 
   val theory : A.S.theory
+  (** A theory that can be added to the solver {!A.S}.
+
+      This theory does most of its work during preprocessing,
+      turning boolean formulas into SAT clauses via
+      the {{: https://en.wikipedia.org/wiki/Tseytin_transformation}
+          Tseitin encoding} . *)
 end
 
 module Make(A : ARG) : S with module A = A = struct

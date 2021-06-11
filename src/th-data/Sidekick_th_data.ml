@@ -1,12 +1,6 @@
 
-(** {1 Theory for datatypes} *)
+(** Theory for datatypes. *)
 
-(** {2 Views} *)
-
-(** Datatype-oriented view of terms.
-    ['c] is the representation of constructors
-    ['t] is the representation of terms
-*)
 type ('c,'t) data_view =
   | T_cstor of 'c * 't IArray.t
   | T_select of 'c * int * 't
