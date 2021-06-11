@@ -1,14 +1,19 @@
 (** Theory for datatypes. *)
 
 (** Datatype-oriented view of terms.
-    ['c] is the representation of constructors
-    ['t] is the representation of terms
+
+    - ['c] is the representation of constructors
+    - ['t] is the representation of terms
 *)
 type ('c,'t) data_view =
-  | T_cstor of 'c * 't IArray.t
+  | T_cstor of 'c * 't IArray.t (** [T_cstor (c,args)] is the term [c(args)] *)
   | T_select of 'c * int * 't
-  | T_is_a of 'c * 't
-  | T_other of 't
+  (** [T_select (c,i,u)] means the [i]-th argument of [u], which should
+      start with constructor [c] *)
+  | T_is_a of 'c * 't (** [T_is_a (c,u)] means [u] starts with constructor [c] *)
+  | T_other of 't (** non-datatype term *)
+
+(* TODO: use ['ts] rather than IArray? *)
 
 (** View of types in a way that is directly useful for the theory of datatypes *)
 type ('c, 'ty) data_ty_view =
