@@ -209,10 +209,10 @@ module type PROOF = sig
 
   val default : t [@@alert cstor "do not use default constructor"]
 
-  val pp_debug : t Fmt.printer
+  val pp_debug : sharing:bool -> t Fmt.printer
 
   module Quip : sig
-    val pp : t Fmt.printer
+    val output : out_channel -> t -> unit
     (** Printer in Quip format (experimental) *)
   end
 end
@@ -1004,7 +1004,10 @@ module type SOLVER = sig
   module Pre_proof : sig
     type t
 
-    val pp : t Fmt.printer
+    val output : out_channel -> t -> unit
+    (** Output onto a channel, efficiently *)
+
+    val pp_debug : t Fmt.printer
 
     val pp_dot : t Fmt.printer option
     (** Optional printer into DOT/graphviz *)

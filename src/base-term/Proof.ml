@@ -292,113 +292,202 @@ end
 
     Print to a format for checking by an external tool *)
 module Quip = struct
+  module type OUT = sig
+    type out
+    type printer = out -> unit
+    val l : printer list -> printer
+    val iter_toplist : ('a -> printer) -> 'a Iter.t -> printer
+    (* list of steps, should be printed vertically if possible *)
+    val a : string -> printer
+  end
+
   (*
   TODO: make sure we print terms properly
   *)
 
-  (* TODO: print into a buffer, without Format (should be faster) *)
-  (* TODO: print as C-sexp *)
+  module Make(Out : OUT) = struct
+    open Out
 
-  let pp_l ppx out l = Fmt.(list ~sep:(return "@ ") ppx) out l
-  let pp_a ppx out l = Fmt.(array ~sep:(return "@ ") ppx) out l
-  let pp_cl ~pp_t out c = Fmt.fprintf out "(@[cl@ %a@])" (pp_l (pp_lit_with ~pp_t)) c
+    let rec pp_t sharing (t:Term.t) : printer =
+      match T.Tbl.find_opt sharing.Compress.terms t with
+      | Some (Named (N_s s)) -> a s(* use the newly introduced name *)
+      | Some (Named (N_t t)) -> pp_t sharing t (* use name *)
+      | _ -> pp_t_nonshare_root sharing t
 
-  let rec pp_rec (sharing:Compress.sharing_info) out (self:t) : unit =
-    let pp_rec = pp_rec sharing in
-    let pp_t = pp_t sharing in
-    let pp_cl = pp_cl ~pp_t in
-    match self with
-    | Unspecified -> Fmt.string out "<unspecified>"
-    | Named s -> Fmt.fprintf out "(ref %s)" s
-    | CC_lemma l ->
-      Fmt.fprintf out "(@[cc-lemma@ %a@])" pp_cl l
-    | CC_lemma_imply (l,t,u) ->
-      Fmt.fprintf out "(@[cc-lemma-imply@ (@[%a@])@ (@[=@ %a@ %a@])@])"
-        (pp_l pp_rec) l pp_t t pp_t u
-    | Refl t -> Fmt.fprintf out "(@[refl@ %a@])" pp_t t
-    | Sorry -> Fmt.string out "sorry"
-    | Sorry_c c -> Fmt.fprintf out "(@[sorry-c@ %a@])" pp_cl c
-    | Bool_true_is_true -> Fmt.string out "true-is-true"
-    | Bool_true_neq_false -> Fmt.string out "(@[!= T F@])"
-    | Bool_eq (a,b) ->
-      Fmt.fprintf out "(@[bool-eq@ %a@ %a@])"
-        pp_t a pp_t b
-    | Bool_c (name,ts) ->
-      Fmt.fprintf out "(@[bool-c %s@ %a@])" name (pp_l pp_t) ts
-    | Nn p -> Fmt.fprintf out "(@[nn@ %a@])" pp_rec p
-    | Assertion t -> Fmt.fprintf out "(@[assert@ %a@])" pp_t t
-    | Assertion_c c ->
-      Fmt.fprintf out "(@[assert-c@ %a@])" pp_cl c
-    | Hres (c, l) ->
-      Fmt.fprintf out "(@[hres@ (@[init@ %a@])@ %a@])" pp_rec c
-        (pp_l (pp_hres_step sharing)) l
-    | DT_isa_split (ty,l) ->
-      Fmt.fprintf out "(@[dt.isa.split@ (@[ty %a@])@ (@[cases@ %a@])@])"
-        Ty.pp ty (pp_l pp_t) l
-    | DT_isa_disj (ty,t,u) ->
-      Fmt.fprintf out "(@[dt.isa.disj@ (@[ty %a@])@ %a@ %a@])"
-        Ty.pp ty pp_t t pp_t u
-    | DT_cstor_inj (c,i,ts,us) ->
-      Fmt.fprintf out "(@[dt.cstor.inj %d@ (@[%a@ %a@])@ (@[%a@ %a@])@])"
-        i Cstor.pp c (pp_l pp_t) ts Cstor.pp c (pp_l pp_t) us
-    | Ite_true t -> Fmt.fprintf out "(@[ite-true@ %a@])" pp_t t
-    | Ite_false t -> Fmt.fprintf out "(@[ite-false@ %a@])" pp_t t
-    | LRA c -> Fmt.fprintf out "(@[lra@ %a@])" pp_cl c
-    | Composite {steps; assumptions} ->
-      let pp_ass out (n,a) =
-        Fmt.fprintf out "(@[assuming@ (name %s) %a@])" n (pp_lit_with ~pp_t) a in
-      Fmt.fprintf out "(@[steps@ (@[%a@])@ (@[<hv>%a@])@])"
-        (pp_l pp_ass) assumptions (pp_a (pp_composite_step sharing)) steps
+    and pp_t_nonshare_root sharing t =
+      let pp_t = pp_t sharing in
+      match Term.view t with
+      | Bool true -> a"true"
+      | Bool false -> a"false"
+      | App_fun (c, args) when IArray.is_empty args -> a (ID.to_string (id_of_fun c))
+      | App_fun (c, args) ->
+        l(a (ID.to_string (id_of_fun c)) :: IArray.to_list_map pp_t args)
+      | Eq (t,u) -> l[a"=";pp_t t;pp_t u]
+      | Not u -> l[a"not";pp_t u]
+      | Ite (t1,t2,t3) -> l[a"ite";pp_t t1;pp_t t2;pp_t t3]
+      | LRA lra ->
+        begin match lra with
+          | LRA_pred (p, t1, t2) -> l[a (string_of_lra_pred p); pp_t t1; pp_t t2]
+          | LRA_op (p, t1, t2) -> l[a (string_of_lra_op p); pp_t t1; pp_t t2]
+          | LRA_mult (n, x) -> l[a"lra.*"; a(Q.to_string n);pp_t x]
+          | LRA_const q -> a(Q.to_string q)
+          | LRA_simplex_var v -> pp_t v
+          | LRA_simplex_pred (v, op, q) ->
+            l[a(Sidekick_arith_lra.S_op.to_string op); pp_t v; a(Q.to_string q)]
+          | LRA_other x -> pp_t x
+        end
 
-  and pp_t sharing out (t:T.t) =
-    match T.Tbl.find_opt sharing.Compress.terms t with
-    | Some (Named (N_s s)) ->
-      Fmt.string out s (* use the newly introduced name *)
-    | Some (Named (N_t t)) -> pp_t sharing out t (* use name *)
-    | _ -> pp_t_noshare_root sharing out t
+    let rec pp_ty ty : printer =
+      match Ty.view ty with
+      | Ty_bool -> a"Bool"
+      | Ty_real -> a"Real"
+      | Ty_atomic {def;args=[];finite=_} ->
+        let id = Ty.id_of_def def in
+        a(ID.to_string id)
+      | Ty_atomic {def;args;finite=_} ->
+        let id = Ty.id_of_def def in
+        l(a(ID.to_string id)::List.map pp_ty args)
 
-  and pp_t_noshare_root sharing out t =
-    Base_types.pp_term_view_gen ~pp_id:ID.pp_name
-      ~pp_t:(pp_t sharing) out (T.view t)
+    let pp_l ppx xs = l (List.map ppx xs)
+    let pp_lit ~pp_t lit = match lit with
+      | L_a(b,t) -> l[a(if b then"+" else"-");pp_t t]
+      | L_eq(b,t,u) -> l[a(if b then"+" else"-");l[a"=";pp_t t;pp_t u]]
+    let pp_cl ~pp_t c =
+      l (a "cl" :: List.map (pp_lit ~pp_t) c)
 
-  and pp_composite_step sharing out step =
-    let pp_t = pp_t sharing in
-    let pp_cl = pp_cl ~pp_t in
-    match step with
-    | S_step_c {name;res;proof} ->
-      Fmt.fprintf out "(@[stepc %s@ %a@ %a@])" name pp_cl res (pp_rec sharing) proof
-    | S_define_t (c,rhs) ->
-      Fmt.fprintf out "(@[deft@ %a@ %a@])"
-        Term.pp c (pp_t_noshare_root sharing) rhs
-    | S_define_t_name (c,rhs) ->
-      Fmt.fprintf out "(@[deft@ %s@ %a@])"
-        c (pp_t_noshare_root sharing) rhs
+    let rec pp_rec (sharing:Compress.sharing_info) (self:t) : printer =
+      let pp_rec = pp_rec sharing in
+      let pp_t = pp_t sharing in
+      let pp_cl = pp_cl ~pp_t in
+      match self with
+      | Unspecified -> a "<unspecified>"
+      | Named s -> l[a "@"; a s]
+      | CC_lemma c -> l[a"ccl"; pp_cl c]
+      | CC_lemma_imply (hyps,t,u) ->
+        l[a"ccli"; pp_l pp_rec hyps; pp_t t; pp_t u]
+      | Refl t -> l[a"refl"; pp_t t]
+      | Sorry -> a"sorry"
+      | Sorry_c c -> l[a"sorry-c"; pp_cl c]
+      | Bool_true_is_true -> a"true-is-true"
+      | Bool_true_neq_false -> a"true-neq-false"
+      | Bool_eq (t1,t2) -> l[a"bool-eq";pp_t t1;pp_t t2]
+      | Bool_c (name,ts) -> l(a"bool-c" :: a name :: List.map pp_t ts)
+      | Nn p -> l[a"nn";pp_rec p]
+      | Assertion t -> l[a"assert";pp_t t]
+      | Assertion_c c -> l[a"assert-c";pp_cl c]
+      | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map (pp_hres_step sharing) steps)]
+      | DT_isa_split (ty,cs) ->
+        l[a"dt.isa.split";pp_ty ty;l(a"cases"::List.map pp_t cs)]
+      | DT_isa_disj (ty,t,u) ->
+        l[a"dt.isa.disj";pp_ty ty;pp_t t;pp_t u]
+      | DT_cstor_inj (c,i,ts,us) ->
+        l[a"dt.cstor.inj";a(ID.to_string(Cstor.id c));
+          a(string_of_int i); l(List.map pp_t ts); l(List.map pp_t us)]
+      | Ite_true t -> l[a"ite-true"; pp_t t]
+      | Ite_false t -> l[a"ite-false"; pp_t t]
+      | LRA c -> l[a"lra";pp_cl c]
+      | Composite {steps; assumptions} ->
+        let pp_ass (n,ass) : printer =
+          l[a"assuming";a n;pp_lit ~pp_t ass] in
+        l[a"steps";l(List.map pp_ass assumptions);
+          iter_toplist (pp_composite_step sharing) (Iter.of_array steps)]
 
-  (*
-    | S_define_t (name, t) ->
-      Fmt.fprintf out "(@[deft %s %a@])" name Term.pp t
-  *)
+    and pp_composite_step sharing step : printer =
+      let pp_t = pp_t sharing in
+      let pp_cl = pp_cl ~pp_t in
+      match step with
+      | S_step_c {name;res;proof} ->
+        l[a"stepc";a name;pp_cl res;pp_rec sharing proof]
+      | S_define_t (c,rhs) ->
+        (* disable sharing for [rhs], otherwise it'd print [c] *)
+        l[a"deft";pp_t c; pp_t_nonshare_root sharing rhs]
+      | S_define_t_name (c,rhs) ->
+        l[a"deft";a c; pp_t_nonshare_root sharing rhs]
 
-  and pp_hres_step sharing out = function
-    | R {pivot; p} ->
-      Fmt.fprintf out "(@[r@ (@[pivot@ %a@])@ %a@])" (pp_t sharing) pivot (pp_rec sharing) p
-    | R1 p -> Fmt.fprintf out "(@[r1@ %a@])"  (pp_rec sharing) p
-    | P {p; lhs; rhs} ->
-      Fmt.fprintf out "(@[r@ (@[lhs@ %a@])@ (@[rhs@ %a@])@ %a@])"
-        (pp_t sharing) lhs (pp_t sharing) rhs (pp_rec sharing) p
-    | P1 p -> Fmt.fprintf out "(@[p1@ %a@])" (pp_rec sharing) p
+    (*
+      | S_define_t (name, t) ->
+        Fmt.fprintf out "(@[deft %s %a@])" name Term.pp t
+    *)
 
-  (* toplevel wrapper *)
-  let pp out self =
-    (* find sharing *)
-    let sharing = Profile.with1 "proof.find-sharing" Compress.find_sharing self in
-    (* introduce names *)
-    let self = Profile.with2 "proof.rename" Compress.rename sharing self in
-    (* now print *)
-    Fmt.fprintf out "(@[quip 1@ %a@])" (pp_rec sharing) self
+    and pp_hres_step sharing = function
+      | R {pivot; p} -> l[a"r";pp_t sharing pivot; pp_rec sharing p]
+      | R1 p -> l[a"r1";pp_rec sharing p]
+      | P {p; lhs; rhs} ->
+        l[a"r"; pp_t sharing lhs; pp_t sharing rhs; pp_rec sharing p]
+      | P1 p -> l[a"p1"; pp_rec sharing p]
 
-  let pp_debug out self : unit =
-    pp_rec Compress.no_sharing out self
+    (* toplevel wrapper *)
+    let pp self : printer =
+      (* find sharing *)
+      let sharing = Profile.with1 "proof.find-sharing" Compress.find_sharing self in
+      (* introduce names *)
+      let self = Profile.with2 "proof.rename" Compress.rename sharing self in
+      (* now print *)
+      l[a"quip"; a"1"; pp_rec sharing self]
+
+    let pp_debug ~sharing self : printer =
+      if sharing then pp self
+      else pp_rec Compress.no_sharing self
+  end
+
+  module Out_csexp = struct
+    type out = out_channel
+    type printer = out -> unit
+    let l prs out =
+      output_char out '(';
+      List.iter (fun x->x out) prs;
+      output_char out ')'
+    let a s out = Printf.fprintf out "%d:%s" (String.length s) s
+    let iter_toplist f it out =
+      output_char out '(';
+      it (fun x -> f x out);
+      output_char out ')'
+  end
+
+  module Out_sexp = struct
+    type out = out_channel
+    type printer = out -> unit
+    let l prs out =
+      output_char out '(';
+      List.iteri (fun i x->if i>0 then output_char out ' ';x out) prs;
+      output_char out ')'
+    let a =
+      let buf = Buffer.create 128 in
+      fun s out ->
+        Buffer.clear buf;
+        CCSexp.to_buf buf (`Atom s);
+        Buffer.output_buffer out buf
+    let iter_toplist f it out =
+      output_char out '(';
+      let first=ref true in
+      it (fun x -> if !first then first := false else output_char out '\n'; f x out);
+      output_char out ')'
+  end
+
+  let output oc (self:t) : unit =
+    (* canonical sexp *)
+    if true then (
+      let module M = Make(Out_sexp) in M.pp self oc
+    ) else (
+      let module M = Make(Out_csexp) in M.pp self oc
+    )
 end
 
-let pp_debug = Quip.pp_debug
+let pp_debug ~sharing out p =
+  let module Out = struct
+    type out = Format.formatter
+    type printer = out -> unit
+    let l prs out =
+      Fmt.fprintf out "(@[";
+      List.iteri(fun i x -> if i>0 then Fmt.fprintf out "@ "; x out) prs;
+      Fmt.fprintf out "@])"
+    let a s out = Fmt.string out s
+    let iter_toplist f it out =
+      Fmt.fprintf out "(@[<v>";
+      let first=ref true in
+      it (fun x -> if !first then first := false else Fmt.fprintf out "@ "; f x out);
+      Fmt.fprintf out "@])"
+  end
+  in
+  let module M = Quip.Make(Out) in
+  M.pp_debug ~sharing p out

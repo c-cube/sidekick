@@ -143,7 +143,6 @@ let solve
     ?gc:_
     ?restarts:_
     ?dot_proof
-    ?(pp_proof=false)
     ?(pp_model=false)
     ?proof_file
     ?(check=false)
@@ -179,7 +178,7 @@ let solve
     | Solver.Unsat {proof;_} ->
 
       let proof_opt =
-        if check||pp_proof then Lazy.force proof
+        if check||CCOpt.is_some proof_file then Lazy.force proof
         else None
       in
 
@@ -207,23 +206,12 @@ let solve
           Profile.with_ "proof.write-file" @@ fun () ->
           let p = Profile.with1 "proof.mk-proof" Solver.Pre_proof.to_proof p in
           CCIO.with_out file
-            (fun oc ->
-               let fmt = Format.formatter_of_out_channel oc in
-               Fmt.fprintf fmt "%a@." Proof.Quip.pp p);
+            (fun oc -> Proof.Quip.output oc p; flush oc)
         | _ -> ()
       end;
 
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
-
-      (* TODO: allow to print proof into a file, more realistic for checking *)
-      if pp_proof then (
-        match proof_opt with
-        | None -> Error.errorf "cannot print proof, none was generated"
-        | Some p ->
-          let p = Solver.Pre_proof.to_proof p in
-          Fmt.printf "(@[proof@ %a@])@." Solver.P.Quip.pp p;
-      );
 
     | Solver.Unknown reas ->
       Format.printf "Unknown (:reason %a)" Solver.Unknown.pp reas
@@ -233,7 +221,7 @@ let solve
 let process_stmt
     ?hyps
     ?gc ?restarts ?(pp_cnf=false)
-    ?dot_proof ?pp_proof ?proof_file ?pp_model ?(check=false)
+    ?dot_proof ?proof_file ?pp_model ?(check=false)
     ?time ?memory ?progress
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
@@ -272,7 +260,7 @@ let process_stmt
           l
       in
       solve
-        ?gc ?restarts ?dot_proof ~check ?pp_proof ?proof_file ?pp_model
+        ?gc ?restarts ?dot_proof ~check ?proof_file ?pp_model
         ?time ?memory ?progress
         ~assumptions ?hyps
         solver;

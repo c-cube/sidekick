@@ -177,7 +177,7 @@ let main () =
            Process.process_stmt
              ~hyps ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf ?proof_file
              ~time:!time_limit ~memory:!size_limit
-             ?dot_proof ~pp_proof:!p_proof ~pp_model:!p_model
+             ?dot_proof ~pp_model:!p_model
              ~check:!check ~progress:!p_progress
              solver)
         () input

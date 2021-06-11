@@ -287,6 +287,7 @@ module Ty : sig
   val bool : state -> t
   val real : state -> t
   val atomic : def -> t list -> t
+  val id_of_def : def -> ID.t
 
   val atomic_uninterpreted : ID.t -> t
 
@@ -399,6 +400,10 @@ end = struct
     make_ (Ty_atomic {def; args; finite=true;})
 
   let atomic_uninterpreted id = atomic (Ty_uninterpreted id) []
+  let id_of_def = function
+    | Ty_uninterpreted id -> id
+    | Ty_def {id;_} -> id
+    | Ty_data {data} -> data.data_id
 
   let is_bool t =
     match t.ty_view with | Ty_bool -> true | _ -> false
@@ -1095,6 +1100,7 @@ module Cstor = struct
     cstor_ty_as_data: data;
     cstor_ty: ty lazy_t;
   }
+  let id c = c.cstor_id
   let ty_args c =
     Lazy.force c.cstor_args |> Iter.of_list |> Iter.map Select.ty
   let equal = eq_cstor
