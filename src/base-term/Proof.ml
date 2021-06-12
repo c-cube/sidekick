@@ -231,7 +231,7 @@ module Compress = struct
       T.iter_dag t
         (fun u ->
            if not (is_small_ u) then (
-             match T.Tbl.find_opt self.terms u with
+             match T.Tbl.get self.terms u with
              | None -> T.Tbl.add self.terms u First
              | Some First -> T.Tbl.replace self.terms u Shared
              | Some (Shared | Named _) -> ()
@@ -267,7 +267,7 @@ module Compress = struct
       let traverse_t t : unit =
         T.iter_dag_with ~order:T.Iter_dag.Post t
           (fun u ->
-              match T.Tbl.find_opt sharing.terms u with
+              match T.Tbl.get sharing.terms u with
               | Some Shared ->
                 (* shared, but not named yet *)
                 let name = new_name() in
@@ -309,7 +309,7 @@ module Quip = struct
     open Out
 
     let rec pp_t sharing (t:Term.t) : printer =
-      match T.Tbl.find_opt sharing.Compress.terms t with
+      match T.Tbl.get sharing.Compress.terms t with
       | Some (Named (N_s s)) -> a s(* use the newly introduced name *)
       | Some (Named (N_t t)) -> pp_t sharing t (* use name *)
       | _ -> pp_t_nonshare_root sharing t
@@ -467,11 +467,11 @@ module Quip = struct
   type out_format = Sexp | CSexp
   let default_out_format = Sexp
 
-  let out_format_ = match Sys.getenv_opt "PROOF_FMT" with
-    | Some "csexp" -> CSexp
-    | Some "sexp" -> Sexp
-    | Some s -> failwith (Printf.sprintf "unknown proof format %S" s)
-    | None -> default_out_format
+  let out_format_ = match Sys.getenv "PROOF_FMT" with
+    | "csexp" -> CSexp
+    | "sexp" -> Sexp
+    | s -> failwith (Printf.sprintf "unknown proof format %S" s)
+    | exception _ -> default_out_format
 
   let output oc (self:t) : unit =
     match out_format_ with
