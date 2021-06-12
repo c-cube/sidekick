@@ -630,7 +630,7 @@ module type SOLVER_INTERNAL = sig
         and if [t] is [app "+" (const x) (const y)] where [x] and [y] are number,
         returns [Some (const (x+y))], and [None] otherwise. *)
 
-    val normalize : t -> term -> term
+    val normalize : t -> term -> (term * P.t) option
     (** Normalize a term using all the hooks. This performs
         a fixpoint, i.e. it only stops when no hook applies anywhere inside
         the term. *)
