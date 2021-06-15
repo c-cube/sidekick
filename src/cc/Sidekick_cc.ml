@@ -438,7 +438,7 @@ module Make (A: CC_ARG)
     n
 
   (* decompose explanation [e] into a list of literals added to [acc] *)
-  let rec explain_decompose cc ~th (acc:lit list) (e:explanation) : _ list =
+  let rec explain_decompose_expl cc ~th (acc:lit list) (e:explanation) : _ list =
     Log.debugf 5 (fun k->k "(@[cc.decompose_expl@ %a@])" Expl.pp e);
     match e with
     | E_reduction -> acc
@@ -447,36 +447,36 @@ module Make (A: CC_ARG)
         | Some (App_fun (f1, a1)), Some (App_fun (f2, a2)) ->
           assert (Fun.equal f1 f2);
           assert (List.length a1 = List.length a2);
-          List.fold_left2 (explain_pair cc ~th) acc a1 a2
+          List.fold_left2 (explain_equal cc ~th) acc a1 a2
         | Some (App_ho (f1, a1)), Some (App_ho (f2, a2)) ->
-          let acc = explain_pair cc ~th acc f1 f2 in
-          explain_pair cc ~th acc a1 a2
+          let acc = explain_equal cc ~th acc f1 f2 in
+          explain_equal cc ~th acc a1 a2
         | Some (If (a1,b1,c1)), Some (If (a2,b2,c2)) ->
-          let acc = explain_pair cc ~th acc a1 a2 in
-          let acc = explain_pair cc ~th acc b1 b2 in
-          explain_pair cc ~th acc c1 c2
+          let acc = explain_equal cc ~th acc a1 a2 in
+          let acc = explain_equal cc ~th acc b1 b2 in
+          explain_equal cc ~th acc c1 c2
         | _ ->
           assert false
       end
     | E_lit lit -> lit :: acc
     | E_theory e' ->
-      th := true; explain_decompose cc ~th acc e'
+      th := true; explain_decompose_expl cc ~th acc e'
     | E_proof _p ->
       (* FIXME: need to also return pairs of [t, u, |-t=u] as part of explanation *)
       assert false
-    | E_merge (a,b) -> explain_pair cc ~th acc a b
+    | E_merge (a,b) -> explain_equal cc ~th acc a b
     | E_merge_t (a,b) ->
       (* find nodes for [a] and [b] on the fly *)
       begin match T_tbl.find cc.tbl a, T_tbl.find cc.tbl b with
-        | a, b -> explain_pair cc ~th acc a b
+        | a, b -> explain_equal cc ~th acc a b
         | exception Not_found ->
           Error.errorf "expl: cannot find node(s) for %a, %a" Term.pp a Term.pp b
       end
     | E_and (a,b) ->
-      let acc = explain_decompose cc ~th acc a in
-      explain_decompose cc ~th acc b
+      let acc = explain_decompose_expl cc ~th acc a in
+      explain_decompose_expl cc ~th acc b
 
-  and explain_pair (cc:t) ~th (acc:lit list) (a:node) (b:node) : _ list =
+  and explain_equal (cc:t) ~th (acc:lit list) (a:node) (b:node) : _ list =
     Log.debugf 5
       (fun k->k "(@[cc.explain_loop.at@ %a@ =?= %a@])" N.pp a N.pp b);
     assert (N.equal (find_ a) (find_ b));
@@ -493,7 +493,7 @@ module Make (A: CC_ARG)
         match n.n_expl with
         | FL_none -> assert false
         | FL_some {next=next_n; expl=expl} ->
-          let acc = explain_decompose cc ~th acc expl in
+          let acc = explain_decompose_expl cc ~th acc expl in
           (* now prove [next_n = target] *)
           aux acc next_n
       )
@@ -655,9 +655,14 @@ module Make (A: CC_ARG)
                      @[:r1 %a@ :t1 %a@]@ @[:r2 %a@ :t2 %a@]@ :e_ab %a@])"
             N.pp ra N.pp a N.pp rb N.pp b Expl.pp e_ab);
         let th = ref false in
-        let lits = explain_decompose cc ~th [] e_ab in
-        let lits = explain_pair cc ~th lits a ra in
-        let lits = explain_pair cc ~th lits b rb in
+        (* TODO:
+           C1: P.true_neq_false
+           C2: lemma [lits |- true=false]  (and resolve on theory proofs)
+           C3: r1 C1 C2
+        *)
+        let lits = explain_decompose_expl cc ~th [] e_ab in
+        let lits = explain_equal cc ~th lits a ra in
+        let lits = explain_equal cc ~th lits b rb in
         let proof =
           let lits =
             Iter.of_list lits
@@ -761,8 +766,8 @@ module Make (A: CC_ARG)
     (* explanation for [t1 =e= t2 = r2] *)
     let half_expl = lazy (
       let th = ref false in
-      let lits = explain_decompose cc ~th [] e_12 in
-      th, explain_pair cc ~th lits r2 t2
+      let lits = explain_decompose_expl cc ~th [] e_12 in
+      th, explain_equal cc ~th lits r2 t2
     ) in
     (* TODO: flag per class, `or`-ed on merge, to indicate if the class
        contains at least one lit *)
@@ -781,7 +786,7 @@ module Make (A: CC_ARG)
            let reason =
              let e = lazy (
                let lazy (th, acc) = half_expl in
-               let lits = explain_pair cc ~th acc u1 t1 in
+               let lits = explain_equal cc ~th acc u1 t1 in
                let p =
                  A.P.cc_lemma
                    (Iter.of_list lits
@@ -854,7 +859,7 @@ module Make (A: CC_ARG)
     Log.debugf 5
       (fun k->k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
     let th = ref true in
-    let lits = explain_decompose cc ~th [] expl in
+    let lits = explain_decompose_expl cc ~th [] expl in
     let lits = List.rev_map Lit.neg lits in
     let proof =
       let lits =
@@ -878,7 +883,7 @@ module Make (A: CC_ARG)
 
   let explain_eq cc n1 n2 : lit list =
     let th = ref true in
-    explain_pair cc ~th [] n1 n2
+    explain_equal cc ~th [] n1 n2
 
   let on_pre_merge cc f = cc.on_pre_merge <- f :: cc.on_pre_merge
   let on_post_merge cc f = cc.on_post_merge <- f :: cc.on_post_merge
