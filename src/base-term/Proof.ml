@@ -39,6 +39,8 @@ type t =
   | Assertion of term
   | Assertion_c of clause
   | Hres of t * hres_step list
+  | Res of term * t * t
+  | Res1 of t * t
   | DT_isa_split of ty * term list
   | DT_isa_disj of ty * term * term
   | DT_cstor_inj of Cstor.t * int * term list * term list (* [c t…=c u… |- t_i=u_i] *)
@@ -102,8 +104,7 @@ let sorry_c_l c = Sorry_c c
 let sorry = Sorry
 let refl t : t = Refl t
 let ref_by_name name : t = Named name
-let make_cc iter : t = CC_lemma (Iter.to_rev_list iter)
-let cc_lemma c : t = CC_lemma (Iter.to_rev_list c)
+let cc_lemma c : t = CC_lemma c
 let cc_imply_l l t u : t =
   let l = List.filter (fun p -> not (is_trivial_refl p)) l in
   match l with
@@ -137,6 +138,8 @@ let hres_l p l : t =
   let l = List.filter (function (P1 (Refl _)) -> false | _ -> true) l in
   if l=[] then p else Hres (p,l)
 let hres_iter c i : t = hres_l c (Iter.to_list i)
+let res ~pivot p1 p2 : t = Res (pivot,p1,p2)
+let res1 p1 p2 : t = Res1 (p1,p2)
 
 let lra_l c : t = LRA c
 let lra c = LRA (Iter.to_rev_list c)
@@ -163,6 +166,8 @@ let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
         | R {pivot;p} -> f_p p; f_t pivot
         | P {lhs;rhs;p} -> f_p p; f_t lhs; f_t rhs)
       l
+  | Res (t,p1,p2) -> f_t t; f_p p1; f_p p2
+  | Res1 (p1,p2) -> f_p p1; f_p p2
   | DT_isa_split (_, l) -> List.iter f_t l
   | DT_isa_disj (_, t, u) -> f_t t; f_t u
   | DT_cstor_inj (_, _c, ts, us) -> List.iter f_t ts; List.iter f_t us
@@ -368,14 +373,16 @@ module Quip = struct
       | Refl t -> l[a"refl"; pp_t t]
       | Sorry -> a"sorry"
       | Sorry_c c -> l[a"sorry-c"; pp_cl c]
-      | Bool_true_is_true -> a"true-is-true"
-      | Bool_true_neq_false -> a"true-neq-false"
+      | Bool_true_is_true -> a"t-is-t"
+      | Bool_true_neq_false -> a"t-ne-f"
       | Bool_eq (t1,t2) -> l[a"bool-eq";pp_t t1;pp_t t2]
       | Bool_c (name,ts) -> l(a"bool-c" :: a name :: List.map pp_t ts)
       | Nn p -> l[a"nn";pp_rec p]
       | Assertion t -> l[a"assert";pp_t t]
       | Assertion_c c -> l[a"assert-c";pp_cl c]
       | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map (pp_hres_step sharing) steps)]
+      | Res (t,p1,p2) -> l[a"r";pp_t t;pp_rec p1;pp_rec p2]
+      | Res1 (p1,p2) -> l[a"r1";pp_rec p1;pp_rec p2]
       | DT_isa_split (ty,cs) ->
         l[a"dt.isa.split";pp_ty ty;l(a"cases"::List.map pp_t cs)]
       | DT_isa_disj (ty,t,u) ->
