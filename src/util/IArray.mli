@@ -106,5 +106,7 @@ val map2 : ('a -> 'b -> 'c) -> 'a t -> 'b t -> 'c t
 
 val fold2 : ('acc -> 'a -> 'b -> 'acc) -> 'acc -> 'a t -> 'b t -> 'acc
 
+val iteri2 : (int -> 'a -> 'b -> unit) -> 'a t -> 'b t -> unit
+
 val iter2 : ('a -> 'b -> unit) -> 'a t -> 'b t -> unit
 

@@ -165,6 +165,12 @@ let iter2 f a b =
     f (unsafe_get a i) (unsafe_get b i)
   done
 
+let iteri2 f a b =
+  if length a <> length b then invalid_arg "iteri2";
+  for i = 0 to length a-1 do
+    f i (unsafe_get a i) (unsafe_get b i)
+  done
+
 let fold2 f acc a b =
   if length a <> length b then invalid_arg "fold2";
   let rec aux acc i =
