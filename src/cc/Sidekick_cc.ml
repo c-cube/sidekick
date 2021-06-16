@@ -309,6 +309,17 @@ module Make (A: CC_ARG)
      Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
   let[@inline] mem (cc:t) (t:term): bool = T_tbl.mem cc.tbl t
 
+  let ret_cc_lemma _what _lits p_lits =
+    let p = P.cc_lemma p_lits in
+    (* useful to debug bad lemmas
+    let n_pos = Iter.of_list p_lits |> Iter.filter P.lit_sign |> Iter.length in
+    if n_pos <> 1 then (
+      Log.debugf 0 (fun k->k"emit (n-pos=%d) :from %s@ %a@ :lits %a"
+                       n_pos what
+                       (P.pp_debug ~sharing:false) p Fmt.(Dump.list Lit.pp) lits);
+    );
+    *)
+    p
 
   (* print full state *)
   let pp_full out (cc:t) : unit =
@@ -664,13 +675,13 @@ module Make (A: CC_ARG)
         let lits = explain_equal cc ~th lits a ra in
         let lits = explain_equal cc ~th lits b rb in
         let proof =
-          let lits =
-            Iter.of_list lits
-            |> Iter.map (fun lit ->
+          let p_lits =
+            lits
+            |> List.rev_map (fun lit ->
                 let t, sign = Lit.signed_term lit in
                 P.lit_mk (not sign) t)
           in
-          P.cc_lemma lits
+          ret_cc_lemma "true-eq-false" lits p_lits
         in
         raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) proof
       );
@@ -787,13 +798,14 @@ module Make (A: CC_ARG)
              let e = lazy (
                let lazy (th, acc) = half_expl in
                let lits = explain_equal cc ~th acc u1 t1 in
-               let p =
-                 A.P.cc_lemma
-                   (Iter.of_list lits
-                    |> Iter.map (fun lit ->
-                        let t, sign = Lit.signed_term lit in
-                        A.P.(lit_mk sign t)))
+               let p_lits =
+                 (* make a tautology, not a true guard *)
+                 let tauto = lit :: List.rev_map Lit.neg lits in
+                 tauto |> List.rev_map (fun lit ->
+                     let t, sign = Lit.signed_term lit in
+                     A.P.(lit_mk sign t))
                in
+               let p = ret_cc_lemma "bool-parent" lits p_lits in
                lits, p
              ) in
              fun () -> Lazy.force e
@@ -862,13 +874,12 @@ module Make (A: CC_ARG)
     let lits = explain_decompose_expl cc ~th [] expl in
     let lits = List.rev_map Lit.neg lits in
     let proof =
-      let lits =
-        Iter.of_list lits
-        |> Iter.map (fun lit ->
+      let p_lits =
+        lits |> List.rev_map (fun lit ->
             let t, sign = Lit.signed_term lit in
             P.lit_mk sign t)
       in
-      P.cc_lemma lits
+      ret_cc_lemma "from-expl" lits p_lits
     in
     raise_conflict_ cc ~th:!th acts lits proof
 

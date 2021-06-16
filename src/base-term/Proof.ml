@@ -25,6 +25,7 @@ let lit_na t = L_a (false,t)
 let lit_eq t u = L_eq (true,t,u)
 let lit_neq t u = L_eq (false,t,u)
 let lit_mk b t = L_a (b,t)
+let lit_sign = function L_a (b,_) | L_eq (b,_,_) -> b
 
 type clause = lit list
 

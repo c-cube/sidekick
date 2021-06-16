@@ -176,6 +176,7 @@ module type PROOF = sig
   val lit_eq : term -> term -> lit
   val lit_neq : term -> term -> lit
   val lit_not : lit -> lit
+  val lit_sign : lit -> bool
 
   type composite_step
   val stepc : name:string -> lit list -> t -> composite_step
