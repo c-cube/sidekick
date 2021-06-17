@@ -147,5 +147,25 @@ let () = mk_test "test_ite" @@ fun () ->
   done;
   ()
 
+(* from the following PO:
+    `cl (- a = (g a c)),
+        (- b = (g a c)),
+        (- c = (g c b)),
+        (- a = (g c c)),
+        (- (g c (g c b)) = (g (g c c) b)),
+        (+ (g a b) = (g a c))))`
+   *)
+let () = mk_test "test_reg_1" @@ fun () ->
+  let module S = Setup() in
+  let cc = CC.create S.tst in
+  CC.add_lit cc S.(eq a (g a c)) true;
+  CC.add_lit cc S.(eq b (g a c)) true;
+  CC.add_lit cc S.(eq c (g c b)) true;
+  CC.add_lit cc S.(eq a (g c c)) true;
+  CC.add_lit cc S.(eq (g c (g c b)) (g (g c c) b)) true;
+  CC.add_lit cc S.(eq (g a b) (g a c)) false; (* goal *)
+  A.(check bool) "is-unsat" (CC.check_sat cc) false;
+  ()
+
 (* run alcotest *)
 let () = Alcotest.run "mini-cc-tests" ["mini-cc", List.rev !l]
