@@ -187,6 +187,7 @@ module Compress = struct
   type 'a shared_status =
     | First (* first occurrence of t *)
     | Shared (* multiple occurrences observed *)
+    | Pre_named of 'a (* another step names it *)
     | Named of 'a (* already named it *)
 
   (* is [t] too small to be shared? *)
@@ -240,16 +241,16 @@ module Compress = struct
              match T.Tbl.get self.terms u with
              | None -> T.Tbl.add self.terms u First
              | Some First -> T.Tbl.replace self.terms u Shared
-             | Some (Shared | Named _) -> ()
+             | Some (Shared | Named _ | Pre_named _) -> ()
            ))
     in
 
     (* if a term is already name, remember that, do not rename it *)
     let on_step = function
       | S_define_t_name (n,rhs) ->
-        T.Tbl.replace self.terms rhs (Named (N_s n));
+        T.Tbl.replace self.terms rhs (Pre_named (N_s n));
       | S_define_t (c,rhs) ->
-        T.Tbl.replace self.terms rhs (Named (N_t c));
+        T.Tbl.replace self.terms rhs (Pre_named (N_t c));
       | S_step_c _ -> ()
     in
 
@@ -268,8 +269,13 @@ module Compress = struct
       (* now traverse again, renaming some things on the fly *)
       let new_steps = Vec.create() in
 
+      (* definitions we can skip *)
+      let skip_name_s = Hashtbl.create 8 in
+      let skip_name_t = T.Tbl.create 8 in
+
       (* traverse [t], and if there's a subterm that is shared but
-         not named yet, name it now *)
+         not named yet, name it now.
+      *)
       let traverse_t t : unit =
         T.iter_dag_with ~order:T.Iter_dag.Post t
           (fun u ->
@@ -279,13 +285,27 @@ module Compress = struct
                 let name = new_name() in
                 Vec.push new_steps (deft_name name u);
                 T.Tbl.replace sharing.terms u (Named (N_s name))
+              | Some (Pre_named name) ->
+                (* named later in the file, declare it earlier to preserve
+                   a well ordering on definitions since we need it right now *)
+                Vec.push new_steps
+                  (match name with
+                   | N_s n -> Hashtbl.add skip_name_s n (); deft_name n u
+                   | N_t t -> T.Tbl.add skip_name_t t (); deft t u);
+                T.Tbl.replace sharing.terms u (Named name)
               | _ -> ())
       in
 
       (* introduce naming in [step], then push it into {!new_steps} *)
       let process_step_ step =
         traverse_step_ step ~f_t:traverse_t;
-        Vec.push new_steps step;
+        (* see if we print the step or skip it *)
+        begin match step with
+          | S_define_t (t,_) when T.Tbl.mem skip_name_t t -> ()
+          | S_define_t_name (s,_) when Hashtbl.mem skip_name_s s -> ()
+          | _ ->
+            Vec.push new_steps step;
+        end
       in
 
       Array.iter process_step_ steps;
