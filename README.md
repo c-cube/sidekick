@@ -1,15 +1,58 @@
 # Sidekick ![Build (gh)](https://github.com/c-cube/sidekick/workflows/Build%20sidekick-bin/badge.svg)
 
 Sidekick is an OCaml library with a functor to create SMT solvers following
-the CDCL(T) approach (so called "lazy SMT").
+the CDCL(T) approach (so called "lazy SMT"). See [below](#short-summary)
+for a more detailed explanation.
 
 It derives from [Alt-Ergo Zero](http://cubicle.lri.fr/alt-ergo-zero)
 and its fork [mSAT](https://github.com/gbury/msat).
 
-
 ## Documentation
 
-See https://c-cube.github.io/sidekick/
+See https://c-cube.github.io/sidekick/ .
+
+## Short summary
+
+[SMT solvers](https://en.wikipedia.org/wiki/Satisfiability_modulo_theories)
+are automatic tools that try to assess whether a given logic formula is
+*satisfiable* (admits a model, an interpretation that makes it true)
+or *unsatisfiable* (no interpretation can make it true; it is absurd, and its
+negation is a theorem). Prominent solvers include [Z3](https://github.com/Z3Prover/z3),
+[cvc5](https://cvc5.github.io/), [Yices 2](https://github.com/SRI-CSL/yices2/),
+and others; all of them follow the **CDCL(T)** paradigm.
+Most of these solvers are implemented in C or C++.
+
+CDCL(T) is the combination of [CDCL](https://en.wikipedia.org/wiki/Conflict-driven_clause_learning),
+the leading technique for SAT solving (as popularized by Chaff, minisat, etc.
+in the early oughties), and a **theory** T. In practice, SMT solvers _combine_
+multiple theories into one before doing the combination with the SAT solver.
+Some examples of theories are uninterpreted functions symbols, integer linear
+arithmetic ("LIA"), rational nonlinear arithmetic ("NRA"), bitvectors for fixed-size
+arithmetic, algebraic datatypes, and others.
+
+Sidekick is a CDCL(T) solver implemented in pure [OCaml](https://ocaml.org/)
+and with a strong focus on modularity and reusability of components.
+Almost everything in the code is _functorized_ and generic over the concrete
+representation of terms, formulas, etc.
+The goal is for users to be able to implement their own theories and combine
+them with the pre-existing ones in a bespoke solver, something that is typically
+a lot of work in the C/C++ solvers.
+
+Sidekick comes in several components (as in, opam packages):
+
+- `sidekick` is the core library, with core type definitions (see `src/core/`),
+  an implementation of CDCL(T) based on [mSat](https://github.com/Gbury/mSAT/),
+  a congruence closure, and the theories of boolean formulas and datatypes.
+- `sidekick-arith` is a library with an additional dependency
+  on [zarith](https://github.com/ocaml/Zarith)
+  (a GMP wrapper for arbitrary precision numbers).
+  It currently implements LRA (linear rational arithmetic)
+  using a Simplex algorithm.
+- `sidekick-bin` is an executable that is able to parse problems in
+  the SMT-LIB-2.6 format, in the `QF_UFLRA` fragment, and solves them using
+  the libraries previously listed.
+  It is mostly useful as a test tool for the libraries and as a starting point
+  for writing custom solvers.
 
 ## Installation
 
