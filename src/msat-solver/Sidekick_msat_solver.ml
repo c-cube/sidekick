@@ -70,9 +70,7 @@ module Make(A : ARG)
       if l.lit_sign then Term.pp out l.lit_term
       else Format.fprintf out "(@[@<1>¬@ %a@])" Term.pp l.lit_term
 
-    let apply_sign t s = if s then t else neg t
     let norm_sign l = if l.lit_sign then l, true else neg l, false
-    let norm l = let l, sign = norm_sign l in l, if sign then Msat.Same_sign else Msat.Negated
   end
 
   type lit = Lit_.t
@@ -252,12 +250,12 @@ module Make(A : ARG)
       Stat.incr self.count_conflict;
       acts.Msat.acts_raise_conflict c proof
 
-    let[@inline] propagate self acts p reason : unit =
+    let[@inline] propagate self acts p ~reason : unit =
       Stat.incr self.count_propagate;
       acts.Msat.acts_propagate p (Msat.Consequence reason)
 
     let[@inline] propagate_l self acts p cs proof : unit =
-      propagate self acts p (fun()->cs,proof)
+      propagate self acts p ~reason:(fun()->cs,proof)
 
     let add_sat_clause_ self acts ~keep lits (proof:P.t) : unit =
       Stat.incr self.count_axiom;

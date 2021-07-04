@@ -213,6 +213,9 @@ module type PROOF = sig
   val default : t [@@alert cstor "do not use default constructor"]
 
   val pp_debug : sharing:bool -> t Fmt.printer
+  (** Pretty print a proof.
+      @param sharing if true, try to compact the proof by introducing
+      definitions for common terms, clauses, and steps as needed. Safe to ignore. *)
 
   module Quip : sig
     val output : out_channel -> t -> unit
@@ -662,11 +665,6 @@ module type SOLVER_INTERNAL = sig
 
   (** {3 hooks for the theory} *)
 
-  val propagate : t -> actions -> lit -> reason:(unit -> lit list * proof) -> unit
-  (** Propagate a literal for a reason. This is similar to asserting
-      the clause [reason => lit], but more lightweight, and in a way
-      that is backtrackable. *)
-
   val raise_conflict : t -> actions -> lit list -> proof -> 'a
   (** Give a conflict clause to the solver *)
 
@@ -676,7 +674,7 @@ module type SOLVER_INTERNAL = sig
       If the SAT solver backtracks, this (potential) decision is removed
       and forgotten. *)
 
-  val propagate: t -> actions -> lit -> (unit -> lit list * proof) -> unit
+  val propagate: t -> actions -> lit -> reason:(unit -> lit list * proof) -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 

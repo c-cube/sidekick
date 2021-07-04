@@ -29,7 +29,6 @@ module Ctx = struct
 
   and ty_kind =
     | K_atomic of Ty.def
-    | K_bool
 
   type t = {
     tst: T.state;
@@ -63,13 +62,8 @@ module Ctx = struct
     match StrTbl.get self.names s with
     | Some (_, K_ty (K_atomic def)) -> def
     | _ -> Error.errorf "expected %s to be an atomic type" s
-
-  let pp_kind out = function
-    | K_ty _ -> Format.fprintf out "type"
-    | K_fun f -> Fun.pp out f
 end
 
-let error_loc ctx : string = Fmt.sprintf "at %a: " pp_loc_opt (Ctx.loc ctx)
 let errorf_ctx ctx msg =
   Error.errorf ("at %a:@ " ^^ msg) pp_loc_opt (Ctx.loc ctx)
 

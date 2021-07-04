@@ -816,7 +816,7 @@ module Term : sig
 
   val pp : t Fmt.printer
 
-  (** {6 Views} *)
+  (** {3 Views} *)
 
   val is_true : t -> bool
   val is_false : t -> bool
@@ -828,7 +828,7 @@ module Term : sig
   val as_fun_undef : t -> (fun_ * Ty.Fun.t) option
   val as_bool : t -> bool option
 
-  (** {6 Containers} *)
+  (** {3 Containers} *)
 
   module Tbl : CCHashtbl.S with type key = t
   module Map : CCMap.S with type key = t

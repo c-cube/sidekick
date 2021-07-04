@@ -20,10 +20,6 @@ module Parse = struct
   let parse_file_exn file : Parse_ast.statement list =
     CCIO.with_in file (parse_chan_exn ~filename:file)
 
-  let parse_file file =
-    try Result.Ok (parse_file_exn file)
-    with e -> Result.Error (Printexc.to_string e)
-
   let parse_file_exn ctx file : Stmt.t list =
     (* delegate parsing to [Tip_parser] *)
     parse_file_exn file

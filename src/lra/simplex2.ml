@@ -148,7 +148,7 @@ module Make(Q : RATIONAL)(Var: VAR)
   module V_map = CCMap.Make(Var)
   module Q = Q
 
-  type num = Q.t (** Numbers *)
+  type num = Q.t
   let pp_q_dbg = Q.pp_approx 1
 
   module Constraint = struct

@@ -433,7 +433,7 @@ module Make(A : ARG) : S with module A = A = struct
     in
     (* TODO: more detailed proof certificate *)
     let pr =
-      A.(S.P.(proof_lra (Iter.of_list confl |> Iter.map plit_of_lit))) in
+      A.(proof_lra (Iter.of_list confl |> Iter.map plit_of_lit)) in
     SI.raise_conflict si acts confl pr
 
   let on_propagate_ si acts lit ~reason =
@@ -441,7 +441,7 @@ module Make(A : ARG) : S with module A = A = struct
     | Tag.Lit lit ->
       (* TODO: more detailed proof certificate *)
       SI.propagate si acts lit
-        (fun() ->
+        ~reason:(fun() ->
            let lits = CCList.flat_map (Tag.to_lits si) reason in
            let proof = A.proof_lra Iter.(cons lit (of_list lits) |> map plit_of_lit) in
            CCList.flat_map (Tag.to_lits si) reason, proof)

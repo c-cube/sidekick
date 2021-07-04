@@ -109,10 +109,6 @@ module Make(A : ARG) : S with module A = A = struct
     }
 
   let[@inline] not_ tst t = A.mk_bool tst (B_not t)
-  let[@inline] and_a tst a = A.mk_bool tst (B_and a)
-  let[@inline] or_a tst a = A.mk_bool tst (B_or a)
-  let[@inline] ite tst a b c = A.mk_bool tst (B_ite (a,b,c))
-  let[@inline] equiv tst a b = A.mk_bool tst (B_equiv (a,b))
   let[@inline] eq tst a b = A.mk_bool tst (B_eq (a,b))
 
   let is_true t = match T.as_bool t with Some true -> true | _ -> false

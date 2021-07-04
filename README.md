@@ -42,15 +42,16 @@ Sidekick comes in several components (as in, opam packages):
 
 - `sidekick` is the core library, with core type definitions (see `src/core/`),
   an implementation of CDCL(T) based on [mSat](https://github.com/Gbury/mSAT/),
-  a congruence closure, and the theories of boolean formulas and datatypes.
-- `sidekick-arith` is a library with an additional dependency
-  on [zarith](https://github.com/ocaml/Zarith)
-  (a GMP wrapper for arbitrary precision numbers).
-  It currently implements LRA (linear rational arithmetic)
-  using a Simplex algorithm.
+  a congruence closure, and the theories of boolean formulas, LRA (linear rational
+  arithmetic, using a simplex algorithm), and datatypes.
+- `sidekick-base` is a library with concrete implementations for terms,
+  arithmetic functions, and proofs.
+  It comes with an additional dependency on
+  [zarith](https://github.com/ocaml/Zarith) to represent numbers (zarith is a
+  GMP wrapper for arbitrary precision numbers).
 - `sidekick-bin` is an executable that is able to parse problems in
   the SMT-LIB-2.6 format, in the `QF_UFLRA` fragment, and solves them using
-  the libraries previously listed.
+  `sidekick` instantiated with `sidekick-base`.
   It is mostly useful as a test tool for the libraries and as a starting point
   for writing custom solvers.
 
