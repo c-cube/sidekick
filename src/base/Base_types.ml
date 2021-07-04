@@ -827,6 +827,20 @@ module Term : sig
   val is_a : store -> cstor -> t -> t
   val lra : store -> (Q.t,t) lra_view -> t
 
+  (** Helpers for LRA *)
+  module LRA : sig
+    val plus : store -> t -> t -> t
+    val minus : store -> t -> t -> t
+    val mult : store -> Q.t -> t -> t
+    val const : store -> Q.t -> t
+    val leq : store -> t -> t -> t
+    val lt : store -> t -> t -> t
+    val geq : store -> t -> t -> t
+    val gt : store -> t -> t -> t
+    val eq : store -> t -> t -> t
+    val neq : store -> t -> t -> t
+  end
+
   (** Obtain unsigned version of [t], + the sign as a boolean *)
   val abs : store -> t -> t * bool
 
@@ -945,6 +959,19 @@ end = struct
     match l with
     | LRA_other x -> x (* normalize *)
     | _ -> make st (Term_cell.lra l)
+
+  module LRA = struct
+    let plus st a b : t = lra st (LRA_op (Plus, a, b))
+    let minus st a b : t = lra st (LRA_op (Minus, a, b))
+    let mult st a b : t = lra st (LRA_mult (a, b))
+    let const st q : t = lra st (LRA_const q)
+    let leq st a b : t = lra st (LRA_pred (Leq, a, b))
+    let lt st a b : t = lra st (LRA_pred (Lt, a, b))
+    let geq st a b : t = lra st (LRA_pred (Geq, a, b))
+    let gt st a b : t = lra st (LRA_pred (Gt, a, b))
+    let eq st a b : t = lra st (LRA_pred (Eq, a, b))
+    let neq st a b : t = lra st (LRA_pred (Neq, a, b))
+  end
 
   let const_undefined_fun store id ty : t =
     const store (Fun.mk_undef id ty)
