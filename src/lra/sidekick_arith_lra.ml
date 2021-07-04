@@ -10,18 +10,20 @@ module Simplex2 = Simplex2
 module Predicate = Predicate
 module Linear_expr = Linear_expr
 
+module type RATIONAL = Sidekick_arith.RATIONAL
+
 module S_op = Simplex2.Op
 
 type pred = Linear_expr_intf.bool_op = Leq | Geq | Lt | Gt | Eq | Neq
 type op = Plus | Minus
 
-type 'a lra_view =
+type ('num, 'a) lra_view =
   | LRA_pred of pred * 'a * 'a
   | LRA_op of op * 'a * 'a
-  | LRA_mult of Q.t * 'a
-  | LRA_const of Q.t
+  | LRA_mult of 'num * 'a
+  | LRA_const of 'num
   | LRA_simplex_var of 'a (* an opaque variable *)
-  | LRA_simplex_pred of 'a * S_op.t * Q.t (* an atomic constraint *)
+  | LRA_simplex_pred of 'a * S_op.t * 'num (* an atomic constraint *)
   | LRA_other of 'a
 
 let map_view f (l:_ lra_view) : _ lra_view =
@@ -37,16 +39,17 @@ let map_view f (l:_ lra_view) : _ lra_view =
 
 module type ARG = sig
   module S : Sidekick_core.SOLVER
+  module Q : RATIONAL
 
   type term = S.T.Term.t
   type ty = S.T.Ty.t
 
-  val view_as_lra : term -> term lra_view
+  val view_as_lra : term -> (Q.t, term) lra_view
   (** Project the term into the theory view *)
 
   val mk_bool : S.T.Term.state -> bool -> term
 
-  val mk_lra : S.T.Term.state -> term lra_view -> term
+  val mk_lra : S.T.Term.state -> (Q.t, term) lra_view -> term
   (** Make a term from the given theory view *)
 
   val ty_lra : S.T.Term.state -> ty
@@ -129,9 +132,9 @@ module Make(A : ARG) : S with module A = A = struct
       | _ -> None
   end
 
-  module LE_ = Linear_expr.Make(struct include Q let pp=pp_print end)(SimpVar)
+  module LE_ = Linear_expr.Make(A.Q)(SimpVar)
   module LE = LE_.Expr
-  module SimpSolver = Simplex2.Make(SimpVar)
+  module SimpSolver = Simplex2.Make(A.Q)(SimpVar)
   module LConstr = SimpSolver.Constraint
   module Subst = SimpSolver.Subst
 
@@ -205,7 +208,7 @@ module Make(A : ARG) : S with module A = A = struct
   (* return a variable that is equal to [le_comb] in the simplex. *)
   let var_encoding_comb ~pre self (le_comb:LE_.Comb.t) : T.t =
     match LE_.Comb.as_singleton le_comb with
-    | Some (c, x) when Q.(c = one) -> x (* trivial linexp *)
+    | Some (c, x) when A.Q.(c = one) -> x (* trivial linexp *)
     | _ ->
       match Comb_map.find le_comb self.encoded_le with
       | x -> x (* already encoded that *)
@@ -222,10 +225,10 @@ module Make(A : ARG) : S with module A = A = struct
           Log.debug 50 "(lra.encode-le.is-trivially-0)";
           SimpSolver.add_constraint self.simplex
             ~on_propagate:(fun _ ~reason:_ -> ())
-            (SimpSolver.Constraint.leq proxy Q.zero) Tag.By_def;
+            (SimpSolver.Constraint.leq proxy A.Q.zero) Tag.By_def;
           SimpSolver.add_constraint self.simplex
             ~on_propagate:(fun _ ~reason:_ -> ())
-            (SimpSolver.Constraint.geq proxy Q.zero) Tag.By_def;
+            (SimpSolver.Constraint.geq proxy A.Q.zero) Tag.By_def;
         ) else (
           LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
           SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
@@ -282,7 +285,7 @@ module Make(A : ARG) : S with module A = A = struct
       let l2 = as_linexp ~f:preproc_t t2 in
       let le = LE.(l1 - l2) in
       let le_comb, le_const = LE.comb le, LE.const le in
-      let le_const = Q.neg le_const in
+      let le_const = A.Q.neg le_const in
       (* now we have [le_comb <pred> le_const] *)
 
       begin match LE_.Comb.as_singleton le_comb, pred with
@@ -314,7 +317,7 @@ module Make(A : ARG) : S with module A = A = struct
 
         | Some (coeff, v), pred ->
           (* [c . v <= const] becomes a direct simplex constraint [v <= const/c] *)
-          let q = Q.div le_const coeff in
+          let q = A.Q.( le_const / coeff ) in
           declare_term_to_cc v;
 
           let op = match pred with
@@ -325,7 +328,7 @@ module Make(A : ARG) : S with module A = A = struct
             | Eq | Neq -> assert false
           in
           (* make sure to swap sides if multiplying with a negative coeff *)
-          let op = if Q.(coeff < zero) then S_op.neg_sign op else op in
+          let op = if A.Q.(coeff < zero) then S_op.neg_sign op else op in
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (v, op, q)) in
           begin
@@ -343,7 +346,7 @@ module Make(A : ARG) : S with module A = A = struct
       let le = as_linexp ~f:preproc_t t in
       let le_comb, le_const = LE.comb le, LE.const le in
 
-      if Q.(le_const = zero) then (
+      if A.Q.(le_const = zero) then (
         (* if there is no constant, define [proxy] as [proxy := le_comb] and
            return [proxy] *)
         let proxy = var_encoding_comb self ~pre:"_le" le_comb in
@@ -366,7 +369,7 @@ module Make(A : ARG) : S with module A = A = struct
         LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
 
         SimpSolver.define self.simplex proxy2
-          ((Q.minus_one, proxy) :: LE_.Comb.to_list le_comb);
+          ((A.Q.minus_one, proxy) :: LE_.Comb.to_list le_comb);
 
         Log.debugf 50
           (fun k->k "(@[lra.encode-le.with-offset@ %a@ :var %a@ :diff-var %a@])"
@@ -376,10 +379,10 @@ module Make(A : ARG) : S with module A = A = struct
         declare_term_to_cc proxy2;
 
         add_clause [
-          mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, Q.neg le_const)))
+          mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, A.Q.neg le_const)))
         ] A.S.P.sorry; (* TODO: by-def proxy2 + LRA *)
         add_clause [
-          mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Geq, Q.neg le_const)))
+          mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Geq, A.Q.neg le_const)))
         ] A.S.P.sorry; (* TODO: by-def proxy2 + LRA *)
 
         (* FIXME: actual proof *)
@@ -403,18 +406,18 @@ module Make(A : ARG) : S with module A = A = struct
       if LE.is_const le then (
         let c = LE.const le in
         let is_true = match pred with
-          | Leq -> Q.(c <= zero)
-          | Geq -> Q.(c >= zero)
-          | Lt -> Q.(c < zero)
-          | Gt -> Q.(c > zero)
-          | Eq -> Q.(c = zero)
-          | Neq -> Q.(c <> zero)
+          | Leq -> A.Q.(c <= zero)
+          | Geq -> A.Q.(c >= zero)
+          | Lt -> A.Q.(c < zero)
+          | Gt -> A.Q.(c > zero)
+          | Eq -> A.Q.(c = zero)
+          | Neq -> A.Q.(c <> zero)
         in
         Some (A.mk_bool self.tst is_true, A.S.P.sorry)
       ) else None
     | _ -> None
 
-  module Q_map = CCMap.Make(Q)
+  module Q_map = CCMap.Make(A.Q)
 
   let plit_of_lit lit =
     let t, sign = Lit.signed_term lit in
@@ -471,7 +474,7 @@ module Make(A : ARG) : S with module A = A = struct
 
     let le = LE.(as_linexp_id t1 - as_linexp_id t2) in
     let le_comb, le_const = LE.comb le, LE.const le in
-    let le_const = Q.neg le_const in
+    let le_const = A.Q.neg le_const in
 
     let v = var_encoding_comb ~pre:"le_local_eq" self le_comb in
     let lit = Tag.CC_eq (n1,n2) in
@@ -524,7 +527,7 @@ module Make(A : ARG) : S with module A = A = struct
                  (fun (t1,t2) ->
                     Log.debugf 50
                       (fun k->k "(@[LRA.th-comb.check-pair[val=%a]@ %a@ %a@])"
-                          Q.pp_print _q T.pp t1 T.pp t2);
+                          A.Q.pp _q T.pp t1 T.pp t2);
                     assert(SI.cc_mem_term si t1);
                     assert(SI.cc_mem_term si t2);
                     (* if both [t1] and [t2] are relevant to the congruence

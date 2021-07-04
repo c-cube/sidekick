@@ -4,8 +4,8 @@
 
 module Loc = Smtlib_utils.V_2_6.Loc
 module PA = Smtlib_utils.V_2_6.Ast
-module T = Sidekick_base_term.Term
-module Stmt = Sidekick_base_term.Statement
+module T = Sidekick_base.Term
+module Stmt = Sidekick_base.Statement
 
 type 'a or_error = ('a, string) CCResult.t
 

@@ -7,13 +7,13 @@ module CC_view = Sidekick_core.CC_view
 type lra_pred = Sidekick_arith_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 type lra_op = Sidekick_arith_lra.op = Plus | Minus
 
-type 'a lra_view = 'a Sidekick_arith_lra.lra_view =
+type ('num, 'a) lra_view = ('num, 'a) Sidekick_arith_lra.lra_view =
   | LRA_pred of lra_pred * 'a * 'a
   | LRA_op of lra_op * 'a * 'a
-  | LRA_mult of Q.t * 'a
-  | LRA_const of Q.t
+  | LRA_mult of 'num * 'a
+  | LRA_const of 'num
   | LRA_simplex_var of 'a
-  | LRA_simplex_pred of 'a * Sidekick_arith_lra.S_op.t * Q.t
+  | LRA_simplex_pred of 'a * Sidekick_arith_lra.S_op.t * 'num
   | LRA_other of 'a
 
 (* main term cell. *)
@@ -30,7 +30,7 @@ and 'a term_view =
   | Eq of 'a * 'a
   | Not of 'a
   | Ite of 'a * 'a * 'a
-  | LRA of 'a lra_view
+  | LRA of (Q.t, 'a) lra_view
 
 and fun_ = {
   fun_id: ID.t;
@@ -548,7 +548,7 @@ module Term_cell : sig
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of 'a lra_view
+    | LRA of (Q.t, 'a) lra_view
 
   type t = term view
 
@@ -562,7 +562,7 @@ module Term_cell : sig
   val eq : term -> term -> t
   val not_ : term -> t
   val ite : term -> term -> term -> t
-  val lra : term lra_view -> t
+  val lra : (Q.t,term) lra_view -> t
 
   val ty : t -> Ty.t
   (** Compute the type of this term cell. Not totally free *)
@@ -591,7 +591,7 @@ end = struct
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of 'a lra_view
+    | LRA of (Q.t,'a) lra_view
 
   type t = term view
 
@@ -771,7 +771,7 @@ module Term : sig
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of 'a lra_view
+    | LRA of (Q.t,'a) lra_view
 
   val id : t -> int
   val view : t -> term view
@@ -797,7 +797,7 @@ module Term : sig
   val select : state -> select -> t -> t
   val app_cstor : state -> cstor -> t IArray.t -> t
   val is_a : state -> cstor -> t -> t
-  val lra : state -> t lra_view -> t
+  val lra : state -> (Q.t,t) lra_view -> t
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
   val abs : state -> t -> t * bool
@@ -846,7 +846,7 @@ end = struct
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of 'a lra_view
+    | LRA of (Q.t,'a) lra_view
 
   let[@inline] id t = t.term_id
   let[@inline] ty t = t.term_ty
@@ -908,7 +908,7 @@ end = struct
   let is_a st c t : t = app_fun st (Fun.is_a c) (IArray.singleton t)
   let app_cstor st c args : t = app_fun st (Fun.cstor c) args
 
-  let[@inline] lra (st:state) (l:t lra_view) : t =
+  let[@inline] lra (st:state) (l:(Q.t,t) lra_view) : t =
     match l with
     | LRA_other x -> x (* normalize *)
     | _ -> make st (Term_cell.lra l)

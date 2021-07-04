@@ -11,7 +11,11 @@
     implementation at https://gbury.eu/public/papers/stage-m2.pdf
 *)
 
+module type RATIONAL = Sidekick_arith.RATIONAL
+
 module type S = sig
+  module Q : RATIONAL
+
   (** The given type of the variables *)
   type var
 

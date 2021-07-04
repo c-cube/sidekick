@@ -1,8 +1,8 @@
 (** {2 Conversion into {!Term.t}} *)
 
-module BT = Sidekick_base_term
+module BT = Sidekick_base
 module Profile = Sidekick_util.Profile
-open Sidekick_base_term
+open Sidekick_base
 
 [@@@ocaml.warning "-32"]
 
@@ -13,7 +13,7 @@ module Fmt = CCFormat
 
 (* instantiate solver here *)
 module Solver_arg = struct
-  module T = Sidekick_base_term
+  module T = Sidekick_base
 
   let cc_view = Term.cc_view
   let is_valid_literal _ = true
@@ -366,6 +366,7 @@ end)
 module Th_lra = Sidekick_arith_lra.Make(struct
   module S = Solver
   module T = BT.Term
+  module Q = Sidekick_zarith.Rational
   type term = S.T.Term.t
   type ty = S.T.Ty.t
 

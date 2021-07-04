@@ -1,13 +1,14 @@
 (executable
  (name run_tests)
  (modules run_tests test_simplex2)
- (libraries containers sidekick-arith.lra zarith iter alcotest qcheck)
+ (libraries containers sidekick.arith-lra
+            sidekick.zarith zarith iter alcotest qcheck)
  (flags :standard -warn-error -a+8 -color always))
 
 (alias
  (name runtest)
  (locks /test)
- (package sidekick-arith)
+ (package sidekick)
  (action
    (progn
      (run ./run_tests.exe alcotest) ; run regressions first

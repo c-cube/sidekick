@@ -1,6 +1,6 @@
 (** {1 Process Statements} *)
 
-open Sidekick_base_term
+open Sidekick_base
 
 module Solver
   : Sidekick_msat_solver.S with type T.Term.t = Term.t

@@ -6,8 +6,8 @@
 
 type 'a or_error = ('a, string) CCResult.t
 
-module Term = Sidekick_base_term.Term
-module Stmt = Sidekick_base_term.Statement
+module Term = Sidekick_base.Term
+module Stmt = Sidekick_base.Statement
 module Process = Process
 module Solver = Process.Solver
 

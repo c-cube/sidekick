@@ -8,7 +8,7 @@ open CCResult.Infix
 
 module E = CCResult
 module Fmt = CCFormat
-module Term = Sidekick_base_term.Term
+module Term = Sidekick_base.Term
 module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
 module Vec = Msat.Vec
@@ -89,7 +89,7 @@ let argspec = Arg.align [
   ] |> List.sort compare
 
 module Dimacs = struct
-  open Sidekick_base_term
+  open Sidekick_base
   module T = Term
 
   let parse_file tst (file:string) : Statement.t list or_error =
@@ -99,7 +99,7 @@ module Dimacs = struct
         match Util.Int_tbl.find atoms (abs i) with
         | x -> Term.const tst x
         | exception Not_found ->
-          let f = Sidekick_base_term.Fun.mk_undef_const
+          let f = Sidekick_base.Fun.mk_undef_const
               (ID.makef "%d" (abs i)) (Ty.bool()) in
           Util.Int_tbl.add atoms (abs i) f;
           Term.const tst f

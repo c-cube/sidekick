@@ -21,6 +21,10 @@ depends: [
 ]
 depopts: [
   "mtime"   # for profiling stuff
+  "zarith" # for arithmetic
+]
+conflicts: [
+  "zarith" { < "1.8" } # for infix ops
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"

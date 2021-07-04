@@ -7,6 +7,7 @@
 
 open CCMonomorphic
 
+module type RATIONAL = Sidekick_arith.RATIONAL
 module type VAR = Linear_expr_intf.VAR
 
 (** {2 Basic operator} *)
@@ -40,6 +41,7 @@ end
 module type S = sig
   module V : VAR
   module V_map : CCMap.S with type key = V.t
+  module Q : RATIONAL
 
   type num = Q.t (** Numbers *)
 
@@ -139,16 +141,15 @@ end
    by Gaussian elimination) as a preprocessing step, and this removes one column
    and maybe one row if it was basic. *)
 
-module Make(Var: VAR)
-  : S with module V = Var
+module Make(Q : RATIONAL)(Var: VAR)
+  : S with module V = Var and module Q = Q
 = struct
   module V = Var
   module V_map = CCMap.Make(Var)
+  module Q = Q
 
   type num = Q.t (** Numbers *)
-
-  let pp_q_float n out q = Fmt.fprintf out "%*.1f" n (Q.to_float q)
-  let pp_q_dbg = pp_q_float 1
+  let pp_q_dbg = Q.pp_approx 1
 
   module Constraint = struct
     type op = Op.t
@@ -313,7 +314,7 @@ module Make(Var: VAR)
             CCString.pad ~side:`Left 6 @@
             Printf.sprintf "r%d (v%d)" i row.vs.idx in
           Fmt.fprintf out "@,{@[<hov2>%9s: %a@]}" hd
-            (Fmt.iter ~sep:(Fmt.return "@ ") (pp_q_float 6)) (Vec.to_seq row.cols))
+            (Fmt.iter ~sep:(Fmt.return "@ ") (Q.pp_approx 6)) (Vec.to_seq row.cols))
         self.rows;
       Fmt.fprintf out "@;<0 -1>}@]"
     let to_string = Fmt.to_string pp
@@ -1091,11 +1092,11 @@ module Make(Var: VAR)
              | Op.(Geq | Gt), _ when CCBool.equal is_lower Q.(c > zero) ->
                Error.errorf
                  "invalid simplex cert:@ %a@ variable %a has coeff of the wrong sign %a"
-                 Unsat_cert.pp cert Var.pp x Q.pp_print c
+                 Unsat_cert.pp cert Var.pp x pp_q_dbg c
              | Op.(Lt | Leq), _ when CCBool.equal is_lower Q.(c < zero) ->
                Error.errorf
                  "invalid simplex cert:@ %a@ variable %a has coeff of the wrong sign %a"
-                 Unsat_cert.pp cert Var.pp x Q.pp_print c
+                 Unsat_cert.pp cert Var.pp x pp_q_dbg c
              | _, b -> Erat.(sum + c * b.b_val))
           Erat.zero le
       in

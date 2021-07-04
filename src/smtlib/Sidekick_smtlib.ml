@@ -1,14 +1,13 @@
 (** {1 Process Statements} *)
 
-module ID = Sidekick_base_term.ID
+module ID = Sidekick_base.ID
 module E = CCResult
 module Loc = Smtlib_utils.V_2_6.Loc
 module Parse_ast = Smtlib_utils.V_2_6.Ast
 module Process = Process
 module Solver = Process.Solver
-module Term = Sidekick_base_term.Term
-module Stmt = Sidekick_base_term.Statement
-module Proof = Proof
+module Term = Sidekick_base.Term
+module Stmt = Sidekick_base.Statement
 
 type 'a or_error = ('a, string) CCResult.t
 

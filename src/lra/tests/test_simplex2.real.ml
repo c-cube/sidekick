@@ -17,7 +17,11 @@ module Var = struct
   let not_lit i = Some (- i)
 end
 
-module Spl = Sidekick_arith_lra.Simplex2.Make(Var)
+module Spl = Sidekick_arith_lra.Simplex2.Make(Sidekick_zarith.Rational)(Var)
+
+let unwrap_opt_ msg = function
+  | Some x -> x
+  | None -> failwith msg
 
 let rand_n low n : Z.t QC.arbitrary =
   QC.map ~rev:Z.to_int Z.of_int QC.(low -- n)
@@ -32,7 +36,7 @@ let rand_q_with u l : Q.t QC.arbitrary =
   in
   (* avoid [undef] when shrinking *)
   let shrink q yield =
-    CCOpt.get_exn qc.QC.shrink q (fun x -> if Q.is_real x then yield x)
+    unwrap_opt_ "no shrinker" qc.QC.shrink q (fun x -> if Q.is_real x then yield x)
   in
   QC.set_shrink shrink qc
 

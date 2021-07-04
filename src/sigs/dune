@@ -1,0 +1,4 @@
+(library
+  (name sidekick_sigs)
+  (public_name sidekick.sigs)
+  (libraries containers iter))

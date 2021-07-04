@@ -20,7 +20,7 @@ jobs:
       with:
         ocaml-compiler: ${{ matrix.ocaml-compiler }}
     - run: opam pin -n .
-    - run: opam depext -yt sidekick sidekick-arith sidekick-bin
+    - run: opam depext -yt sidekick sidekick-base sidekick-bin
     - run: opam install -t . --deps-only
     - run: opam exec -- dune build
     - run: opam exec -- dune runtest

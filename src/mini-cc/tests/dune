@@ -1,6 +1,6 @@
 (tests
  (names tests)
- (libraries sidekick.mini-cc sidekick-arith.base-term alcotest)
- (package sidekick-arith)
+ (libraries sidekick.mini-cc sidekick-base alcotest)
+ (package sidekick-base)
  (locks /test)
  (modes native))

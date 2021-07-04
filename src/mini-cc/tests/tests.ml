@@ -1,10 +1,9 @@
 open Sidekick_util
-
-open Sidekick_base_term
+open Sidekick_base
 
 module A = Alcotest
 module CC = Sidekick_mini_cc.Make(struct
-  module T = Sidekick_base_term.Arg
+  module T = Sidekick_base.Arg
   let cc_view = Term.cc_view
 end)
 

@@ -1,4 +1,4 @@
-open Sidekick_base_term
+open Sidekick_base
 
 module T = Term
 open Sidekick_th_bool_static

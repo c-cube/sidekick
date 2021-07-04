@@ -1,0 +1,5 @@
+(library
+  (name sidekick_arith)
+  (public_name sidekick.arith)
+  (flags :standard -warn-error -a+8)
+  (libraries sidekick.core sidekick.sigs))

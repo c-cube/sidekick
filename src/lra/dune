@@ -1,6 +1,6 @@
 
 (library
   (name sidekick_arith_lra)
-  (public_name sidekick-arith.lra)
+  (public_name sidekick.arith-lra)
   (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util)
-  (libraries containers sidekick.core zarith))
+  (libraries containers sidekick.core sidekick.arith))
