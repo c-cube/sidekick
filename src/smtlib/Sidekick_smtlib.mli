@@ -11,6 +11,6 @@ module Stmt = Sidekick_base.Statement
 module Process = Process
 module Solver = Process.Solver
 
-val parse : Term.state -> string -> Stmt.t list or_error
+val parse : Term.store -> string -> Stmt.t list or_error
 
-val parse_stdin : Term.state -> Stmt.t list or_error
+val parse_stdin : Term.store -> Stmt.t list or_error

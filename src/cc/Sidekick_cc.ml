@@ -23,7 +23,7 @@ module Make (A: CC_ARG)
   module Lit = A.Lit
   module Actions = A.Actions
   type term = T.Term.t
-  type term_state = T.Term.state
+  type term_store = T.Term.store
   type lit = Lit.t
   type fun_ = T.Fun.t
   type proof = P.t
@@ -243,7 +243,7 @@ module Make (A: CC_ARG)
     | CT_merge of node * node * explanation
 
   type t = {
-    tst: term_state;
+    tst: term_store;
     tbl: node T_tbl.t;
     (* internalization [term -> node] *)
     signatures_tbl : node Sig_tbl.t;
@@ -290,7 +290,7 @@ module Make (A: CC_ARG)
   let[@inline] n_true cc = Lazy.force cc.true_
   let[@inline] n_false cc = Lazy.force cc.false_
   let n_bool cc b = if b then n_true cc else n_false cc
-  let[@inline] term_state cc = cc.tst
+  let[@inline] term_store cc = cc.tst
   let allocate_bitfield ~descr cc =
     Log.debugf 5 (fun k->k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
     Bits.mk_field cc.bitgen
@@ -907,7 +907,7 @@ module Make (A: CC_ARG)
       ?(on_pre_merge=[]) ?(on_post_merge=[]) ?(on_new_term=[])
       ?(on_conflict=[]) ?(on_propagate=[]) ?(on_is_subterm=[])
       ?(size=`Big)
-      (tst:term_state) : t =
+      (tst:term_store) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
     let bitgen = Bits.mk_gen () in
     let field_marked_explain = Bits.mk_field bitgen in

@@ -47,14 +47,14 @@ module type ARG = sig
   val view_as_lra : term -> (Q.t, term) lra_view
   (** Project the term into the theory view *)
 
-  val mk_bool : S.T.Term.state -> bool -> term
+  val mk_bool : S.T.Term.store -> bool -> term
 
-  val mk_lra : S.T.Term.state -> (Q.t, term) lra_view -> term
+  val mk_lra : S.T.Term.store -> (Q.t, term) lra_view -> term
   (** Make a term from the given theory view *)
 
-  val ty_lra : S.T.Term.state -> ty
+  val ty_lra : S.T.Term.store -> ty
 
-  val mk_eq : S.T.Term.state -> term -> term -> term
+  val mk_eq : S.T.Term.store -> term -> term -> term
   (** syntactic equality *)
 
   val has_ty_real : term -> bool
@@ -67,9 +67,9 @@ module type ARG = sig
   module Gensym : sig
     type t
 
-    val create : S.T.Term.state -> t
+    val create : S.T.Term.store -> t
 
-    val tst : t -> S.T.Term.state
+    val tst : t -> S.T.Term.store
 
     val copy : t -> t
 
@@ -84,8 +84,8 @@ module type S = sig
   type state
 
   val create : ?stat:Stat.t ->
-    A.S.T.Term.state ->
-    A.S.T.Ty.state ->
+    A.S.T.Term.store ->
+    A.S.T.Ty.store ->
     state
 
   val theory : A.S.theory
@@ -141,8 +141,8 @@ module Make(A : ARG) : S with module A = A = struct
   module Comb_map = CCMap.Make(LE_.Comb)
 
   type state = {
-    tst: T.state;
-    ty_st: Ty.state;
+    tst: T.store;
+    ty_st: Ty.store;
     simps: T.t T.Tbl.t; (* cache *)
     gensym: A.Gensym.t;
     encoded_eqs: unit T.Tbl.t; (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)

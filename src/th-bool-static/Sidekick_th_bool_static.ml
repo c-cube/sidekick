@@ -39,7 +39,7 @@ module type ARG = sig
   (** Basic boolean logic for a clause [|- c] *)
   val proof_bool_c : string -> term list -> S.P.t
 
-  val mk_bool : S.T.Term.state -> (term, term IArray.t) bool_view -> term
+  val mk_bool : S.T.Term.store -> (term, term IArray.t) bool_view -> term
   (** Make a term from the given boolean view. *)
 
   val check_congruence_classes : bool
@@ -56,7 +56,7 @@ module type ARG = sig
   module Gensym : sig
     type t
 
-    val create : S.T.Term.state -> t
+    val create : S.T.Term.store -> t
     (** New (stateful) generator instance. *)
 
     val fresh_term : t -> pre:string -> S.T.Ty.t -> term
@@ -70,7 +70,7 @@ module type S = sig
 
   type state
 
-  val create : A.S.T.Term.state -> A.S.T.Ty.state -> state
+  val create : A.S.T.Term.store -> A.S.T.Ty.store -> state
 
   val simplify : state -> A.S.Solver_internal.simplify_hook
   (** Simplify given term *)
@@ -96,8 +96,8 @@ module Make(A : ARG) : S with module A = A = struct
   module SI = A.S.Solver_internal
 
   type state = {
-    tst: T.state;
-    ty_st: Ty.state;
+    tst: T.store;
+    ty_st: Ty.store;
     cnf: (Lit.t * SI.P.t) T.Tbl.t; (* tseitin CNF *)
     gensym: A.Gensym.t;
   }

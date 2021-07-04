@@ -20,12 +20,12 @@ end
 module type S = sig
   type term
   type fun_
-  type term_state
+  type term_store
 
   type t
   (** An instance of the congruence closure. Mutable *)
 
-  val create : term_state -> t
+  val create : term_store -> t
   (** New instance *)
 
   val clear : t -> unit
@@ -49,4 +49,4 @@ end
 module Make(A: ARG)
   : S with type term = A.T.Term.t
        and type fun_ = A.T.Fun.t
-       and type term_state = A.T.Term.state
+       and type term_store = A.T.Term.store

@@ -18,7 +18,7 @@ module Check_cc = struct
   module Lit = Solver.Solver_internal.Lit
   module SI = Solver.Solver_internal
   module CC = Solver.Solver_internal.CC
-  module MCC = Sidekick_mini_cc.Make(Solver_arg)
+  module MCC = Sidekick_mini_cc.Make(SBS.Solver_arg)
 
   let pp_c out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∨ " Lit.pp) c
   let pp_and out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∧ " Lit.pp) c

@@ -67,10 +67,10 @@ module type ARG = sig
 
   val as_datatype : S.T.Ty.t -> (Cstor.t Iter.t, S.T.Ty.t) data_ty_view
   val view_as_data : S.T.Term.t -> (Cstor.t, S.T.Term.t) data_view
-  val mk_cstor : S.T.Term.state -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
-  val mk_is_a: S.T.Term.state -> Cstor.t -> S.T.Term.t -> S.T.Term.t
-  val mk_sel : S.T.Term.state -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
-  val mk_eq : S.T.Term.state -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
+  val mk_cstor : S.T.Term.store -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
+  val mk_is_a: S.T.Term.store -> Cstor.t -> S.T.Term.t -> S.T.Term.t
+  val mk_sel : S.T.Term.store -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
+  val mk_eq : S.T.Term.store -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
 
@@ -326,7 +326,7 @@ module Make(A : ARG) : S with module A = A = struct
   module N_tbl = Backtrackable_tbl.Make(N)
 
   type t = {
-    tst: T.state;
+    tst: T.store;
     cstors: ST_cstors.t; (* repr -> cstor for the class *)
     parents: ST_parents.t; (* repr -> parents for the class *)
     cards: Card.t; (* remember finiteness *)

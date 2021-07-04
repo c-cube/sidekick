@@ -9,11 +9,11 @@ end
 module type S = sig
   type term
   type fun_
-  type term_state
+  type term_store
 
   type t
 
-  val create : term_state -> t
+  val create : term_store -> t
 
   val clear : t -> unit
 
@@ -31,7 +31,7 @@ module Make(A: ARG) = struct
   module T = A.T.Term
   type fun_ = A.T.Fun.t
   type term = T.t
-  type term_state = T.state
+  type term_store = T.store
 
   module T_tbl = CCHashtbl.Make(T)
 

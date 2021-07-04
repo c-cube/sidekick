@@ -13,7 +13,7 @@ type 'a or_error = ('a, string) CCResult.t
 
 module Ctx : sig
   type t
-  val create: T.state -> t
+  val create: T.store -> t
 end
 
 val conv_term : Ctx.t -> PA.term -> T.t

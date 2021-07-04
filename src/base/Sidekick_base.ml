@@ -30,6 +30,7 @@ module Statement = Base_types.Statement
 module Data = Base_types.Data
 module Select = Base_types.Select
 module Proof = Proof
+module Form = Form
 
 (** Concrete implementation of {!Sidekick_core.TERM}
 
@@ -41,7 +42,7 @@ module Arg
     with type Term.t = Term.t
      and type Fun.t = Fun.t
      and type Ty.t = Ty.t
-     and type Term.state = Term.state
+     and type Term.store = Term.store
 = struct
   module Term = Term
   module Fun = Fun

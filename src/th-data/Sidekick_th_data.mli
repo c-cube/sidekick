@@ -53,16 +53,16 @@ module type ARG = sig
   val view_as_data : S.T.Term.t -> (Cstor.t, S.T.Term.t) data_view
   (** Try to view term as a datatype term *)
 
-  val mk_cstor : S.T.Term.state -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
+  val mk_cstor : S.T.Term.store -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
   (** Make a constructor application term *)
 
-  val mk_is_a: S.T.Term.state -> Cstor.t -> S.T.Term.t -> S.T.Term.t
+  val mk_is_a: S.T.Term.store -> Cstor.t -> S.T.Term.t -> S.T.Term.t
   (** Make a [is-a] term *)
 
-  val mk_sel : S.T.Term.state -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
+  val mk_sel : S.T.Term.store -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
   (** Make a selector term *)
 
-  val mk_eq : S.T.Term.state -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
+  val mk_eq : S.T.Term.store -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
   (** Make a term equality *)
 
   val ty_is_finite : S.T.Ty.t -> bool

@@ -76,9 +76,9 @@ module type TERM = sig
     val hash : t -> int
     val pp : t Fmt.printer
 
-    type state
+    type store
 
-    val bool : state -> t
+    val bool : store -> t
     val is_bool : t -> bool
   end
 
@@ -94,19 +94,19 @@ module type TERM = sig
     val hash : t -> int
     val pp : t Fmt.printer
 
-    (** A state used to create new terms. It is where the hashconsing
-        table should live, along with other all-terms related state. *)
-    type state
+    (** A store used to create new terms. It is where the hashconsing
+        table should live, along with other all-terms related store. *)
+    type store
 
     val ty : t -> Ty.t
 
-    val bool : state -> bool -> t (** build true/false *)
+    val bool : store -> bool -> t (** build true/false *)
 
     val as_bool : t -> bool option
     (** [as_bool t] is [Some true] if [t] is the term [true], and similarly
         for [false]. For other terms it is [None]. *)
 
-    val abs : state -> t -> t * bool
+    val abs : store -> t -> t * bool
     (** [abs t] returns an "absolute value" for the term, along with the
         sign of [t].
 
@@ -114,9 +114,9 @@ module type TERM = sig
         or [(a != b)] into [(a=b, false)]. For terms without a negation this
         should return [(t, true)].
 
-        The state is passed in case a new term needs to be created. *)
+        The store is passed in case a new term needs to be created. *)
 
-    val map_shallow : state -> (t -> t) -> t -> t
+    val map_shallow : store -> (t -> t) -> t -> t
     (** Map function on immediate subterms. This should not be recursive. *)
 
     val iter_dag : t -> (t -> unit) -> unit
@@ -314,7 +314,7 @@ module type CC_S = sig
   module P : PROOF with type term = T.Term.t
   module Lit : LIT with module T = T
   module Actions : CC_ACTIONS with module T = T and module Lit = Lit and module P = P
-  type term_state = T.Term.state
+  type term_store = T.Term.store
   type term = T.Term.t
   type fun_ = T.Fun.t
   type lit = Lit.t
@@ -402,7 +402,7 @@ module type CC_S = sig
 
   (** {3 Accessors} *)
 
-  val term_state : t -> term_state
+  val term_store : t -> term_store
 
   val find : t -> node -> repr
   (** Current representative *)
@@ -459,11 +459,11 @@ module type CC_S = sig
     ?on_propagate:ev_on_propagate list ->
     ?on_is_subterm:ev_on_is_subterm list ->
     ?size:[`Small | `Big] ->
-    term_state ->
+    term_store ->
     t
   (** Create a new congruence closure.
 
-      @param term_state used to be able to create new terms. All terms
+      @param term_store used to be able to create new terms. All terms
       interacting with this congruence closure must belong in this term state
       as well. *)
 
@@ -578,16 +578,16 @@ module type SOLVER_INTERNAL = sig
 
   type ty = T.Ty.t
   type term = T.Term.t
-  type term_state = T.Term.state
-  type ty_state = T.Ty.state
+  type term_store = T.Term.store
+  type ty_store = T.Ty.store
   type proof = P.t
 
   (** {3 Main type for a solver} *)
   type t
   type solver = t
 
-  val tst : t -> term_state
-  val ty_st : t -> ty_state
+  val tst : t -> term_store
+  val ty_st : t -> ty_store
   val stats : t -> Stat.t
 
   (** {3 Actions for the theories} *)
@@ -629,8 +629,8 @@ module type SOLVER_INTERNAL = sig
   module Simplify : sig
     type t
 
-    val tst : t -> term_state
-    val ty_st : t -> ty_state
+    val tst : t -> term_store
+    val ty_st : t -> ty_store
 
     val clear : t -> unit
     (** Reset internal cache, etc. *)
@@ -952,8 +952,8 @@ module type SOLVER = sig
   (** {3 Main API} *)
 
   val stats : t -> Stat.t
-  val tst : t -> T.Term.state
-  val ty_st : t -> T.Ty.state
+  val tst : t -> T.Term.store
+  val ty_st : t -> T.Ty.store
 
   val create :
     ?stat:Stat.t ->
@@ -961,8 +961,8 @@ module type SOLVER = sig
     (* TODO? ?config:Config.t -> *)
     ?store_proof:bool ->
     theories:theory list ->
-    T.Term.state ->
-    T.Ty.state ->
+    T.Term.store ->
+    T.Ty.store ->
     unit ->
     t
   (** Create a new solver.

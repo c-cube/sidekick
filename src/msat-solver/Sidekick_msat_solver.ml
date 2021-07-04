@@ -112,8 +112,8 @@ module Make(A : ARG)
     type term = Term.t
     type ty = Ty.t
     type lit = Lit.t
-    type term_state = Term.state
-    type ty_state = Ty.state
+    type term_store = Term.store
+    type ty_store = Ty.store
 
     type th_states =
       | Ths_nil
@@ -128,8 +128,8 @@ module Make(A : ARG)
 
     module Simplify = struct
       type t = {
-        tst: term_state;
-        ty_st: ty_state;
+        tst: term_store;
+        ty_st: ty_store;
         mutable hooks: hook list;
         cache: Term.t Term.Tbl.t;
       }
@@ -182,8 +182,8 @@ module Make(A : ARG)
     type simplify_hook = Simplify.hook
 
     type t = {
-      tst: Term.state; (** state for managing terms *)
-      ty_st: Ty.state;
+      tst: Term.store; (** state for managing terms *)
+      ty_st: Ty.store;
       cc: CC.t lazy_t; (** congruence closure *)
       stat: Stat.t;
       count_axiom: int Stat.counter;
@@ -480,7 +480,7 @@ module Make(A : ARG)
     let[@inline] final_check (self:t) (acts:_ Msat.acts) : unit =
       check_ ~final:true self acts
 
-    let create ~stat (tst:Term.state) (ty_st:Ty.state) () : t =
+    let create ~stat (tst:Term.store) (ty_st:Ty.store) () : t =
       let rec self = {
         tst;
         ty_st;

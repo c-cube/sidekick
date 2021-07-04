@@ -7,8 +7,6 @@
 
 open Sidekick_base
 
-module Form = Form
-
 (** Argument to the SMT solver *)
 module Solver_arg = struct
   module T = Sidekick_base
@@ -98,7 +96,7 @@ module Th_lra = Sidekick_arith_lra.Make(struct
 
   module Gensym = struct
     type t = {
-      tst: T.state;
+      tst: T.store;
       mutable fresh: int;
     }
 

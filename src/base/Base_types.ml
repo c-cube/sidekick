@@ -270,7 +270,7 @@ let pp_term_view = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:pp_term
 (** Types *)
 module Ty : sig
   type t = ty
-  type state = unit
+  type store = unit
   type view = ty_view =
     | Ty_bool
     | Ty_real
@@ -294,8 +294,8 @@ module Ty : sig
   val id : t -> int
   val view : t -> view
 
-  val bool : state -> t
-  val real : state -> t
+  val bool : store -> t
+  val real : store -> t
   val atomic : def -> t list -> t
   val id_of_def : def -> ID.t
 
@@ -328,7 +328,7 @@ module Ty : sig
   end
 end = struct
   type t = ty
-  type state = unit
+  type store = unit
   type view = ty_view =
     | Ty_bool
     | Ty_real
@@ -792,27 +792,27 @@ module Term : sig
   val compare : t -> t -> int
   val hash : t -> int
 
-  type state
+  type store
 
-  val create : ?size:int -> unit -> state
+  val create : ?size:int -> unit -> store
 
-  val make : state -> t view -> t
-  val true_ : state -> t
-  val false_ : state -> t
-  val bool : state -> bool -> t
-  val const : state -> fun_ -> t
-  val app_fun : state -> fun_ -> t IArray.t -> t
-  val eq : state -> t -> t -> t
-  val not_ : state -> t -> t
-  val ite : state -> t -> t -> t -> t
+  val make : store -> t view -> t
+  val true_ : store -> t
+  val false_ : store -> t
+  val bool : store -> bool -> t
+  val const : store -> fun_ -> t
+  val app_fun : store -> fun_ -> t IArray.t -> t
+  val eq : store -> t -> t -> t
+  val not_ : store -> t -> t
+  val ite : store -> t -> t -> t -> t
 
-  val select : state -> select -> t -> t
-  val app_cstor : state -> cstor -> t IArray.t -> t
-  val is_a : state -> cstor -> t -> t
-  val lra : state -> (Q.t,t) lra_view -> t
+  val select : store -> select -> t -> t
+  val app_cstor : store -> cstor -> t IArray.t -> t
+  val is_a : store -> cstor -> t -> t
+  val lra : store -> (Q.t,t) lra_view -> t
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
-  val abs : state -> t -> t * bool
+  val abs : store -> t -> t * bool
 
   module Iter_dag : sig
     type t
@@ -824,7 +824,7 @@ module Term : sig
   val iter_dag_with : order:Iter_dag.order -> t -> t Iter.t
   val iter_dag : t -> t Iter.t
 
-  val map_shallow : state -> (t -> t) -> t -> t
+  val map_shallow : store -> (t -> t) -> t -> t
 
   val pp : t Fmt.printer
 
@@ -877,7 +877,7 @@ end = struct
         t.term_id <- id
     end)
 
-  type state = {
+  type store = {
     tbl : H.t;
     mutable n: int;
     true_ : t lazy_t;
@@ -896,7 +896,7 @@ end = struct
   let[@inline] false_ st = Lazy.force st.false_
   let bool st b = if b then true_ st else false_ st
 
-  let create ?(size=1024) () : state =
+  let create ?(size=1024) () : store =
     let rec st ={
       n=2;
       tbl=H.create ~size ();
@@ -920,7 +920,7 @@ end = struct
   let is_a st c t : t = app_fun st (Fun.is_a c) (IArray.singleton t)
   let app_cstor st c args : t = app_fun st (Fun.cstor c) args
 
-  let[@inline] lra (st:state) (l:(Q.t,t) lra_view) : t =
+  let[@inline] lra (st:store) (l:(Q.t,t) lra_view) : t =
     match l with
     | LRA_other x -> x (* normalize *)
     | _ -> make st (Term_cell.lra l)
@@ -930,7 +930,7 @@ end = struct
     | Bool false -> true_ tst, false
     | Not u -> u, false
     | App_fun ({fun_view=Fun_def def; _}, args) ->
-      def.abs ~self:t args (* TODO: pass state *)
+      def.abs ~self:t args (* TODO: pass store *)
     | LRA (LRA_pred (Neq, a, b)) ->
       lra tst (LRA_pred (Eq,a,b)), false (* != is just not eq *)
     | _ -> t, true
@@ -1001,7 +1001,7 @@ end = struct
 
   let iter_dag t yield = iter_dag_with ~order:Pre t yield
 
-  let map_shallow (tst:state) f (t:t) : t =
+  let map_shallow (tst:store) f (t:t) : t =
     match view t with
     | Bool _ -> t
     | App_fun (hd, a) -> app_fun tst hd (IArray.map f a)

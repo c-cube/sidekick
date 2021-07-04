@@ -12,6 +12,7 @@ module BT = Sidekick_base
 module Ty = BT.Ty
 module T = BT.Term
 module Fun = BT.Fun
+module Form = BT.Form
 module Stmt = BT.Statement
 
 type 'a or_error = ('a, string) CCResult.t
@@ -31,13 +32,13 @@ module Ctx = struct
     | K_atomic of Ty.def
 
   type t = {
-    tst: T.state;
+    tst: T.store;
     names: (ID.t * kind) StrTbl.t;
     lets: T.t StrTbl.t;
     mutable loc: Loc.t option; (* current loc *)
   }
 
-  let create (tst:T.state) : t = {
+  let create (tst:T.store) : t = {
     tst;
     names=StrTbl.create 64;
     lets=StrTbl.create 16;

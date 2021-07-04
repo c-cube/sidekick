@@ -4,9 +4,9 @@ open Sidekick_base
 
 module Solver
   : Sidekick_msat_solver.S with type T.Term.t = Term.t
-                            and type T.Term.state = Term.state
+                            and type T.Term.store = Term.store
                             and type T.Ty.t = Ty.t
-                            and type T.Ty.state = Ty.state
+                            and type T.Ty.store = Ty.store
 
 val th_bool : Solver.theory
 val th_data : Solver.theory

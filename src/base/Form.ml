@@ -8,10 +8,13 @@
     the formulas are turned into clauses automatically for you.
 *)
 
-open Sidekick_base
+module T = Base_types.Term
+module Ty = Base_types.Ty
+module Fun = Base_types.Fun
+module Value = Base_types.Value
 
-module T = Term
 open Sidekick_th_bool_static
+
 exception Not_a_th_term
 
 let id_and = ID.make "and"
@@ -83,7 +86,7 @@ module Funs = struct
   let and_ = mk_fun id_and
   let or_ = mk_fun id_or
   let imply = mk_fun id_imply
-  let ite = Term.ite
+  let ite = T.ite
 end
 
 let as_id id (t:T.t) : T.t IArray.t option =
@@ -173,7 +176,7 @@ let mk_bool st = function
 
 module Gensym = struct
   type t = {
-    tst: T.state;
+    tst: T.store;
     mutable fresh: int;
   }
 
