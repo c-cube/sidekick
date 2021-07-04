@@ -774,6 +774,9 @@ module Make(A : ARG)
     let lit = Lit.atom (tst self) ?sign t in
     mk_atom_lit self lit
 
+  let mk_atom_t' self ?sign t = mk_atom_t self ?sign t |> fst
+  let mk_atom_lit' self lit = mk_atom_lit self lit |> fst
+
   (** {2 Result} *)
 
   module Unknown = struct
@@ -832,19 +835,14 @@ module Make(A : ARG)
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) proof;
     Profile.exit pb
 
-  let add_clause_l self c = add_clause self (IArray.of_list c)
+  let add_clause_l self c p = add_clause self (IArray.of_list c) p
 
+  let assert_terms self c =
+    let p = P.assertion_c_l (List.map P.lit_a c) in
+    let c = CCList.map (mk_atom_t' self) c in
+    add_clause_l self c p
 
-    (* TODO
-    let mk_model (self:t) lits : Model.t =
-      let m =
-        Iter.fold
-          (fun m (Th_state ((module Th),st)) -> Th.mk_model st lits m)
-          Model.empty (theories self)
-      in
-      (* now complete model using CC *)
-      CC.mk_model (cc self) m
-       *)
+  let assert_term self t = assert_terms self [t]
 
   let mk_model (self:t) (lits:lit Iter.t) : Model.t =
     Log.debug 1 "(smt.solver.mk-model)";

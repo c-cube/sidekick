@@ -10,7 +10,8 @@ module Make(A : ARG): sig
   type t
   val create : ?size:int -> unit -> t
   val hashcons : t -> A.t -> A.t
-  val to_seq : t -> A.t Iter.t
+  val size : t -> int
+  val to_iter : t -> A.t Iter.t
 end = struct
   module W = Weak.Make(A)
 
@@ -30,6 +31,7 @@ end = struct
     );
     t'
 
-  let to_seq st yield =
+  let size st = W.count st.tbl
+  let to_iter st yield =
     W.iter yield st.tbl
 end

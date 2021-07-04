@@ -993,10 +993,16 @@ module type SOLVER = sig
       where [atom] is an internal atom for the solver,
       and [pr] is a proof of [|- lit = atom] *)
 
+  val mk_atom_lit' : t -> lit -> Atom.t
+  (** Like {!mk_atom_t} but skips the proof *)
+
   val mk_atom_t : t -> ?sign:bool -> term -> Atom.t * P.t
   (** [mk_atom_t _ ~sign t] returns [atom, pr]
       where [atom] is an internal representation of [± t],
       and [pr] is a proof of [|- atom = (± t)] *)
+
+  val mk_atom_t' : t -> ?sign:bool -> term -> Atom.t
+  (** Like {!mk_atom_t} but skips the proof *)
 
   val add_clause : t -> Atom.t IArray.t -> P.t -> unit
   (** [add_clause solver cs] adds a boolean clause to the solver.
@@ -1004,6 +1010,14 @@ module type SOLVER = sig
 
   val add_clause_l : t -> Atom.t list -> P.t -> unit
   (** Add a clause to the solver, given as a list. *)
+
+  val assert_terms : t -> term list -> unit
+  (** Helper that turns each term into an atom, before adding the result
+      to the solver as an assertion *)
+
+  val assert_term : t -> term -> unit
+  (** Helper that turns the term into an atom, before adding the result
+      to the solver as a unit clause assertion *)
 
   (** {2 Internal representation of proofs}
 

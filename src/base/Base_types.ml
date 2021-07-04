@@ -448,6 +448,7 @@ end
 
 (** Function symbols *)
 module Fun : sig
+  (** Possible definitions for a function symbol *)
   type view = fun_view =
     | Fun_undef of fun_ty (* simple undefined constant *)
     | Fun_select of select
@@ -461,6 +462,8 @@ module Fun : sig
         ty : ID.t -> term IArray.t -> ty; (* compute type *)
         eval: value IArray.t -> value; (* evaluate term *)
       }
+
+  (** A function symbol *)
   type t = fun_ = {
     fun_id: ID.t;
     fun_view: fun_view;
@@ -481,8 +484,12 @@ module Fun : sig
 
   val do_cc : t -> bool
   val mk_undef : ID.t -> Ty.Fun.t -> t
+  (** Make a new uninterpreted function. *)
+
   val mk_undef' : ID.t -> Ty.t list -> Ty.t -> t
+
   val mk_undef_const : ID.t -> Ty.t -> t
+  (** Make a new uninterpreted constant. *)
 
   val pp : t CCFormat.printer
   module Map : CCMap.S with type key = t
@@ -806,6 +813,15 @@ module Term : sig
   val not_ : store -> t -> t
   val ite : store -> t -> t -> t -> t
 
+  val const_undefined_fun : store -> ID.t -> Ty.Fun.t -> t
+  (** [const_undefined_fun store f ty] is [const store (Fun.mk_undef f ty)].
+  It builds a function symbol and turns it into a term immediately *)
+
+  val const_undefined_const : store -> ID.t -> Ty.t -> t
+  (** [const_undefined_const store f ty] is [const store (Fun.mk_undef_const f ty)].
+      It builds a constant function symbol and makes it into a term
+      immediately. *)
+
   val select : store -> select -> t -> t
   val app_cstor : store -> cstor -> t IArray.t -> t
   val is_a : store -> cstor -> t -> t
@@ -839,6 +855,11 @@ module Term : sig
   (* return [Some] iff the term is an undefined constant *)
   val as_fun_undef : t -> (fun_ * Ty.Fun.t) option
   val as_bool : t -> bool option
+
+  (** {3 Store} *)
+
+  val store_size : store -> int
+  val store_iter : store -> term Iter.t
 
   (** {3 Containers} *)
 
@@ -925,6 +946,11 @@ end = struct
     | LRA_other x -> x (* normalize *)
     | _ -> make st (Term_cell.lra l)
 
+  let const_undefined_fun store id ty : t =
+    const store (Fun.mk_undef id ty)
+  let const_undefined_const store id ty : t =
+    const store (Fun.mk_undef_const id ty)
+
   (* might need to tranfer the negation from [t] to [sign] *)
   let abs tst t : t * bool = match view t with
     | Bool false -> true_ tst, false
@@ -1009,6 +1035,9 @@ end = struct
     | Eq (a,b) -> eq tst (f a) (f b)
     | Ite (a,b,c) -> ite tst (f a) (f b) (f c)
     | LRA l -> lra tst (Sidekick_arith_lra.map_view f l)
+
+  let store_size tst = H.size tst.tbl
+  let store_iter tst = H.to_iter tst.tbl
 end
 
 (** Values (used in models) *)

@@ -27,9 +27,9 @@ let view_id fid args =
   ) else if ID.equal fid id_or then (
     B_or (IArray.to_iter args)
   ) else if ID.equal fid id_imply && IArray.length args >= 2 then (
-    (* conclusion is stored first *)
+    (* conclusion is stored last *)
     let len = IArray.length args in
-    B_imply (IArray.to_iter_sub args 1 (len-1), IArray.get args 0)
+    B_imply (IArray.to_iter_sub args 0 (len-1), IArray.get args (len-1))
   ) else (
     raise_notrace Not_a_th_term
   )
@@ -141,11 +141,11 @@ let neq st a b = not_ st @@ eq st a b
 
 let imply_a st xs y =
   if IArray.is_empty xs then y
-  else T.app_fun st Funs.imply (IArray.append (IArray.singleton y) xs)
+  else T.app_fun st Funs.imply (IArray.append xs (IArray.singleton y))
 
 let imply_l st xs y = match xs with
   | [] -> y
-  | _ -> T.app_fun st Funs.imply (IArray.of_list @@ y :: xs)
+  | _ -> imply_a st (IArray.of_list xs) y
 
 let imply st a b = imply_a st (IArray.singleton a) b
 let xor st a b = not_ st (equiv st a b)
