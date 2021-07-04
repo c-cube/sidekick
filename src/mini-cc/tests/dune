@@ -2,5 +2,6 @@
  (names tests)
  (libraries sidekick.mini-cc sidekick-base alcotest)
  (package sidekick-base)
+ (flags :standard -warn-error -a+8 -safe-string -color always)
  (locks /test)
  (modes native))

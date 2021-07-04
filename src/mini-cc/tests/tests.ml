@@ -1,4 +1,3 @@
-open Sidekick_util
 open Sidekick_base
 
 module A = Alcotest
