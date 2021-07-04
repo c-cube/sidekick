@@ -16,6 +16,9 @@ let just_copy f1 f2 =
 let () =
   let f1 = Sys.argv.(1) in
   let f2 = Sys.argv.(2) in
+
+  (* annoying changes in the typechecking output *)
+  if Sys.ocaml_version < "4.08" then (just_copy f1 f2; exit 0);
   try
     let e = Sys.command
         @@ Printf.sprintf "ocaml-mdx test '%s' -o '%s'" f1 f2 in
