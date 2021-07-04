@@ -17,7 +17,7 @@ depends: [
   "zarith"
   "smtlib-utils" { >= "0.1" & < "0.4" }
   "sidekick" { = version }
-  "sidekick-arith" { = version }
+  "sidekick-base" { = version }
   "menhir"
   "mtime"
   "ocaml" { >= "4.04" }
