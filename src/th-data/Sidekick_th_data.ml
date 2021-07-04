@@ -333,6 +333,7 @@ module Make(A : ARG) : S with module A = A = struct
     to_decide: unit N_tbl.t; (* set of terms to decide. *)
     to_decide_for_complete_model: unit N_tbl.t; (* infinite types but we need a cstor in model*)
     case_split_done: unit T.Tbl.t; (* set of terms for which case split is done *)
+    stat_acycl_conflict: int Stat.counter;
     (* TODO: bitfield for types with less than 62 cstors, to quickly detect conflict? *)
   }
 
@@ -519,6 +520,7 @@ module Make(A : ARG) : S with module A = A = struct
                  ])
             |> Expl.mk_list |> Expl.mk_theory
           in
+          Stat.incr self.stat_acycl_conflict;
           Log.debugf 5
             (fun k->k "(@[%s.acyclicity.raise_confl@ %a@ @[:path %a@]@])"
                 name Expl.pp expl pp_path path);
@@ -672,6 +674,7 @@ module Make(A : ARG) : S with module A = A = struct
       to_decide_for_complete_model=N_tbl.create ~size:16 ();
       case_split_done=T.Tbl.create 16;
       cards=Card.create();
+      stat_acycl_conflict=Stat.mk_int (SI.stats solver) "data.acycl.conflict";
     } in
     Log.debugf 1 (fun k->k "(setup :%s)" name);
     SI.on_cc_new_term solver (on_new_term self);

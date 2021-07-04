@@ -231,7 +231,7 @@ let process_stmt
     (* TODO: more? *)
   in
   begin match stmt with
-    | Statement.Stmt_set_logic ("QF_UF"|"QF_LRA"|"QF_UFLRA"|"QF_DT") ->
+    | Statement.Stmt_set_logic ("QF_UF"|"QF_LRA"|"QF_UFLRA"|"QF_DT"|"QF_UFDT") ->
       E.return ()
     | Statement.Stmt_set_logic s ->
       Log.debugf 0 (fun k->k "warning: unknown logic `%s`" s);
