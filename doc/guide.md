@@ -100,6 +100,7 @@ for legibility:
 # #install_printer Ty.pp;;
 # #install_printer Fun.pp;;
 # #install_printer Model.pp;;
+# #install_printer Solver.Atom.pp;;
 # #install_printer Solver.Model.pp;;
 # #install_printer Proof.pp_debug;;
 Proof.pp_debug has a wrong type for a printing function.
@@ -186,10 +187,10 @@ We can now build formulas from these.
 val p_eq_q : Term.t = (= p q)
 
 # let p_imp_r = Form.imply tstore p r;;
-val p_imp_r : Term.t = (=> r p)
+val p_imp_r : Term.t = (=> p r)
 ```
 
-### Creating a solver.
+### Using a solver.
 
 We can create a solver by passing `Solver.create` a term store
 and a type store (which in our case is simply `() : unit`).
@@ -266,7 +267,7 @@ We can therefore add more formulas and see where it leads us.
 
 ```ocaml
 # p_imp_r;;
-- : Term.t = (=> r p)
+- : Term.t = (=> p r)
 # Solver.assert_term solver p_imp_r;;
 - : unit = ()
 # Solver.solve ~assumptions:[] solver;;
@@ -286,14 +287,114 @@ Still satisfiable, but now we see `r` in the model, too. And now:
 
 ```ocaml
 # let q_imp_not_r = Form.imply tstore q (Form.not_ tstore r);;
+val q_imp_not_r : Term.t = (=> q (not r))
 # Solver.assert_term solver q_imp_not_r;;
+- : unit = ()
 
 # Solver.assert_term solver p;;
+- : unit = ()
 
 # Solver.solve ~assumptions:[] solver;;
+- : Solver.res =
+Sidekick_base_solver.Solver.Unsat
+ {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
 ```
 
 This time we got _unsat_ and there is no way of undoing it.
 It comes from the fact that `p=q`, but `p` and `q` imply contradictory
 formulas (`r` and `¬r`), so when we force `p` to be true, `q` is true too
 and the contradiction is triggered.
+
+
+## A bit of arithmetic
+
+We can solve linear real arithmetic problems as well.
+Let's create a new solver and add the theory of reals to it.
+
+```ocaml
+# let solver = Solver.create ~theories:[th_bool; th_lra] tstore () ();;
+val solver : Solver.t = <abstr>
+```
+
+Create a few arithmetic constants.
+
+```ocaml
+# let real = Ty.real ();;
+val real : Ty.t = Real
+# let a = Term.const_undefined_const tstore (ID.make "a") real;;
+val a : Term.t = a
+# let b = Term.const_undefined_const tstore (ID.make "b") real;;
+val b : Term.t = b
+
+# Term.ty a;;
+- : Ty.t = Real
+
+# let a_leq_b = Term.LRA.(leq tstore (var tstore a) (var tstore b));;
+val a_leq_b : Term.t = (<= a b)
+```
+
+We can play with assertions now:
+
+```ocaml
+# Solver.assert_term solver a_leq_b;;
+- : unit = ()
+# Solver.solve ~assumptions:[] solver;;
+- : Solver.res =
+Sidekick_base_solver.Solver.Sat
+ (model
+  (true := true)
+  (false := false)
+  (_sk_lra__le0 := _sk_lra__le0)
+  ((_sk_lra__le0 <= 0) := true))
+
+
+# let a_geq_1 = Term.LRA.(geq tstore a (const tstore (Q.of_int 1)));;
+val a_geq_1 : Term.t = (>= a 1)
+# let b_leq_half = Term.LRA.(leq tstore b (const tstore (Q.of_string "1/2")));;
+val b_leq_half : Term.t = (<= b 1/2)
+
+# let res = Solver.solve solver
+    ~assumptions:[Solver.mk_atom_t' solver p;
+                  Solver.mk_atom_t' solver a_geq_1;
+                  Solver.mk_atom_t' solver b_leq_half];;
+val res : Solver.res =
+  Sidekick_base_solver.Solver.Unsat
+   {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+
+# match res with Solver.Unsat {unsat_core=lazy us; _} -> us | _ -> assert false;;
+- : Solver.Atom.t list = [(a >= 1); (b <= 1/2)]
+```
+
+This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
+The junk assumption `p` was not used during the proof
+and therefore doesn't appear in the unsat core we extract from `res`.
+
+## Extending sidekick
+
+The most important function here is `Solver.add_theory`
+(or the `~theories` argument to `Solver.create`).
+It means one can just implement a new theory in the same vein as the existing
+ones and add it to the solver.
+Note that the theory doesn't _need_ to be functorized, it could directly
+work on the term representation you use (or `Sidekick_base.Term` if you
+reuse that).
+
+The API for theories is found [here](https://c-cube.github.io/sidekick/dev/sidekick/Sidekick_core/module-type-SOLVER/module-type-THEORY/index.html).
+In addition to using terms, types, etc. it has access to
+a [Solver_internal.t](https://c-cube.github.io/sidekick/dev/sidekick/Sidekick_core/module-type-SOLVER/Solver_internal/index.html#type-t) object, which contains the internal API
+of the SMT solver. The internal solver allows a theory to do many  things, including:
+
+- propagate literals
+- raise conflicts (add a lemma which contradicts the current candidate model)
+- create new literals
+- hook into the central [Congruence Closure](https://c-cube.github.io/sidekick/dev/sidekick/Sidekick_core/module-type-CC_S/index.html)
+- register preprocessing functions (typically, to transform some constructs
+  into clauses)
+- register simplification functions
+
+
+TODO: extending terms
+
+TODO: basic custom theory (enums?)
+
+
