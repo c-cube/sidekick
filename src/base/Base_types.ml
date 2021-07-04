@@ -461,7 +461,8 @@ module Fun : sig
         relevant : 'a. ID.t -> 'a IArray.t -> int -> bool; (* relevant argument? *)
         ty : ID.t -> term IArray.t -> ty; (* compute type *)
         eval: value IArray.t -> value; (* evaluate term *)
-      }
+      } (** user defined function symbol.
+            A good example can be found in {!Form} for boolean connectives. *)
 
   (** A function symbol *)
   type t = fun_ = {
@@ -809,16 +810,17 @@ module Term : sig
   val bool : store -> bool -> t
   val const : store -> fun_ -> t
   val app_fun : store -> fun_ -> t IArray.t -> t
+  val app_fun_l : store -> fun_ -> t list -> t
   val eq : store -> t -> t -> t
   val not_ : store -> t -> t
   val ite : store -> t -> t -> t -> t
 
-  val const_undefined_fun : store -> ID.t -> Ty.Fun.t -> t
-  (** [const_undefined_fun store f ty] is [const store (Fun.mk_undef f ty)].
-  It builds a function symbol and turns it into a term immediately *)
+  val app_undefined : store -> ID.t -> Ty.Fun.t -> t IArray.t -> t
+  (** [app_undefined store f ty args] is [app store (Fun.mk_undef f ty) args].
+      It builds a function symbol and applies it into a term immediately *)
 
-  val const_undefined_const : store -> ID.t -> Ty.t -> t
-  (** [const_undefined_const store f ty] is [const store (Fun.mk_undef_const f ty)].
+  val const_undefined : store -> ID.t -> Ty.t -> t
+  (** [const_undefined store f ty] is [const store (Fun.mk_undef_const f ty)].
       It builds a constant function symbol and makes it into a term
       immediately. *)
 
@@ -947,6 +949,7 @@ end = struct
     let cell = Term_cell.app_fun f a in
     make st cell
 
+  let app_fun_l st f l = app_fun st f (IArray.of_list l)
   let[@inline] const st c = app_fun st c IArray.empty
   let[@inline] eq st a b = make st (Term_cell.eq a b)
   let[@inline] not_ st a = make st (Term_cell.not_ a)
@@ -975,9 +978,9 @@ end = struct
     let var st a : t = lra st (LRA_simplex_var a)
   end
 
-  let const_undefined_fun store id ty : t =
-    const store (Fun.mk_undef id ty)
-  let const_undefined_const store id ty : t =
+  let app_undefined store id ty args : t =
+    app_fun store (Fun.mk_undef id ty) args
+  let const_undefined store id ty : t =
     const store (Fun.mk_undef_const id ty)
 
   (* might need to tranfer the negation from [t] to [sign] *)

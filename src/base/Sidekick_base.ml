@@ -32,6 +32,9 @@ module Select = Base_types.Select
 module Proof = Proof
 module Form = Form
 
+(* re-export *)
+module IArray = IArray
+
 (** Concrete implementation of {!Sidekick_core.TERM}
 
     this module gathers most definitions above in a form
