@@ -145,10 +145,15 @@ module type TERM = sig
   end
 end
 
+(** Proofs of unsatisfiability *)
 module type PROOF = sig
+  type t
+  (** The abstract representation of a proof. A proof always proves
+      a clause to be {b valid} (true in every possible interpretation
+      of the problem's assertions, and the theories) *)
+
   type term
   type ty
-  type t
 
   type hres_step
   (** hyper-resolution steps: resolution, unit resolution;
@@ -179,6 +184,7 @@ module type PROOF = sig
   val lit_sign : lit -> bool
 
   type composite_step
+
   val stepc : name:string -> lit list -> t -> composite_step
   val deft : term -> term -> composite_step (** define a (new) atomic term *)
 

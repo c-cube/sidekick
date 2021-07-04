@@ -1,3 +1,5 @@
+(** Basic type definitions for Sidekick_base *)
+
 module Vec = Msat.Vec
 module Log = Msat.Log
 module Fmt = CCFormat
@@ -16,14 +18,20 @@ type ('num, 'a) lra_view = ('num, 'a) Sidekick_arith_lra.lra_view =
   | LRA_simplex_pred of 'a * Sidekick_arith_lra.S_op.t * 'num
   | LRA_other of 'a
 
-(* main term cell. *)
+(** Term.
+
+    A term, with its own view, type, and a unique identifier.
+    Do not create directly, see {!Term}. *)
 type term = {
   mutable term_id: int; (* unique ID *)
   mutable term_ty: ty;
   term_view : term term_view;
 }
 
-(* term shallow structure *)
+(** Shallow structure of a term.
+
+    A term is a DAG (direct acyclic graph) of nodes, each of which has a
+    term view. *)
 and 'a term_view =
   | Bool of bool
   | App_fun of fun_ * 'a IArray.t (* full, first-order application *)
@@ -36,6 +44,7 @@ and fun_ = {
   fun_id: ID.t;
   fun_view: fun_view;
 }
+(** type of function symbols *)
 
 and fun_view =
   | Fun_undef of fun_ty (* simple undefined constant *)
@@ -258,6 +267,7 @@ let pp_term_top ~ids out t =
 let pp_term = pp_term_top ~ids:false
 let pp_term_view = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:pp_term
 
+(** Types *)
 module Ty : sig
   type t = ty
   type state = unit
@@ -436,6 +446,7 @@ end = struct
   end
 end
 
+(** Function symbols *)
 module Fun : sig
   type view = fun_view =
     | Fun_undef of fun_ty (* simple undefined constant *)
@@ -758,6 +769,7 @@ end = struct
     end)
 end
 
+(** Term creation and manipulation *)
 module Term : sig
   type t = term = {
     mutable term_id : int;
@@ -999,6 +1011,7 @@ end = struct
     | LRA l -> lra tst (Sidekick_arith_lra.map_view f l)
 end
 
+(** Values (used in models) *)
 module Value : sig
   type t = value =
     | V_bool of bool
@@ -1070,6 +1083,7 @@ end = struct
     mk_elt (ID.makef "v_%d" t.term_id) t.term_ty
 end
 
+(** Datatypes *)
 module Data = struct
   type t = data = {
     data_id: ID.t;
@@ -1080,6 +1094,10 @@ module Data = struct
   let pp out d = ID.pp out d.data_id
 end
 
+(** Datatype selectors.
+
+    A selector is a kind of function that allows to obtain an argument
+    of a given constructor. *)
 module Select = struct
   type t = select = {
     select_id: ID.t;
@@ -1091,6 +1109,10 @@ module Select = struct
   let ty sel = Lazy.force sel.select_ty
 end
 
+(** Datatype constructors.
+
+    A datatype has one or more constructors, each of which is a special
+    kind of function symbol. Constructors are injective and pairwise distinct. *)
 module Cstor = struct
   type t = cstor = {
     cstor_id: ID.t;
@@ -1107,6 +1129,13 @@ module Cstor = struct
   let pp out c = ID.pp out c.cstor_id
 end
 
+(* TODO: check-sat-assuming, get-unsat-assumptions, push, pop *)
+
+(** Statements.
+
+    A statement is an instruction for the SMT solver to do something,
+    like asserting that a formula is true, declaring a new constant,
+    or checking satisfiabilty of the current set of assertions. *)
 module Statement = struct
   type t = statement =
     | Stmt_set_logic of string
@@ -1121,6 +1150,7 @@ module Statement = struct
     | Stmt_check_sat of (bool * term) list
     | Stmt_exit
 
+  (** Pretty print a statement *)
   let pp out = function
     | Stmt_set_logic s -> Fmt.fprintf out "(set-logic %s)" s
     | Stmt_set_option l -> Fmt.fprintf out "(@[set-logic@ %a@])" (Util.pp_list Fmt.string) l

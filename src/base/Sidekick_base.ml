@@ -6,7 +6,8 @@
     It provides a representation of terms, boolean formulas,
     linear arithmetic expressions, datatypes for the functors in Sidekick.
 
-    In addition, it has a notion of {!Statement}. Statements are instructions
+    In addition, it has a notion of {{!Base_types.Statement} Statement}.
+    Statements are instructions
     for the SMT solver to do something, such as: define a new constant,
     declare a new constant, assert a formula as being true,
     set an option, check satisfiability of the set of statements added so far,

@@ -38,8 +38,3 @@ end
 module Map = CCMap.Make(AsKey)
 module Set = CCSet.Make(AsKey)
 module Tbl = CCHashtbl.Make(AsKey)
-
-module B = struct
-  let int = make "int"
-  let rat = make "rat"
-end
