@@ -298,6 +298,7 @@ module Make (A: CC_ARG)
   let[@inline] on_backtrack cc f : unit =
     Backtrack_stack.push_if_nonzero_level cc.undo f
 
+  let[@inline] get_bitfield _cc field n = N.get_field field n
   let set_bitfield cc field b n =
     let old = N.get_field field n in
     if old <> b then (
