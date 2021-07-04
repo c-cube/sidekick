@@ -9,7 +9,10 @@ and its fork [mSAT](https://github.com/gbury/msat).
 
 ## Documentation
 
-See https://c-cube.github.io/sidekick/ .
+See [the API documentation](https://c-cube.github.io/sidekick/).
+
+A work-in-progress [guide](doc/guide.md) provides a more step-by-step
+introduction to how to use and modify sidekick.
 
 ## Short summary
 
