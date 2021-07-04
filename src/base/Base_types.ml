@@ -839,6 +839,7 @@ module Term : sig
     val gt : store -> t -> t -> t
     val eq : store -> t -> t -> t
     val neq : store -> t -> t -> t
+    val var : store -> t -> t
   end
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
@@ -971,6 +972,7 @@ end = struct
     let gt st a b : t = lra st (LRA_pred (Gt, a, b))
     let eq st a b : t = lra st (LRA_pred (Eq, a, b))
     let neq st a b : t = lra st (LRA_pred (Neq, a, b))
+    let var st a : t = lra st (LRA_simplex_var a)
   end
 
   let const_undefined_fun store id ty : t =
