@@ -31,6 +31,11 @@ module Data = Base_types.Data
 module Select = Base_types.Select
 module Proof = Proof
 
+(** Concrete implementation of {!Sidekick_core.TERM}
+
+    this module gathers most definitions above in a form
+    that is compatible with what Sidekick expects for terms, functions, etc.
+*)
 module Arg
   : Sidekick_core.TERM
     with type Term.t = Term.t

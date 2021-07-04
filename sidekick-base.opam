@@ -20,6 +20,7 @@ depends: [
   "alcotest" {with-test}
   "qcheck" {with-test & >= "0.16" }
   "odoc" {with-doc}
+  "ocaml-mdx" {with-test}
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"

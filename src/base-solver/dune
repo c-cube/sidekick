@@ -1,0 +1,9 @@
+(library
+  (name sidekick_base_solver)
+  (public_name sidekick-base.solver)
+  (synopsis "Instantiation of solver and theories for Sidekick_base")
+  (libraries sidekick-base sidekick.core sidekick.msat-solver
+            sidekick.th-bool-static
+            sidekick.mini-cc sidekick.th-data
+            sidekick.arith-lra sidekick.zarith)
+  (flags :standard -warn-error -a+8 -safe-string -color always -open Sidekick_util))

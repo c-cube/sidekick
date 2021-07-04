@@ -1,3 +1,13 @@
+
+(** Formulas (boolean terms).
+
+    This module defines function symbols, constants, and views
+    to manipulate boolean formulas in {!Sidekick_base}.
+    This is useful to have the ability to use boolean connectives instead
+    of being limited to clauses; by using {!Sidekick_th_bool_static},
+    the formulas are turned into clauses automatically for you.
+*)
+
 open Sidekick_base
 
 module T = Term
