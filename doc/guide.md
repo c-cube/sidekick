@@ -160,11 +160,11 @@ Now we can define new terms and constants. Let's try to define
 a few boolean constants named "p", "q", "r":
 
 ```ocaml
-# let p = Term.const_undefined_const tstore (ID.make "p") @@ Ty.bool();;
+# let p = Term.const_undefined tstore (ID.make "p") @@ Ty.bool();;
 val p : Term.t = p
-# let q = Term.const_undefined_const tstore (ID.make "q") @@ Ty.bool();;
+# let q = Term.const_undefined tstore (ID.make "q") @@ Ty.bool();;
 val q : Term.t = q
-# let r = Term.const_undefined_const tstore (ID.make "r") @@ Ty.bool();;
+# let r = Term.const_undefined tstore (ID.make "r") @@ Ty.bool();;
 val r : Term.t = r
 
 # Term.ty p;;
@@ -305,7 +305,6 @@ It comes from the fact that `p=q`, but `p` and `q` imply contradictory
 formulas (`r` and `¬r`), so when we force `p` to be true, `q` is true too
 and the contradiction is triggered.
 
-
 ## A bit of arithmetic
 
 We can solve linear real arithmetic problems as well.
@@ -321,9 +320,9 @@ Create a few arithmetic constants.
 ```ocaml
 # let real = Ty.real ();;
 val real : Ty.t = Real
-# let a = Term.const_undefined_const tstore (ID.make "a") real;;
+# let a = Term.const_undefined tstore (ID.make "a") real;;
 val a : Term.t = a
-# let b = Term.const_undefined_const tstore (ID.make "b") real;;
+# let b = Term.const_undefined tstore (ID.make "b") real;;
 val b : Term.t = b
 
 # Term.ty a;;
@@ -368,6 +367,74 @@ val res : Solver.res =
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
 The junk assumption `p` was not used during the proof
 and therefore doesn't appear in the unsat core we extract from `res`.
+
+## Functions and congruence closure
+
+We can define function symbols, not just constants. Let's also define `u`,
+an uninterpreted type.
+
+```ocaml
+# let u = Ty.atomic_uninterpreted (ID.make "u");;
+val u : Ty.t = u/12
+
+# let u1 = Term.const_undefined tstore (ID.make "u1") u;;
+val u1 : Term.t = u1
+# let u2 = Term.const_undefined tstore (ID.make "u2") u;;
+val u2 : Term.t = u2
+# let u3 = Term.const_undefined tstore (ID.make "u3") u;;
+val u3 : Term.t = u3
+
+# let f1 = Fun.mk_undef' (ID.make "f1") [u] u;;
+val f1 : Fun.t = f1/16
+# Fun.view f1;;
+- : Fun.view =
+Sidekick_base.Fun.Fun_undef
+ {Sidekick_base.Base_types.fun_ty_args = [u/12]; fun_ty_ret = u/12}
+
+# let f1_u1 = Term.app_fun_l tstore f1 [u1];;
+val f1_u1 : Term.t = (f1 u1)
+
+# Term.ty f1_u1;;
+- : Ty.t = u/12
+# Term.view f1_u1;;
+- : Term.t Term.view = Sidekick_base.Term.App_fun (f1/16, [|u1|])
+```
+
+Anyway, Sidekick knows how to reason about functions.
+
+```ocaml
+# let solver = Solver.create ~theories:[] tstore () ();;
+val solver : Solver.t = <abstr>
+
+# (* helper *)
+  let appf1 x = Term.app_fun_l tstore f1 x;;
+val appf1 : Term.t list -> Term.t = <fun>
+
+# Solver.assert_term solver (Term.eq tstore u2 (appf1 [u1]));;
+- : unit = ()
+# Solver.assert_term solver (Term.eq tstore u3 (appf1 [u2]));;
+- : unit = ()
+# Solver.assert_term solver (Term.eq tstore u1 (appf1 [appf1 [u1]]));;
+- : unit = ()
+# Solver.assert_term solver
+  (Term.eq tstore u1 (appf1 [appf1 [appf1 [u1]]]));;
+- : unit = ()
+
+# Solver.solve solver
+    ~assumptions:[Solver.mk_atom_t' solver ~sign:false (Term.eq tstore u1 (appf1[u1]))];;
+- : Solver.res =
+Sidekick_base_solver.Solver.Unsat
+ {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+
+# Solver.solve solver
+    ~assumptions:[Solver.mk_atom_t' solver ~sign:false (Term.eq tstore u2 u3)];;
+- : Solver.res =
+Sidekick_base_solver.Solver.Unsat
+ {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+```
+
+Assuming: `f1(u1)=u2, f1(u2)=u3, f1^2(u1)=u1, f1^3(u1)=u1`,
+we proved that `f1(u1)=u1`, then that `u2=u3` because both are equal to `u1`.
 
 ## Extending sidekick
 
