@@ -1,0 +1,14 @@
+
+(rule
+ (targets guide.md.corrected)
+ (deps (package sidekick) (package sidekick-base) ./mdx_runner.exe (:file guide.md))
+ (action (run ./mdx_runner.exe %{file} %{targets})))
+
+(alias
+ (name runtest)
+ (package sidekick-base)
+ (action (diff guide.md guide.md.corrected)))
+
+(executable
+  (name mdx_runner)
+  (modes native))
