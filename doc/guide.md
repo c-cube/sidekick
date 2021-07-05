@@ -66,7 +66,7 @@ We're going to use these libraries:
   One can use this library directly, but it means providing an
   implementation to each functor, which can be sometimes intricate.
 
-- `sidekick_base`: a fixed definition of terms, types, statements, etc. that
+- `sidekick-base`: a fixed definition of terms, types, statements, etc. that
   is compatible with `sidekick`.
   This gives you a starting point to manipulate logic formulas and
   use SMT on them.
@@ -464,4 +464,4 @@ TODO: extending terms
 
 TODO: basic custom theory (enums?)
 
-
+`
