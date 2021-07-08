@@ -11,4 +11,12 @@
 
 (executable
   (name mdx_runner)
+  (modules mdx_runner)
+  (modes native))
+
+(executable
+  (name small_solver)
+  (modules small_solver)
+  (flags :standard -warn-error -a+8)
+  (libraries containers sidekick.core sikekick-base sikekick-base.solver)
   (modes native))
