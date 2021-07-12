@@ -79,7 +79,7 @@ and composite_step =
      explicit step with a conclusion and proofs that can be exploited
      separately.
 
-     We could introduce that in Compress.rename…
+     We could introduce that in Preprocess.rename…
 
   | S_define_c of string * clause (* [name := c] *)
    *)
@@ -213,11 +213,15 @@ let has_env_ s =
   | _ -> false | exception _ -> false
 
 let default_config : config = {
-  out_format = Sexp;
+  out_format=Sexp;
   flat=true;
   sharing=true;
-  self_contained=has_env_ "PROOF_SELF_CONTAINED";
+  self_contained=true;
+  (* self_contained=has_env_ "PROOF_SELF_CONTAINED"; *)
 }
+
+(* TODO: actually parse config? *)
+let config_from_env () = default_config
 
 let pp_config out c =
   let {self_contained; sharing; flat; out_format} = c in
@@ -240,6 +244,7 @@ module Preprocess : sig
     terms: name shared_status T.Tbl.t; (* sharing for non-small terms *)
   }
 
+  val empty_info : unit -> info
   val compute_info : config:config -> t -> info
 
   val preprocess : config:config -> info -> t -> t
@@ -268,6 +273,8 @@ end = struct
   let create () : info =
     { terms=T.Tbl.create 32;
     }
+
+  let empty_info = create
 
   (* traverse [p] and apply [f_t] to subterms (except to [c] in [c := rhs]) *)
   let rec traverse_proof_ ?on_step ~f_t (p:t) : unit =
@@ -371,7 +378,9 @@ end = struct
             && not (ID.Tbl.mem decl_fun_tbl (Fun.id f)) ->
           (* TODO: push declare(f) into new_steps *)
           begin match Fun.view f with
-            | Fun.Fun_def _ -> Error.errorf "unimplemented: defined function %a" Fun.pp f
+            | Fun.Fun_def _ ->
+              Log.debugf 1 (fun k->k"proof: unimplemented: defined function %a" Fun.pp f);
+              ()
             | Fun.Fun_cstor _ | Fun.Fun_is_a _ | Fun.Fun_select _ -> ()
             | Fun.Fun_undef {fun_ty_args; fun_ty_ret} ->
               (* declare unin function *)
@@ -437,10 +446,11 @@ module Quip = struct
   module type OUT = sig
     type out
     type printer = out -> unit
-    val l : printer list -> printer
-    val iter_toplist : ('a -> printer) -> 'a Iter.t -> printer
-    (* list of steps, should be printed vertically if possible *)
     val a : string -> printer
+    val l : printer list -> printer
+    val in_l : printer -> printer
+    val all_l : printer list -> printer
+    val all_iter : printer Iter.t -> printer
   end
 
   (*
@@ -490,6 +500,13 @@ module Quip = struct
         let id = Ty.id_of_def def in
         l(a(ID.to_string id)::List.map pp_ty args)
 
+    let pp_fun_ty ty =
+      let args = Ty.Fun.args ty in
+      let ret = Ty.Fun.ret ty in
+      match args with
+      | [] -> pp_ty ret
+      | _ -> l(a"->"::List.map pp_ty args@[pp_ty ret])
+
     let pp_l ppx xs = l (List.map ppx xs)
     let pp_lit ~pp_t lit = match lit with
       | L_a(b,t) -> l[a(if b then"+" else"-");pp_t t]
@@ -497,9 +514,9 @@ module Quip = struct
     let pp_cl ~pp_t c =
       l (a "cl" :: List.map (pp_lit ~pp_t) c)
 
-    let rec pp_rec (sharing:Compress.sharing_info) (self:t) : printer =
-      let pp_rec = pp_rec sharing in
-      let pp_t = pp_t sharing in
+    let rec pp_rec (info:Preprocess.info) (self:t) : printer =
+      let pp_rec = pp_rec info in
+      let pp_t = pp_t info in
       let pp_cl = pp_cl ~pp_t in
       match self with
       | Unspecified -> a "<unspecified>"
@@ -517,7 +534,7 @@ module Quip = struct
       | Nn p -> l[a"nn";pp_rec p]
       | Assertion t -> l[a"assert";pp_t t]
       | Assertion_c c -> l[a"assert-c";pp_cl c]
-      | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map (pp_hres_step sharing) steps)]
+      | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map (pp_hres_step info) steps)]
       | Res (t,p1,p2) -> l[a"r";pp_t t;pp_rec p1;pp_rec p2]
       | Res1 (p1,p2) -> l[a"r1";pp_rec p1;pp_rec p2]
       | DT_isa_split (ty,cs) ->
@@ -531,10 +548,10 @@ module Quip = struct
       | Ite_false t -> l[a"ite-false"; pp_t t]
       | LRA c -> l[a"lra";pp_cl c]
       | Composite {steps; assumptions} ->
-        let pp_ass (n,ass) : printer =
-          l[a"assuming";a n;pp_lit ~pp_t ass] in
+        let pp_ass (n,ass) : printer = l[a"assuming";a n;pp_lit ~pp_t ass] in
         l[a"steps";l(List.map pp_ass assumptions);
-          iter_toplist (pp_composite_step sharing) (Iter.of_array steps)]
+          in_l (all_iter (Iter.of_array steps |> Iter.map (pp_composite_step info)))
+         ]
 
     and pp_composite_step sharing step : printer =
       let pp_t = pp_t sharing in
@@ -547,6 +564,8 @@ module Quip = struct
         l[a"deft";pp_t c; pp_t_nonshare_root sharing rhs]
       | S_define_t_name (c,rhs) ->
         l[a"deft";a c; pp_t_nonshare_root sharing rhs]
+      | S_decl_ty(c,n) -> l[a"ty_decl";a c;a(string_of_int n)]
+      | S_decl_fun(c,ty) -> l[a"decl";a c;pp_fun_ty ty]
 
     (*
       | S_define_t (name, t) ->
@@ -562,52 +581,52 @@ module Quip = struct
 
     (* toplevel wrapper *)
     let pp ~config self : printer =
-      let sharing = Profile.with1 "proof.find-sharing" (Compress.find_sharing ~config) self in
-      let self = Profile.with2 "proof.rename" Compress.rename sharing self in
+      let info = Profile.with1 "proof.compute-info" (Preprocess.compute_info ~config) self in
+      let self = Profile.with2 "proof.preprocess" (Preprocess.preprocess ~config) info self in
       (* now print *)
       begin match self with
-        | Composite {steps; assms=[]} when config.flat ->
-          l[a"quip"; a"1"]; List.iter (pp_composite_step sharing) steps
+        | Composite {steps; assumptions=[]} when config.flat ->
+          (* flat list of s-exprs instead of a single nested s-expr *)
+          all_iter
+            (Iter.cons
+              (l[a"quip"; a"1"])
+              (Iter.of_array steps |> Iter.map (pp_composite_step info)))
         | _ ->
+          l[a"quip"; a"1"; pp_rec info self]
       end
 
-    let pp_debug ~sharing self : printer =
-      if sharing then pp self
-      else pp_rec Compress.no_sharing self
+    let pp_debug self : printer =
+      pp_rec (Preprocess.empty_info()) self
   end
 
-  module Out_csexp = struct
+  module Out_csexp : OUT with type out=out_channel = struct
     type out = out_channel
     type printer = out -> unit
-    let l prs out =
-      output_char out '(';
-      List.iter (fun x->x out) prs;
-      output_char out ')'
+    let in_l f out = output_char out '('; f out; output_char out ')'
+    let all_l prs out = List.iter (fun x->x out) prs
+    let all_iter prs out = Iter.iter (fun x->x out) prs
+    let l prs = in_l (all_l prs)
     let a s out = Printf.fprintf out "%d:%s" (String.length s) s
-    let iter_toplist f it out =
-      output_char out '(';
-      it (fun x -> f x out);
-      output_char out ')'
   end
 
-  module Out_sexp = struct
+  module Out_sexp : OUT with type out=out_channel = struct
     type out = out_channel
     type printer = out -> unit
+    let in_l f out = output_char out '('; f out; output_char out ')'
     let l prs out =
       output_char out '(';
       List.iteri (fun i x->if i>0 then output_char out ' ';x out) prs;
       output_char out ')'
+    let all_l prs out = List.iter (fun p -> p out) prs
     let a =
       let buf = Buffer.create 128 in
       fun s out ->
         Buffer.clear buf;
         CCSexp.to_buf buf (`Atom s);
         Buffer.output_buffer out buf
-    let iter_toplist f it out =
-      output_char out '(';
+    let all_iter it out =
       let first=ref true in
-      it (fun x -> if !first then first := false else output_char out '\n'; f x out);
-      output_char out ')'
+      it (fun x -> if !first then first := false else output_char out '\n'; x out)
   end
 
   let output ~config oc (self:t) : unit =
@@ -619,20 +638,20 @@ module Quip = struct
 end
 
 let pp_debug out p =
-  let module Out = struct
+  let module Out : Quip.OUT with type out=Format.formatter = struct
     type out = Format.formatter
     type printer = out -> unit
+    let in_l f out = Fmt.fprintf out "(@["; f out; Fmt.fprintf out "@])"
     let l prs out =
       Fmt.fprintf out "(@[";
       List.iteri(fun i x -> if i>0 then Fmt.fprintf out "@ "; x out) prs;
       Fmt.fprintf out "@])"
     let a s out = Fmt.string out s
-    let iter_toplist f it out =
-      Fmt.fprintf out "(@[<v>";
+    let all_l prs out = List.iter (fun f -> Fmt.fprintf out "%t@." f) prs
+    let all_iter it out =
       let first=ref true in
-      it (fun x -> if !first then first := false else Fmt.fprintf out "@ "; f x out);
-      Fmt.fprintf out "@])"
+      it (fun x -> if !first then first := false else Fmt.fprintf out "@ "; x out)
   end
   in
   let module M = Quip.Make(Out) in
-  M.pp_debug ~sharing:true p out
+  M.pp_debug p out

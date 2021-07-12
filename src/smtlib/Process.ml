@@ -198,8 +198,9 @@ let solve
         | Some file, lazy (Some p) ->
           Profile.with_ "proof.write-file" @@ fun () ->
           let p = Profile.with1 "proof.mk-proof" Solver.Pre_proof.to_proof p in
+          let config = Proof.config_from_env() in
           CCIO.with_out file
-            (fun oc -> Proof.Quip.output oc p; flush oc)
+            (fun oc -> Proof.Quip.output ~config oc p; flush oc)
         | _ -> ()
       end;
 
