@@ -3,6 +3,7 @@ open Base_types
 
 module T = Term
 module Ty = Ty
+module Str_tbl = Util.Str_tbl
 type term = T.t
 type ty = Ty.t
 
@@ -70,6 +71,8 @@ and composite_step =
     }
   | S_define_t of term * term (* [const := t] *)
   | S_define_t_name of string * term (* [const := t] *)
+  | S_decl_ty of string * int
+  | S_decl_fun of string * Ty.Fun.t
 
   (* TODO: be able to name clauses, to be expanded at parsing.
      note that this is not the same as [S_step_c] which defines an
@@ -95,6 +98,8 @@ let p1 p = P1 p
 let stepc ~name res proof : composite_step = S_step_c {proof;name;res}
 let deft c rhs : composite_step = S_define_t (c,rhs)
 let deft_name c rhs : composite_step = S_define_t_name (c,rhs)
+let decl_ty name n : composite_step = S_decl_ty (name, n)
+let decl_fun name ty : composite_step = S_decl_fun (name, ty)
 
 let is_trivial_refl = function
   | Refl _ -> true
@@ -183,8 +188,62 @@ let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
     List.iter (fun (_,lit) -> iter_lit ~f_t lit) assumptions;
     Array.iter f_step steps;
 
-(** {2 Compress by making more sharing explicit} *)
-module Compress = struct
+(** {2 Config} *)
+
+type out_format = Sexp | CSexp
+let string_of_out_format = function Sexp -> "sexp" | CSexp -> "csexp"
+
+type config = {
+  self_contained: bool;
+  (** Add all required type declarations and definitions to the proof *)
+
+  flat: bool;
+  (** If true, use many toplevel S-exprs as opposed to a single `(quip 1 …)` *)
+
+  sharing: bool;
+  (** Introduce sharing of terms to make the proof more compact? *)
+
+  out_format: out_format;
+  (** Format in which to print the proof *)
+}
+
+let has_env_ s =
+  match Sys.getenv s with
+  | "1"|"true" -> true
+  | _ -> false | exception _ -> false
+
+let default_config : config = {
+  out_format = Sexp;
+  flat=true;
+  sharing=true;
+  self_contained=has_env_ "PROOF_SELF_CONTAINED";
+}
+
+let pp_config out c =
+  let {self_contained; sharing; flat; out_format} = c in
+  Fmt.fprintf out "{@[self_contained=%B;@ flat=%B;@ sharing=%B;@ out_format=%s@]}"
+    self_contained flat sharing (string_of_out_format out_format)
+
+
+(** Preprocess proof (sharing, declarations) *)
+module Preprocess : sig
+  type 'a shared_status =
+    | First (* first occurrence of t *)
+    | Shared (* multiple occurrences observed *)
+    | Pre_named of 'a (* another step names it *)
+    | Named of 'a (* already named it *)
+
+  type name = N_s of string | N_t of T.t
+
+  (* TODO: also decl info *)
+  type info = {
+    terms: name shared_status T.Tbl.t; (* sharing for non-small terms *)
+  }
+
+  val compute_info : config:config -> t -> info
+
+  val preprocess : config:config -> info -> t -> t
+end = struct
   type 'a shared_status =
     | First (* first occurrence of t *)
     | Shared (* multiple occurrences observed *)
@@ -202,12 +261,13 @@ module Compress = struct
     | LRA _ -> false
 
   type name = N_s of string | N_t of T.t
-  type sharing_info = {
+  type info = {
     terms: name shared_status T.Tbl.t; (* sharing for non-small terms *)
   }
 
-  let no_sharing : sharing_info =
-    { terms = T.Tbl.create 8 }
+  let create () : info =
+    { terms=T.Tbl.create 32;
+    }
 
   (* traverse [p] and apply [f_t] to subterms (except to [c] in [c := rhs]) *)
   let rec traverse_proof_ ?on_step ~f_t (p:t) : unit =
@@ -226,15 +286,16 @@ module Compress = struct
     | S_define_t (_, rhs) -> f_t rhs
     | S_step_c {name=_; res; proof} ->
       traverse_clause_ ~f_t res; traverse_proof_ ~f_t proof
+    | S_decl_ty _ | S_decl_fun _ -> ()
   and traverse_clause_ ~f_t c : unit =
     List.iter (iter_lit ~f_t) c
 
-  (** [find_sharing p] returns a {!sharing_info} which contains sharing information.
+  (** [compute_info config p] returns a {!info}
+      which contains sharing information.
       This information can be used during printing to reduce the
       number of duplicated sub-terms that are printed. *)
-  let find_sharing p : sharing_info =
-    let self = {terms=T.Tbl.create 32} in
-
+  let compute_info ~config:_ p : info =
+    let self = create() in
     let traverse_t t =
       T.iter_dag t
         (fun u ->
@@ -253,15 +314,16 @@ module Compress = struct
       | S_define_t (c,rhs) ->
         T.Tbl.replace self.terms rhs (Pre_named (N_t c));
       | S_step_c _ -> ()
+      | S_decl_fun _ | S_decl_ty _ -> ()
     in
 
     traverse_proof_ p ~on_step ~f_t:traverse_t;
     self
 
-  (** [renaming sharing p] returns a new proof [p'] with more definitions.
+  (** [renaming ~config sharing p] returns a new proof [p'] with more definitions.
       It also modifies [sharing] so that the newly defined objects are
       mapped to {!Named}, which we can use during printing. *)
-  let rename sharing (p:t) : t =
+  let preprocess ~config info (p:t) : t =
     let n = ref 0 in
     let new_name () = incr n; Printf.sprintf "$t%d" !n in
 
@@ -270,9 +332,74 @@ module Compress = struct
       (* now traverse again, renaming some things on the fly *)
       let new_steps = Vec.create() in
 
+      (* declared term and type constants *)
+      let decl_fun_tbl = ID.Tbl.create 8 in
+      let decl_ty_tbl = ID.Tbl.create 8 in
+
       (* definitions we can skip *)
       let skip_name_s = Hashtbl.create 8 in
       let skip_name_t = T.Tbl.create 8 in
+
+      let rec potentially_declare_ty ty =
+        begin match Ty.view ty with
+          | Ty.Ty_atomic {def=Ty.Ty_uninterpreted id; args; finite=_}
+            when config.self_contained &&
+               not (ID.Tbl.mem decl_ty_tbl id ) ->
+            ID.Tbl.add decl_ty_tbl id ();
+            Vec.push new_steps (decl_ty (ID.to_string id) (List.length args));
+
+            List.iter potentially_declare_ty args;
+
+          | Ty.Ty_atomic {def=Ty.Ty_data _;args; finite=_} ->
+            List.iter potentially_declare_ty args;
+            () (* TODO *)
+          | Ty.Ty_atomic {args;_} ->
+            List.iter potentially_declare_ty args;
+            () (* TODO *)
+          | Ty.Ty_real | Ty.Ty_bool -> ()
+        end
+      in
+
+      (* TODO: AST for declarations of term/types, and use it *)
+      let potentially_declare u : unit =
+        potentially_declare_ty (T.ty u); (* declare type *)
+
+        (* declare function symbol *)
+        match T.view u with
+        | T.App_fun (f, _)
+            when config.self_contained
+            && not (ID.Tbl.mem decl_fun_tbl (Fun.id f)) ->
+          (* TODO: push declare(f) into new_steps *)
+          begin match Fun.view f with
+            | Fun.Fun_def _ -> Error.errorf "unimplemented: defined function %a" Fun.pp f
+            | Fun.Fun_cstor _ | Fun.Fun_is_a _ | Fun.Fun_select _ -> ()
+            | Fun.Fun_undef {fun_ty_args; fun_ty_ret} ->
+              (* declare unin function *)
+              ID.Tbl.add decl_fun_tbl (Fun.id f) ();
+              let ty = Ty.Fun.mk fun_ty_args fun_ty_ret in
+              Vec.push new_steps
+                (decl_fun (Fun.id f |> ID.to_string) ty);
+          end;
+        | _ -> ()
+      in
+
+      let potentially_rename_subterm u : unit =
+        match T.Tbl.get info.terms u with
+        | Some Shared ->
+          (* shared, but not named yet *)
+          let name = new_name() in
+          Vec.push new_steps (deft_name name u);
+          T.Tbl.replace info.terms u (Named (N_s name))
+        | Some (Pre_named name) ->
+          (* named later in the file, declare it earlier to preserve
+             a well ordering on definitions since we need it right now *)
+          Vec.push new_steps
+            (match name with
+             | N_s n -> Hashtbl.add skip_name_s n (); deft_name n u
+             | N_t t -> T.Tbl.add skip_name_t t (); deft t u);
+          T.Tbl.replace info.terms u (Named name)
+        | _ -> ()
+      in
 
       (* traverse [t], and if there's a subterm that is shared but
          not named yet, name it now.
@@ -280,21 +407,9 @@ module Compress = struct
       let traverse_t t : unit =
         T.iter_dag_with ~order:T.Iter_dag.Post t
           (fun u ->
-              match T.Tbl.get sharing.terms u with
-              | Some Shared ->
-                (* shared, but not named yet *)
-                let name = new_name() in
-                Vec.push new_steps (deft_name name u);
-                T.Tbl.replace sharing.terms u (Named (N_s name))
-              | Some (Pre_named name) ->
-                (* named later in the file, declare it earlier to preserve
-                   a well ordering on definitions since we need it right now *)
-                Vec.push new_steps
-                  (match name with
-                   | N_s n -> Hashtbl.add skip_name_s n (); deft_name n u
-                   | N_t t -> T.Tbl.add skip_name_t t (); deft t u);
-                T.Tbl.replace sharing.terms u (Named name)
-              | _ -> ())
+             if config.self_contained then potentially_declare u;
+             if config.sharing then potentially_rename_subterm u;
+          )
       in
 
       (* introduce naming in [step], then push it into {!new_steps} *)
@@ -336,7 +451,7 @@ module Quip = struct
     open Out
 
     let rec pp_t sharing (t:Term.t) : printer =
-      match T.Tbl.get sharing.Compress.terms t with
+      match T.Tbl.get sharing.Preprocess.terms t with
       | Some (Named (N_s s)) -> a s(* use the newly introduced name *)
       | Some (Named (N_t t)) -> pp_t sharing t (* use name *)
       | _ -> pp_t_nonshare_root sharing t
@@ -446,13 +561,15 @@ module Quip = struct
       | P1 p -> l[a"p1"; pp_rec sharing p]
 
     (* toplevel wrapper *)
-    let pp self : printer =
-      (* find sharing *)
-      let sharing = Profile.with1 "proof.find-sharing" Compress.find_sharing self in
-      (* introduce names *)
+    let pp ~config self : printer =
+      let sharing = Profile.with1 "proof.find-sharing" (Compress.find_sharing ~config) self in
       let self = Profile.with2 "proof.rename" Compress.rename sharing self in
       (* now print *)
-      l[a"quip"; a"1"; pp_rec sharing self]
+      begin match self with
+        | Composite {steps; assms=[]} when config.flat ->
+          l[a"quip"; a"1"]; List.iter (pp_composite_step sharing) steps
+        | _ ->
+      end
 
     let pp_debug ~sharing self : printer =
       if sharing then pp self
@@ -493,24 +610,15 @@ module Quip = struct
       output_char out ')'
   end
 
-  type out_format = Sexp | CSexp
-  let default_out_format = Sexp
-
-  let out_format_ = match Sys.getenv "PROOF_FMT" with
-    | "csexp" -> CSexp
-    | "sexp" -> Sexp
-    | s -> failwith (Printf.sprintf "unknown proof format %S" s)
-    | exception _ -> default_out_format
-
-  let output oc (self:t) : unit =
-    match out_format_ with
-    | Sexp -> let module M = Make(Out_sexp) in M.pp self oc
+  let output ~config oc (self:t) : unit =
+    match config.out_format with
+    | Sexp -> let module M = Make(Out_sexp) in M.pp ~config self oc
     | CSexp ->
       (* canonical sexp *)
-      let module M = Make(Out_csexp) in M.pp self oc
+      let module M = Make(Out_csexp) in M.pp ~config self oc
 end
 
-let pp_debug ~sharing out p =
+let pp_debug out p =
   let module Out = struct
     type out = Format.formatter
     type printer = out -> unit
@@ -527,4 +635,4 @@ let pp_debug ~sharing out p =
   end
   in
   let module M = Quip.Make(Out) in
-  M.pp_debug ~sharing p out
+  M.pp_debug ~sharing:true p out

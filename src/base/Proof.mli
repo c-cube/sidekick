@@ -26,3 +26,28 @@ val ite_false : term -> t
 
 val lra : lit Iter.t -> t
 val lra_l : lit list -> t
+
+type out_format = Sexp | CSexp
+
+type config = {
+  self_contained: bool;
+  (** Add all required type declarations and definitions to the proof *)
+
+  flat: bool;
+  (** If true, use many toplevel S-exprs as opposed to a single `(quip 1 …)` *)
+
+  sharing: bool;
+  (** Introduce sharing of terms to make the proof more compact? *)
+
+  out_format: out_format;
+  (** Format in which to print the proof *)
+}
+
+val default_config : config
+val config_from_env : unit -> config
+val pp_config : config Fmt.printer
+
+module Quip : sig
+  val output : config:config -> out_channel -> t -> unit
+  (** Printer in Quip format (experimental) *)
+end

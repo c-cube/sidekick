@@ -218,15 +218,8 @@ module type PROOF = sig
 
   val default : t [@@alert cstor "do not use default constructor"]
 
-  val pp_debug : sharing:bool -> t Fmt.printer
-  (** Pretty print a proof.
-      @param sharing if true, try to compact the proof by introducing
-      definitions for common terms, clauses, and steps as needed. Safe to ignore. *)
-
-  module Quip : sig
-    val output : out_channel -> t -> unit
-    (** Printer in Quip format (experimental) *)
-  end
+  val pp_debug : t Fmt.printer
+  (** Pretty print a proof. *)
 end
 
 (** Literals
@@ -1069,9 +1062,6 @@ module type SOLVER = sig
       A type or state convertible into {!P.t} *)
   module Pre_proof : sig
     type t
-
-    val output : out_channel -> t -> unit
-    (** Output onto a channel, efficiently *)
 
     val pp_debug : t Fmt.printer
 

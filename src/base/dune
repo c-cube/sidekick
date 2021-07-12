@@ -5,4 +5,4 @@
  (libraries containers sidekick.core sidekick.util
             sidekick.arith-lra sidekick.th-bool-static
             sidekick.zarith zarith)
- (flags :standard -w -32 -open Sidekick_util))
+ (flags :standard -w -32 -warn-error -a+8 -open Sidekick_util))

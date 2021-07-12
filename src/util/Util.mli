@@ -22,3 +22,4 @@ val setup_gc : unit -> unit
 module Int_set : CCSet.S with type elt = int
 module Int_map : CCMap.S with type key = int
 module Int_tbl : CCHashtbl.S with type key = int
+module Str_tbl : CCHashtbl.S with type key = string

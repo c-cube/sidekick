@@ -350,7 +350,7 @@ module Make(A : ARG)
       if not (Lit.equal lit lit') then (
         Log.debugf 10
           (fun k->k "(@[msat-solver.preprocess.lit@ :lit %a@ :into %a@ :proof %a@])"
-              Lit.pp lit Lit.pp lit' (P.pp_debug ~sharing:false) p);
+              Lit.pp lit Lit.pp lit' P.pp_debug p);
       );
 
       lit', p
@@ -637,8 +637,7 @@ module Make(A : ARG)
       { msat; tdefs; p=lazy (conv_proof msat tdefs) }
 
     let check self = SP.check self.msat
-    let pp_debug out self = P.pp_debug ~sharing:false out (to_proof self)
-    let output oc (self:t) = P.Quip.output oc (to_proof self)
+    let pp_debug out self = P.pp_debug out (to_proof self)
   end
 
   (* main solver state *)
@@ -830,7 +829,7 @@ module Make(A : ARG)
   let add_clause (self:t) (c:Atom.t IArray.t) (proof:P.t) : unit =
     Stat.incr self.count_clause;
     Log.debugf 50 (fun k->k "(@[solver.add-clause@ %a@ :proof %a@])"
-                      (Util.pp_iarray Atom.pp) c (P.pp_debug ~sharing:false) proof);
+                      (Util.pp_iarray Atom.pp) c P.pp_debug proof);
     let pb = Profile.begin_ "add-clause" in
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) proof;
     Profile.exit pb

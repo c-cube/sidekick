@@ -169,7 +169,7 @@ module Make (A: CC_ARG)
       | E_merge (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" N.pp a N.pp b
       | E_merge_t (a,b) -> Fmt.fprintf out "(@[<hv>merge@ @[:n1 %a@]@ @[:n2 %a@]@])" Term.pp a Term.pp b
       | E_theory e -> Fmt.fprintf out "(@[th@ %a@])" pp e
-      | E_proof p -> Fmt.fprintf out "(@[proof@ %a@])" (P.pp_debug ~sharing:false) p
+      | E_proof p -> Fmt.fprintf out "(@[proof@ %a@])" P.pp_debug p
       | E_and (a,b) ->
         Format.fprintf out "(@[<hv1>and@ %a@ %a@])" pp a pp b
 
