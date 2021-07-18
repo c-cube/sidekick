@@ -273,7 +273,7 @@ let process_stmt
       let atom, pr_atom = Solver.mk_atom_t solver t in
       CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
       Solver.add_clause solver (IArray.singleton atom)
-        Proof.(hres_l (assertion t) [p1 pr_atom]);
+        Proof.(nn @@ hres_l (assertion t) [p1 pr_atom]);
       E.return()
 
     | Statement.Stmt_assert_clause c_ts ->
