@@ -74,7 +74,7 @@ module Make(A : ARG)
   type lit = Lit_.t
 
   (* actions from msat *)
-  type msat_acts = (Sidekick_sat.void, lit, Sidekick_sat.void, P.t) Sidekick_sat.acts
+  type msat_acts = (lit, P.t) Sidekick_sat.acts
 
   (* the full argument to the congruence closure *)
   module CC_actions = struct
@@ -427,7 +427,7 @@ module Make(A : ARG)
 
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
-      Sidekick_sat.Log.debugf 2
+      Log.debugf 2
         (fun k->k "(@[<hv1>@{<green>msat-solver.assume_lits@}%s[lvl=%d]@ %a@])"
             (if final then "[final]" else "") self.level (Util.pp_iter ~sep:"; " Lit.pp) lits);
       (* transmit to CC *)
@@ -455,17 +455,13 @@ module Make(A : ARG)
       ()
 
     let[@inline] iter_atoms_ acts : _ Iter.t =
-      fun f ->
-      acts.Sidekick_sat.acts_iter_assumptions
-        (function
-          | Sidekick_sat.Lit a -> f a
-          | Sidekick_sat.Assign _ -> assert false)
+      fun f -> acts.Sidekick_sat.acts_iter_assumptions f
 
     (* propagation from the bool solver *)
     let check_ ~final (self:t) (acts: msat_acts) =
       let pb = if final then Profile.begin_ "solver.final-check" else Profile.null_probe in
       let iter = iter_atoms_ acts in
-      Sidekick_sat.Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
+      Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
       self.on_progress();
       assert_lits_ ~final self acts iter;
       Profile.exit pb
@@ -517,7 +513,7 @@ module Make(A : ARG)
     module SC = Sat_solver.Clause
 
     type t = {
-      msat: Sat_solver.proof;
+      msat: Sat_solver.Proof.t;
       tdefs: (term*term) list; (* term definitions *)
       p: P.t lazy_t;
     }
@@ -539,7 +535,7 @@ module Make(A : ARG)
          clause [c] under given assumptions (each assm is a lit),
          and return [-a1 \/ … \/ -an \/ c], discharging assumptions
     *)
-    let conv_proof (msat:Sat_solver.proof) (t_defs:_ list) : P.t =
+    let conv_proof (msat:Sat_solver.Proof.t) (t_defs:_ list) : P.t =
       let assms = ref [] in
       let steps = ref [] in
 
@@ -547,7 +543,7 @@ module Make(A : ARG)
       let n_tbl_: string SC.Tbl.t = SC.Tbl.create 32 in (* node.concl -> unique idx *)
 
       (* name of an already processed proof node *)
-      let find_proof_name (p:Sat_solver.proof) : string =
+      let find_proof_name (p:Sat_solver.Proof.t) : string =
         try SC.Tbl.find n_tbl_ (SP.conclusion p)
         with Not_found ->
           Error.errorf
@@ -631,7 +627,7 @@ module Make(A : ARG)
       let t_defs = CCList.map (fun (c,rhs) -> P.deft c rhs) t_defs in
       P.composite_l ~assms (CCList.append t_defs (List.rev !steps))
 
-    let make (msat: Sat_solver.proof) (tdefs: _ list) : t =
+    let make (msat: Sat_solver.Proof.t) (tdefs: _ list) : t =
       { msat; tdefs; p=lazy (conv_proof msat tdefs) }
 
     let check self = SP.check self.msat
@@ -912,7 +908,7 @@ module Make(A : ARG)
     match r with
     | Sat_solver.Sat st ->
       Log.debug 1 "sidekick.msat-solver: SAT";
-      let _lits f = st.iter_trail f (fun _ -> ()) in
+      let _lits f = st.iter_trail f in
       (* TODO: theory combination *)
       let m = mk_model self _lits in
       do_on_exit ();

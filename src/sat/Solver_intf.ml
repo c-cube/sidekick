@@ -13,7 +13,7 @@ Copyright 2016 Simon Cruanes
 
 type 'a printer = Format.formatter -> 'a -> unit
 
-type ('term, 'form, 'value) sat_state = {
+type 'form sat_state = {
   eval: 'form -> bool;
   (** Returns the valuation of a formula in the current state
       of the sat solver.
@@ -24,11 +24,9 @@ type ('term, 'form, 'value) sat_state = {
       the atom to have this value; otherwise it is due to choices
       that can potentially be backtracked.
       @raise UndecidedLit if the literal is not decided *)
-  iter_trail : ('form -> unit) -> ('term -> unit) -> unit;
-  (** Iter thorugh the formulas and terms in order of decision/propagation
+  iter_trail : ('form -> unit) -> unit;
+  (** Iter through the formulas in order of decision/propagation
       (starting from the first propagation, to the last propagation). *)
-  model: unit -> ('term * 'value) list;
-  (** Returns the model found if the formula is satisfiable. *)
 }
 (** The type of values returned when the solver reaches a SAT state. *)
 
@@ -68,14 +66,7 @@ type 'term eval_res =
     - [Valued (false, [x; y])] if [x] and [y] are assigned to 1 (or any non-zero number)
 *)
 
-type ('term, 'formula, 'value) assumption =
-  | Lit of 'formula  (** The given formula is asserted true by the solver *)
-  | Assign of 'term * 'value (** The term is assigned to the value *)
-(** Asusmptions made by the core SAT solver. *)
-
-type ('term, 'formula, 'proof) reason =
-  | Eval of 'term list
-  (** The formula can be evalutaed using the terms in the list *)
+type ('formula, 'proof) reason =
   | Consequence of (unit -> 'formula list * 'proof)
   (** [Consequence (l, p)] means that the formulas in [l] imply the propagated
       formula [f]. The proof should be a proof of the clause "[l] implies [f]".
@@ -101,8 +92,8 @@ type lbool = L_true | L_false | L_undefined
 (** Valuation of an atom *)
 
 (* TODO: find a way to use atoms instead of formulas here *)
-type ('term, 'formula, 'value, 'proof) acts = {
-  acts_iter_assumptions: (('term,'formula,'value) assumption -> unit) -> unit;
+type ('formula, 'proof) acts = {
+  acts_iter_assumptions: ('formula -> unit) -> unit;
   (** Traverse the new assumptions on the boolean trail. *)
 
   acts_eval_lit: 'formula -> lbool;
@@ -111,10 +102,6 @@ type ('term, 'formula, 'value, 'proof) acts = {
   acts_mk_lit: ?default_pol:bool -> 'formula -> unit;
   (** Map the given formula to a literal, which will be decided by the
       SAT solver. *)
-
-  acts_mk_term: 'term -> unit;
-  (** Map the given term (and its subterms) to decision variables,
-      for the MCSAT solver to decide. *)
 
   acts_add_clause: ?keep:bool -> 'formula list -> 'proof -> unit;
   (** Add a clause to the solver.
@@ -128,7 +115,7 @@ type ('term, 'formula, 'value, 'proof) acts = {
       The list of atoms must be a valid theory lemma that is false in the
       current trail. *)
 
-  acts_propagate: 'formula -> ('term, 'formula, 'proof) reason -> unit;
+  acts_propagate: 'formula -> ('formula, 'proof) reason -> unit;
   (** Propagate a formula, i.e. the theory can evaluate the formula to be true
       (see the definition of {!type:eval_res} *)
 
@@ -138,11 +125,6 @@ type ('term, 'formula, 'value, 'proof) acts = {
       Useful for theory combination. This will be undone on backtracking. *)
 }
 (** The type for a slice of assertions to assume/propagate in the theory. *)
-
-type ('a, 'b) gadt_eq = GADT_EQ : ('a, 'a) gadt_eq
-
-type void = (unit,bool) gadt_eq
-(** A provably empty type *)
 
 exception No_proof
 
@@ -172,37 +154,6 @@ module type FORMULA = sig
       but one returns [Negated] and the other [Same_sign]. *)
 end
 
-(** Formulas and Terms required for mcSAT *)
-module type EXPR = sig
-  type proof
-  (** An abstract type for proofs *)
-
-  module Term : sig
-    type t
-    (** The type of terms *)
-
-    val equal : t -> t -> bool
-    (** Equality over terms. *)
-
-    val hash : t -> int
-    (** Hashing function for terms. Should be such that two terms equal according
-        to {!equal} have the same hash. *)
-
-    val pp : t printer
-    (** Printing function used among other for debugging. *)
-  end
-
-  module Value : sig
-    type t
-    (** The type of semantic values (domain elements) *)
-
-    val pp : t printer
-    (** Printing function used among other for debugging. *)
-  end
-
-  module Formula : FORMULA
-end
-
 (** Signature for theories to be given to the CDCL(T) solver *)
 module type PLUGIN_CDCL_T = sig
   type t
@@ -218,50 +169,16 @@ module type PLUGIN_CDCL_T = sig
   val pop_levels : t -> int -> unit
   (** Pop [n] levels of the theory *)
 
-  val partial_check : t -> (void, Formula.t, void, proof) acts -> unit
+  val partial_check : t -> (Formula.t, proof) acts -> unit
   (** Assume the formulas in the slice, possibly using the [slice]
       to push new formulas to be propagated or to raising a conflict or to add
       new lemmas. *)
 
-  val final_check : t -> (void, Formula.t, void, proof) acts -> unit
+  val final_check : t -> (Formula.t, proof) acts -> unit
   (** Called at the end of the search in case a model has been found.
       If no new clause is pushed, then proof search ends and "sat" is returned;
       if lemmas are added, search is resumed;
       if a conflict clause is added, search backtracks and then resumes. *)
-end
-
-(** Signature for theories to be given to the Model Constructing Solver. *)
-module type PLUGIN_MCSAT = sig
-  type t
-  (** The plugin state itself *)
-
-  include EXPR
-
-  val push_level : t -> unit
-  (** Create a new backtrack level *)
-
-  val pop_levels : t -> int -> unit
-  (** Pop [n] levels of the theory *)
-
-  val partial_check : t -> (Term.t, Formula.t, Value.t, proof) acts -> unit
-  (** Assume the formulas in the slice, possibly using the [slice]
-      to push new formulas to be propagated or to raising a conflict or to add
-      new lemmas. *)
-
-  val final_check : t -> (Term.t, Formula.t, Value.t, proof) acts -> unit
-  (** Called at the end of the search in case a model has been found.
-      If no new clause is pushed, then proof search ends and "sat" is returned;
-      if lemmas are added, search is resumed;
-      if a conflict clause is added, search backtracks and then resumes. *)
-
-  val assign : t -> Term.t -> Value.t
-  (** Returns an assignment value for the given term. *)
-
-  val iter_assignable : t -> (Term.t -> unit) -> Formula.t -> unit
-  (** An iterator over the subTerm.ts of a Formula.t that should be assigned a value (usually the poure subTerm.ts) *)
-
-  val eval : t -> Formula.t -> Term.t eval_res
-  (** Returns the evaluation of the Formula.t in the current assignment *)
 end
 
 (** Signature for pure SAT solvers *)
@@ -386,9 +303,7 @@ module type S = sig
       These are the internal modules used, you should probably not use them
       if you're not familiar with the internals of mSAT. *)
 
-  include EXPR
-
-  type term = Term.t (** user terms *)
+  module Formula : FORMULA
 
   type formula = Formula.t (** user formulas *)
 
@@ -406,6 +321,7 @@ module type S = sig
 
   type solver
 
+  (* TODO: keep this internal *)
   module Atom : sig
     type t = atom
 
@@ -437,7 +353,6 @@ module type S = sig
      and type atom = atom
      and type formula = formula
      and type lemma = lemma
-     and type t = proof
   (** A module to manipulate proofs. *)
 
   type t = solver
@@ -465,7 +380,7 @@ module type S = sig
 
   (** Result type for the solver *)
   type res =
-    | Sat of (term,formula,Value.t) sat_state (** Returned when the solver reaches SAT, with a model *)
+    | Sat of formula sat_state (** Returned when the solver reaches SAT, with a model *)
     | Unsat of (atom,clause,Proof.t) unsat_state (** Returned when the solver reaches UNSAT, with a proof *)
 
   exception UndecidedLit
@@ -491,11 +406,6 @@ module type S = sig
       @param assumptions additional atomic assumptions to be temporarily added.
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state. *)
-
-  val make_term : t -> term -> unit
-  (** Add a new term (i.e. decision variable) to the solver. This term will
-      be decided on at some point during solving, wether it appears
-      in clauses or not. *)
 
   val make_atom : t -> formula -> atom
   (** Add a new atom (i.e propositional formula) to the solver.
