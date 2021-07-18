@@ -1,4 +1,4 @@
 (library
   (name sidekick_util)
   (public_name sidekick.util)
-  (libraries containers iter msat sidekick.sigs))
+  (libraries containers iter sidekick.sigs))

@@ -1,8 +1,8 @@
 
 module type PLUGIN = sig
   val has_theory : bool
-  (** Is this a CDCL(T) plugin or mcsat plugin?
-      i.e does it have theories *)
+  (** [true] iff the solver is parametrized by a theory, not just
+      pure SAT. *)
 
   include Solver_intf.PLUGIN_CDCL_T
 end
@@ -11,7 +11,7 @@ module type S = Solver_intf.S
 module type PLUGIN_CDCL_T = Solver_intf.PLUGIN_CDCL_T
 
 let invalid_argf fmt =
-  Format.kasprintf (fun msg -> invalid_arg ("msat: " ^ msg)) fmt
+  Format.kasprintf (fun msg -> invalid_arg ("sidekick.sat: " ^ msg)) fmt
 
 module Make(Plugin : PLUGIN)
 = struct
@@ -66,6 +66,8 @@ module Make(Plugin : PLUGIN)
   (* Constructors *)
   module MF = Hashtbl.Make(Formula)
 
+  (* state for variables. declared separately because it simplifies our
+     life below, as it's required to construct new atoms/variables *)
   type st = {
     f_map: var MF.t;
     vars: var Vec.t;
@@ -89,12 +91,12 @@ module Make(Plugin : PLUGIN)
   let get_elt st i = Vec.get st.vars i
   let iter_elt st f = Vec.iter f st.vars
 
-  let name_of_clause c = match c.cpremise with
-    | Hyp _ -> "H" ^ string_of_int c.cid
-    | Lemma _ -> "T" ^ string_of_int c.cid
-    | Local -> "L" ^ string_of_int c.cid
-    | History _ -> "C" ^ string_of_int c.cid
-    | Empty_premise -> string_of_int c.cid
+  let kind_of_clause c = match c.cpremise with
+    | Hyp _ -> "H"
+    | Lemma _ -> "T"
+    | Local -> "L"
+    | History _ -> "C"
+    | Empty_premise -> ""
 
   (* some boolean flags for variables, used as masks *)
   let seen_var = 0b1
@@ -224,7 +226,7 @@ module Make(Plugin : PLUGIN)
       | n, Some Decision ->
         Format.fprintf fmt "@@%d" n
       | n, Some Bcp c ->
-        Format.fprintf fmt "->%d/%s" n (name_of_clause c)
+        Format.fprintf fmt "->%d/%s/%d" n (kind_of_clause c) c.cid
       | n, Some (Bcp_lazy _) ->
         Format.fprintf fmt "->%d/<lazy>" n
 
@@ -268,7 +270,6 @@ module Make(Plugin : PLUGIN)
     let make ~flags l premise = make_a ~flags (Array.of_list l) premise
 
     let empty = make [] (History [])
-    let name = name_of_clause
     let[@inline] equal c1 c2 = c1.cid = c2.cid
     let[@inline] hash c = Hashtbl.hash c.cid
     let[@inline] atoms c = c.atoms
@@ -311,20 +312,24 @@ module Make(Plugin : PLUGIN)
         let equal = equal
       end)
 
+    let short_name c = Printf.sprintf "%s%d" (kind_of_clause c) c.cid
     let pp fmt c =
-      Format.fprintf fmt "%s : %a" (name c) Atom.pp_a c.atoms
+      Format.fprintf fmt "(cl[%s%d] : %a" (kind_of_clause c) c.cid Atom.pp_a c.atoms
 
     let debug_premise out = function
       | Hyp _ -> Format.fprintf out "hyp"
       | Lemma _ -> Format.fprintf out "th_lemma"
       | Local -> Format.fprintf out "local"
       | History v ->
-        List.iter (fun c -> Format.fprintf out "%s,@ " (name_of_clause c)) v
-      | Empty_premise -> Format.fprintf out "<no premise>"
+        Format.fprintf out "(@[res";
+        List.iter (fun c -> Format.fprintf out "@ %s%d," (kind_of_clause c) c.cid) v;
+        Format.fprintf out "@])"
+      | Empty_premise -> Format.fprintf out "none"
 
     let debug out ({atoms=arr; cpremise=cp;_}as c) =
-      Format.fprintf out "%s@[<hov>{@[<hov>%a@]}@ cpremise={@[<hov>%a@]}@]"
-        (name c) Atom.debug_a arr debug_premise cp
+      Format.fprintf out
+        "(@[cl[%s%d]@ {@[<hov>%a@]}@ :premise %a@])"
+        (kind_of_clause c) c.cid Atom.debug_a arr debug_premise cp
   end
 
   module Proof =  struct
@@ -774,7 +779,6 @@ module Make(Plugin : PLUGIN)
     st.on_conflict <- on_conflict;
     st
 
-  let[@inline] st t = t.st
   let[@inline] nb_clauses st = Vec.size st.clauses_hyps
   let[@inline] decision_level st = Vec.size st.var_levels
 

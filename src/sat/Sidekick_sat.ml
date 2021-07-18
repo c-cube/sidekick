@@ -54,4 +54,6 @@ let pp_lbool out = function
 
 exception No_proof = Solver_intf.No_proof
 
+module Solver = Solver
 module Make_cdcl_t = Solver.Make_cdcl_t
+module Make_pure_sat = Solver.Make_pure_sat

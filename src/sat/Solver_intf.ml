@@ -341,8 +341,8 @@ module type S = sig
     val atoms : t -> atom array
     val atoms_l : t -> atom list
     val equal : t -> t -> bool
-    val name : t -> string
 
+    val short_name : t -> string
     val pp : t printer
 
     module Tbl : Hashtbl.S with type key = t

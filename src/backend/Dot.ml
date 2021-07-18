@@ -36,15 +36,15 @@ module Default(S : Sidekick_sat.S) = struct
 
   let hyp_info c =
     "hypothesis", Some "LIGHTBLUE",
-    [ fun fmt () -> Format.fprintf fmt "%s" @@ Clause.name c]
+    [ fun fmt () -> Format.fprintf fmt "%s" @@ Clause.short_name c]
 
   let lemma_info c =
     "lemma", Some "BLUE",
-    [ fun fmt () -> Format.fprintf fmt "%s" @@ Clause.name c]
+    [ fun fmt () -> Format.fprintf fmt "%s" @@ Clause.short_name c]
 
   let assumption_info c =
     "assumption", Some "PURPLE",
-    [ fun fmt () -> Format.fprintf fmt "%s" @@ Clause.name c]
+    [ fun fmt () -> Format.fprintf fmt "%s" @@ Clause.short_name c]
 
 end
 
@@ -57,7 +57,7 @@ module Make(S : Sidekick_sat.S)(A : Arg with type atom := S.atom
   module Clause = S.Clause
   module P = S.Proof
 
-  let node_id n = Clause.name n.P.conclusion
+  let node_id n = Clause.short_name n.P.conclusion
   let proof_id p = node_id (P.expand p)
   let res_nn_id n1 n2 = node_id n1 ^ "_" ^ node_id n2 ^ "_res"
   let res_np_id n1 n2 = node_id n1 ^ "_" ^ proof_id n2 ^ "_res"
