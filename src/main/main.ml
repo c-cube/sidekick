@@ -147,8 +147,12 @@ let main_cnf () : _ result =
   Pure_sat_solver.solve solver
 
 let main () =
+
+  (* instrumentation and tracing *)
   Sidekick_tef.setup();
   at_exit Sidekick_tef.teardown;
+  Sidekick_memtrace.trace_if_requested ~context:"sidekick" ();
+
   CCFormat.set_color_default true;
   (* Administrative duties *)
   Arg.parse argspec input_file usage;
