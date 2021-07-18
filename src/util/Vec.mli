@@ -1,4 +1,11 @@
 
+(** Vectors
+
+    A resizable array, workhorse of imperative programming :-).
+    This implementation originated in alt-ergo-zero but has been basically rewritten
+    from scratch several times since.
+*)
+
 type 'a t
 (** Abstract type of vectors of 'a *)
 

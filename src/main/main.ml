@@ -11,7 +11,6 @@ module Fmt = CCFormat
 module Term = Sidekick_base.Term
 module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
-module Vec = Msat.Vec
 
 type 'a or_error = ('a, string) E.t
 

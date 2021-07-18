@@ -1,15 +1,13 @@
-(*
-MSAT is free software, using the Apache license, see file LICENSE
-Copyright 2014 Guillaume Bury
-Copyright 2014 Simon Cruanes
-*)
 
-(** {1 Logging function, for debugging} *)
+(** Logging function, for debugging *)
 
 val enabled : bool
 
-val set_debug : int -> unit (** Set debug level *)
-val get_debug : unit -> int (** Current debug level *)
+val set_debug : int -> unit
+(** Set debug level *)
+
+val get_debug : unit -> int
+(** Current debug level *)
 
 val debugf :
   int ->

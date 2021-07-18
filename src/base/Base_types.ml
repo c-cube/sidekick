@@ -1,7 +1,7 @@
 (** Basic type definitions for Sidekick_base *)
 
-module Vec = Msat.Vec
-module Log = Msat.Log
+module Vec = Sidekick_util.Vec
+module Log = Sidekick_util.Log
 module Fmt = CCFormat
 
 module CC_view = Sidekick_core.CC_view
