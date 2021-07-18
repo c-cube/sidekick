@@ -1,0 +1,13 @@
+_build/
+*.annot
+*.native
+*.log
+*.status
+.*.swp
+.session
+*.docdir
+src/util/log.ml
+doc/index.html
+*.exe
+.merlin
+*.install
