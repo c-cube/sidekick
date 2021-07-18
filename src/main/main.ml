@@ -83,8 +83,8 @@ let argspec = Arg.align [
     "--time", Arg.String (int_arg time_limit), " <t>[smhd] sets the time limit for the sat solver";
     "-t", Arg.String (int_arg time_limit), " short for --time";
     "--version", Arg.Unit (fun () -> Printf.printf "version: %s\n%!" Sidekick_version.version; exit 0), " show version and exit";
-    "-d", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
-    "--debug", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
+    "-d", Arg.Int Log.set_debug, "<lvl> sets the debug verbose level";
+    "--debug", Arg.Int Log.set_debug, "<lvl> sets the debug verbose level";
   ] |> List.sort compare
 
 (* Limits alarm *)
