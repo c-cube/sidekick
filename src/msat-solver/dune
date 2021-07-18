@@ -2,5 +2,5 @@
  (name Sidekick_msat_solver)
  (public_name sidekick.msat-solver)
  (libraries containers iter sidekick.core sidekick.util
-   sidekick.cc msat msat.backend)
+            sidekick.cc sidekick.sat)
  (flags :standard -open Sidekick_util))

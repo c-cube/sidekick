@@ -1,4 +1,0 @@
-
-(documentation
-  (package msat)
-  (mld_files :standard))
