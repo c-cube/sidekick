@@ -1519,28 +1519,34 @@ module Make(Plugin : PLUGIN)
   let[@inline] acts_mk_lit st ?default_pol f : unit =
     ignore (mk_atom ?default_pol st f : atom)
 
-  let[@inline] current_slice st : _ Solver_intf.acts = {
-    Solver_intf.
-    acts_iter_assumptions=acts_iter st ~full:false st.th_head;
-    acts_eval_lit= acts_eval_lit st;
-    acts_mk_lit=acts_mk_lit st;
-    acts_add_clause = acts_add_clause st;
-    acts_propagate = acts_propagate st;
-    acts_raise_conflict=acts_raise st;
-    acts_add_decision_lit=acts_add_decision_lit st;
-  }
+  let[@inline] current_slice st : _ Solver_intf.acts =
+    let module M = struct
+      type nonrec proof = lemma
+      type nonrec formula = formula
+      let iter_assumptions=acts_iter st ~full:false st.th_head
+      let eval_lit= acts_eval_lit st
+      let mk_lit=acts_mk_lit st
+      let add_clause = acts_add_clause st
+      let propagate = acts_propagate st
+      let raise_conflict c pr=acts_raise st c pr
+      let add_decision_lit=acts_add_decision_lit st
+    end in
+    (module M)
 
   (* full slice, for [if_sat] final check *)
-  let[@inline] full_slice st : _ Solver_intf.acts = {
-    Solver_intf.
-    acts_iter_assumptions=acts_iter st ~full:true st.th_head;
-    acts_eval_lit= acts_eval_lit st;
-    acts_mk_lit=acts_mk_lit st;
-    acts_add_clause = acts_add_clause st;
-    acts_propagate = acts_propagate st;
-    acts_raise_conflict=acts_raise st;
-    acts_add_decision_lit=acts_add_decision_lit st;
-  }
+  let[@inline] full_slice st : _ Solver_intf.acts =
+    let module M = struct
+      type nonrec proof = lemma
+      type nonrec formula = formula
+      let iter_assumptions=acts_iter st ~full:true st.th_head
+      let eval_lit= acts_eval_lit st
+      let mk_lit=acts_mk_lit st
+      let add_clause = acts_add_clause st
+      let propagate = acts_propagate st
+      let raise_conflict c pr=acts_raise st c pr
+      let add_decision_lit=acts_add_decision_lit st
+    end in
+    (module M)
 
   (* Assert that the conflict is indeeed a conflict *)
   let check_is_conflict_ (c:Clause.t) : unit =
@@ -1826,14 +1832,13 @@ module Make(Plugin : PLUGIN)
   let mk_sat (st:t) : Formula.t Solver_intf.sat_state =
     pp_all st 99 "SAT";
     let t = trail st in
-    let iter_trail f =
-      Vec.iter (fun a -> f (Atom.formula a)) t
-    in
-    let[@inline] eval f = eval st (mk_atom st f) in
-    let[@inline] eval_level f = eval_level st (mk_atom st f) in
-    { Solver_intf.
-      eval; eval_level; iter_trail;
-    }
+    let module M = struct
+      type formula = Formula.t
+      let iter_trail f = Vec.iter (fun a -> f (Atom.formula a)) t
+      let[@inline] eval f = eval st (mk_atom st f)
+      let[@inline] eval_level f = eval_level st (mk_atom st f)
+    end in
+    (module M)
 
   let mk_unsat (st:t) (us: unsat_cause) : _ Solver_intf.unsat_state =
     pp_all st 99 "UNSAT";
@@ -1866,7 +1871,15 @@ module Make(Plugin : PLUGIN)
       let c = unsat_conflict () in
       Proof.prove c
     in
-    { Solver_intf.unsat_conflict; get_proof; unsat_assumptions; }
+    let module M = struct
+      type nonrec atom = atom
+      type clause = Clause.t
+      type proof = Proof.t
+      let get_proof = get_proof
+      let unsat_conflict = unsat_conflict
+      let unsat_assumptions = unsat_assumptions
+    end in
+    (module M)
 
   let add_clause_a st c lemma : unit =
     try
@@ -1901,11 +1914,6 @@ module Make(Plugin : PLUGIN)
     with UndecidedLit -> false
 
   let[@inline] eval_atom _st a : Solver_intf.lbool = eval_atom_ a
-
-  let export (st:t) : clause Solver_intf.export =
-    let hyps = hyps st in
-    let history = history st in
-    {Solver_intf.hyps; history; }
 end
 [@@inline][@@specialise]
 

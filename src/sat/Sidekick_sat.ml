@@ -10,34 +10,14 @@ module type PROOF = Solver_intf.PROOF
 
 type lbool = Solver_intf.lbool = L_true | L_false | L_undefined
 
-type 'form sat_state = 'form Solver_intf.sat_state = {
-  eval : 'form -> bool;
-  eval_level : 'form -> bool * int;
-  iter_trail : ('form -> unit) -> unit;
-}
-
-type ('atom,'clause, 'proof) unsat_state = ('atom,'clause, 'proof) Solver_intf.unsat_state = {
-  unsat_conflict : unit -> 'clause;
-  get_proof : unit -> 'proof;
-  unsat_assumptions: unit -> 'atom list;
-}
-type 'clause export = 'clause Solver_intf.export = {
-  hyps : 'clause Vec.t;
-  history : 'clause Vec.t;
-}
+module type SAT_STATE = Solver_intf.SAT_STATE
+type 'form sat_state = 'form Solver_intf.sat_state
 
 type ('formula, 'proof) reason = ('formula, 'proof) Solver_intf.reason =
-  | Consequence of (unit -> 'formula list * 'proof)
+  | Consequence of (unit -> 'formula list * 'proof) [@@unboxed]
 
-type ('formula, 'proof) acts = ('formula, 'proof) Solver_intf.acts = {
-  acts_iter_assumptions: ('formula -> unit) -> unit;
-  acts_eval_lit: 'formula -> lbool;
-  acts_mk_lit: ?default_pol:bool -> 'formula -> unit;
-  acts_add_clause : ?keep:bool -> 'formula list -> 'proof -> unit;
-  acts_raise_conflict: 'b. 'formula list -> 'proof -> 'b;
-  acts_propagate : 'formula -> ('formula, 'proof) reason -> unit;
-  acts_add_decision_lit: 'formula -> bool -> unit;
-}
+module type ACTS = Solver_intf.ACTS
+type ('formula, 'proof) acts = ('formula, 'proof) Solver_intf.acts
 
 type negated = Solver_intf.negated = Negated | Same_sign
 

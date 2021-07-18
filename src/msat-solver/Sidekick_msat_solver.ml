@@ -88,11 +88,13 @@ module Make(A : ARG)
       module P = P
       module Lit = Lit
       type t = msat_acts
-      let[@inline] raise_conflict a lits pr =
-        a.Sidekick_sat.acts_raise_conflict lits pr
-      let[@inline] propagate a lit ~reason =
+      let[@inline] raise_conflict (a:t) lits pr =
+        let (module A) = a in
+        A.raise_conflict lits pr
+      let[@inline] propagate (a:t) lit ~reason =
+        let (module A) = a in
         let reason = Sidekick_sat.Consequence reason in
-        a.Sidekick_sat.acts_propagate lit reason
+        A.propagate lit reason
     end
   end
 
@@ -241,23 +243,27 @@ module Make(A : ARG)
     let on_model_gen self f = self.mk_model <- f :: self.mk_model
 
     let push_decision (_self:t) (acts:actions) (lit:lit) : unit =
+      let (module A) = acts in
       let sign = Lit.sign lit in
-      acts.Sidekick_sat.acts_add_decision_lit (Lit.abs lit) sign
+      A.add_decision_lit (Lit.abs lit) sign
 
-    let[@inline] raise_conflict self acts c proof : 'a =
+    let[@inline] raise_conflict self (acts:actions) c proof : 'a =
+      let (module A) = acts in
       Stat.incr self.count_conflict;
-      acts.Sidekick_sat.acts_raise_conflict c proof
+      A.raise_conflict c proof
 
-    let[@inline] propagate self acts p ~reason : unit =
+    let[@inline] propagate self (acts:actions) p ~reason : unit =
+      let (module A) = acts in
       Stat.incr self.count_propagate;
-      acts.Sidekick_sat.acts_propagate p (Sidekick_sat.Consequence reason)
+      A.propagate p (Sidekick_sat.Consequence reason)
 
     let[@inline] propagate_l self acts p cs proof : unit =
       propagate self acts p ~reason:(fun()->cs,proof)
 
-    let add_sat_clause_ self acts ~keep lits (proof:P.t) : unit =
+    let add_sat_clause_ self (acts:actions) ~keep lits (proof:P.t) : unit =
+      let (module A) = acts in
       Stat.incr self.count_axiom;
-      acts.Sidekick_sat.acts_add_clause ~keep lits proof
+      A.add_clause ~keep lits proof
 
     let preprocess_term_ (self:t) ~add_clause (t:term) : term * proof =
       let mk_lit t = Lit.atom self.tst t in (* no further simplification *)
@@ -375,7 +381,9 @@ module Make(A : ARG)
     let[@inline] add_clause_permanent self acts lits (proof:P.t) : unit =
       add_sat_clause_ self acts ~keep:true lits proof
 
-    let add_lit _self acts lit : unit = acts.Sidekick_sat.acts_mk_lit lit
+    let[@inline] add_lit _self (acts:actions) lit : unit =
+      let (module A) = acts in
+      A.mk_lit lit
 
     let add_lit_t self acts ?sign t =
       let lit = mk_lit self acts ?sign t in
@@ -454,8 +462,10 @@ module Make(A : ARG)
       );
       ()
 
-    let[@inline] iter_atoms_ acts : _ Iter.t =
-      fun f -> acts.Sidekick_sat.acts_iter_assumptions f
+    let[@inline] iter_atoms_ (acts:actions) : _ Iter.t =
+      fun f ->
+        let (module A) = acts in
+        A.iter_assumptions f
 
     (* propagation from the bool solver *)
     let check_ ~final (self:t) (acts: msat_acts) =
@@ -906,22 +916,22 @@ module Make(A : ARG)
     let r = Sat_solver.solve ~assumptions (solver self) in
     Stat.incr self.count_solve;
     match r with
-    | Sat_solver.Sat st ->
+    | Sat_solver.Sat (module SAT) ->
       Log.debug 1 "sidekick.msat-solver: SAT";
-      let _lits f = st.iter_trail f in
+      let _lits f = SAT.iter_trail f in
       (* TODO: theory combination *)
       let m = mk_model self _lits in
       do_on_exit ();
       Sat m
-    | Sat_solver.Unsat us ->
+    | Sat_solver.Unsat (module UNSAT) ->
       let proof = lazy (
         try
-          let pr = us.get_proof () in
+          let pr = UNSAT.get_proof () in
           if check then Sat_solver.Proof.check pr;
           Some (Pre_proof.make pr (List.rev self.si.t_defs))
         with Sidekick_sat.Solver_intf.No_proof -> None
       ) in
-      let unsat_core = lazy (us.Sidekick_sat.unsat_assumptions ()) in
+      let unsat_core = lazy (UNSAT.unsat_assumptions ()) in
       do_on_exit ();
       Unsat {proof; unsat_core}
 

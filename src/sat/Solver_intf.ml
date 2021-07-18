@@ -13,38 +13,49 @@ Copyright 2016 Simon Cruanes
 
 type 'a printer = Format.formatter -> 'a -> unit
 
-type 'form sat_state = {
-  eval: 'form -> bool;
+module type SAT_STATE = sig
+  type formula
+
+  val eval : formula -> bool
   (** Returns the valuation of a formula in the current state
       of the sat solver.
       @raise UndecidedLit if the literal is not decided *)
-  eval_level: 'form -> bool * int;
+
+  val eval_level : formula -> bool * int
   (** Return the current assignement of the literals, as well as its
       decision level. If the level is 0, then it is necessary for
       the atom to have this value; otherwise it is due to choices
       that can potentially be backtracked.
       @raise UndecidedLit if the literal is not decided *)
-  iter_trail : ('form -> unit) -> unit;
+
+  val iter_trail : (formula -> unit) -> unit
   (** Iter through the formulas in order of decision/propagation
       (starting from the first propagation, to the last propagation). *)
-}
+end
+
+type 'form sat_state = (module SAT_STATE with type formula = 'form)
 (** The type of values returned when the solver reaches a SAT state. *)
 
-type ('atom, 'clause, 'proof) unsat_state = {
-  unsat_conflict : unit -> 'clause;
-  (** Returns the unsat clause found at the toplevel *)
-  get_proof : unit -> 'proof;
-  (** returns a persistent proof of the empty clause from the Unsat result. *)
-  unsat_assumptions: unit -> 'atom list;
-  (** Subset of assumptions responsible for "unsat" *)
-}
-(** The type of values returned when the solver reaches an UNSAT state. *)
+module type UNSAT_STATE = sig
+  type atom
+  type clause
+  type proof
 
-type 'clause export = {
-  hyps: 'clause Vec.t;
-  history: 'clause Vec.t;
-}
-(** Export internal state *)
+  val unsat_conflict : unit -> clause
+  (** Returns the unsat clause found at the toplevel *)
+
+  val get_proof : unit -> proof
+  (** returns a persistent proof of the empty clause from the Unsat result. *)
+
+  val unsat_assumptions: unit -> atom list
+  (** Subset of assumptions responsible for "unsat" *)
+end
+
+type ('atom, 'clause, 'proof) unsat_state =
+  (module UNSAT_STATE with type atom = 'atom
+                       and type clause = 'clause
+                       and type proof = 'proof)
+(** The type of values returned when the solver reaches an UNSAT state. *)
 
 type negated =
   | Negated     (** changed sign *)
@@ -52,22 +63,8 @@ type negated =
 (** This type is used during the normalisation of formulas.
     See {!val:Expr_intf.S.norm} for more details. *)
 
-type 'term eval_res =
-  | Unknown                       (** The given formula does not have an evaluation *)
-  | Valued of bool * ('term list) (** The given formula can be evaluated to the given bool.
-                                      The list of terms to give is the list of terms that
-                                      were effectively used for the evaluation. *)
-(** The type of evaluation results for a given formula.
-    For instance, let's suppose we want to evaluate the formula [x * y = 0], the
-    following result are correct:
-    - [Unknown] if neither [x] nor [y] are assigned to a value
-    - [Valued (true, [x])] if [x] is assigned to [0]
-    - [Valued (true, [y])] if [y] is assigned to [0]
-    - [Valued (false, [x; y])] if [x] and [y] are assigned to 1 (or any non-zero number)
-*)
-
 type ('formula, 'proof) reason =
-  | Consequence of (unit -> 'formula list * 'proof)
+  | Consequence of (unit -> 'formula list * 'proof) [@@unboxed]
   (** [Consequence (l, p)] means that the formulas in [l] imply the propagated
       formula [f]. The proof should be a proof of the clause "[l] implies [f]".
 
@@ -91,39 +88,46 @@ type ('formula, 'proof) reason =
 type lbool = L_true | L_false | L_undefined
 (** Valuation of an atom *)
 
-(* TODO: find a way to use atoms instead of formulas here *)
-type ('formula, 'proof) acts = {
-  acts_iter_assumptions: ('formula -> unit) -> unit;
+module type ACTS = sig
+  type formula
+  type proof
+
+  val iter_assumptions: (formula -> unit) -> unit
   (** Traverse the new assumptions on the boolean trail. *)
 
-  acts_eval_lit: 'formula -> lbool;
+  val eval_lit: formula -> lbool
   (** Obtain current value of the given literal *)
 
-  acts_mk_lit: ?default_pol:bool -> 'formula -> unit;
+  val mk_lit: ?default_pol:bool -> formula -> unit
   (** Map the given formula to a literal, which will be decided by the
       SAT solver. *)
 
-  acts_add_clause: ?keep:bool -> 'formula list -> 'proof -> unit;
+  val add_clause: ?keep:bool -> formula list -> proof -> unit
   (** Add a clause to the solver.
       @param keep if true, the clause will be kept by the solver.
         Otherwise the solver is allowed to GC the clause and propose this
         partial model again.
   *)
 
-  acts_raise_conflict: 'b. 'formula list -> 'proof -> 'b;
+  val raise_conflict: formula list -> proof -> 'b
   (** Raise a conflict, yielding control back to the solver.
       The list of atoms must be a valid theory lemma that is false in the
       current trail. *)
 
-  acts_propagate: 'formula -> ('formula, 'proof) reason -> unit;
+  val propagate: formula -> (formula, proof) reason -> unit
   (** Propagate a formula, i.e. the theory can evaluate the formula to be true
       (see the definition of {!type:eval_res} *)
 
-  acts_add_decision_lit: 'formula -> bool -> unit;
+  val add_decision_lit: formula -> bool -> unit
   (** Ask the SAT solver to decide on the given formula with given sign
       before it can answer [SAT]. The order of decisions is still unspecified.
       Useful for theory combination. This will be undone on backtracking. *)
-}
+end
+
+(* TODO: find a way to use atoms instead of formulas here *)
+type ('formula, 'proof) acts =
+  (module ACTS with type formula = 'formula
+                and type proof = 'proof)
 (** The type for a slice of assertions to assume/propagate in the theory. *)
 
 exception No_proof
@@ -418,7 +422,5 @@ module type S = sig
 
   val eval_atom : t -> atom -> lbool
   (** Evaluate atom in current state *)
-
-  val export : t -> clause export
 end
 
