@@ -103,7 +103,6 @@ for legibility:
 # #install_printer Solver.Atom.pp;;
 # #install_printer Solver.Model.pp;;
 # #install_printer Proof.pp_debug;;
-Proof.pp_debug has a wrong type for a printing function.
 ```
 
 ## First steps in solving
