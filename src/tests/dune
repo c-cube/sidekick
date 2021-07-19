@@ -1,0 +1,16 @@
+
+(executable
+ (name run_tests)
+ (modules run_tests)
+ (libraries containers alcotest qcheck sidekick.util
+            sidekick_test_simplex2 sidekick_test_util sidekick_test_minicc)
+ (flags :standard -warn-error -a+8 -color always))
+
+(alias
+ (name runtest)
+ (locks /test)
+ (package sidekick)
+ (action
+   (progn
+     (run ./run_tests.exe alcotest) ; run regressions first
+     (run ./run_tests.exe qcheck --verbose))))

@@ -4,6 +4,7 @@ module Fmt = CCFormat
 
 module Util = Util
 module Vec = Vec
+module Bitvec = Bitvec
 module Log = Log
 module Backtrack_stack = Backtrack_stack
 module Backtrackable_tbl = Backtrackable_tbl

@@ -1,11 +1,15 @@
 
-let tests : unit Alcotest.test list = [
-  Test_simplex2.tests;
-]
+let tests : unit Alcotest.test list =
+  List.flatten @@ [
+    [Sidekick_test_simplex2.tests];
+    [Sidekick_test_minicc.tests];
+    Sidekick_test_util.tests;
+  ]
 
 let props =
   List.flatten
-    [ Test_simplex2.props;
+    [ Sidekick_test_simplex2.props;
+      Sidekick_test_util.props;
     ]
 
 let () =

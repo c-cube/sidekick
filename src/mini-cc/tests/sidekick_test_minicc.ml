@@ -40,7 +40,7 @@ module Setup() = struct
   let p t1 = app_l fun_p [t1]
 end
 
-let l = ref []
+let l : unit Alcotest.test_case list ref = ref []
 let mk_test name f =
   l := (name, `Quick, f) :: !l
 
@@ -165,5 +165,4 @@ let () = mk_test "test_reg_1" @@ fun () ->
   A.(check bool) "is-unsat" (CC.check_sat cc) false;
   ()
 
-(* run alcotest *)
-let () = Alcotest.run "mini-cc-tests" ["mini-cc", List.rev !l]
+let tests = "mini-cc", List.rev !l
