@@ -948,6 +948,7 @@ module type SOLVER = sig
     theory
   (** Helper to create a theory. *)
 
+  (* TODO: remove? hide? *)
   (** {3 Boolean Atoms}
 
       Atoms are the SAT solver's version of our boolean literals

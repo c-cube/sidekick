@@ -1,7 +1,4 @@
 
-module I32Vec = Vec
-type i32vec = int Vec.t
-
 type t = {
   mutable chunks: bytes; (* TODO: use a in32vec with bigarray *)
 }
@@ -10,7 +7,6 @@ let create () : t = {
   chunks = Bytes.make 32 '\x00';
 }
 
-let n_bits_ = 8
 let i2c = Char.chr
 let c2i = Char.code
 

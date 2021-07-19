@@ -63,6 +63,7 @@ type negated =
 (** This type is used during the normalisation of formulas.
     See {!val:Expr_intf.S.norm} for more details. *)
 
+(** The type of reasons for propagations of a formula [f]. *)
 type ('formula, 'proof) reason =
   | Consequence of (unit -> 'formula list * 'proof) [@@unboxed]
   (** [Consequence (l, p)] means that the formulas in [l] imply the propagated
@@ -83,7 +84,6 @@ type ('formula, 'proof) reason =
       propagating, and then use [Consequence (fun () -> expl, proof)] with
       the already produced [(expl,proof)] tuple.
   *)
-(** The type of reasons for propagations of a formula [f]. *)
 
 type lbool = L_true | L_false | L_undefined
 (** Valuation of an atom *)
@@ -206,6 +206,8 @@ module type PROOF = sig
   type clause
   (** Abstract types for atoms, clauses and theory-specific lemmas *)
 
+  type store
+
   type t
   (** Lazy type for proof trees. Proofs are persistent objects, and can be
       extended to proof nodes using functions defined later. *)
@@ -236,18 +238,18 @@ module type PROOF = sig
 
   (** {3 Proof building functions} *)
 
-  val prove : clause -> t
+  val prove : store -> clause -> t
   (** Given a clause, return a proof of that clause.
       @raise Resolution_error if it does not succeed. *)
 
-  val prove_unsat : clause -> t
+  val prove_unsat : store -> clause -> t
   (** Given a conflict clause [c], returns a proof of the empty clause.
       @raise Resolution_error if it does not succeed. *)
 
-  val prove_atom : atom -> t option
+  val prove_atom : store -> atom -> t option
   (** Given an atom [a], returns a proof of the clause [[a]] if [a] is true at level 0 *)
 
-  val res_of_hyper_res : hyper_res_step -> t * t * atom
+  val res_of_hyper_res : store -> hyper_res_step -> t * t * atom
   (** Turn an hyper resolution step into a resolution step.
       The conclusion can be deduced by performing a resolution between the conclusions
       of the two given proofs.
@@ -271,13 +273,13 @@ module type PROOF = sig
 
   (** {3 Proof Manipulation} *)
 
-  val expand : t -> proof_node
+  val expand : store -> t -> proof_node
   (** Return the proof step at the root of a given proof. *)
 
   val conclusion : t -> clause
   (** What is proved at the root of the clause *)
 
-  val fold : ('a -> proof_node -> 'a) -> 'a -> t -> 'a
+  val fold : store -> ('a -> proof_node -> 'a) -> 'a -> t -> 'a
   (** [fold f acc p], fold [f] over the proof [p] and all its node. It is guaranteed that
       [f] is executed exactly once on each proof node in the tree, and that the execution of
       [f] on a proof node happens after the execution on the parents of the nodes. *)
@@ -290,11 +292,11 @@ module type PROOF = sig
 
   (** {3 Misc} *)
 
-  val check_empty_conclusion : t -> unit
+  val check_empty_conclusion : store -> t -> unit
   (** Check that the proof's conclusion is the empty clause,
       @raise Resolution_error otherwise *)
 
-  val check : t -> unit
+  val check : store -> t -> unit
   (** Check the contents of a proof. Mainly for internal use. *)
 
   module Tbl : Hashtbl.S with type key = t
@@ -325,6 +327,8 @@ module type S = sig
 
   type solver
 
+  type store
+
   (* TODO: keep this internal *)
   module Atom : sig
     type t = atom
@@ -336,21 +340,32 @@ module type S = sig
     val sign : t -> bool
     val abs : t -> t
 
-    val formula : solver -> t -> formula
-    val pp : solver -> t printer
+    val pp : store -> t printer
+    (** Print the atom *)
+
+    val formula : store -> t -> formula
+    (** Get back the formula for this atom *)
   end
 
   module Clause : sig
     type t = clause
     val equal : t -> t -> bool
 
-    val atoms : solver -> t -> atom array
-    val atoms_l : solver -> t -> atom list
-
-    val pp : solver -> t printer
-    val short_name : t -> string
-
     module Tbl : Hashtbl.S with type key = t
+
+    val pp : store -> t printer
+    (** Print the clause *)
+
+    val short_name : store -> t -> string
+    (** Short name for a clause. Unspecified *)
+
+    val atoms : store -> t -> atom Iter.t
+    (** Atoms of a clause *)
+
+    val atoms_a : store -> t -> atom array
+
+    val atoms_l : store -> t -> atom list
+    (** List of atoms of a clause *)
   end
 
   module Proof : PROOF
@@ -358,6 +373,7 @@ module type S = sig
      and type atom = atom
      and type formula = formula
      and type lemma = lemma
+     and type store = store
   (** A module to manipulate proofs. *)
 
   type t = solver
@@ -380,6 +396,9 @@ module type S = sig
 
   val theory : t -> theory
   (** Access the theory state *)
+
+  val store : t -> store
+  (** Store for the solver *)
 
   (** {2 Types} *)
 
@@ -412,10 +431,12 @@ module type S = sig
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state. *)
 
-  val make_atom : t -> formula -> atom
+  val make_atom : t -> ?default_pol:bool -> formula -> atom
   (** Add a new atom (i.e propositional formula) to the solver.
       This formula will be decided on at some point during solving,
-      wether it appears in clauses or not. *)
+      wether it appears in clauses or not.
+      @param default_pol default polarity of the boolean variable.
+        Default is [true]. *)
 
   val true_at_level0 : t -> atom -> bool
   (** [true_at_level0 a] returns [true] if [a] was proved at level0, i.e.

@@ -516,13 +516,12 @@ module Make(A : ARG)
   (** the parametrized SAT Solver *)
   module Sat_solver = Sidekick_sat.Make_cdcl_t(Solver_internal)
 
-  module Atom = Sat_solver.Atom
-
   module Pre_proof = struct
     module SP = Sat_solver.Proof
     module SC = Sat_solver.Clause
 
     type t = {
+      solver: Sat_solver.t;
       msat: Sat_solver.Proof.t;
       tdefs: (term*term) list; (* term definitions *)
       p: P.t lazy_t;
@@ -533,7 +532,7 @@ module Make(A : ARG)
     let pp_dot =
       let module Dot =
         Sidekick_backend.Dot.Make(Sat_solver)(Sidekick_backend.Dot.Default(Sat_solver)) in
-      let pp out self = Dot.pp out self.msat in
+      let pp out self = Dot.pp (Sat_solver.store self.solver) out self.msat in
       Some pp
 
     (* export to proof {!P.t}, translating Msat-level proof ising:
@@ -545,7 +544,7 @@ module Make(A : ARG)
          clause [c] under given assumptions (each assm is a lit),
          and return [-a1 \/ … \/ -an \/ c], discharging assumptions
     *)
-    let conv_proof (msat:Sat_solver.Proof.t) (t_defs:_ list) : P.t =
+    let conv_proof (store:Sat_solver.store) (msat:Sat_solver.Proof.t) (t_defs:_ list) : P.t =
       let assms = ref [] in
       let steps = ref [] in
 
@@ -558,7 +557,7 @@ module Make(A : ARG)
         with Not_found ->
           Error.errorf
             "msat-solver.pre-proof.to_proof: cannot find proof step with conclusion %a"
-            SC.pp (SP.conclusion p)
+            (SC.pp store) (SP.conclusion p)
       in
 
       let add_step s = steps := s :: !steps in
@@ -577,10 +576,10 @@ module Make(A : ARG)
           (* build conclusion of proof step *)
           let tr_atom a : P.lit =
             let sign = Sat_solver.Atom.sign a in
-            let t = Lit.term (Sat_solver.Atom.formula a) in
+            let t = Lit.term (Sat_solver.Atom.formula store a) in
             P.lit_mk sign t
           in
-          let concl = List.rev_map tr_atom @@ Sat_solver.Clause.atoms_l c in
+          let concl = List.rev_map tr_atom @@ Sat_solver.Clause.atoms_l store c in
 
           (* proof for the node *)
           let pr_step : P.t =
@@ -592,7 +591,7 @@ module Make(A : ARG)
               let name = Printf.sprintf "a%d" !n_step in
               let lit = match concl with
                 | [l] -> l
-                | _ -> Error.errorf "assumption with non-unit clause %a" SC.pp c
+                | _ -> Error.errorf "assumption with non-unit clause %a" (SC.pp store) c
               in
               incr n_step;
               assms := (name, lit) :: !assms;
@@ -611,12 +610,12 @@ module Make(A : ARG)
               let proof_init = P.ref_by_name @@ find_proof_name init in
               let tr_step (pivot,p') : P.hres_step =
                 (* unit resolution? *)
-                let is_r1_step = Array.length (SC.atoms (SP.conclusion p')) = 1 in
+                let is_r1_step = Iter.length (SC.atoms store (SP.conclusion p')) = 1 in
                 let proof_p' = P.ref_by_name @@ find_proof_name p' in
                 if is_r1_step then (
                   P.r1 proof_p'
                 ) else (
-                  let pivot = Lit.term (Sat_solver.Atom.formula pivot) in
+                  let pivot = Lit.term (Sat_solver.Atom.formula store pivot) in
                   P.r proof_p' ~pivot
                 )
               in
@@ -630,17 +629,17 @@ module Make(A : ARG)
       in
 
       (* this should traverse from the leaves, so that order of [steps] is correct *)
-      Sat_solver.Proof.fold tr_node_to_step () msat;
+      Sat_solver.Proof.fold store tr_node_to_step () msat;
       let assms = !assms in
 
       (* gather all term definitions *)
       let t_defs = CCList.map (fun (c,rhs) -> P.deft c rhs) t_defs in
       P.composite_l ~assms (CCList.append t_defs (List.rev !steps))
 
-    let make (msat: Sat_solver.Proof.t) (tdefs: _ list) : t =
-      { msat; tdefs; p=lazy (conv_proof msat tdefs) }
+    let make solver (msat: Sat_solver.Proof.t) (tdefs: _ list) : t =
+      { solver; msat; tdefs; p=lazy (conv_proof (Sat_solver.store solver) msat tdefs) }
 
-    let check self = SP.check self.msat
+    let check self = SP.check (Sat_solver.store self.solver) self.msat
     let pp_debug out self = P.pp_debug ~sharing:false out (to_proof self)
     let output oc (self:t) = P.Quip.output oc (to_proof self)
   end
@@ -655,6 +654,12 @@ module Make(A : ARG)
     (* config: Config.t *)
   }
   type solver = t
+
+  module Atom = struct
+    include Sat_solver.Atom
+    let pp self out a = pp (Sat_solver.store self.solver) out a
+    let formula self a = formula (Sat_solver.store self.solver) a
+  end
 
   module type THEORY = sig
     type t
@@ -741,7 +746,8 @@ module Make(A : ARG)
          let atom = mk_atom_t_ self sub in
          (* also map [sub] to this atom in the congruence closure, for propagation *)
          let cc = cc self in
-         CC.set_as_lit cc (CC.add_term cc sub ) (Sat_solver.Atom.formula atom);
+         let store = Sat_solver.store self.solver in
+         CC.set_as_lit cc (CC.add_term cc sub ) (Sat_solver.Atom.formula store atom);
          ())
 
   let rec mk_atom_lit self lit : Atom.t * P.t =
@@ -833,8 +839,10 @@ module Make(A : ARG)
 
   let add_clause (self:t) (c:Atom.t IArray.t) (proof:P.t) : unit =
     Stat.incr self.count_clause;
-    Log.debugf 50 (fun k->k "(@[solver.add-clause@ %a@ :proof %a@])"
-                      (Util.pp_iarray Atom.pp) c (P.pp_debug ~sharing:false) proof);
+    Log.debugf 50 (fun k->
+        let store = Sat_solver.store self.solver in
+        k "(@[solver.add-clause@ %a@ :proof %a@])"
+          (Util.pp_iarray (Sat_solver.Atom.pp store)) c (P.pp_debug ~sharing:false) proof);
     let pb = Profile.begin_ "add-clause" in
     Sat_solver.add_clause_a self.solver (c:> Atom.t array) proof;
     Profile.exit pb
@@ -927,8 +935,9 @@ module Make(A : ARG)
       let proof = lazy (
         try
           let pr = UNSAT.get_proof () in
-          if check then Sat_solver.Proof.check pr;
-          Some (Pre_proof.make pr (List.rev self.si.t_defs))
+          let store = Sat_solver.store self.solver in
+          if check then Sat_solver.Proof.check store pr;
+          Some (Pre_proof.make self.solver pr (List.rev self.si.t_defs))
         with Sidekick_sat.Solver_intf.No_proof -> None
       ) in
       let unsat_core = lazy (UNSAT.unsat_assumptions ()) in

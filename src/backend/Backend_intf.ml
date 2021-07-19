@@ -17,10 +17,12 @@ module type S = sig
       according to the conventions of a given format.
   *)
 
+  type store
+
   type t
   (** The type of proofs. *)
 
-  val pp : Format.formatter -> t -> unit
+  val pp : store -> Format.formatter -> t -> unit
   (** A function for printing proofs in the desired format. *)
 
 end
