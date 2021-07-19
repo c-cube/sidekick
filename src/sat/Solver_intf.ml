@@ -342,13 +342,13 @@ module type S = sig
 
   module Clause : sig
     type t = clause
-
-    val atoms : t -> atom array
-    val atoms_l : t -> atom list
     val equal : t -> t -> bool
 
+    val atoms : solver -> t -> atom array
+    val atoms_l : solver -> t -> atom list
+
+    val pp : solver -> t printer
     val short_name : t -> string
-    val pp : t printer
 
     module Tbl : Hashtbl.S with type key = t
   end
