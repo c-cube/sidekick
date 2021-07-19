@@ -1676,7 +1676,8 @@ module Make(Plugin : PLUGIN)
   (* Assert that the conflict is indeeed a conflict *)
   let check_is_conflict_ self (c:Clause.t) : unit =
     if not @@ Array.for_all (Atom.is_false self.store) c.atoms then (
-      invalid_argf "conflict should be false: %a" (Clause.debug self.store) c
+      Log.debugf 0 (fun k->k"conflict should be false: %a" (Clause.debug self.store) c);
+      assert false
     )
 
   (* some boolean literals were decided/propagated within Msat. Now we
