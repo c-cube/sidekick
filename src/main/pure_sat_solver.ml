@@ -56,3 +56,4 @@ let solve (solver:SAT.t) : (unit, string) result =
       Format.printf "Unsat (%.3f/%.3f)@." t2 t3;
   end;
   Ok ()
+
