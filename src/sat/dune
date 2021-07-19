@@ -1,0 +1,10 @@
+
+(library
+  (name sidekick_sat)
+  (public_name sidekick.sat)
+  (libraries iter sidekick.util)
+  (synopsis "Pure OCaml SAT solver implementation for sidekick")
+  (flags :standard -open Sidekick_util)
+  (ocamlopt_flags :standard -O3 -bin-annot
+                  -unbox-closures -unbox-closures-factor 20)
+  )

@@ -4,14 +4,13 @@ Copyright 2014 Guillaume Bury
 Copyright 2014 Simon Cruanes
 *)
 
-open CCResult.Infix
-
 module E = CCResult
 module Fmt = CCFormat
 module Term = Sidekick_base.Term
 module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
-module Vec = Msat.Vec
+
+open E.Infix
 
 type 'a or_error = ('a, string) E.t
 
@@ -84,42 +83,9 @@ let argspec = Arg.align [
     "--time", Arg.String (int_arg time_limit), " <t>[smhd] sets the time limit for the sat solver";
     "-t", Arg.String (int_arg time_limit), " short for --time";
     "--version", Arg.Unit (fun () -> Printf.printf "version: %s\n%!" Sidekick_version.version; exit 0), " show version and exit";
-    "-d", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
-    "--debug", Arg.Int Msat.Log.set_debug, "<lvl> sets the debug verbose level";
+    "-d", Arg.Int Log.set_debug, "<lvl> sets the debug verbose level";
+    "--debug", Arg.Int Log.set_debug, "<lvl> sets the debug verbose level";
   ] |> List.sort compare
-
-module Dimacs = struct
-  open Sidekick_base
-  module T = Term
-
-  let parse_file tst (file:string) : Statement.t list or_error =
-    let atoms = Util.Int_tbl.create 32 in
-    let get_lit i =
-      let v =
-        match Util.Int_tbl.find atoms (abs i) with
-        | x -> Term.const tst x
-        | exception Not_found ->
-          let f = Sidekick_base.Fun.mk_undef_const
-              (ID.makef "%d" (abs i)) (Ty.bool()) in
-          Util.Int_tbl.add atoms (abs i) f;
-          Term.const tst f
-      in
-      if i<0 then Term.not_ tst v else v
-    in
-    try
-      CCIO.with_in file
-        (fun ic ->
-           let p = Dimacs_parser.create ic in
-           let stmts = ref [] in
-           Dimacs_parser.iter p
-             (fun c ->
-                let lits = List.rev_map get_lit c in
-                stmts := Statement.Stmt_assert_clause lits :: !stmts);
-           stmts := Statement.Stmt_check_sat [] :: !stmts;
-           Ok (List.rev !stmts))
-    with e ->
-      E.of_exn_trace e
-end
 
 (* Limits alarm *)
 let check_limits () =
@@ -131,25 +97,12 @@ let check_limits () =
   else if s > !size_limit then
     raise Out_of_space
 
-let main () =
-  Sidekick_tef.setup();
-  at_exit Sidekick_tef.teardown;
-  CCFormat.set_color_default true;
-  (* Administrative duties *)
-  Arg.parse argspec input_file usage;
-  if !file = "" then (
-    Arg.usage argspec usage;
-    exit 2
-  );
-  let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
-  check := !check || CCOpt.is_some dot_proof; (* dot requires a proof *)
-  let al = Gc.create_alarm check_limits in
-  Util.setup_gc();
+let main_smt ~dot_proof () : _ result =
   let tst = Term.create ~size:4_096 () in
-  let is_cnf = Filename.check_suffix !file ".cnf" in
   let solver =
     let theories =
-      if is_cnf then [] else [
+      (* TODO: probes, to load only required theories *)
+      [
         Process.th_bool;
         Process.th_data;
         Process.th_lra;
@@ -164,8 +117,7 @@ let main () =
     Solver.add_theory solver Process.Check_cc.theory;
   );
   begin
-    if is_cnf then Dimacs.parse_file tst !file
-    else Sidekick_smtlib.parse tst !file
+    Sidekick_smtlib.parse tst !file
   end
   >>= fun input ->
   (* process statements *)
@@ -187,6 +139,39 @@ let main () =
   if !p_stat then (
     Format.printf "%a@." Solver.pp_stats solver;
   );
+  res
+
+let main_cnf () : _ result =
+  let solver = Pure_sat_solver.SAT.create ~size:`Big () in
+  Pure_sat_solver.Dimacs.parse_file solver !file >>= fun () ->
+  Pure_sat_solver.solve solver
+
+let main () =
+
+  (* instrumentation and tracing *)
+  Sidekick_tef.setup();
+  at_exit Sidekick_tef.teardown;
+  Sidekick_memtrace.trace_if_requested ~context:"sidekick" ();
+
+  CCFormat.set_color_default true;
+  (* Administrative duties *)
+  Arg.parse argspec input_file usage;
+  if !file = "" then (
+    Arg.usage argspec usage;
+    exit 2
+  );
+  let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
+  check := !check || CCOpt.is_some dot_proof; (* dot requires a proof *)
+  let al = Gc.create_alarm check_limits in
+  Util.setup_gc();
+  let is_cnf = Filename.check_suffix !file ".cnf" in
+  let res =
+    if is_cnf then (
+      main_cnf ()
+    ) else (
+      main_smt ~dot_proof ()
+    )
+  in
   if !p_gc_stat then (
     Printf.printf "(gc_stats\n%t)\n" Gc.print_stat;
   );

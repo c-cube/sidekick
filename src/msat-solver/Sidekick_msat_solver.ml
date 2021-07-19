@@ -1,12 +1,10 @@
-(** {1 Implementation of a Solver using Msat} *)
+(** Core of the SMT solver using Sidekick_sat
 
-(** {{: https://github.com/Gbury/mSAT/} Msat} is a modular SAT solver in
+    Sidekick_sat (in src/sat/) is a modular SAT solver in
     pure OCaml.
 
-    This builds a {!Sidekick_core.SOLVER} on top of it. *)
-
-module Log = Msat.Log
-(** A logging module *)
+    This builds a {!Sidekick_core.SOLVER} on top of it.
+*)
 
 (** Argument to pass to the functor {!Make} in order to create a
     new Msat-based SMT solver. *)
@@ -76,7 +74,7 @@ module Make(A : ARG)
   type lit = Lit_.t
 
   (* actions from msat *)
-  type msat_acts = (Msat.void, lit, Msat.void, P.t) Msat.acts
+  type msat_acts = (lit, P.t) Sidekick_sat.acts
 
   (* the full argument to the congruence closure *)
   module CC_actions = struct
@@ -90,11 +88,13 @@ module Make(A : ARG)
       module P = P
       module Lit = Lit
       type t = msat_acts
-      let[@inline] raise_conflict a lits pr =
-        a.Msat.acts_raise_conflict lits pr
-      let[@inline] propagate a lit ~reason =
-        let reason = Msat.Consequence reason in
-        a.Msat.acts_propagate lit reason
+      let[@inline] raise_conflict (a:t) lits pr =
+        let (module A) = a in
+        A.raise_conflict lits pr
+      let[@inline] propagate (a:t) lit ~reason =
+        let (module A) = a in
+        let reason = Sidekick_sat.Consequence reason in
+        A.propagate lit reason
     end
   end
 
@@ -218,7 +218,7 @@ module Make(A : ARG)
       include Lit
       let norm lit =
         let lit', sign = norm_sign lit in
-        lit', if sign then Msat.Same_sign else Msat.Negated
+        lit', if sign then Sidekick_sat.Same_sign else Sidekick_sat.Negated
     end
     module Eq_class = CC.N
     module Expl = CC.Expl
@@ -243,23 +243,27 @@ module Make(A : ARG)
     let on_model_gen self f = self.mk_model <- f :: self.mk_model
 
     let push_decision (_self:t) (acts:actions) (lit:lit) : unit =
+      let (module A) = acts in
       let sign = Lit.sign lit in
-      acts.Msat.acts_add_decision_lit (Lit.abs lit) sign
+      A.add_decision_lit (Lit.abs lit) sign
 
-    let[@inline] raise_conflict self acts c proof : 'a =
+    let[@inline] raise_conflict self (acts:actions) c proof : 'a =
+      let (module A) = acts in
       Stat.incr self.count_conflict;
-      acts.Msat.acts_raise_conflict c proof
+      A.raise_conflict c proof
 
-    let[@inline] propagate self acts p ~reason : unit =
+    let[@inline] propagate self (acts:actions) p ~reason : unit =
+      let (module A) = acts in
       Stat.incr self.count_propagate;
-      acts.Msat.acts_propagate p (Msat.Consequence reason)
+      A.propagate p (Sidekick_sat.Consequence reason)
 
     let[@inline] propagate_l self acts p cs proof : unit =
       propagate self acts p ~reason:(fun()->cs,proof)
 
-    let add_sat_clause_ self acts ~keep lits (proof:P.t) : unit =
+    let add_sat_clause_ self (acts:actions) ~keep lits (proof:P.t) : unit =
+      let (module A) = acts in
       Stat.incr self.count_axiom;
-      acts.Msat.acts_add_clause ~keep lits proof
+      A.add_clause ~keep lits proof
 
     let preprocess_term_ (self:t) ~add_clause (t:term) : term * proof =
       let mk_lit t = Lit.atom self.tst t in (* no further simplification *)
@@ -377,7 +381,9 @@ module Make(A : ARG)
     let[@inline] add_clause_permanent self acts lits (proof:P.t) : unit =
       add_sat_clause_ self acts ~keep:true lits proof
 
-    let add_lit _self acts lit : unit = acts.Msat.acts_mk_lit lit
+    let[@inline] add_lit _self (acts:actions) lit : unit =
+      let (module A) = acts in
+      A.mk_lit lit
 
     let add_lit_t self acts ?sign t =
       let lit = mk_lit self acts ?sign t in
@@ -429,7 +435,7 @@ module Make(A : ARG)
 
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
-      Msat.Log.debugf 2
+      Log.debugf 2
         (fun k->k "(@[<hv1>@{<green>msat-solver.assume_lits@}%s[lvl=%d]@ %a@])"
             (if final then "[final]" else "") self.level (Util.pp_iter ~sep:"; " Lit.pp) lits);
       (* transmit to CC *)
@@ -456,28 +462,26 @@ module Make(A : ARG)
       );
       ()
 
-    let[@inline] iter_atoms_ acts : _ Iter.t =
+    let[@inline] iter_atoms_ (acts:actions) : _ Iter.t =
       fun f ->
-      acts.Msat.acts_iter_assumptions
-        (function
-          | Msat.Lit a -> f a
-          | Msat.Assign _ -> assert false)
+        let (module A) = acts in
+        A.iter_assumptions f
 
     (* propagation from the bool solver *)
     let check_ ~final (self:t) (acts: msat_acts) =
       let pb = if final then Profile.begin_ "solver.final-check" else Profile.null_probe in
       let iter = iter_atoms_ acts in
-      Msat.Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
+      Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
       self.on_progress();
       assert_lits_ ~final self acts iter;
       Profile.exit pb
 
     (* propagation from the bool solver *)
-    let[@inline] partial_check (self:t) (acts:_ Msat.acts) : unit =
+    let[@inline] partial_check (self:t) (acts:_ Sidekick_sat.acts) : unit =
       check_ ~final:false self acts
 
     (* perform final check of the model *)
-    let[@inline] final_check (self:t) (acts:_ Msat.acts) : unit =
+    let[@inline] final_check (self:t) (acts:_ Sidekick_sat.acts) : unit =
       check_ ~final:true self acts
 
     let create ~stat (tst:Term.store) (ty_st:Ty.store) () : t =
@@ -510,7 +514,7 @@ module Make(A : ARG)
   module Lit = Solver_internal.Lit
 
   (** the parametrized SAT Solver *)
-  module Sat_solver = Msat.Make_cdcl_t(Solver_internal)
+  module Sat_solver = Sidekick_sat.Make_cdcl_t(Solver_internal)
 
   module Atom = Sat_solver.Atom
 
@@ -519,7 +523,7 @@ module Make(A : ARG)
     module SC = Sat_solver.Clause
 
     type t = {
-      msat: Sat_solver.proof;
+      msat: Sat_solver.Proof.t;
       tdefs: (term*term) list; (* term definitions *)
       p: P.t lazy_t;
     }
@@ -528,7 +532,7 @@ module Make(A : ARG)
 
     let pp_dot =
       let module Dot =
-        Msat_backend.Dot.Make(Sat_solver)(Msat_backend.Dot.Default(Sat_solver)) in
+        Sidekick_backend.Dot.Make(Sat_solver)(Sidekick_backend.Dot.Default(Sat_solver)) in
       let pp out self = Dot.pp out self.msat in
       Some pp
 
@@ -541,7 +545,7 @@ module Make(A : ARG)
          clause [c] under given assumptions (each assm is a lit),
          and return [-a1 \/ … \/ -an \/ c], discharging assumptions
     *)
-    let conv_proof (msat:Sat_solver.proof) (t_defs:_ list) : P.t =
+    let conv_proof (msat:Sat_solver.Proof.t) (t_defs:_ list) : P.t =
       let assms = ref [] in
       let steps = ref [] in
 
@@ -549,7 +553,7 @@ module Make(A : ARG)
       let n_tbl_: string SC.Tbl.t = SC.Tbl.create 32 in (* node.concl -> unique idx *)
 
       (* name of an already processed proof node *)
-      let find_proof_name (p:Sat_solver.proof) : string =
+      let find_proof_name (p:Sat_solver.Proof.t) : string =
         try SC.Tbl.find n_tbl_ (SP.conclusion p)
         with Not_found ->
           Error.errorf
@@ -633,7 +637,7 @@ module Make(A : ARG)
       let t_defs = CCList.map (fun (c,rhs) -> P.deft c rhs) t_defs in
       P.composite_l ~assms (CCList.append t_defs (List.rev !steps))
 
-    let make (msat: Sat_solver.proof) (tdefs: _ list) : t =
+    let make (msat: Sat_solver.Proof.t) (tdefs: _ list) : t =
       { msat; tdefs; p=lazy (conv_proof msat tdefs) }
 
     let check self = SP.check self.msat
@@ -912,22 +916,22 @@ module Make(A : ARG)
     let r = Sat_solver.solve ~assumptions (solver self) in
     Stat.incr self.count_solve;
     match r with
-    | Sat_solver.Sat st ->
+    | Sat_solver.Sat (module SAT) ->
       Log.debug 1 "sidekick.msat-solver: SAT";
-      let _lits f = st.iter_trail f (fun _ -> ()) in
+      let _lits f = SAT.iter_trail f in
       (* TODO: theory combination *)
       let m = mk_model self _lits in
       do_on_exit ();
       Sat m
-    | Sat_solver.Unsat us ->
+    | Sat_solver.Unsat (module UNSAT) ->
       let proof = lazy (
         try
-          let pr = us.get_proof () in
+          let pr = UNSAT.get_proof () in
           if check then Sat_solver.Proof.check pr;
           Some (Pre_proof.make pr (List.rev self.si.t_defs))
-        with Msat.Solver_intf.No_proof -> None
+        with Sidekick_sat.Solver_intf.No_proof -> None
       ) in
-      let unsat_core = lazy (us.Msat.unsat_assumptions ()) in
+      let unsat_core = lazy (UNSAT.unsat_assumptions ()) in
       do_on_exit ();
       Unsat {proof; unsat_core}
 

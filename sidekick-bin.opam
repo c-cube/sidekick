@@ -19,9 +19,12 @@ depends: [
   "sidekick" { = version }
   "sidekick-base" { = version }
   "menhir"
-  "mtime"
   "ocaml" { >= "4.04" }
   "odoc" {with-doc}
+]
+depopts: [
+  "memtrace"
+  "mtime"
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"

@@ -5,7 +5,6 @@
 open Sidekick_base
 module Loc = Smtlib_utils.V_2_6.Loc
 module Fmt = CCFormat
-module Log = Msat.Log
 
 module PA = Smtlib_utils.V_2_6.Ast
 module BT = Sidekick_base

@@ -4,8 +4,9 @@
  (name main)
  (public_name sidekick)
  (package sidekick-bin)
- (libraries containers iter result msat sidekick.core sidekick-base
-            sidekick.msat-solver sidekick-bin.smtlib sidekick.tef)
+ (libraries containers iter result sidekick.sat sidekick.core sidekick-base
+            sidekick.msat-solver sidekick-bin.smtlib sidekick.tef
+            sidekick.memtrace)
  (flags :standard -safe-string -color always -open Sidekick_util))
 
 (rule

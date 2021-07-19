@@ -1,6 +1,4 @@
 
-module Vec = Msat.Vec
-
 type 'a t = {
   vec: 'a Vec.t;
   lvls: int Vec.t;

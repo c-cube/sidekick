@@ -1,9 +1,10 @@
 (* re-exports *)
 module Fmt = CCFormat
-module Vec = Msat.Vec
-module Log = Msat.Log
+
 
 module Util = Util
+module Vec = Vec
+module Log = Log
 module Backtrack_stack = Backtrack_stack
 module Backtrackable_tbl = Backtrackable_tbl
 module Error = Error
