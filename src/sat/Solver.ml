@@ -188,19 +188,6 @@ module Make(Plugin : PLUGIN)
       let[@inline] level self a = Var.level self (var a)
       let[@inline] seen_both self a = seen self a && seen self (neg a)
 
-      (*
-      let[@inline] var a = a.var
-      let[@inline] neg a = a.neg
-      let[@inline] abs a = a.var.pa
-      let[@inline] formula a = a.lit
-      let[@inline] equal a b = a == b
-      let[@inline] sign a = a == abs a
-      let[@inline] hash a = Hashtbl.hash a.aid
-      let[@inline] compare a b = compare a.aid b.aid
-      let[@inline] reason a = V.reason a.var
-      let[@inline] id a = a.aid
-         *)
-
       let pp self fmt a = Formula.pp fmt (lit self a)
 
       let pp_a self fmt v =
@@ -296,8 +283,8 @@ module Make(Plugin : PLUGIN)
     let alloc_atom (self:t) ?default_pol lit : atom =
       let var, negated = alloc_var self ?default_pol lit in
       match negated with
-      | Solver_intf.Negated -> Atom.pa var
-      | Solver_intf.Same_sign -> Atom.na var
+      | Solver_intf.Same_sign -> Atom.pa var
+      | Solver_intf.Negated -> Atom.na var
 
     (*
     let[@inline] is_true a = a.is_true
