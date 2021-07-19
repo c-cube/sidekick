@@ -957,10 +957,11 @@ module type SOLVER = sig
 
     val equal : t -> t -> bool
     val hash : t -> int
-    val pp : t CCFormat.printer
+
+    val pp : solver -> t CCFormat.printer
+    val formula : solver -> t -> lit
 
     val neg : t -> t
-    val formula : t -> lit
     val sign : t -> bool
   end
 

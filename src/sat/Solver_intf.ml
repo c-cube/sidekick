@@ -335,8 +335,9 @@ module type S = sig
     val neg : t -> t
     val sign : t -> bool
     val abs : t -> t
-    val formula : t -> formula
-    val pp : t printer
+
+    val formula : solver -> t -> formula
+    val pp : solver -> t printer
   end
 
   module Clause : sig
