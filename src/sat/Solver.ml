@@ -268,7 +268,7 @@ module Make(Plugin : PLUGIN)
       Bitvec.ensure_size v_default_polarity v_idx;
       Bitvec.set v_default_polarity v_idx pol;
 
-      assert (Vec.size a_form = 2 * ((v:var:>int) - 1));
+      assert (Vec.size a_form = 2 * (v:var:>int));
       Bitvec.ensure_size a_is_true (2*(v:var:>int));
       Bitvec.ensure_size a_seen (2*(v:var:>int));
       Vec.push a_form form;
