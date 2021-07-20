@@ -444,5 +444,9 @@ module type S = sig
 
   val eval_atom : t -> atom -> lbool
   (** Evaluate atom in current state *)
+
+  val n_propagations : t -> int
+  val n_decisions : t -> int
+  val n_conflicts : t -> int
 end
 

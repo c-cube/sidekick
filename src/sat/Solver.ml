@@ -779,6 +779,10 @@ module Make(Plugin : PLUGIN)
     mutable on_conflict : (atom array -> unit) option;
     mutable on_decision : (atom -> unit) option;
     mutable on_new_atom: (atom -> unit) option;
+
+    mutable n_conflicts : int;
+    mutable n_propagations : int;
+    mutable n_decisions : int;
   }
   type solver = t
 
@@ -817,6 +821,10 @@ module Make(Plugin : PLUGIN)
     var_incr = 1.;
     clause_incr = 1.;
     store_proof;
+
+    n_conflicts = 0;
+    n_decisions = 0;
+    n_propagations = 0;
     on_conflict = None;
     on_decision= None;
     on_new_atom = None;
@@ -833,8 +841,12 @@ module Make(Plugin : PLUGIN)
     self.on_conflict <- on_conflict;
     self
 
-  let[@inline] nb_clauses st = Vec.size st.clauses_hyps
   let[@inline] decision_level st = Vec.size st.var_levels
+
+  let[@inline] nb_clauses st = Vec.size st.clauses_hyps
+  let n_propagations self = self.n_propagations
+  let n_decisions self = self.n_decisions
+  let n_conflicts self = self.n_conflicts
 
   (* Do we have a level-0 empty clause? *)
   let[@inline] check_unsat_ st =
@@ -1487,6 +1499,7 @@ module Make(Plugin : PLUGIN)
           self.elt_head <- Vec.size self.trail;
           raise_notrace (Conflict c)
         ) else (
+          self.n_propagations <- 1 + self.n_propagations;
           enqueue_bool self first ~level:(decision_level self) (Bcp c)
         );
         Watch_kept
@@ -1585,6 +1598,7 @@ module Make(Plugin : PLUGIN)
           Clause.make_removable (p :: l) (Lemma proof)
         ) in
         let level = decision_level self in
+        self.n_propagations <- 1 + self.n_propagations;
         enqueue_bool self p ~level (Bcp_lazy c)
       )
 
@@ -1745,6 +1759,7 @@ module Make(Plugin : PLUGIN)
       new_decision_level self;
       let current_level = decision_level self in
       enqueue_bool self atom ~level:current_level Decision;
+      self.n_decisions <- 1 + self.n_decisions;
       (match self.on_decision with Some f -> f atom | None -> ());
     )
 
@@ -1793,6 +1808,7 @@ module Make(Plugin : PLUGIN)
         ) else (
           add_clause_ st confl
         );
+        st.n_conflicts <- 1 + st.n_conflicts;
         (match st.on_conflict with Some f -> f confl.atoms | None -> ());
 
       | None -> (* No Conflict *)
@@ -1863,6 +1879,7 @@ module Make(Plugin : PLUGIN)
                 Array.iter (fun a -> insert_var_order self (Atom.var a)) c.atoms;
                 Log.debugf 5 (fun k -> k "(@[sat.theory-conflict-clause@ %a@])"
                                  (Clause.debug self.store) c);
+                self.n_conflicts <- 1 + self.n_conflicts;
                 (match self.on_conflict with Some f -> f c.atoms | None -> ());
                 Vec.push self.clauses_to_add c;
                 flush_clauses self;

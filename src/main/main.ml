@@ -142,21 +142,19 @@ let main_smt ~dot_proof () : _ result =
   res
 
 let main_cnf () : _ result =
-  let n_decision = ref 0 in
-  let n_confl = ref 0 in
+  let module S = Pure_sat_solver in
   let n_atoms = ref 0 in
   let solver =
-    Pure_sat_solver.SAT.create
-      ~on_conflict:(fun _ -> incr n_confl)
-      ~on_decision:(fun _ -> incr n_decision)
+    S.SAT.create
       ~on_new_atom:(fun _ -> incr n_atoms)
       ~size:`Big ()
   in
-  Pure_sat_solver.Dimacs.parse_file solver !file >>= fun () ->
-  let r = Pure_sat_solver.solve solver in
+  S.Dimacs.parse_file solver !file >>= fun () ->
+  let r = S.solve solver in
   if !p_stat then (
-    Fmt.printf "; n-atoms: %d n-conflicts: %d n-decisions: %d@."
-      !n_atoms !n_confl !n_decision;
+    Fmt.printf "; n-conflicts: %d n-decisions: %d n-propagations: %d n-atoms: %d@."
+      (S.SAT.n_conflicts solver) (S.SAT.n_decisions solver)
+      (S.SAT.n_propagations solver) !n_atoms;
   );
   r
 
