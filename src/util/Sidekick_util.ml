@@ -1,9 +1,9 @@
 (* re-exports *)
 module Fmt = CCFormat
 
-
 module Util = Util
 module Vec = Vec
+module VecI32 = VecI32
 module Bitvec = Bitvec
 module Log = Log
 module Backtrack_stack = Backtrack_stack
