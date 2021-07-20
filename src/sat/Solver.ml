@@ -1163,7 +1163,7 @@ module Make(Plugin : PLUGIN)
 
    (* minimize conflict by removing atoms whose propagation history
       is ultimately self-subsuming with [lits] *)
-   let minimize_conflict (self:t) (c_level:int)
+   let minimize_conflict (self:t) (_c_level:int)
        (learnt: atom Vec.t) : unit =
      let store = self.store in
 
