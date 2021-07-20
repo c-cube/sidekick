@@ -698,6 +698,7 @@ module Make(Plugin : PLUGIN)
     n_propagations : int Stat.counter;
     n_decisions : int Stat.counter;
     n_restarts : int Stat.counter;
+    n_minimized_away : int Stat.counter;
   }
 
   type solver = t
@@ -748,6 +749,7 @@ module Make(Plugin : PLUGIN)
     n_decisions = Stat.mk_int stat "sat.n-decisions";
     n_propagations = Stat.mk_int stat "sat.n-propagations";
     n_restarts = Stat.mk_int stat "sat.n-restarts";
+    n_minimized_away = Stat.mk_int stat "sat.n-confl-minimized-away";
 
     on_conflict = None;
     on_decision= None;
@@ -1121,8 +1123,11 @@ module Make(Plugin : PLUGIN)
      let store = self.store in
      let to_unmark = self.to_clear in
 
+     (* save current state of [to_unmark] *)
      let top = Vec.size to_unmark in
+     Log.debugf 1 (fun k->k"lit.redundant v%d abstract_levels 0x%xd" (v:var:>int) abstract_levels);
      let rec aux v =
+       Log.debugf 1 (fun k->k"lit.redundant.aux v%d" (v:var:>int));
        match Var.reason store v with
        | None -> assert false
        | Some Decision -> raise_notrace Non_redundant
@@ -1146,46 +1151,48 @@ module Make(Plugin : PLUGIN)
            )
          done
      in
-     try aux v; true
+     try aux v; Log.debug 1 "redundant"; true
      with Non_redundant ->
        (* clear new marks, they are not actually redundant *)
+       Log.debug 1 "non redundant";
        for i = top to Vec.size to_unmark-1 do
          Var.unmark store (Vec.get to_unmark i)
        done;
        Vec.shrink to_unmark top;
        false
 
-  (* minimize conflict by removing atoms whose propagation history
-     is ultimately self-subsuming with [lits] *)
-  let minimize_conflict (self:t) (c_level:int) (learnt: atom Vec.t) : unit =
-    let store = self.store in
-    let to_unmark = self.to_clear in
-    assert (Vec.is_empty to_unmark);
+   (* minimize conflict by removing atoms whose propagation history
+      is ultimately self-subsuming with [lits] *)
+   let minimize_conflict (self:t) (c_level:int)
+       (learnt: atom Vec.t) : unit =
+     let store = self.store in
 
-    Vec.iter
-      (fun a ->
-         if Atom.level store a < c_level then (
-           Vec.push to_unmark (Atom.var a);
-           Var.mark store (Atom.var a)
-         ))
-      learnt;
+     (* abstraction of the levels involved in the conflict at all,
+        as logical "or" of each literal's approximate level *)
+     let abstract_levels =
+       Vec.fold (fun lvl a -> lvl lor abstract_level_ self (Atom.var a)) 0 learnt
+     in
 
-    (* abstraction of the levels involved in the conflict at all,
-       as logical "or" of each literal's approximate level *)
-    let abstract_levels =
-      Vec.fold (fun lvl a -> lvl lor abstract_level_ self (Atom.var a)) 0 learnt
-    in
-
-    Vec.filter_in_place
-      (fun a ->
-         Atom.level store a = c_level ||
+     let j = ref 1 in
+     for i=1 to Vec.size learnt - 1 do
+       let a = Vec.get learnt i in
+       let keep =
          begin match Atom.reason store a with
            | Some Decision -> true (* always keep decisions *)
-           | _ ->
+           | Some (Bcp _ | Bcp_lazy _) ->
              not (lit_redundant self abstract_levels (Atom.var a))
-         end)
-      learnt;
-    ()
+           | None -> assert false
+         end
+       in
+       if keep then (
+         Vec.set learnt !j a;
+         incr j
+       ) else (
+         Stat.incr self.n_minimized_away;
+       )
+     done;
+     Vec.shrink learnt !j;
+     ()
 
   (* result of conflict analysis, containing the learnt clause and some
      additional info. *)
@@ -1286,11 +1293,12 @@ module Make(Plugin : PLUGIN)
       | _, (None | Some Decision) -> assert false
     done;
 
-    Vec.iter (Store.clear_var store) to_unmark;
-    Vec.clear to_unmark;
-
     (* minimize conflict, to get a more general lemma *)
     minimize_conflict self conflict_level learnt;
+
+    (* cleanup marks *)
+    Vec.iter (Store.clear_var store) to_unmark;
+    Vec.clear to_unmark;
 
     (* put high-level literals first, so that:
        - they make adequate watch lits
