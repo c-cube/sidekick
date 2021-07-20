@@ -748,7 +748,10 @@ module Make(Plugin : PLUGIN)
   (* Singleton type containing the current state *)
   type t = {
     store : store;
+    (* atom/var/clause store *)
+
     th: theory;
+    (* user defined theory *)
 
     store_proof: bool; (* do we store proofs? *)
 
@@ -758,6 +761,7 @@ module Make(Plugin : PLUGIN)
 
     clauses_hyps : clause Vec.t;
     (* clauses added by the user *)
+
     clauses_learnt : clause Vec.t;
     (* learnt clauses (tautologies true at any time, whatever the user level) *)
 
@@ -804,6 +808,11 @@ module Make(Plugin : PLUGIN)
     to_clear: var Vec.t;
     (* variables to unmark *)
 
+    (* temporaries *)
+
+    temp_atom_vec : atom Vec.t;
+    temp_clause_vec : clause Vec.t;
+
     mutable var_incr : float;
     (* increment for variables' activity *)
 
@@ -836,6 +845,8 @@ module Make(Plugin : PLUGIN)
 
     clauses_to_add = Vec.create ();
     to_clear=Vec.create();
+    temp_clause_vec=Vec.create();
+    temp_atom_vec=Vec.create();
 
     th_head = 0;
     elt_head = 0;
@@ -1231,26 +1242,30 @@ module Make(Plugin : PLUGIN)
   type conflict_res = {
     cr_backtrack_lvl : int; (* level to backtrack to *)
     cr_learnt: atom array; (* lemma learnt from conflict *)
-    cr_history: clause list; (* justification *)
+    cr_history: clause array; (* justification *)
     cr_is_uip: bool; (* conflict is UIP? *)
   }
 
-  (* conflict analysis for SAT
-     Same idea as the mcsat analyze function (without semantic propagations),
-     except we look the the Last UIP (TODO: check ?), and do it in an imperative
-     and efficient manner. *)
+  (* conflict analysis, starting with top of trail and conflict clause *)
   let analyze (self:t) c_clause : conflict_res =
     let store = self.store in
-    let pathC  = ref 0 in
-    let learnt = ref [] in
-    let cond   = ref true in
-    let blevel = ref 0 in
+
     let to_unmark = self.to_clear in (* for cleanup *)
-    let c      = ref (Some c_clause) in
-    let tr_ind = ref (Vec.size self.trail - 1) in
-    let history = ref [] in
-    assert (decision_level self > 0);
     Vec.clear to_unmark;
+    let learnt = self.temp_atom_vec in
+    Vec.clear learnt;
+    let history = self.temp_clause_vec in
+    Vec.clear history;
+
+    (* loop variables *)
+    let pathC  = ref 0 in
+    let continue = ref true in
+    let blevel = ref 0 in
+    let c = ref (Some c_clause) in (* current clause to analyze/resolve *)
+    let tr_ind = ref (Vec.size self.trail - 1) in (* pointer in trail *)
+
+    (* conflict level *)
+    assert (decision_level self > 0);
     let conflict_level =
       if Plugin.has_theory
       then Array.fold_left (fun acc p -> max acc (Atom.level store p)) 0 c_clause.atoms
@@ -1259,7 +1274,8 @@ module Make(Plugin : PLUGIN)
     Log.debugf 30
       (fun k -> k "(@[sat.analyze-conflict@ :c-level %d@ :clause %a@])"
           conflict_level (Clause.debug store) c_clause);
-    while !cond do
+
+    while !continue do
       begin match !c with
         | None ->
           Log.debug 30
@@ -1270,7 +1286,7 @@ module Make(Plugin : PLUGIN)
           if Clause.removable clause then (
             clause_bump_activity self clause;
           );
-          history := clause :: !history;
+          Vec.push history clause;
           (* visit the current predecessors *)
           for j = 0 to Array.length clause.atoms - 1 do
             let q = clause.atoms.(j) in
@@ -1280,7 +1296,8 @@ module Make(Plugin : PLUGIN)
             if Atom.level store q <= 0 then (
               assert (Atom.is_false store q);
               match Atom.reason store q with
-              | Some (Bcp cl | Bcp_lazy (lazy cl)) -> history := cl :: !history
+              | Some (Bcp cl | Bcp_lazy (lazy cl)) ->
+                Vec.push history cl
               | Some Decision | None -> assert false
             );
             if not (Var.marked store (Atom.var q)) then (
@@ -1291,7 +1308,7 @@ module Make(Plugin : PLUGIN)
                 if Atom.level store q >= conflict_level then (
                   incr pathC;
                 ) else (
-                  learnt := q :: !learnt;
+                  Vec.push learnt q;
                   blevel := max !blevel (Atom.level store q)
                 )
               )
@@ -1314,8 +1331,8 @@ module Make(Plugin : PLUGIN)
       decr tr_ind;
       match !pathC, Atom.reason store p with
       | 0, _ ->
-        cond := false;
-        learnt := Atom.neg p :: List.rev !learnt
+        continue := false;
+        Vec.push learnt (Atom.neg p)
       | n, Some (Bcp cl | Bcp_lazy (lazy cl)) ->
         assert (n > 0);
         assert (Atom.level store p >= conflict_level);
@@ -1327,22 +1344,23 @@ module Make(Plugin : PLUGIN)
     (* put high-level literals first, so that:
        - they make adequate watch lits
        - the first literal is the UIP, if any *)
-    let a = Array.of_list !learnt in
-    (* TODO: use a preallocate vec for learnt *)
-    (* TODO: a sort that doesn't allocate as much, on the vec *)
-    Array.fast_sort (fun p q -> compare (Atom.level store q) (Atom.level store p)) a;
+    let a = Vec.to_array learnt in
+    Array.sort (fun p q -> compare (Atom.level store q) (Atom.level store p)) a;
     (* put_high_level_atoms_first a; *)
     let level, is_uip = backtrack_lvl self a in
     { cr_backtrack_lvl = level;
       cr_learnt = a;
-      cr_history = List.rev !history;
+      cr_history = Vec.to_array history;
       cr_is_uip = is_uip;
     }
 
   (* add the learnt clause to the clause database, propagate, etc. *)
   let record_learnt_clause (self:t) (confl:clause) (cr:conflict_res): unit =
     let store = self.store in
-    let proof = if self.store_proof then History cr.cr_history else Empty_premise in
+    let proof =
+      if self.store_proof
+      then History (Array.to_list cr.cr_history)
+      else Empty_premise in
     begin match cr.cr_learnt with
       | [| |] -> assert false
       | [|fuip|] ->
