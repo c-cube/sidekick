@@ -42,7 +42,13 @@ module Make(Plugin : PLUGIN)
   (* ### types ### *)
 
   (* a boolean variable (positive int) *)
-  module Var0 : INT_ID = Mk_int_id()
+  module Var0 : sig
+    include INT_ID
+    module Set : Set.S with type elt = t
+  end = struct
+    include Mk_int_id()
+    module Set = Util.Int_set
+  end
   type var = Var0.t
 
   (* a signed atom. +v is (v << 1), -v is (v<<1 | 1) *)

@@ -62,6 +62,10 @@ val fast_remove : 'a t -> int -> unit
 (** Remove element at index [i] without preserving order
     (swap with last element) *)
 
+val prepend : 'a t -> into:'a t -> unit
+(** [prepend v ~into] pushes all elements of [v] into [into],
+    at the beginning. consumes [v]. *)
+
 val filter_in_place : ('a -> bool) -> 'a t -> unit
 (** [filter_in_place f v] removes from [v] the elements that do
     not satisfy [f] *)

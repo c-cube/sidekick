@@ -31,6 +31,12 @@ let[@inline] copy t : _ t =
   let data = Array.copy t.data in
   {t with data}
 
+let resize_ t x size =
+  let arr' = Array.make size x in
+  Array.blit t.data 0 arr' 0 t.sz;
+  t.data <- arr';
+  ()
+
 (* grow the array *)
 let[@inline never] grow_to_double_size t x : unit =
   if Array.length t.data = Sys.max_array_length then (
@@ -39,9 +45,7 @@ let[@inline never] grow_to_double_size t x : unit =
   let size =
     min Sys.max_array_length (max 4 (2 * Array.length t.data))
   in
-  let arr' = Array.make size x in
-  Array.blit t.data 0 arr' 0 (Array.length t.data);
-  t.data <- arr';
+  resize_ t x size;
   assert (Array.length t.data > t.sz);
   ()
 
@@ -66,6 +70,17 @@ let[@inline] fast_remove t i =
   assert (i>= 0 && i < t.sz);
   Array.unsafe_set t.data i @@ Array.unsafe_get t.data (t.sz - 1);
   t.sz <- t.sz - 1
+
+let prepend v ~into : unit =
+  if v.sz = 0 then ()
+  else (
+    if v.sz + into.sz > Array.length into.data then (
+      resize_ into v.data.(0) (v.sz + into.sz);
+    );
+    Array.blit into.data 0 into.data v.sz into.sz; (* shift elements *)
+    Array.blit v.data 0 into.data 0 v.sz;
+  )
+
 
 let filter_in_place f vec =
   let i = ref 0 in
