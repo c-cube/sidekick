@@ -63,6 +63,7 @@ type negated =
 (** This type is used during the normalisation of formulas.
     See {!val:Expr_intf.S.norm} for more details. *)
 
+(** The type of reasons for propagations of a formula [f]. *)
 type ('formula, 'proof) reason =
   | Consequence of (unit -> 'formula list * 'proof) [@@unboxed]
   (** [Consequence (l, p)] means that the formulas in [l] imply the propagated
@@ -83,7 +84,6 @@ type ('formula, 'proof) reason =
       propagating, and then use [Consequence (fun () -> expl, proof)] with
       the already produced [(expl,proof)] tuple.
   *)
-(** The type of reasons for propagations of a formula [f]. *)
 
 type lbool = L_true | L_false | L_undefined
 (** Valuation of an atom *)
