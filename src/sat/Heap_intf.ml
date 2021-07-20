@@ -1,7 +1,7 @@
 
 module type RANKED = sig
   type store
-  type t
+  type t = private int
 
   val heap_idx : store -> t -> int
   (** Index in heap. return -1 if never set *)
@@ -10,6 +10,9 @@ module type RANKED = sig
   (** Update index in heap *)
 
   val cmp : store -> t -> t -> bool
+
+  val of_int_unsafe : int -> t
+  (** turn an integer back into an element *)
 end
 
 module type S = sig

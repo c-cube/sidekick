@@ -377,6 +377,7 @@ module Make(Plugin : PLUGIN)
         (kind_of_clause c) c.cid (Store.Atom.debug_a self) arr debug_premise cp
   end
 
+  (* TODO: mostly, move into a functor outside that works on integers *)
   module Proof =  struct
     exception Resolution_error of string
 
@@ -675,11 +676,11 @@ module Make(Plugin : PLUGIN)
   module H = (Heap.Make [@specialise]) (struct
     type store = Store.t
     type t = var
-    open Store
     let[@inline] cmp store i j =
       Var.weight store j < Var.weight store i (* comparison by weight *)
     let heap_idx = Var.heap_idx
     let set_heap_idx = Var.set_heap_idx
+    let of_int_unsafe = Var.of_int_unsafe
   end)
 
   (* cause of "unsat", possibly conditional to local assumptions *)
