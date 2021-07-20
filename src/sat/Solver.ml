@@ -285,54 +285,11 @@ module Make(Plugin : PLUGIN)
       match negated with
       | Solver_intf.Same_sign -> Atom.pa var
       | Solver_intf.Negated -> Atom.na var
-
-    (*
-    let[@inline] is_true a = a.is_true
-    let[@inline] is_false a = a.neg.is_true
-    let has_value a = is_true a || is_false a
-
-    let[@inline] make ?default_pol st lit =
-      let var, negated = V.make ?default_pol st lit in
-      match negated with
-      | Solver_intf.Negated -> var.na
-      | Solver_intf.Same_sign -> var.pa
-
-    let pp fmt a = Formula.pp fmt a.lit
-
-    let pp_a fmt v =
-      if Array.length v = 0 then (
-        Format.fprintf fmt "∅"
-      ) else (
-        pp fmt v.(0);
-        if (Array.length v) > 1 then begin
-          for i = 1 to (Array.length v) - 1 do
-            Format.fprintf fmt " ∨ %a" pp v.(i)
-          done
-        end
-      )
-       *)
   end
   type store = Store.t
 
   module Atom = Store.Atom
   module Var = Store.Var
-
-  (* FIXME
-
-    (* Marking helpers *)
-    let[@inline] clear v =
-      v.v_fields <- 0
-
-    let[@inline] seen_both v =
-      (seen_pos land v.v_fields <> 0) &&
-      (seen_neg land v.v_fields <> 0)
-     *)
-
-  (*
-  let nb_elt st = Vec.size st.vars
-  let get_elt st i = Vec.get st.vars i
-  let iter_elt st f = Vec.iter f st.vars
-     *)
 
   module Clause = struct
     type t = clause
