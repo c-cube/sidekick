@@ -28,6 +28,9 @@ val to_seq : 'a t -> 'a Iter.t
 val clear : 'a t -> unit
 (** Set size to 0, doesn't free elements *)
 
+val ensure_size : 'a t -> 'a -> int -> unit
+(** ensure size is at least [n] *)
+
 val shrink : 'a t -> int -> unit
 (** [shrink vec sz] resets size of [vec] to [sz].
     Assumes [sz >=0 && sz <= size vec] *)

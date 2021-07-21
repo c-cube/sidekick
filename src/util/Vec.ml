@@ -45,15 +45,27 @@ let resize_ t x size =
   t.data <- arr';
   ()
 
+let ensure_cap_ self x n =
+  if n > Array.length self.data then (
+    let new_size = max n (2 * Array.length self.data) in
+    resize_ self x new_size
+  )
+
+let ensure_size self x n =
+  ensure_cap_ self x n;
+  if n > self.sz then (
+    self.sz <- n
+  )
+
 (* grow the array *)
 let[@inline never] grow_to_double_size t x : unit =
-  if Array.length t.data = Sys.max_array_length then (
-    failwith "vec: cannot resize";
-  );
-  let size =
+  let new_size =
     min Sys.max_array_length (max 4 (2 * Array.length t.data))
   in
-  resize_ t x size;
+  if new_size = t.sz then (
+    failwith "vec: cannot resize";
+  );
+  resize_ t x new_size;
   assert (Array.length t.data > t.sz);
   ()
 

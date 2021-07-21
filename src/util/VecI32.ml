@@ -82,22 +82,6 @@ let[@inline] iteri ~f self =
 
 let[@inline] to_iter self k = iter ~f:k self
 
-module Slice = struct
-  type t = int32arr
-
-  let size = A.dim
-  let[@inline] get self i = Int32.to_int (A.get self i)
-  let[@inline] set self i x = A.set self i (Int32.of_int x)
-  let[@inline] swap self i j =
-    let tmp = get self i in
-    set self i (get self j);
-    set self j tmp
-end
-
-let[@inline] slice self ~off ~len =
-  assert (off+len < self.sz);
-  A.sub self.data off len
-
 let pp out self =
   Format.fprintf out "[@[";
   iteri self ~f:(fun i x -> if i>0 then Format.fprintf out ",@ "; Format.pp_print_int out x);

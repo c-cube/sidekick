@@ -114,9 +114,7 @@ module Make(Plugin : PLUGIN)
   (* variable/atom store *)
   module Store = struct
     type cstore = {
-      c_allocator : VecI32.t; (* storage for clause content *)
-      c_idx: VecI32.t; (* clause -> idx in [c_allocator] *)
-      c_len: VecI32.t; (* clause -> number of lits *)
+      c_lits: atom array Vec.t; (* storage for clause content *)
       c_activity: Vec_float.t;
       c_premise: premise Vec.t;
       c_recycle_idx: VecI32.t; (* recycle clause numbers that were GC'd *)
@@ -154,10 +152,6 @@ module Make(Plugin : PLUGIN)
         | `Tiny -> 8
         | `Small -> 16
         | `Big -> 4096
-      and size_alloc = match size with
-        | `Tiny -> 256
-        | `Small -> 4096
-        | `Big -> 4 * 1024 * 1024
       in
       { v_of_form = Form_tbl.create size_map;
         v_level = Vec.create();
@@ -172,9 +166,7 @@ module Make(Plugin : PLUGIN)
         a_watched=Vec.create();
         a_seen=Bitvec.create();
         c_store={
-          c_allocator=VecI32.create ~cap:size_alloc ();
-          c_idx=VecI32.create ();
-          c_len=VecI32.create ();
+          c_lits=Vec.create();
           c_activity=Vec_float.create();
           c_premise=Vec.create();
           c_recycle_idx=VecI32.create ~cap:0 ();
@@ -293,8 +285,6 @@ module Make(Plugin : PLUGIN)
       val premise : store -> t -> premise
 
       val n_atoms : store -> t -> int
-      val atom : store -> t -> int -> atom
-      val set_atom : store -> t -> int -> atom -> unit
 
       val visited : store -> t -> bool
       val set_visited : store -> t -> bool -> unit
@@ -302,8 +292,10 @@ module Make(Plugin : PLUGIN)
       val set_attached : store -> t -> bool -> unit
       val removable : store -> t -> bool
       val set_removable : store -> t -> bool -> unit
+
       val dead : store -> t -> bool
-      val set_dead : store -> t -> bool -> unit
+      val dealloc : store -> t -> unit
+      (** Delete the clause *)
 
       val activity : store -> t -> float
       val set_activity : store -> t -> float -> unit
@@ -313,19 +305,8 @@ module Make(Plugin : PLUGIN)
       val for_all : store -> f:(atom -> bool) -> t -> bool
       val exists : store -> f:(atom -> bool) -> t -> bool
 
-      module Slice : sig
-        type t
-
-        val size : t -> int
-        val get : t -> int -> atom
-        val set : t -> int -> atom -> unit
-        val swap : t -> int -> int -> unit
-        val iteri : t -> (int -> atom -> unit) -> unit
-      end
-
-      val atoms_a : store -> t -> atom array (* allocates *)
+      val atoms_a : store -> t -> atom array
       val atoms_l : store -> t -> atom list (* allocates *)
-      val atoms_slice : store -> t -> Slice.t
       val atoms_iter : store -> t -> atom Iter.t
 
       val short_name : store -> t -> string
@@ -336,24 +317,22 @@ module Make(Plugin : PLUGIN)
 
       (* TODO: store watch lists inside clauses *)
 
-      let make_ (store:store) iter_atoms n_atoms premise : t =
+      let make_a (store:store) (atoms:atom array) premise : t =
         let {
-          c_allocator;
-          c_recycle_idx; c_idx; c_len; c_activity; c_premise;
+          c_recycle_idx; c_lits; c_activity; c_premise;
           c_attached; c_dead; c_removable; c_visited;
         } = store.c_store in
         (* allocate new ID *)
         let cid =
           if VecI32.is_empty c_recycle_idx then (
-            VecI32.size c_idx
+            Vec.size c_lits
           ) else VecI32.pop c_recycle_idx
         in
 
         (* allocate space *)
         begin
           let new_len = cid + 1 in
-          VecI32.ensure_size c_idx new_len;
-          VecI32.ensure_size c_len new_len;
+          Vec.ensure_size c_lits [||] new_len;
           Vec_float.ensure_size c_activity new_len;
           Bitvec.ensure_size c_attached new_len;
           Bitvec.ensure_size c_dead new_len;
@@ -361,51 +340,24 @@ module Make(Plugin : PLUGIN)
           Bitvec.ensure_size c_visited new_len;
         end;
 
-        (* copy atoms *)
-        begin
-          let idx0 = VecI32.size c_allocator in
-          VecI32.ensure_size c_allocator (VecI32.size c_allocator + n_atoms + 1);
-          VecI32.set c_idx cid idx0;
-          VecI32.set c_len cid n_atoms;
-          let i = ref idx0 in
-          iter_atoms (fun a -> VecI32.set c_allocator !i (a:atom:>int); incr i);
-        end;
-
+        Vec.set c_lits cid atoms;
         Vec.set c_premise cid premise;
 
         let c = of_int_unsafe cid in
         c
 
-      let make_a store atoms premise : t =
-        let n = Array.length atoms in
-        make_ store (Iter.of_array atoms) n premise
-
       let make_l store atoms premise : t =
-        let n = List.length atoms in
-        make_ store (Iter.of_list atoms) n premise
+        make_a store (Array.of_list atoms) premise
 
       let make_vec store atoms premise : t =
-        let n = Vec.size atoms in
-        make_ store (Vec.to_seq atoms) n premise
+        make_a store (Vec.to_array atoms) premise
 
       let[@inline] n_atoms (store:store) (c:t) : int =
-        VecI32.get store.c_store.c_len (c:t:>int)
+        Array.length (Vec.get store.c_store.c_lits (c:t:>int))
 
-      let[@inline] atom (store:store) (c:t) (i:int) : atom =
-        let idx0 = VecI32.get store.c_store.c_idx (c:t:>int) in
-        Atom0.of_int_unsafe (VecI32.get store.c_store.c_allocator (idx0 + i))
-
-      let[@inline] set_atom store c i a : unit =
-        let idx0 = VecI32.get store.c_store.c_idx (c:t:>int) in
-        VecI32.set store.c_store.c_allocator (idx0 + i) (a:atom:>int)
-
-      let iter (store:store) ~f c =
-        let {c_len; c_idx; c_allocator; _} = store.c_store in
-        let idx0 = VecI32.get c_idx (c:t:>int) in
-        let len = VecI32.get c_len (c:t:>int) in
-        for i=0 to len-1 do
-          f (Atom.of_int_unsafe (VecI32.get c_allocator (idx0 + i)))
-        done
+      let[@inline] iter (store:store) ~f c =
+        let {c_lits; _} = store.c_store in
+        Array.iter f (Vec.get c_lits (c:t:>int))
 
       exception Early_exit
 
@@ -422,17 +374,8 @@ module Make(Plugin : PLUGIN)
         with Early_exit -> true
 
       let fold (store:store) ~f acc c =
-        let {c_len; c_idx; c_allocator; _} = store.c_store in
-        let idx0 = VecI32.get c_idx (c:t:>int) in
-        let len = VecI32.get c_len (c:t:>int) in
-        let rec fold acc i =
-          if i=len then acc
-          else (
-            let x = Atom.of_int_unsafe (VecI32.get c_allocator (idx0 + i)) in
-            fold (f acc x) (i+1)
-          )
-        in
-        fold acc 0
+        let {c_lits; _} = store.c_store in
+        Array.fold_left f acc (Vec.get c_lits (c:t:>int))
 
       let[@inline] premise store c = Vec.get store.c_store.c_premise (c:t:>int)
       let[@inline] visited store c = Bitvec.get store.c_store.c_visited (c:t:>int)
@@ -443,6 +386,13 @@ module Make(Plugin : PLUGIN)
       let[@inline] set_dead store c b = Bitvec.set store.c_store.c_dead (c:t:>int) b
       let[@inline] removable store c = Bitvec.get store.c_store.c_removable (c:t:>int)
       let[@inline] set_removable store c b = Bitvec.set store.c_store.c_removable (c:t:>int) b
+
+      (* FIXME: actually GC the clause, recycle index, and remove it
+         somehow from the watch lists *)
+      let dealloc store c : unit =
+        set_dead store c true;
+        assert (dead store c);
+        ()
 
       let copy_flags store c1 c2 : unit =
         set_removable store c2 (removable store c1);
@@ -464,24 +414,9 @@ module Make(Plugin : PLUGIN)
         assert (not (removable store c)); (* permanent by default *)
         c
 
-      module Slice = struct
-        include VecI32.Slice
-        let[@inline] get self i = Atom.of_int_unsafe (VecI32.Slice.get self i)
-        let set = (VecI32.Slice.set :> t -> int -> atom -> unit)
-
-        let iteri self f =
-          for i=0 to size self-1 do f i (get self i) done
-      end
-
-      let atoms_slice store c : Slice.t =
-        let n = n_atoms store c in
-        let idx0 = VecI32.get store.c_store.c_idx (c:t:>int) in
-        VecI32.slice store.c_store.c_allocator ~off:idx0 ~len:n
-
-      let atoms_a store c : atom array =
-        Array.init (n_atoms store c) (fun i -> atom store c i)
-      let atoms_l store c : _ list =
-        CCList.init (n_atoms store c) (fun i -> atom store c i)
+      let[@inline] atoms_a store c : atom array =
+        Vec.get store.c_store.c_lits (c:t:>int)
+      let atoms_l store c : _ list = Array.to_list (atoms_a store c)
       let atoms_iter store c = fun k -> iter store c ~f:k
 
       let short_name store c =
@@ -1198,8 +1133,8 @@ module Make(Plugin : PLUGIN)
     assert (not @@ Clause.attached store c);
     Log.debugf 20 (fun k -> k "(@[sat.attach-clause@ %a@])" (Clause.debug store) c);
     (* TODO: change when watchlist are updated *)
-    Vec.push (Atom.watched store (Atom.neg (Clause.atom store c 0))) c;
-    Vec.push (Atom.watched store (Atom.neg (Clause.atom store c 1))) c;
+    Vec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(0))) c;
+    Vec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(1))) c;
     Clause.set_attached store c true;
     ()
 
@@ -1348,25 +1283,25 @@ module Make(Plugin : PLUGIN)
     )
 
   (* move atoms assigned at high levels first *)
-  let put_high_level_atoms_first (store:store) (slice:Clause.Slice.t) : unit =
-    let module CS = Clause.Slice in
-    CS.iteri slice
+  let put_high_level_atoms_first (store:store) (arr:atom array) : unit =
+    Array.iteri
       (fun i a ->
-         if i>0 && Atom.level store a > Atom.level store (CS.get slice 0) then (
+         if i>0 && Atom.level store a > Atom.level store arr.(0) then (
            (* move first to second, [i]-th to first, second to [i] *)
            if i=1 then (
-             CS.swap slice 0 1;
+             swap_arr arr 0 1;
            ) else (
-             let tmp = CS.get slice 1 in
-             CS.set slice 1 (CS.get slice 0);
-             CS.set slice 0 (CS.get slice 1);
-             CS.set slice i tmp;
+             let tmp = arr.(1) in
+             arr.(1) <- arr.(0);
+             arr.(0) <- arr.(i);
+             arr.(i) <- tmp;
            );
          ) else if i>1 &&
-                   Atom.level store a > Atom.level store (Clause.Slice.get slice 1)
+                   Atom.level store a > Atom.level store arr.(1)
          then (
-           Clause.Slice.swap slice 1 i;
+           swap_arr arr 1 i;
          ))
+      arr
 
   (* find which level to backtrack to, given a conflict clause
      and a boolean stating whether it is
@@ -1448,8 +1383,9 @@ module Make(Plugin : PLUGIN)
           );
           Vec.push history clause;
           (* visit the current predecessors *)
-          for j = 0 to Clause.n_atoms store clause - 1 do
-            let q = Clause.atom store clause j in
+          let atoms = Clause.atoms_a store clause in
+          for j = 0 to Array.length atoms - 1 do
+            let q = atoms.(j) in
             assert (Atom.is_true store q ||
                     Atom.is_false store q &&
                     Atom.level store q >= 0); (* unsure? *)
@@ -1589,7 +1525,8 @@ module Make(Plugin : PLUGIN)
       let clause =
         if history = [] then (
           (* just update order of atoms *)
-          List.iteri (fun i a -> Clause.set_atom store c i a) atoms;
+          let c_atoms = Clause.atoms_a store c in
+          List.iteri (fun i a -> c_atoms.(i) <- a) atoms;
           c
         ) else (
           let proof = if self.store_proof then History (c::history) else Empty_premise in
@@ -1621,7 +1558,7 @@ module Make(Plugin : PLUGIN)
         if Atom.is_false store a then (
           (* Atom need to be sorted in decreasing order of decision level,
              or we might watch the wrong literals. *)
-          put_high_level_atoms_first store (Clause.atoms_slice store clause);
+          put_high_level_atoms_first store (Clause.atoms_a store clause);
           attach_clause self clause;
           add_boolean_conflict self clause
         ) else (
@@ -1658,25 +1595,26 @@ module Make(Plugin : PLUGIN)
   *)
   let propagate_in_clause (self:t) (a:atom) (c:clause) (i:int): watch_res =
     let store = self.store in
-    let first = Clause.atom store c 0 in
+    let atoms = Clause.atoms_a store c in
+    let first = atoms.(0) in
     if first = Atom.neg a then (
       (* false lit must be at index 1 *)
-      Clause.set_atom store c 0 (Clause.atom store c 1);
-      Clause.set_atom store c 1 first;
+      atoms.(0) <- atoms.(1);
+      atoms.(1) <- first
     ) else (
-      assert (Atom.neg a = Clause.atom store c 1)
+      assert (Atom.neg a = atoms.(1))
     );
-    let first = Clause.atom store c 0 in
+    let first = atoms.(0) in
     if Atom.is_true store first then (
       Watch_kept (* true clause, keep it in watched *)
     ) else (
       try (* look for another watch lit *)
-        for k = 2 to Clause.n_atoms store c - 1 do
-          let ak = Clause.atom store c k in
+        for k = 2 to Array.length atoms - 1 do
+          let ak = atoms.(k) in
           if not (Atom.is_false store ak) then (
             (* watch lit found: update and exit *)
-            Clause.set_atom store c 1 ak;
-            Clause.set_atom store c k (Atom.neg a);
+            atoms.(1) <- ak;
+            atoms.(k) <- Atom.neg a;
             (* remove [c] from [a.watched], add it to [ak.neg.watched] *)
             Vec.push (Atom.watched store (Atom.neg ak)) c;
             assert (Vec.get (Atom.watched store a) i == c);
@@ -1933,8 +1871,7 @@ module Make(Plugin : PLUGIN)
     while Vec.size v > n_of_learnts do
       let c = Vec.pop_exn v in
       assert (Clause.removable store c);
-      Clause.set_dead store c true;
-      assert (Clause.dead store c);
+      Clause.dealloc store c;
       incr n_collected;
     done;
     Log.debugf 3 (fun k->k "(@[sat.gc.done :collected %d@])" !n_collected);

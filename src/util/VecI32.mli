@@ -34,17 +34,6 @@ val shrink : t -> int -> unit
 val iter : f:(int -> unit) -> t -> unit
 val iteri : f:(int -> int -> unit) -> t -> unit
 
-module Slice : sig
-  type t
-
-  val size : t -> int
-  val get : t -> int -> int
-  val set : t -> int -> int -> unit
-  val swap : t -> int -> int -> unit
-end
-
-val slice : t -> off:int -> len:int -> Slice.t
-
 val to_iter : t -> int Iter.t
 
 val pp : t CCFormat.printer
