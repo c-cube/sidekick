@@ -610,7 +610,7 @@ module Make(A : ARG)
               let proof_init = P.ref_by_name @@ find_proof_name init in
               let tr_step (pivot,p') : P.hres_step =
                 (* unit resolution? *)
-                let is_r1_step = Iter.length (SC.atoms store (SP.conclusion p')) = 1 in
+                let is_r1_step = SC.n_atoms store (SP.conclusion p') = 1 in
                 let proof_p' = P.ref_by_name @@ find_proof_name p' in
                 if is_r1_step then (
                   P.r1 proof_p'

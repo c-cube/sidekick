@@ -10,8 +10,8 @@ type t = {
 
 let mk_arr_ sz : int32arr = A.create Bigarray.int32 Bigarray.c_layout sz
 
-let create () : t =
-  { sz=0; data=mk_arr_ 16 }
+let create ?(cap=16) () : t =
+  { sz=0; data=mk_arr_ cap }
 
 let[@inline] clear self = self.sz <- 0
 let[@inline] shrink self n = if n < self.sz then self.sz <- n
@@ -25,22 +25,25 @@ let resize_cap_ self new_cap =
   A.blit self.data (A.sub new_data 0 (A.dim self.data));
   self.data <- new_data
 
-let ensure_size self (n:int) =
+let ensure_cap self (n:int) =
   if n > A.dim self.data then (
     let new_cap = max n (A.dim self.data * 2 + 10) in
     resize_cap_ self new_cap;
-  );
+  )
+
+let ensure_size self n =
   if n > self.sz then (
+    ensure_cap self n;
     self.sz <- n
   )
 
 let[@inline] push (self:t) i : unit =
-  ensure_size self (self.sz+1);
+  ensure_cap self (self.sz+1);
   self.data.{self.sz} <- Int32.of_int i;
   self.sz <- 1 + self.sz
 
 let[@inline] push_i32 self i =
-  ensure_size self (self.sz+1);
+  ensure_cap self (self.sz+1);
   self.data.{self.sz} <- i;
   self.sz <- 1 + self.sz
 
@@ -78,6 +81,22 @@ let[@inline] iteri ~f self =
   done
 
 let[@inline] to_iter self k = iter ~f:k self
+
+module Slice = struct
+  type t = int32arr
+
+  let size = A.dim
+  let[@inline] get self i = Int32.to_int (A.get self i)
+  let[@inline] set self i x = A.set self i (Int32.of_int x)
+  let[@inline] swap self i j =
+    let tmp = get self i in
+    set self i (get self j);
+    set self j tmp
+end
+
+let[@inline] slice self ~off ~len =
+  assert (off+len < self.sz);
+  A.sub self.data off len
 
 let pp out self =
   Format.fprintf out "[@[";

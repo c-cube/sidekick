@@ -284,12 +284,6 @@ module type PROOF = sig
       [f] is executed exactly once on each proof node in the tree, and that the execution of
       [f] on a proof node happens after the execution on the parents of the nodes. *)
 
-  val unsat_core : t -> clause list
-  (** Returns the unsat_core of the given proof, i.e the lists of conclusions
-      of all leafs of the proof.
-      More efficient than using the [fold] function since it has
-      access to the internal representation of proofs *)
-
   (** {3 Misc} *)
 
   val check_empty_conclusion : store -> t -> unit
@@ -359,7 +353,9 @@ module type S = sig
     val short_name : store -> t -> string
     (** Short name for a clause. Unspecified *)
 
-    val atoms : store -> t -> atom Iter.t
+    val n_atoms : store -> t -> int
+
+    val atoms_iter : store -> t -> atom Iter.t
     (** Atoms of a clause *)
 
     val atoms_a : store -> t -> atom array
