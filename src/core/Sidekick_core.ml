@@ -197,6 +197,7 @@ module type PROOF = sig
   val assertion_c : lit Iter.t -> t
   val ref_by_name : string -> t (* named clause, see {!defc} *)
   val assertion_c_l : lit list -> t
+  val drup_res : lit list -> t (* assert clause and let DRUP take care of it *)
   val hres_iter : t -> hres_step Iter.t -> t (* hyper-res *)
   val hres_l : t -> hres_step list -> t (* hyper-res *)
   val res : pivot:term -> t -> t -> t (* resolution with pivot *)

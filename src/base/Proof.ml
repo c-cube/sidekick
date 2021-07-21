@@ -40,6 +40,7 @@ type t =
   | CC_lemma of clause
   | Assertion of term
   | Assertion_c of clause
+  | Drup_res of clause
   | Hres of t * hres_step list
   | Res of term * t * t
   | Res1 of t * t
@@ -136,6 +137,7 @@ let bool_eq a b : t = Bool_eq (a,b)
 let bool_c name c : t = Bool_c (name, c)
 let nn c : t = Nn c
 
+let drup_res c : t = Drup_res c
 let hres_l p l : t =
   let l = List.filter (function (P1 (Refl _)) -> false | _ -> true) l in
   if l=[] then p else Hres (p,l)
@@ -159,6 +161,7 @@ let iter_p (p:t) ~f_t ~f_step ~f_clause ~f_p : unit =
   | CC_lemma_imply (ps, t, u) -> List.iter f_p ps; f_t t; f_t u
   | CC_lemma c | Assertion_c c -> f_clause c
   | Assertion t -> f_t t
+  | Drup_res c -> f_clause c
   | Hres (i, l) ->
     f_p i;
     List.iter
@@ -402,6 +405,7 @@ module Quip = struct
       | Nn p -> l[a"nn";pp_rec p]
       | Assertion t -> l[a"assert";pp_t t]
       | Assertion_c c -> l[a"assert-c";pp_cl c]
+      | Drup_res c -> l[a"drup";pp_cl c]
       | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map (pp_hres_step sharing) steps)]
       | Res (t,p1,p2) -> l[a"r";pp_t t;pp_rec p1;pp_rec p2]
       | Res1 (p1,p2) -> l[a"r1";pp_rec p1;pp_rec p2]

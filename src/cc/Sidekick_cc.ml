@@ -600,10 +600,10 @@ module Make (A: CC_ARG)
   let rec update_tasks (cc:t) (acts:actions) : unit =
     while not (Vec.is_empty cc.pending && Vec.is_empty cc.combine) do
       while not @@ Vec.is_empty cc.pending do
-        task_pending_ cc (Vec.pop cc.pending);
+        task_pending_ cc (Vec.pop_exn cc.pending);
       done;
       while not @@ Vec.is_empty cc.combine do
-        task_combine_ cc acts (Vec.pop cc.combine);
+        task_combine_ cc acts (Vec.pop_exn cc.combine);
       done;
     done
 
