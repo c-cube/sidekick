@@ -1455,7 +1455,7 @@ module Make(Plugin : PLUGIN)
 
   let[@inline never] flush_clauses_ st =
     while not @@ Vec.is_empty st.clauses_to_add do
-      let c = Vec.pop st.clauses_to_add in
+      let c = Vec.pop_exn st.clauses_to_add in
       add_clause_ st c
     done
 
@@ -1746,7 +1746,7 @@ module Make(Plugin : PLUGIN)
     Vec.sort v (fun c1 c2 -> compare c2.activity c1.activity);
     let n_collected = ref 0 in
     while Vec.size v > n_of_learnts do
-      let c = Vec.pop v in
+      let c = Vec.pop_exn v in
       assert (Clause.removable c);
       Clause.set_dead c;
       assert (Clause.dead c);
