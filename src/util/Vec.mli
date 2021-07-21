@@ -32,9 +32,11 @@ val shrink : 'a t -> int -> unit
 (** [shrink vec sz] resets size of [vec] to [sz].
     Assumes [sz >=0 && sz <= size vec] *)
 
-val pop : 'a t -> 'a
+val pop_exn : 'a t -> 'a
 (** Pop last element and return it.
     @raise Invalid_argument if the vector is empty *)
+
+val pop : 'a t -> 'a option
 
 val size : 'a t -> int
 

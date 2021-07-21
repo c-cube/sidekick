@@ -15,11 +15,19 @@ let[@inline] shrink t i =
   assert (i<=t.sz);
   t.sz <- i
 
-let[@inline] pop t =
+let[@inline] pop_exn t =
   if t.sz = 0 then invalid_arg "vec.pop";
   let x = Array.unsafe_get t.data (t.sz - 1) in
   t.sz <- t.sz - 1;
   x
+
+let[@inline] pop t =
+  if t.sz = 0 then None
+  else (
+    let x = Array.unsafe_get t.data (t.sz - 1) in
+    t.sz <- t.sz - 1;
+    Some x
+  )
 
 let[@inline] size t = t.sz
 
