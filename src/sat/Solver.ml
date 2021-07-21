@@ -28,7 +28,7 @@ module Mk_int_id() = struct
   let compare : t -> t -> int = compare
   let hash = CCHash.int
   let[@inline] to_int i = i
-  let[@inline] of_int_unsafe i = i
+  external of_int_unsafe : int -> t = "%identity"
 end
 
 module Make(Plugin : PLUGIN)
