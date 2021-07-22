@@ -379,6 +379,8 @@ module type S = sig
     ?on_conflict:(atom array -> unit) ->
     ?on_decision:(atom -> unit) ->
     ?on_new_atom:(atom -> unit) ->
+    ?on_learnt:(atom array -> unit) ->
+    ?on_gc:(atom array -> unit) ->
     ?store_proof:bool ->
     ?size:[`Tiny|`Small|`Big] ->
     theory ->
@@ -444,5 +446,6 @@ module type S = sig
   val n_propagations : t -> int
   val n_decisions : t -> int
   val n_conflicts : t -> int
+  val n_restarts : t -> int
 end
 
