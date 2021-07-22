@@ -132,7 +132,7 @@ module Make(Plugin : PLUGIN)
       v_weight: Vec_float.t;
       v_reason: reason option Vec.t;
       v_seen: Bitvec.t;
-      v_default_polarity: Bitvec.t;
+      v_last_polarity: Bitvec.t; (* phase saving *)
       mutable v_count : int;
 
       (* atoms *)
@@ -159,7 +159,7 @@ module Make(Plugin : PLUGIN)
         v_weight = Vec_float.create();
         v_reason = Vec.create();
         v_seen = Bitvec.create();
-        v_default_polarity = Bitvec.create();
+        v_last_polarity = Bitvec.create();
         v_count = 0;
         a_is_true=Bitvec.create();
         a_form=Vec.create();
@@ -195,8 +195,8 @@ module Make(Plugin : PLUGIN)
       let[@inline] mark self v = Bitvec.set self.v_seen (v:var:>int) true
       let[@inline] unmark self v = Bitvec.set self.v_seen (v:var:>int) false
       let[@inline] marked self v = Bitvec.get self.v_seen (v:var:>int)
-      let[@inline] set_default_pol self v b = Bitvec.set self.v_default_polarity (v:var:>int) b
-      let[@inline] default_pol self v = Bitvec.get self.v_default_polarity (v:var:>int)
+      let[@inline] set_last_pol self v b = Bitvec.set self.v_last_polarity (v:var:>int) b
+      let[@inline] last_pol self v = Bitvec.get self.v_last_polarity (v:var:>int)
       let[@inline] heap_idx self v = Vec.get self.v_heap_idx (v:var:>int)
       let[@inline] set_heap_idx self v i = Vec.set self.v_heap_idx (v:var:>int) i
     end
@@ -457,7 +457,7 @@ module Make(Plugin : PLUGIN)
     (* allocate new variable *)
     let alloc_var_uncached_ ?default_pol:(pol=true) self (form:formula) : var =
       let {v_count; v_of_form; v_level; v_heap_idx; v_weight;
-           v_reason; v_seen; v_default_polarity;
+           v_reason; v_seen; v_last_polarity;
            a_is_true; a_seen; a_watched; a_form; c_store=_;
           } = self in
 
@@ -471,8 +471,8 @@ module Make(Plugin : PLUGIN)
       Vec.push v_reason None;
       Vec_float.push v_weight 0.;
       Bitvec.ensure_size v_seen v_idx;
-      Bitvec.ensure_size v_default_polarity v_idx;
-      Bitvec.set v_default_polarity v_idx pol;
+      Bitvec.ensure_size v_last_polarity v_idx;
+      Bitvec.set v_last_polarity v_idx pol; (* initial phase *)
 
       assert (Vec.size a_form = 2 * (v:var:>int));
       Bitvec.ensure_size a_is_true (2*(v:var:>int));
@@ -1286,6 +1286,7 @@ module Make(Plugin : PLUGIN)
     Atom.set_is_true store a true;
     Var.set_level store (Atom.var a) lvl;
     Var.set_reason store (Atom.var a) (Some reason);
+    Var.set_last_pol store (Atom.var a) (Atom.sign a); (* save phase *)
     Vec.push self.trail a;
     Log.debugf 20
       (fun k->k "(@[sat.enqueue[%d]@ %a@])"
@@ -1968,10 +1969,11 @@ module Make(Plugin : PLUGIN)
 
   (* Decide on a new literal, and enqueue it into the trail *)
   let rec pick_branch_aux self atom : unit =
+    let store = self.store in
     let v = Atom.var atom in
-    if Var.level self.store v >= 0 then (
-      assert (Atom.is_true self.store (Atom.pa v) ||
-              Atom.is_true self.store (Atom.na v));
+    if Var.level store v >= 0 then (
+      assert (Atom.is_true store (Atom.pa v) ||
+              Atom.is_true store (Atom.na v));
       pick_branch_lit self
     ) else (
       new_decision_level self;
@@ -2002,8 +2004,10 @@ module Make(Plugin : PLUGIN)
     | [] ->
       begin match H.remove_min self.order with
         | v ->
-          pick_branch_aux self
-            (if Var.default_pol self.store v then Atom.pa v else Atom.na v)
+          (* use saved polarity *)
+          let sign = Var.last_pol self.store v in
+          let a = if sign then Atom.pa v else Atom.na v in
+          pick_branch_aux self a
         | exception Not_found -> raise_notrace E_sat
       end
 
