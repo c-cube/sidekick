@@ -152,7 +152,7 @@ let main_cnf () : _ result =
   S.Dimacs.parse_file solver !file >>= fun () ->
   let r = S.solve solver in
   if !p_stat then (
-    Fmt.printf "; n-conflicts: %d n-decisions: %d n-propagations: %d@. \
+    Fmt.printf "; n-conflicts: %d n-decisions: %d n-propagations: %d@.\
                 ; n-restarts: %d n-atoms: %d@."
       (S.SAT.n_conflicts solver) (S.SAT.n_decisions solver)
       (S.SAT.n_propagations solver) (S.SAT.n_restarts solver) !n_atoms;
