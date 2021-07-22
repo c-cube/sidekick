@@ -385,11 +385,22 @@ module Make(Plugin : PLUGIN)
       let[@inline] removable store c = Bitvec.get store.c_store.c_removable (c:t:>int)
       let[@inline] set_removable store c b = Bitvec.set store.c_store.c_removable (c:t:>int) b
 
-      (* FIXME: actually GC the clause, recycle index, and remove it
-         somehow from the watch lists *)
       let dealloc store c : unit =
-        set_dead store c true;
         assert (dead store c);
+        let {c_lits; c_premise; c_recycle_idx; c_activity;
+             c_dead; c_removable; c_attached; c_marked; } = store.c_store in
+
+        (* clear data *)
+        let cid = (c:t:>int) in
+        Bitvec.set c_attached cid false;
+        Bitvec.set c_dead cid false;
+        Bitvec.set c_removable cid false;
+        Bitvec.set c_marked cid false;
+        Vec.set c_lits cid [||];
+        Vec.set c_premise cid Empty_premise;
+        Vec_float.set c_activity cid 0.;
+
+        VecI32.push c_recycle_idx cid; (* recycle idx *)
         ()
 
       let copy_flags store c1 c2 : unit =
@@ -1663,15 +1674,11 @@ module Make(Plugin : PLUGIN)
       else (
         let c = Vec.get watched i in
         assert (Clause.attached store c);
+        assert (not (Clause.dead store c));
         let j =
-          if Clause.dead store c then (
-            Vec.fast_remove watched i;
-            i
-          ) else (
-            match propagate_in_clause self a c i with
-            | Watch_kept -> i+1
-            | Watch_removed -> i (* clause at this index changed *)
-          )
+          match propagate_in_clause self a c i with
+          | Watch_kept -> i+1
+          | Watch_removed -> i (* clause at this index changed *)
         in
         aux j
       )
@@ -1873,23 +1880,90 @@ module Make(Plugin : PLUGIN)
                      (Format.pp_print_list (Atom.debug store)) !core);
     !core
 
-  (* TODO: compact regularly to remove dead clauses *)
-  (* remove some learnt clauses. *)
-  let reduce_db (st:t) (n_of_learnts: int) : unit =
-    let store = st.store in
-    let v = st.clauses_learnt in
-    Log.debugf 3 (fun k->k "(@[sat.gc.start :keep %d :out-of %d@])" n_of_learnts (Vec.size v));
-    assert (Vec.size v > n_of_learnts);
+  (* GC: remove some learnt clauses.
+     This works even during the proof with a non empty trail. *)
+  let reduce_clause_db (self:t) (n_of_learnts: int) : unit =
+    let store = self.store in
+
+    Log.debugf 3 (fun k->k "(@[sat.gc.start :keep %d :out-of %d@])"
+                     n_of_learnts (Vec.size self.clauses_learnt));
+    assert (Vec.size self.clauses_learnt > n_of_learnts);
+
     (* sort by decreasing activity *)
-    Vec.sort v (fun c1 c2 -> compare (Clause.activity store c2) (Clause.activity store c1));
-    let n_collected = ref 0 in
-    while Vec.size v > n_of_learnts do
-      let c = Vec.pop_exn v in
+    Vec.sort self.clauses_learnt
+      (fun c1 c2 -> compare (Clause.activity store c2) (Clause.activity store c1));
+
+    let dirty_atoms = self.temp_atom_vec in
+    let to_be_gc = self.temp_clause_vec in (* clauses to collect *)
+    let to_be_pushed_back = Vec.create() in (* clauses we need to keep *)
+    assert (Vec.is_empty dirty_atoms);
+    assert (Vec.is_empty to_be_gc);
+
+    (* [a] is watching at least one removed clause, we'll need to
+       trim its watchlist *)
+    let mark_dirty_atom a =
+      if not (Atom.marked store a) then (
+        Atom.mark store a;
+        Vec.push dirty_atoms a;
+      )
+    in
+
+    (* first, mark clauses used on the trail, we cannot GC them.
+       TODO: once we use DRUP, we can avoid marking level-0 explanations
+       as they will never participate in resolution. *)
+    Vec.iter
+      (fun a ->
+         match Atom.reason store a with
+         | Some (Bcp c) -> Clause.set_marked store c true
+         | Some (Bcp_lazy lc) when Lazy.is_val lc ->
+           Clause.set_marked store (Lazy.force lc) true
+         | _ -> ())
+      self.trail;
+
+    (* GC the clause [c] *)
+    let flag_clause_for_gc c =
       assert (Clause.removable store c);
-      Clause.dealloc store c;
-      incr n_collected;
+      Vec.push to_be_gc c;
+      Clause.set_dead store c true;
+      let atoms = Clause.atoms_a store c in
+      mark_dirty_atom (Atom.neg atoms.(0)); (* need to remove from watchlists *)
+      mark_dirty_atom (Atom.neg atoms.(1));
+      (match self.on_gc with Some f -> f atoms | None -> ());
+    in
+
+    (* find clauses to GC *)
+    while Vec.size self.clauses_learnt > n_of_learnts do
+      let c = Vec.pop_exn self.clauses_learnt in
+      if Clause.marked store c then (
+        Vec.push to_be_pushed_back c; (* must keep it, it's on the trail *)
+      ) else (
+        flag_clause_for_gc c;
+        Log.debugf 10 (fun k->k"(@[sat.gc.will-collect@ %a@])" (Clause.debug store) c);
+      )
     done;
-    Log.debugf 3 (fun k->k "(@[sat.gc.done :collected %d@])" !n_collected);
+    let n_collected = Vec.size to_be_gc in
+
+    (* update watchlist of dirty atoms *)
+    Vec.iter
+      (fun a ->
+         assert (Atom.marked store a);
+         Atom.unmark store a;
+         let w = Atom.watched store a in
+         Vec.filter_in_place (fun c -> not (Clause.dead store c)) w)
+      dirty_atoms;
+    Vec.clear dirty_atoms;
+
+    (* actually remove the clauses now that they are detached *)
+    Vec.iter (Clause.dealloc store) to_be_gc;
+    Vec.clear to_be_gc;
+    (* restore other clauses *)
+    Vec.iter
+      (fun c ->
+         Clause.set_marked store c false;
+         Vec.push self.clauses_learnt c)
+      to_be_pushed_back;
+
+    Log.debugf 3 (fun k->k "(@[sat.gc.done :collected %d@])" n_collected);
     ()
 
   (* Decide on a new literal, and enqueue it into the trail *)
@@ -1968,7 +2042,7 @@ module Make(Plugin : PLUGIN)
 
         if n_of_learnts > 0 &&
            Vec.size st.clauses_learnt - Vec.size st.trail > n_of_learnts then (
-          reduce_db st n_of_learnts;
+          reduce_clause_db st n_of_learnts;
         );
 
         pick_branch_lit st
