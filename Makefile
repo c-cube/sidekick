@@ -35,6 +35,9 @@ snapshots:
 $(TESTTOOL)-quick: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick
+$(TESTTOOL)-local: snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-local
 $(TESTTOOL)-smt-QF_UF: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_UF-$(DATE).csv --task sidekick-smt-nodir tests/QF_UF

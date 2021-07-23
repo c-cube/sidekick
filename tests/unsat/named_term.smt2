@@ -1,0 +1,11 @@
+
+(declare-sort u 0)
+(declare-fun p0 () Bool)
+(declare-fun a () u)
+(declare-fun b () u)
+(declare-fun c () u)
+(declare-fun f (u) u)
+(assert (= (! (f b) :named fb) c))
+(assert (= b a))
+(assert (not (! (= (f a) c) :named goal)))
+(check-sat)
