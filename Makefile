@@ -5,7 +5,7 @@
 
 J?=3
 TIMEOUT?=30
-OPTS= -j $(J)
+OPTS= -j $(J) --profile=release
 
 dev: build-dev
 
@@ -13,7 +13,7 @@ dev: build-dev
 #dev: build-dev test
 
 build-install:
-	@dune build $(OPTS) @install --profile=release
+	@dune build $(OPTS) @install
 
 build: build-install
 
