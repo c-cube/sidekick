@@ -143,15 +143,44 @@ let main_smt ~dot_proof () : _ result =
 
 let main_cnf () : _ result =
   let module S = Pure_sat_solver in
+
+  let close_proof_, on_learnt, on_gc =
+    if !proof_file ="" then (
+      (fun() -> ()), None, None
+    ) else (
+      let oc = open_out !proof_file in
+      let pp_c solver c =
+        let store = S.SAT.store solver in
+        Array.iteri (fun i a ->
+            if i>0 then output_char oc ' ';
+            let v = S.SAT.Atom.formula store a in
+            output_string oc (string_of_int v))
+          c
+      in
+      let on_learnt solver c =
+        pp_c solver c; output_string oc " 0\n";
+      and on_gc solver c =
+        output_string oc "d "; pp_c solver c; output_string oc " 0\n";
+        ()
+      and close () =
+        flush oc;
+        close_out_noerr oc;
+      in
+      close, Some on_learnt, Some on_gc
+    )
+  in
+
   let n_atoms = ref 0 in
   let solver =
     S.SAT.create
-      ~on_new_atom:(fun _ -> incr n_atoms)
-      ~size:`Big ()
+      ~on_new_atom:(fun _ _ -> incr n_atoms) ~size:`Big ()
+      ?on_learnt ?on_gc
   in
 
   S.Dimacs.parse_file solver !file >>= fun () ->
   let r = S.solve  ~check:!check solver in
+
+  close_proof_();
   if !p_stat then (
     Fmt.printf "; n-conflicts: %d n-decisions: %d n-propagations: %d@.\
                 ; n-restarts: %d n-atoms: %d@."
