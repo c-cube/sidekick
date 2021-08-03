@@ -895,11 +895,11 @@ module Make(Plugin : PLUGIN)
     mutable clause_incr : float;
     (* increment for clauses' activity *)
 
-    mutable on_conflict : (atom array -> unit) option;
-    mutable on_decision : (atom -> unit) option;
-    mutable on_new_atom: (atom -> unit) option;
-    mutable on_learnt : (atom array -> unit) option;
-    mutable on_gc : (atom array -> unit) option;
+    mutable on_conflict : (t -> atom array -> unit) option;
+    mutable on_decision : (t -> atom -> unit) option;
+    mutable on_new_atom: (t -> atom -> unit) option;
+    mutable on_learnt : (t -> atom array -> unit) option;
+    mutable on_gc : (t -> atom array -> unit) option;
 
     mutable n_conflicts : int;
     mutable n_propagations : int;
@@ -996,7 +996,7 @@ module Make(Plugin : PLUGIN)
     let a = Store.alloc_atom self.store ?default_pol p in
     if Atom.level self.store a < 0 then (
       insert_var_order self (Atom.var a);
-      (match self.on_new_atom with Some f -> f a | None -> ());
+      (match self.on_new_atom with Some f -> f self a | None -> ());
     ) else (
       assert (Atom.is_true self.store a || Atom.is_false self.store a);
     );
@@ -1221,6 +1221,7 @@ module Make(Plugin : PLUGIN)
       | US_false c ->
         let c = if self.store_proof then Proof.prove_unsat self.store c else c in
         self.unsat_at_0 <- Some c;
+        (match self.on_learnt with Some f -> f self (Clause.atoms_a self.store c) | None -> ());
         US_false c
       | _ -> us
     in
@@ -1492,6 +1493,7 @@ module Make(Plugin : PLUGIN)
         ) else (
           let uclause =
             Clause.make_a store ~removable:true cr.cr_learnt proof  in
+          (match self.on_learnt with Some f -> f self cr.cr_learnt | None -> ());
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool self fuip ~level:0 (Bcp uclause)
         )
@@ -1503,7 +1505,7 @@ module Make(Plugin : PLUGIN)
         );
         attach_clause self lclause;
         clause_bump_activity self lclause;
-        (match self.on_learnt with Some f -> f cr.cr_learnt | None -> ());
+        (match self.on_learnt with Some f -> f self cr.cr_learnt | None -> ());
         assert (cr.cr_is_uip);
         enqueue_bool self fuip ~level:cr.cr_backtrack_lvl (Bcp lclause)
     end;
@@ -1928,7 +1930,7 @@ module Make(Plugin : PLUGIN)
       let atoms = Clause.atoms_a store c in
       mark_dirty_atom (Atom.neg atoms.(0)); (* need to remove from watchlists *)
       mark_dirty_atom (Atom.neg atoms.(1));
-      (match self.on_gc with Some f -> f atoms | None -> ());
+      (match self.on_gc with Some f -> f self atoms | None -> ());
     in
 
     (* find clauses to GC *)
@@ -1978,7 +1980,7 @@ module Make(Plugin : PLUGIN)
       let current_level = decision_level self in
       enqueue_bool self atom ~level:current_level Decision;
       self.n_decisions <- 1 + self.n_decisions;
-      (match self.on_decision with Some f -> f atom | None -> ());
+      (match self.on_decision with Some f -> f self atom | None -> ());
     )
 
   and pick_branch_lit self : unit =
@@ -2027,7 +2029,7 @@ module Make(Plugin : PLUGIN)
           add_clause_ st confl
         );
         st.n_conflicts <- 1 + st.n_conflicts;
-        (match st.on_conflict with Some f -> f (Clause.atoms_a st.store confl) | None -> ());
+        (match st.on_conflict with Some f -> f st (Clause.atoms_a st.store confl) | None -> ());
 
       | None -> (* No Conflict *)
         assert (st.elt_head = Vec.size st.trail);
@@ -2101,7 +2103,7 @@ module Make(Plugin : PLUGIN)
                                  (Clause.debug self.store) c);
                 self.n_conflicts <- 1 + self.n_conflicts;
                 (match self.on_conflict with
-                   Some f -> f (Clause.atoms_a self.store c) | None -> ());
+                   Some f -> f self (Clause.atoms_a self.store c) | None -> ());
                 Vec.push self.clauses_to_add c;
                 flush_clauses self;
             end;

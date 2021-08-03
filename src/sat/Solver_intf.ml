@@ -376,11 +376,11 @@ module type S = sig
   (** Main solver type, containing all state for solving. *)
 
   val create :
-    ?on_conflict:(atom array -> unit) ->
-    ?on_decision:(atom -> unit) ->
-    ?on_new_atom:(atom -> unit) ->
-    ?on_learnt:(atom array -> unit) ->
-    ?on_gc:(atom array -> unit) ->
+    ?on_conflict:(t -> atom array -> unit) ->
+    ?on_decision:(t -> atom -> unit) ->
+    ?on_new_atom:(t -> atom -> unit) ->
+    ?on_learnt:(t -> atom array -> unit) ->
+    ?on_gc:(t -> atom array -> unit) ->
     ?store_proof:bool ->
     ?size:[`Tiny|`Small|`Big] ->
     theory ->
