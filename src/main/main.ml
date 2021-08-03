@@ -152,8 +152,10 @@ let main_cnf () : _ result =
       ~on_new_atom:(fun _ -> incr n_atoms)
       ~size:`Big ()
   in
+
   Pure_sat_solver.Dimacs.parse_file solver !file >>= fun () ->
-  let r = Pure_sat_solver.solve solver in
+  let r = Pure_sat_solver.solve ~check:!check solver in
+
   if !p_stat then (
     Fmt.printf "; n-atoms: %d n-conflicts: %d n-decisions: %d@."
       !n_atoms !n_confl !n_decision;
