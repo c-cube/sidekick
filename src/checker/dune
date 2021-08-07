@@ -1,0 +1,7 @@
+
+(executable
+  (name main)
+  (public_name sidekick-checker)
+  (package sidekick-bin)
+  (libraries containers sidekick.util sidekick.drup)
+  (flags :standard -warn-error -a+8 -open Sidekick_util))
