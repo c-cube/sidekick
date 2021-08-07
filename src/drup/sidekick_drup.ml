@@ -33,12 +33,22 @@ end = struct
 end
 type atom = Atom.t
 
-type clause = atom array
-module Clause = struct
-  type t = clause
+module Clause : sig
+  type t
+  val size : t -> int
+  val get : t -> int -> atom
+  val iter : f:(atom -> unit) -> t -> unit
+  val pp : t Fmt.printer
+  val of_array : atom array -> t
+end = struct
+  type t = atom array
+  let size = Array.length
+  let get = Array.get
   let iter ~f c = Array.iter f c
   let pp out (self:t) = Fmt.Dump.array Atom.pp out self
+  let of_array a = a
 end
+type clause = Clause.t
 
 module Trace : sig
   type t
@@ -46,7 +56,7 @@ module Trace : sig
   val create : unit -> t
 
   val add_clause : t -> clause -> unit
-
+  val add_input_clause : t -> clause -> unit
   val del_clause : t -> clause -> unit
 
   type event =
@@ -56,6 +66,8 @@ module Trace : sig
 
   val iteri : t -> f:(int -> event -> unit) -> unit
   val events : t -> event Iter.t
+  val size : t -> int
+  val get : t -> int -> event
 
   val pp_event : event Fmt.printer
 
@@ -74,18 +86,21 @@ end = struct
     { evs=Vec.create() }
 
   let add_clause self c = Vec.push self.evs (A c)
+  let add_input_clause self c = Vec.push self.evs (I c)
   let del_clause self c = Vec.push self.evs (D c)
+  let get self i = Vec.get self.evs i
+  let size self = Vec.size self.evs
   let events self = Vec.to_seq self.evs
   let iteri self ~f = Vec.iteri f self.evs
 
   let pp_event out = function
-    | I c -> Fmt.fprintf out "(@[input %a@])" Clause.pp c
-    | A c -> Fmt.fprintf out "(@[add %a@])" Clause.pp c
-    | D c -> Fmt.fprintf out "(@[del %a@])" Clause.pp c
+    | I c -> Fmt.fprintf out "(@[Input %a@])" Clause.pp c
+    | A c -> Fmt.fprintf out "(@[Add %a@])" Clause.pp c
+    | D c -> Fmt.fprintf out "(@[Del %a@])" Clause.pp c
 
   let dump oc self : unit =
     let fpf = Printf.fprintf in
-    let pp_c out c = Array.iter (fun a -> fpf oc "%d " (Atom.to_int a)) c; in
+    let pp_c out c = Clause.iter c ~f:(fun a -> fpf oc "%d " (Atom.to_int a)); in
     Vec.iter
       (function
         | I c -> fpf oc "i %a0\n" pp_c c;
@@ -94,6 +109,20 @@ end = struct
       )
       self.evs
 end
+
+(*
+module Checker : sig
+  type t
+
+  val create : unit -> t
+
+  val add_clause : t -> clause -> unit
+  val remove_clause : t -> clause -> unit
+end = struct
+  type t = {
+    clauses: unit Clause.Tbl.t;
+  }
+   *)
 
 (** Forward checking.
 
@@ -129,15 +158,16 @@ end = struct
 
   let ensure_atom_ self (a:atom) =
     Bitvec.ensure_size self.assign (a:atom:>int);
-    Vec.ensure_size self.watches ISet.empty (a:atom:>int);
+    (* size: 2+atom, because: 1+atom makes atom valid, and if it's positive,
+       2+atom is (¬atom)+1 *)
+    Vec.ensure_size self.watches ISet.empty (2+(a:atom:>int));
     ()
 
   let[@inline] is_true self (a:atom) : bool =
     Bitvec.get self.assign (a:atom:>int)
-  let[@inline] is_false self (a:atom) : bool = is_true self (Atom.neg a)
-  let[@inline] set_true self (a:atom) : unit =
-    Bitvec.set self.assign (a:atom:>int) true
 
+  let[@inline] is_false self (a:atom) : bool =
+    is_true self (Atom.neg a)
 
   let add_watch_ self (a:atom) cid =
     let set = Vec.get self.watches (a:atom:>int) in
@@ -148,6 +178,19 @@ end = struct
     Vec.set self.watches (a:atom:>int) (ISet.remove cid set)
 
   exception Conflict
+
+  let raise_conflict_ self a =
+    Log.debugf 5 (fun k->k"conflict on atom %a" Atom.pp a);
+    raise Conflict
+
+  (* set atom to true *)
+  let set_atom_true (self:t) (a:atom) : unit =
+    if is_true self a then ()
+    else if is_false self a then raise_conflict_ self a
+    else (
+      Bitvec.set self.assign (a:atom:>int) true;
+      VecI32.push self.trail (a:atom:>int)
+    )
 
   (* TODO *)
   let propagate_in_clause_ (self:t) (cid:int) : unit =
@@ -169,20 +212,31 @@ end = struct
   let with_restore_trail_ self f =
     let trail_size0 = VecI32.size self.trail in
     let ptr = self.trail_ptr in
-    CCFun.finally
-      ~h:(fun () ->
-        VecI32.shrink self.trail trail_size0;
-        self.trail_ptr <- ptr)
-      ~f
+
+    let restore () =
+      (* unassign new literals *)
+      for i=trail_size0 to VecI32.size self.trail - 1 do
+        let a = Atom.of_int_unsafe (VecI32.get self.trail i) in
+        assert (is_true self a);
+        Bitvec.set self.assign (a:atom:>int) false;
+      done;
+
+      (* remove literals from trail *)
+      VecI32.shrink self.trail trail_size0;
+      self.trail_ptr <- ptr
+    in
+
+    CCFun.finally ~h:restore ~f
 
   (* check event, return [true] if it's valid *)
-  let check_ev (self:t) (ev:Trace.event) : bool =
-    Log.debugf 20 (fun k->k"(@[check-ev@ %a@])" Trace.pp_event ev);
+  let check_ev (self:t) i (ev:Trace.event) : bool =
+    Log.debugf 20 (fun k->k"(@[check-ev[%d]@ %a@])" i Trace.pp_event ev);
 
     (* add clause to the state *)
-    let add_c_ c =
-      Array.iter (ensure_atom_ self) c;
+    let add_c_ (c:Clause.t) =
+      Clause.iter c ~f:(ensure_atom_ self);
 
+      (* allocate clause *)
       let cid =
         match Vec.pop_exn self.cs_recycle with
         | cid ->
@@ -193,8 +247,15 @@ end = struct
           Vec.push self.cs c;
           cid
       in
-      add_watch_ self (Atom.neg c.(0)) cid;
-      add_watch_ self (Atom.neg c.(1)) cid;
+
+      begin match Clause.size c with
+        | 0 -> ()
+        | 1 ->
+          set_atom_true self (Clause.get c 0);
+        | _ ->
+          add_watch_ self (Atom.neg (Clause.get c 0)) cid;
+          add_watch_ self (Atom.neg (Clause.get c 1)) cid;
+      end;
       propagate_in_clause_ self cid; (* make sure watches are valid *)
       ()
     in
@@ -216,8 +277,7 @@ end = struct
                 if is_true self a then raise_notrace Conflict; (* tautology *)
                 let a' = Atom.neg a in
                 if is_true self a' then () else (
-                  VecI32.push self.trail (a':atom:>int);
-                  set_true self a'
+                  set_atom_true self a'
                 ));
           propagate_ self;
           false
@@ -237,9 +297,10 @@ end = struct
     (* check each event in turn *)
     Trace.iteri trace
       ~f:(fun i ev ->
-          let ok = check_ev self ev in
+          let ok = check_ev self i ev in
           if not ok then (
-            Log.debugf 10 (fun k->k"(@[check.step.fail@ :n %d@ %a@])" i Trace.pp_event ev);
+            Log.debugf 10
+              (fun k->k"(@[check.step.fail@ event[%d]@ :def %a@])" i Trace.pp_event ev);
             VecI32.push self.errors i
           ));
 

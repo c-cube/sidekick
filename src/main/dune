@@ -7,7 +7,7 @@
  (modes native)
  (libraries containers iter result sidekick.sat sidekick.core sidekick-base
             sidekick.msat-solver sidekick-bin.smtlib sidekick.tef
-            sidekick.memtrace)
+            sidekick.memtrace sidekick-bin.lib)
  (flags :standard -safe-string -color always -open Sidekick_util))
 
 (rule
@@ -18,4 +18,3 @@
     (with-stdout-to %{targets}
        (echo "let version = {git|%{version:sidekick}|git}"))))
 
-(ocamllex (modules Dimacs_lexer))

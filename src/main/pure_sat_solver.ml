@@ -22,6 +22,7 @@ module SAT = Sidekick_sat.Make_pure_sat(Arg)
 
 module Dimacs = struct
   open Sidekick_base
+  module BL = Sidekick_bin_lib
   module T = Term
 
   let parse_file (solver:SAT.t) (file:string) : (unit, string) result =
@@ -30,8 +31,8 @@ module Dimacs = struct
     try
       CCIO.with_in file
         (fun ic ->
-           let p = Dimacs_parser.create ic in
-           Dimacs_parser.iter p
+           let p = BL.Dimacs_parser.create ic in
+           BL.Dimacs_parser.iter p
              (fun c ->
                 let atoms = List.rev_map get_lit c in
                 SAT.add_clause solver atoms ());

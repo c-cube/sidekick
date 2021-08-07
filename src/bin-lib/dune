@@ -1,0 +1,9 @@
+
+(library
+  (name sidekick_bin_lib)
+  (public_name sidekick-bin.lib)
+  (synopsis "Utils for the sidekick binaries")
+  (libraries containers sidekick.util)
+  (flags :standard -warn-error -a+8 -open Sidekick_util))
+
+(ocamllex (modules Dimacs_lexer Drup_lexer))
