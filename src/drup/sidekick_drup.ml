@@ -60,9 +60,9 @@ module Trace : sig
   val del_clause : t -> clause -> unit
 
   type event =
-    | I of clause
-    | A of clause
-    | D of clause
+    | Input of clause
+    | Redundant of clause
+    | Delete of clause
 
   val iteri : t -> f:(int -> event -> unit) -> unit
   val events : t -> event Iter.t
@@ -74,9 +74,9 @@ module Trace : sig
   val dump : out_channel -> t -> unit
 end = struct
   type event =
-    | I of clause
-    | A of clause
-    | D of clause
+    | Input of clause
+    | Redundant of clause
+    | Delete of clause
 
   type t = {
     evs: event Vec.t;
@@ -85,27 +85,27 @@ end = struct
   let create() : t =
     { evs=Vec.create() }
 
-  let add_clause self c = Vec.push self.evs (A c)
-  let add_input_clause self c = Vec.push self.evs (I c)
-  let del_clause self c = Vec.push self.evs (D c)
+  let add_clause self c = Vec.push self.evs (Redundant c)
+  let add_input_clause self c = Vec.push self.evs (Input c)
+  let del_clause self c = Vec.push self.evs (Delete c)
   let get self i = Vec.get self.evs i
   let size self = Vec.size self.evs
   let events self = Vec.to_seq self.evs
   let iteri self ~f = Vec.iteri f self.evs
 
   let pp_event out = function
-    | I c -> Fmt.fprintf out "(@[Input %a@])" Clause.pp c
-    | A c -> Fmt.fprintf out "(@[Add %a@])" Clause.pp c
-    | D c -> Fmt.fprintf out "(@[Del %a@])" Clause.pp c
+    | Input c -> Fmt.fprintf out "(@[Input %a@])" Clause.pp c
+    | Redundant c -> Fmt.fprintf out "(@[Redundant %a@])" Clause.pp c
+    | Delete c -> Fmt.fprintf out "(@[Del %a@])" Clause.pp c
 
   let dump oc self : unit =
     let fpf = Printf.fprintf in
     let pp_c out c = Clause.iter c ~f:(fun a -> fpf oc "%d " (Atom.to_int a)); in
     Vec.iter
       (function
-        | I c -> fpf oc "i %a0\n" pp_c c;
-        | A c -> fpf oc "%a0\n" pp_c c;
-        | D c -> fpf oc "d %a0\n" pp_c c;
+        | Input c -> fpf oc "i %a0\n" pp_c c;
+        | Redundant c -> fpf oc "%a0\n" pp_c c;
+        | Delete c -> fpf oc "d %a0\n" pp_c c;
       )
       self.evs
 end
@@ -261,11 +261,11 @@ end = struct
     in
 
     match ev with
-    | Trace.I c ->
+    | Trace.Input c ->
       add_c_ c;
       true
 
-    | Trace.A c ->
+    | Trace.Redundant c ->
 
       (* negate [c], pushing each atom on trail, and see if we get [Conflict]
          by pure propagation *)
@@ -288,7 +288,7 @@ end = struct
       add_c_ c;
       ok
 
-    | Trace.D _c ->
+    | Trace.Delete _c ->
       true (* TODO*)
 
   let check trace : _ result =
@@ -300,7 +300,7 @@ end = struct
           let ok = check_ev self i ev in
           if not ok then (
             Log.debugf 10
-              (fun k->k"(@[check.step.fail@ event[%d]@ :def %a@])" i Trace.pp_event ev);
+              (fun k->k"(@[check.step.fail@ :on event[%d]@ :def %a@])" i Trace.pp_event ev);
             VecI32.push self.errors i
           ));
 
