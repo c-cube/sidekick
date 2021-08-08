@@ -100,7 +100,6 @@ for legibility:
 # #install_printer Ty.pp;;
 # #install_printer Fun.pp;;
 # #install_printer Model.pp;;
-# #install_printer Solver.Atom.pp;;
 # #install_printer Solver.Model.pp;;
 # #install_printer Proof.pp_debug;;
 Proof.pp_debug has a wrong type for a printing function.
@@ -203,6 +202,11 @@ val solver : Solver.t = <abstr>
 
 # Solver.add_theory;;
 - : Solver.t -> Solver.theory -> unit = <fun>
+
+# (* print solver's atoms *)
+  let pp_atom out a = Solver.Atom.pp solver out a;;
+val pp_atom : Format.formatter -> Solver.Atom.t -> unit = <fun>
+# #install_printer pp_atom;;
 ```
 
 Alright, let's do some solving now ⚙️. We're going to assert
@@ -221,8 +225,8 @@ Sidekick_base_solver.Solver.Sat
  (model
   (true := true)
   (false := false)
-  (p := false)
-  (q := false)
+  (p := true)
+  (q := true)
   (_tseitin_equiv_0 := true))
 ```
 
@@ -258,8 +262,8 @@ Sidekick_base_solver.Solver.Sat
  (model
   (true := true)
   (false := false)
-  (p := false)
-  (q := false)
+  (p := true)
+  (q := true)
   (_tseitin_equiv_0 := true))
 ```
 
@@ -276,9 +280,9 @@ Sidekick_base_solver.Solver.Sat
  (model
   (true := true)
   (false := false)
-  (p := false)
-  (q := false)
-  (r := false)
+  (p := true)
+  (q := true)
+  (r := true)
   (_tseitin_equiv_0 := true)
   (_tseitin_implies_1 := true))
 ```
@@ -313,6 +317,11 @@ Let's create a new solver and add the theory of reals to it.
 ```ocaml
 # let solver = Solver.create ~theories:[th_bool; th_lra] tstore () ();;
 val solver : Solver.t = <abstr>
+
+# (* print solver's atoms *)
+  let pp_atom out a = Solver.Atom.pp solver out a;;
+val pp_atom : Format.formatter -> Solver.Atom.t -> unit = <fun>
+# #install_printer pp_atom;;
 ```
 
 Create a few arithmetic constants.
@@ -405,6 +414,11 @@ Anyway, Sidekick knows how to reason about functions.
 ```ocaml
 # let solver = Solver.create ~theories:[] tstore () ();;
 val solver : Solver.t = <abstr>
+
+# (* print solver's atoms *)
+  let pp_atom out a = Solver.Atom.pp solver out a;;
+val pp_atom : Format.formatter -> Solver.Atom.t -> unit = <fun>
+# #install_printer pp_atom;;
 
 # (* helper *)
   let appf1 x = Term.app_fun_l tstore f1 x;;
