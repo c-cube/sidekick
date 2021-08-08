@@ -4,5 +4,5 @@
   (public_name sidekick-checker)
   (package sidekick-bin)
   (libraries containers sidekick-bin.lib
-             sidekick.util sidekick.drup)
+             sidekick.util sidekick.tef sidekick.drup)
   (flags :standard -warn-error -a+8 -open Sidekick_util))

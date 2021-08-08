@@ -33,70 +33,117 @@ end = struct
 end
 type atom = Atom.t
 
+(** Boolean clauses *)
 module Clause : sig
+  type store
+  val create : unit -> store
   type t
   val size : t -> int
   val get : t -> int -> atom
   val iter : f:(atom -> unit) -> t -> unit
+  val watches: t -> (atom * atom) option
+  val set_watches : t -> atom * atom -> unit
   val pp : t Fmt.printer
-  val of_array : atom array -> t
+  val of_list : store -> atom list -> t
+  module Set : CCSet.S with type elt = t
+  module Tbl : CCHashtbl.S with type key = t
 end = struct
-  type t = atom array
-  let size = Array.length
-  let get = Array.get
-  let iter ~f c = Array.iter f c
-  let pp out (self:t) = Fmt.Dump.array Atom.pp out self
-  let of_array a = a
+  module I_arr_tbl = CCHashtbl.Make(struct
+      type t = atom array
+      let equal = CCEqual.(array Atom.equal)
+      let hash = CCHash.(array Atom.hash)
+    end)
+  type t = {
+    id: int;
+    atoms: atom array;
+    mutable watches: (atom * atom) option;
+  }
+  type store = {
+    mutable n: int;
+  }
+  let create(): store =
+    { n=0; }
+  let size self = Array.length self.atoms
+  let get self i = Array.get self.atoms i
+  let watches self = self.watches
+  let set_watches self w = self.watches <- Some w
+  let iter ~f self = Array.iter f self.atoms
+  let pp out (self:t) =
+    let pp_watches out = function
+      | None -> ()
+      | Some (p,q) -> Fmt.fprintf out "@ :watches (%a,%a)" Atom.pp p Atom.pp q in
+    Fmt.fprintf out "(@[cl[%d]@ %a%a])"
+      self.id (Fmt.Dump.array Atom.pp) self.atoms pp_watches self.watches
+  let of_list self atoms : t =
+    (* normalize + find in table *)
+    let atoms = List.sort_uniq Atom.compare atoms |> Array.of_list in
+    let id = self.n in
+    self.n <- 1 + self.n;
+    let c = {atoms; id; watches=None} in
+    c
+  module As_key = struct
+    type nonrec t=t
+    let hash a = CCHash.int a.id
+    let equal a b = a.id = b.id
+    let compare a b = compare a.id b.id
+  end
+  module Set = CCSet.Make(As_key)
+  module Tbl = CCHashtbl.Make(As_key)
 end
 type clause = Clause.t
 
+(** A DRUP trace, as a series of operations *)
 module Trace : sig
   type t
 
-  val create : unit -> t
+  val create : Clause.store -> t
+  val cstore : t -> Clause.store
 
   val add_clause : t -> clause -> unit
   val add_input_clause : t -> clause -> unit
   val del_clause : t -> clause -> unit
 
-  type event =
+  (** Operator on the set of clauses *)
+  type op =
     | Input of clause
     | Redundant of clause
     | Delete of clause
 
-  val iteri : t -> f:(int -> event -> unit) -> unit
-  val events : t -> event Iter.t
+  val iteri : t -> f:(int -> op -> unit) -> unit
+  val ops : t -> op Iter.t
   val size : t -> int
-  val get : t -> int -> event
+  val get : t -> int -> op
 
-  val pp_event : event Fmt.printer
+  val pp_op : op Fmt.printer
 
   val dump : out_channel -> t -> unit
 end = struct
-  type event =
+  type op =
     | Input of clause
     | Redundant of clause
     | Delete of clause
 
   type t = {
-    evs: event Vec.t;
+    cstore: Clause.store;
+    ops: op Vec.t;
   }
 
-  let create() : t =
-    { evs=Vec.create() }
+  let create cstore : t =
+    { cstore; ops=Vec.create() }
 
-  let add_clause self c = Vec.push self.evs (Redundant c)
-  let add_input_clause self c = Vec.push self.evs (Input c)
-  let del_clause self c = Vec.push self.evs (Delete c)
-  let get self i = Vec.get self.evs i
-  let size self = Vec.size self.evs
-  let events self = Vec.to_seq self.evs
-  let iteri self ~f = Vec.iteri f self.evs
+  let cstore self = self.cstore
+  let add_clause self c = Vec.push self.ops (Redundant c)
+  let add_input_clause self c = Vec.push self.ops (Input c)
+  let del_clause self c = Vec.push self.ops (Delete c)
+  let get self i = Vec.get self.ops i
+  let size self = Vec.size self.ops
+  let ops self = Vec.to_seq self.ops
+  let iteri self ~f = Vec.iteri f self.ops
 
-  let pp_event out = function
+  let pp_op out = function
     | Input c -> Fmt.fprintf out "(@[Input %a@])" Clause.pp c
     | Redundant c -> Fmt.fprintf out "(@[Redundant %a@])" Clause.pp c
-    | Delete c -> Fmt.fprintf out "(@[Del %a@])" Clause.pp c
+    | Delete c -> Fmt.fprintf out "(@[Delete %a@])" Clause.pp c
 
   let dump oc self : unit =
     let fpf = Printf.fprintf in
@@ -107,60 +154,55 @@ end = struct
         | Redundant c -> fpf oc "%a0\n" pp_c c;
         | Delete c -> fpf oc "d %a0\n" pp_c c;
       )
-      self.evs
+      self.ops
 end
-
-(*
-module Checker : sig
-  type t
-
-  val create : unit -> t
-
-  val add_clause : t -> clause -> unit
-  val remove_clause : t -> clause -> unit
-end = struct
-  type t = {
-    clauses: unit Clause.Tbl.t;
-  }
-   *)
 
 (** Forward checking.
 
     Each event is checked by reverse-unit propagation on previous events. *)
 module Fwd_check : sig
+
+  type error =
+    [ `Bad_steps of VecI32.t
+    | `No_empty_clause
+    ]
+
+  val pp_error : Trace.t -> error Fmt.printer
+
   (** [check tr] checks the trace and returns [Ok ()] in case of
       success. In case of error it returns [Error idxs] where [idxs] are the
       indexes in the trace of the steps that failed. *)
-  val check : Trace.t -> (unit, VecI32.t) result
+  val check : Trace.t -> (unit, error) result
 
 end = struct
   module ISet = CCSet.Make(CCInt)
 
   type t = {
+    cstore: Clause.store;
     assign: Bitvec.t; (* atom -> is_true(atom) *)
     trail: VecI32.t; (* current assignment *)
-    mutable trail_ptr : int; (* offset in trail *)
-    cs: clause Vec.t; (* index -> clause *)
-    cs_recycle: int Vec.t; (* free elements in [cs] *)
-    watches: ISet.t Vec.t; (* atom -> clauses it watches *)
+    mutable trail_ptr : int; (* offset in trail for propagation *)
+    active_clauses: unit Clause.Tbl.t;
+    watches: Clause.Set.t Vec.t; (* atom -> clauses it watches *)
     errors: VecI32.t;
   }
 
-  let create() : t =
+  let create cstore : t =
     { trail=VecI32.create();
       trail_ptr = 0;
+      cstore;
+      active_clauses=Clause.Tbl.create 32;
       assign=Bitvec.create();
-      cs=Vec.create();
-      cs_recycle=Vec.create();
       watches=Vec.create();
       errors=VecI32.create();
     }
 
+  (* ensure data structures are big enough to handle [a] *)
   let ensure_atom_ self (a:atom) =
     Bitvec.ensure_size self.assign (a:atom:>int);
     (* size: 2+atom, because: 1+atom makes atom valid, and if it's positive,
        2+atom is (¬atom)+1 *)
-    Vec.ensure_size self.watches ISet.empty (2+(a:atom:>int));
+    Vec.ensure_size self.watches Clause.Set.empty (2+(a:atom:>int));
     ()
 
   let[@inline] is_true self (a:atom) : bool =
@@ -169,13 +211,16 @@ end = struct
   let[@inline] is_false self (a:atom) : bool =
     is_true self (Atom.neg a)
 
-  let add_watch_ self (a:atom) cid =
-    let set = Vec.get self.watches (a:atom:>int) in
-    Vec.set self.watches (a:atom:>int) (ISet.add cid set)
+  let is_unassigned self a =
+    not (is_true self a) && not (is_false self a)
 
-  let remove_watch_ self (a:atom) cid =
+  let add_watch_ self (a:atom) (c:clause) =
     let set = Vec.get self.watches (a:atom:>int) in
-    Vec.set self.watches (a:atom:>int) (ISet.remove cid set)
+    Vec.set self.watches (a:atom:>int) (Clause.Set.add c set)
+
+  let remove_watch_ self (a:atom) (c:clause) =
+    let set = Vec.get self.watches (a:atom:>int) in
+    Vec.set self.watches (a:atom:>int) (Clause.Set.remove c set)
 
   exception Conflict
 
@@ -192,18 +237,86 @@ end = struct
       VecI32.push self.trail (a:atom:>int)
     )
 
-  (* TODO *)
-  let propagate_in_clause_ (self:t) (cid:int) : unit =
-    ()
+  (* print the trail *)
+  let pp_trail_ out self =
+    let pp_a out i = Atom.pp out (Atom.of_int_unsafe i) in
+    Fmt.fprintf out "(@[%a@])" (Fmt.iter pp_a) (VecI32.to_iter self.trail)
+
+  exception Found_watch of atom
+  exception Is_sat
+  exception Is_undecided
+
+  (* check if [c] is false in current trail *)
+  let c_is_false_ self c =
+    try Clause.iter c ~f:(fun a -> if not (is_false self a) then raise Exit); true
+    with Exit -> false
+
+  (* do boolean propagation in [c], which is watched by the true literal [a] *)
+  let propagate_in_clause_ (self:t) (a:atom) (c:clause) : unit =
+    assert (is_true self a);
+    let a1, a2 =
+      match Clause.watches c with
+      | None -> assert false
+      | Some tup -> tup
+    in
+    let na = Atom.neg a in
+    (* [q] is the other literal in [c] such that [¬q] watches [c]. *)
+    let q = if Atom.equal a1 na then a2 else (assert(a2==na); a1) in
+    try
+      if is_true self q then () (* clause is satisfied *)
+      else (
+        let n_unassigned = ref 0 in
+        let unassigned_a = ref a in (* an unassigned atom, if [!n_unassigned > 0] *)
+        if not (is_false self q) then unassigned_a := q;
+        begin
+          try
+            Clause.iter c
+              ~f:(fun ai ->
+                  if is_true self ai then raise Is_sat (* no watch update *)
+                  else if is_unassigned self ai then (
+                    incr n_unassigned;
+                    if q <> ai then unassigned_a := ai;
+                    if !n_unassigned >= 2 then raise Is_undecided; (* early exit *)
+                  );
+                )
+          with Is_undecided -> ()
+        end;
+
+        if !n_unassigned = 0 then (
+          (* if we reach this point it means no literal is true, and none is
+             unassigned. So they're all false and we have a conflict. *)
+          assert (is_false self q);
+          raise_conflict_ self a;
+        ) else if !n_unassigned = 1 then (
+          (* no lit is true, only one is unassigned: propagate it.
+             no need to update the watches as the clause is satisfied. *)
+          assert (is_unassigned self !unassigned_a);
+          let p = !unassigned_a in
+          Log.debugf 30 (fun k->k"(@[propagate@ :atom %a@ :reason %a@])" Atom.pp p Clause.pp c);
+          set_atom_true self p;
+        ) else (
+          (* at least 2 unassigned, just update the watch literal to [¬p] *)
+          let p = !unassigned_a in
+          assert (p <> q);
+          Clause.set_watches c (q, p);
+          remove_watch_ self a c;
+          add_watch_ self (Atom.neg p) c;
+        );
+      )
+    with
+    | Is_sat -> ()
 
   let propagate_atom_ self (a:atom) : unit =
     let set = Vec.get self.watches (a:atom:>int) in
-    ISet.iter (propagate_in_clause_ self) set
+    Clause.Set.iter (propagate_in_clause_ self a) set
 
-  (* @raise Conflict if a clause is false *)
-  let propagate_ (self:t) : unit =
+  (* perform boolean propagation in a fixpoint
+     @raise Conflict if a clause is false *)
+  let bcp_fixpoint_ (self:t) : unit =
+    Profile.with_ "bcp-fixpoint" @@ fun() ->
     while self.trail_ptr < VecI32.size self.trail do
       let a = Atom.of_int_unsafe (VecI32.get self.trail self.trail_ptr) in
+      Log.debugf 50 (fun k->k"(@[bcp@ :atom %a@])" Atom.pp a);
       self.trail_ptr <- 1 + self.trail_ptr;
       propagate_atom_ self a;
     done
@@ -211,7 +324,7 @@ end = struct
   (* calls [f] and then restore trail to what it was *)
   let with_restore_trail_ self f =
     let trail_size0 = VecI32.size self.trail in
-    let ptr = self.trail_ptr in
+    let ptr0 = self.trail_ptr in
 
     let restore () =
       (* unassign new literals *)
@@ -223,44 +336,45 @@ end = struct
 
       (* remove literals from trail *)
       VecI32.shrink self.trail trail_size0;
-      self.trail_ptr <- ptr
+      self.trail_ptr <- ptr0
     in
 
     CCFun.finally ~h:restore ~f
 
   (* check event, return [true] if it's valid *)
-  let check_ev (self:t) i (ev:Trace.event) : bool =
-    Log.debugf 20 (fun k->k"(@[check-ev[%d]@ %a@])" i Trace.pp_event ev);
+  let check_op (self:t) i (op:Trace.op) : bool =
+    Profile.with_ "check-op" @@ fun() ->
+    Log.debugf 20 (fun k->k"(@[check-op :idx %d@ :op %a@])" i Trace.pp_op op);
 
     (* add clause to the state *)
     let add_c_ (c:Clause.t) =
+      Log.debugf 50 (fun k->k"(@[add-clause@ %a@])" Clause.pp c);
       Clause.iter c ~f:(ensure_atom_ self);
-
-      (* allocate clause *)
-      let cid =
-        match Vec.pop_exn self.cs_recycle with
-        | cid ->
-          Vec.set self.cs cid c;
-          cid
-        | exception _ ->
-          let cid = Vec.size self.cs in
-          Vec.push self.cs c;
-          cid
-      in
+      Clause.Tbl.add self.active_clauses c ();
 
       begin match Clause.size c with
         | 0 -> ()
         | 1 ->
           set_atom_true self (Clause.get c 0);
         | _ ->
-          add_watch_ self (Atom.neg (Clause.get c 0)) cid;
-          add_watch_ self (Atom.neg (Clause.get c 1)) cid;
+          let c0 = Clause.get c 0 in
+          let c1 = Clause.get c 1 in
+          assert (c0 <> c1);
+          add_watch_ self (Atom.neg c0) c;
+          add_watch_ self (Atom.neg c1) c;
+          Clause.set_watches c (c0,c1);
+          (* make sure watches are valid *)
+          if is_false self c0 then (
+            propagate_in_clause_ self (Atom.neg c0) c;
+          );
+          if is_false self c1 then (
+            propagate_in_clause_ self (Atom.neg c1) c;
+          )
       end;
-      propagate_in_clause_ self cid; (* make sure watches are valid *)
       ()
     in
 
-    match ev with
+    match op with
     | Trace.Input c ->
       add_c_ c;
       true
@@ -279,37 +393,72 @@ end = struct
                 if is_true self a' then () else (
                   set_atom_true self a'
                 ));
-          propagate_ self;
+          bcp_fixpoint_ self;
+
+          (*
+          (* slow sanity check *)
+          Clause.Tbl.iter
+            (fun c () ->
+               if c_is_false_ self c then
+                Log.debugf 0 (fun k->k"clause is false: %a" Clause.pp c))
+            self.active_clauses;
+             *)
+
           false
         with Conflict ->
           true
       in
 
+      (* now add clause *)
       add_c_ c;
       ok
 
     | Trace.Delete _c ->
-      true (* TODO*)
+      true (* TODO: actually remove the clause *)
+
+  type error =
+    [ `Bad_steps of VecI32.t
+    | `No_empty_clause
+    ]
+
+  let pp_error trace out = function
+    | `No_empty_clause -> Fmt.string out "no empty clause found"
+    | `Bad_steps bad ->
+      let n0 = VecI32.get bad 0 in
+      Fmt.fprintf out
+        "@[<v>checking failed on %d ops.@ @[<2>First failure is op[%d]:@ %a@]@]"
+        (VecI32.size bad) n0
+        Trace.pp_op (Trace.get trace n0)
 
   let check trace : _ result =
-    let self = create() in
+    let self = create (Trace.cstore trace) in
 
     (* check each event in turn *)
+    let has_false = ref false in
     Trace.iteri trace
-      ~f:(fun i ev ->
-          let ok = check_ev self i ev in
-          if not ok then (
+      ~f:(fun i op ->
+          let ok = check_op self i op in
+          if ok then (
+            Log.debugf 50
+              (fun k->k"(@[check.step.ok@ :idx %d@ :op %a@])" i Trace.pp_op op);
+
+            (* check if op adds the empty clause *)
+            begin match op with
+              | (Trace.Redundant c | Trace.Input c) when Clause.size c = 0 ->
+                has_false := true
+              | _ -> ()
+            end;
+          ) else (
             Log.debugf 10
-              (fun k->k"(@[check.step.fail@ :on event[%d]@ :def %a@])" i Trace.pp_event ev);
+              (fun k->k"(@[check.step.fail@ :idx %d@ :op %a@])" i Trace.pp_op op);
+            Log.debugf 50 (fun k->k"(@[trail: %a@])" pp_trail_ self);
             VecI32.push self.errors i
           ));
 
-    (* TODO: check that the last event is empty clause *)
-
     Log.debugf 10 (fun k->k"found %d errors" (VecI32.size self.errors));
-    if VecI32.is_empty self.errors
-    then Ok ()
-    else Error self.errors
+    if not !has_false then Error `No_empty_clause
+    else if VecI32.size self.errors > 0 then Error (`Bad_steps self.errors)
+    else Ok ()
 end
 
 
