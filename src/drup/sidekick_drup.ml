@@ -65,11 +65,14 @@ end = struct
   }
   let create(): store =
     { n=0; }
-  let size self = Array.length self.atoms
-  let get self i = Array.get self.atoms i
-  let watches self = self.watches
-  let set_watches self w = self.watches <- w
-  let iter ~f self = Array.iter f self.atoms
+  let[@inline] size self = Array.length self.atoms
+  let[@inline] get self i = Array.get self.atoms i
+  let[@inline] watches self = self.watches
+  let[@inline] set_watches self w = self.watches <- w
+  let[@inline] iter ~f self =
+    for i=0 to Array.length self.atoms-1 do
+      f (Array.unsafe_get self.atoms i)
+    done
   let pp out (self:t) =
     let pp_watches out = function
       | (p,q) when p=Atom.dummy || q=Atom.dummy -> ()
@@ -85,9 +88,9 @@ end = struct
     c
   module As_key = struct
     type nonrec t=t
-    let hash a = CCHash.int a.id
-    let equal a b = a.id = b.id
-    let compare a b = compare a.id b.id
+    let[@inline] hash a = CCHash.int a.id
+    let[@inline] equal a b = a.id = b.id
+    let[@inline] compare a b = compare a.id b.id
   end
   module Set = CCSet.Make(As_key)
   module Tbl = CCHashtbl.Make(As_key)
