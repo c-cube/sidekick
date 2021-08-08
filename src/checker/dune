@@ -3,6 +3,6 @@
   (name main)
   (public_name sidekick-checker)
   (package sidekick-bin)
-  (libraries containers sidekick-bin.lib
+  (libraries containers sidekick-bin.lib mtime mtime.clock.os
              sidekick.util sidekick.tef sidekick.drup)
   (flags :standard -warn-error -a+8 -open Sidekick_util))

@@ -68,14 +68,18 @@ let () =
 
   Arg.parse opts (fun f -> files := f :: !files) "checker [opt]* [file]+";
 
-  begin match List.rev !files with
+  let ok =
+    match List.rev !files with
     | [pb; proof] ->
       Log.debugf 1 (fun k->k"checker: problem `%s`, proof `%s`" pb proof);
-      let ok = check ~pb proof in
-      if not ok then exit 1
+      check ~pb proof
     | [proof] ->
       Log.debugf 1 (fun k->k"checker: proof `%s`" proof);
-      let ok = check ?pb:None proof in
-      if not ok then exit 1
-    | _ -> failwith "expected <problem>? <proof>"
-  end
+      check ?pb:None proof
+    | _ -> Error.errorf "expected <problem>? <proof>"
+  in
+
+  let t2 = Mtime_clock.elapsed () |> Mtime.Span.to_s in
+  Format.printf "c %s@." (if ok then "OK" else "FAIL");
+  Format.printf "c elapsed time: %.3fs@." t2;
+  if not ok then exit 1

@@ -48,14 +48,19 @@ let resize_ t x size =
 let ensure_cap_ self x n =
   if n > Array.length self.data then (
     let new_size = max n (2 * Array.length self.data) in
-    resize_ self x new_size
+    resize_ self (x()) new_size
   )
 
-let ensure_size self x n =
-  ensure_cap_ self x n;
+let ensure_size_with self f n =
+  ensure_cap_ self f n;
   if n > self.sz then (
+    for i=self.sz to n-1 do
+      self.data.(i) <- f();
+    done;
     self.sz <- n
   )
+
+let ensure_size self x n = ensure_size_with self (fun() -> x) n
 
 (* grow the array *)
 let[@inline never] grow_to_double_size t x : unit =
