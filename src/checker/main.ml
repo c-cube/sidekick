@@ -1,16 +1,15 @@
 
 module BL = Sidekick_bin_lib
-module SDrup = Sidekick_drup
 
-let clause_of_int_l store atoms : SDrup.clause =
+let clause_of_int_l store atoms : Drup_check.clause =
   atoms
-  |> CCList.map SDrup.Atom.of_int
-  |> SDrup.Clause.of_list store
+  |> CCList.map Drup_check.Atom.of_int
+  |> Drup_check.Clause.of_list store
 
 let check ?pb proof : bool =
   Profile.with_ "check" @@ fun() ->
-  let cstore = SDrup.Clause.create() in
-  let trace = SDrup.Trace.create cstore in
+  let cstore = Drup_check.Clause.create() in
+  let trace = Drup_check.Trace.create cstore in
 
   (* add problem to trace, if provided *)
   begin match pb with
@@ -23,7 +22,7 @@ let check ?pb proof : bool =
            BL.Dimacs_parser.iter parser_
              (fun atoms ->
                 let c = clause_of_int_l cstore atoms in
-                SDrup.Trace.add_input_clause trace c))
+                Drup_check.Trace.add_input_clause trace c))
     | Some f ->
       (* TODO: handle .cnf.gz *)
       Error.errorf "unknown problem file extension '%s'" (Filename.extension f)
@@ -40,21 +39,21 @@ let check ?pb proof : bool =
              (function
                | BL.Drup_parser.Add c ->
                  let c = clause_of_int_l cstore c in
-                 SDrup.Trace.add_clause trace c
+                 Drup_check.Trace.add_clause trace c
                | BL.Drup_parser.Delete c ->
                  let c = clause_of_int_l cstore c in
-                 SDrup.Trace.del_clause trace c))
+                 Drup_check.Trace.del_clause trace c))
     | f ->
       (* TODO: handle .drup.gz *)
       Error.errorf "unknown proof file extension '%s'" (Filename.extension f)
   end;
 
   (* check proof *)
-  Log.debugf 1 (fun k->k"checking proof (%d steps)" (SDrup.Trace.size trace));
-  begin match SDrup.Fwd_check.check trace with
+  Log.debugf 1 (fun k->k"checking proof (%d steps)" (Drup_check.Trace.size trace));
+  begin match Drup_check.Fwd_check.check trace with
     | Ok () -> true
     | Error err ->
-      Format.eprintf "%a@." (SDrup.Fwd_check.pp_error trace) err;
+      Format.eprintf "%a@." (Drup_check.Fwd_check.pp_error trace) err;
       false
   end
 
