@@ -3,7 +3,7 @@ module BL = Sidekick_bin_lib
 
 let clause_of_int_l store atoms : Drup_check.clause =
   atoms
-  |> CCList.map Drup_check.Atom.of_int
+  |> CCList.map Drup_check.Atom.of_int_dimacs
   |> Drup_check.Clause.of_list store
 
 let check ?pb proof : bool =

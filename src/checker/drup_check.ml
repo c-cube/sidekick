@@ -1,54 +1,5 @@
 
-module SDrup = Sidekick_drup
-
-module Atom : sig
-  include SDrup.ATOM with type t = private int
-
-  val of_int : int -> t
-end = struct
-  type t = int
-  type atom = t
-  let hash = CCHash.int
-  let equal : t -> t -> bool = (=)
-  let compare : t -> t -> int = compare
-  let[@inline] neg x = x lxor 1
-  let[@inline] of_int x =
-    let v = abs x lsl 1 in
-    if x < 0 then neg v else v
-  let[@inline] sign x = (x land 1) = 0
-  let[@inline] to_int x = (if sign x then 1 else -1) * (x lsr 1)
-  let pp out x =
-    Fmt.fprintf out "%s%d" (if sign x then "+" else "-") (x lsr 1)
-  let[@inline] of_int_unsafe i = i
-  let dummy = 0
-  module Assign = struct
-    type t = Bitvec.t
-    let create = Bitvec.create
-    let ensure_size = Bitvec.ensure_size
-    let is_true = Bitvec.get
-    let[@inline] is_false self (a:atom) : bool =
-      is_true self (neg a)
-    let[@inline] is_unassigned self a =
-      not (is_true self a) && not (is_false self a)
-    let set = Bitvec.set
-  end
-  module Map = struct
-    type 'a t = 'a Vec.t
-    let create () = Vec.create ()
-    let[@inline] ensure_has (self:_ t) a mk : unit =
-      (* size: 2+atom, because: 1+atom makes atom valid, and if it's positive,
-         2+atom is (¬atom)+1 *)
-      Vec.ensure_size_with self mk (2+(a:atom:>int))
-    let get = Vec.get
-    let set = Vec.set
-  end
-  module Stack = struct
-    include VecI32
-    let create()=create()
-  end
-end
-
-include SDrup.Make(Atom)
+include Sidekick_drup.Make()
 
 (** A DRUP trace, as a series of operations *)
 module Trace : sig
