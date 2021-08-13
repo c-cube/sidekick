@@ -64,8 +64,8 @@ type negated =
     See {!val:Expr_intf.S.norm} for more details. *)
 
 (** The type of reasons for propagations of a formula [f]. *)
-type ('formula, 'proof) reason =
-  | Consequence of (unit -> 'formula list * 'proof) [@@unboxed]
+type ('formula, 'lemma) reason =
+  | Consequence of (unit -> 'formula list * 'lemma) [@@unboxed]
   (** [Consequence (l, p)] means that the formulas in [l] imply the propagated
       formula [f]. The proof should be a proof of the clause "[l] implies [f]".
 
@@ -90,7 +90,7 @@ type lbool = L_true | L_false | L_undefined
 
 module type ACTS = sig
   type formula
-  type proof
+  type lemma
 
   val iter_assumptions: (formula -> unit) -> unit
   (** Traverse the new assumptions on the boolean trail. *)
@@ -102,19 +102,19 @@ module type ACTS = sig
   (** Map the given formula to a literal, which will be decided by the
       SAT solver. *)
 
-  val add_clause: ?keep:bool -> formula list -> proof -> unit
+  val add_clause: ?keep:bool -> formula list -> lemma -> unit
   (** Add a clause to the solver.
       @param keep if true, the clause will be kept by the solver.
         Otherwise the solver is allowed to GC the clause and propose this
         partial model again.
   *)
 
-  val raise_conflict: formula list -> proof -> 'b
+  val raise_conflict: formula list -> lemma -> 'b
   (** Raise a conflict, yielding control back to the solver.
       The list of atoms must be a valid theory lemma that is false in the
       current trail. *)
 
-  val propagate: formula -> (formula, proof) reason -> unit
+  val propagate: formula -> (formula, lemma) reason -> unit
   (** Propagate a formula, i.e. the theory can evaluate the formula to be true
       (see the definition of {!type:eval_res} *)
 
@@ -124,10 +124,9 @@ module type ACTS = sig
       Useful for theory combination. This will be undone on backtracking. *)
 end
 
-(* TODO: find a way to use atoms instead of formulas here *)
-type ('formula, 'proof) acts =
+type ('formula, 'lemma) acts =
   (module ACTS with type formula = 'formula
-                and type proof = 'proof)
+                and type lemma = 'lemma)
 (** The type for a slice of assertions to assume/propagate in the theory. *)
 
 exception No_proof
@@ -158,6 +157,45 @@ module type FORMULA = sig
       but one returns [Negated] and the other [Same_sign]. *)
 end
 
+(** Signature for proof emission, using DRUP.
+
+    We do not store the resolution steps, just the stream of clauses deduced.
+    See {!Sidekick_drup} for checking these proofs. *)
+module type PROOF = sig
+  type t
+  (** The stored proof (possibly nil, possibly on disk, possibly in memory) *)
+
+  type atom
+  (** A boolean atom for the proof trace *)
+
+  type lemma
+  (** A theory lemma *)
+
+  module Atom : sig
+    type t = atom
+    val sign : t -> bool
+    val var_int : t -> int
+    val make : sign:bool -> int -> t
+    val pp : t Fmt.printer
+  end
+
+  val enabled : t -> bool
+  (** Do we emit proofs at all? *)
+
+  val emit_input_clause : t -> atom Iter.t -> unit
+  (** Emit an input clause. *)
+
+  val emit_lemma : t -> atom Iter.t -> lemma -> unit
+  (** Emit a theory lemma *)
+
+  val emit_redundant_clause : t -> atom Iter.t -> unit
+  (** Emit a clause deduced by the SAT solver, redundant wrt axioms.
+      The clause must be RUP wrt previous clauses. *)
+
+  val del_clause : t -> atom Iter.t -> unit
+  (** Forget a clause. Only useful for performance considerations. *)
+end
+
 (** Signature for theories to be given to the CDCL(T) solver *)
 module type PLUGIN_CDCL_T = sig
   type t
@@ -166,6 +204,14 @@ module type PLUGIN_CDCL_T = sig
   module Formula : FORMULA
 
   type proof
+  (** Proof storage/recording *)
+
+  type lemma
+  (* Theory lemmas *)
+
+  module Proof : PROOF
+    with type t = proof
+     and type lemma = lemma
 
   val push_level : t -> unit
   (** Create a new backtrack level *)
@@ -173,12 +219,12 @@ module type PLUGIN_CDCL_T = sig
   val pop_levels : t -> int -> unit
   (** Pop [n] levels of the theory *)
 
-  val partial_check : t -> (Formula.t, proof) acts -> unit
+  val partial_check : t -> (Formula.t, lemma) acts -> unit
   (** Assume the formulas in the slice, possibly using the [slice]
       to push new formulas to be propagated or to raising a conflict or to add
       new lemmas. *)
 
-  val final_check : t -> (Formula.t, proof) acts -> unit
+  val final_check : t -> (Formula.t, lemma) acts -> unit
   (** Called at the end of the search in case a model has been found.
       If no new clause is pushed, then proof search ends and "sat" is returned;
       if lemmas are added, search is resumed;
@@ -189,111 +235,12 @@ end
 module type PLUGIN_SAT = sig
   module Formula : FORMULA
 
+  type lemma = unit
   type proof
-end
 
-module type PROOF = sig
-  (** Signature for a module handling proof by resolution from sat solving traces *)
-
-  (** {3 Type declarations} *)
-
-  exception Resolution_error of string
-  (** Raised when resolution failed. *)
-
-  type formula
-  type atom
-  type lemma
-  type clause
-  (** Abstract types for atoms, clauses and theory-specific lemmas *)
-
-  type store
-
-  type t
-  (** Lazy type for proof trees. Proofs are persistent objects, and can be
-      extended to proof nodes using functions defined later. *)
-
-  and proof_node = {
-    conclusion : clause;  (** The conclusion of the proof *)
-    step : step;          (** The reasoning step used to prove the conclusion *)
-  }
-  (** A proof can be expanded into a proof node, which show the first step of the proof. *)
-
-  (** The type of reasoning steps allowed in a proof. *)
-  and step =
-    | Hypothesis of lemma
-    (** The conclusion is a user-provided hypothesis *)
-    | Assumption
-    (** The conclusion has been locally assumed by the user *)
-    | Lemma of lemma
-    (** The conclusion is a tautology provided by the theory, with associated proof *)
-    | Duplicate of t * atom list
-    (** The conclusion is obtained by eliminating multiple occurences of the atom in
-        the conclusion of the provided proof. *)
-    | Hyper_res of hyper_res_step
-
-  and hyper_res_step = {
-    hr_init: t;
-    hr_steps: (atom * t) list; (* list of pivot+clause to resolve against [init] *)
-  }
-
-  (** {3 Proof building functions} *)
-
-  val prove : store -> clause -> t
-  (** Given a clause, return a proof of that clause.
-      @raise Resolution_error if it does not succeed. *)
-
-  val prove_unsat : store -> clause -> t
-  (** Given a conflict clause [c], returns a proof of the empty clause.
-      @raise Resolution_error if it does not succeed. *)
-
-  val prove_atom : store -> atom -> t option
-  (** Given an atom [a], returns a proof of the clause [[a]] if [a] is true at level 0 *)
-
-  val res_of_hyper_res : store -> hyper_res_step -> t * t * atom
-  (** Turn an hyper resolution step into a resolution step.
-      The conclusion can be deduced by performing a resolution between the conclusions
-      of the two given proofs.
-      The atom on which to perform the resolution is also given. *)
-
-  (** {3 Proof Nodes} *)
-
-  val parents : step -> t list
-  (** Returns the parents of a proof node. *)
-
-  val is_leaf : step -> bool
-  (** Returns wether the the proof node is a leaf, i.e. an hypothesis,
-      an assumption, or a lemma.
-      [true] if and only if {!parents} returns the empty list. *)
-
-  val expl : step -> string
-  (** Returns a short string description for the proof step; for instance
-      ["hypothesis"] for a [Hypothesis]
-      (it currently returns the variant name in lowercase). *)
-
-
-  (** {3 Proof Manipulation} *)
-
-  val expand : store -> t -> proof_node
-  (** Return the proof step at the root of a given proof. *)
-
-  val conclusion : t -> clause
-  (** What is proved at the root of the clause *)
-
-  val fold : store -> ('a -> proof_node -> 'a) -> 'a -> t -> 'a
-  (** [fold f acc p], fold [f] over the proof [p] and all its node. It is guaranteed that
-      [f] is executed exactly once on each proof node in the tree, and that the execution of
-      [f] on a proof node happens after the execution on the parents of the nodes. *)
-
-  (** {3 Misc} *)
-
-  val check_empty_conclusion : store -> t -> unit
-  (** Check that the proof's conclusion is the empty clause,
-      @raise Resolution_error otherwise *)
-
-  val check : store -> t -> unit
-  (** Check the contents of a proof. Mainly for internal use. *)
-
-  module Tbl : Hashtbl.S with type key = t
+  module Proof : PROOF
+    with type t = proof
+     and type lemma = lemma
 end
 
 (** The external interface implemented by safe solvers, such as the one
@@ -317,11 +264,16 @@ module type S = sig
   type theory
 
   type lemma
-  (** A theory lemma or an input axiom *)
+  (** A theory lemma or an input axiom. *)
+
+  type proof
+  (** A representation of a full proof *)
 
   type solver
+  (** The main solver type. *)
 
   type store
+  (** Stores atoms, clauses, etc. *)
 
   (* TODO: keep this internal *)
   module Atom : sig
@@ -365,11 +317,9 @@ module type S = sig
   end
 
   module Proof : PROOF
-    with type clause = clause
-     and type atom = atom
-     and type formula = formula
+    with type atom = atom
      and type lemma = lemma
-     and type store = store
+     and type t = proof
   (** A module to manipulate proofs. *)
 
   type t = solver

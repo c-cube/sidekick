@@ -145,89 +145,37 @@ module type TERM = sig
   end
 end
 
-(** Proofs of unsatisfiability *)
+(** Proofs for the congruence closure *)
+module type CC_PROOF = sig
+  type lit
+  type lemma
+
+  val lemma_cc : lit Iter.t -> lemma
+end
+
+(* TODO: use same proofs as Sidekick_sat?
+
+   but give more precise type to [lemma]? *)
+(** Proofs of unsatisfiability.
+
+    We use DRUP(T)-style traces where we simply emit clauses as we go,
+    annotating enough for the checker to reconstruct them.
+    This allows for low overhead proof production. *)
 module type PROOF = sig
   type t
   (** The abstract representation of a proof. A proof always proves
       a clause to be {b valid} (true in every possible interpretation
       of the problem's assertions, and the theories) *)
 
-  type term
-  type ty
-
-  type hres_step
-  (** hyper-resolution steps: resolution, unit resolution;
-      bool paramodulation, unit bool paramodulation *)
-
-  val r : t -> pivot:term -> hres_step
-  (** Resolution step on given pivot term *)
-
-  val r1 : t -> hres_step
-  (** Unit resolution; pivot is obvious *)
-
-  val p : t -> lhs:term -> rhs:term -> hres_step
-  (** Paramodulation using proof whose conclusion has a literal [lhs=rhs] *)
-
-  val p1 : t -> hres_step
-  (** Unit paramodulation *)
+  type lemma
 
   type lit
-  (** Proof representation of literals *)
 
-  val pp_lit : lit Fmt.printer
-  val lit_a : term -> lit
-  val lit_na : term -> lit
-  val lit_mk : bool -> term -> lit
-  val lit_eq : term -> term -> lit
-  val lit_neq : term -> term -> lit
-  val lit_not : lit -> lit
-  val lit_sign : lit -> bool
+  include CC_PROOF
+    with type lemma := lemma
+     and type lit := lit
 
-  type composite_step
-
-  val stepc : name:string -> lit list -> t -> composite_step
-  val deft : term -> term -> composite_step (** define a (new) atomic term *)
-
-  val is_trivial_refl : t -> bool
-  (** is this a proof of [|- t=t]? This can be used to remove
-      some trivial steps that would build on the proof (e.g. rewriting
-      using [refl t] is useless). *)
-
-  val assertion : term -> t
-  val assertion_c : lit Iter.t -> t
-  val ref_by_name : string -> t (* named clause, see {!defc} *)
-  val assertion_c_l : lit list -> t
-  val drup_res : lit list -> t (* assert clause and let DRUP take care of it *)
-  val hres_iter : t -> hres_step Iter.t -> t (* hyper-res *)
-  val hres_l : t -> hres_step list -> t (* hyper-res *)
-  val res : pivot:term -> t -> t -> t (* resolution with pivot *)
-  val res1 : t -> t -> t (* unit resolution *)
-  val refl : term -> t (* proof of [| t=t] *)
-  val true_is_true : t (* proof of [|- true] *)
-  val true_neq_false : t (* proof of [|- not (true=false)] *)
-  val nn : t -> t (* negation normalization *)
-  val cc_lemma : lit list -> t (* equality tautology, unsigned *)
-  val cc_imply2 : t -> t -> term -> term -> t (* tautology [p1, p2 |- t=u] *)
-  val cc_imply_l : t list -> term -> term -> t (* tautology [hyps |- t=u] *)
-  val composite_iter : ?assms:(string * lit) list -> composite_step Iter.t -> t
-  val composite_l : ?assms:(string * lit) list -> composite_step list -> t
-  val sorry : t [@@alert cstor "sorry used"] (* proof hole when we don't know how to produce a proof *)
-  val sorry_c : lit Iter.t -> t
-  [@@alert cstor "sorry used"] (* proof hole when we don't know how to produce a proof *)
-
-  val sorry_c_l : lit list -> t
-
-  val default : t [@@alert cstor "do not use default constructor"]
-
-  val pp_debug : sharing:bool -> t Fmt.printer
-  (** Pretty print a proof.
-      @param sharing if true, try to compact the proof by introducing
-      definitions for common terms, clauses, and steps as needed. Safe to ignore. *)
-
-  module Quip : sig
-    val output : out_channel -> t -> unit
-    (** Printer in Quip format (experimental) *)
-  end
+  val enabled : t -> bool
 end
 
 (** Literals
@@ -274,20 +222,21 @@ module type CC_ACTIONS = sig
   module T : TERM
   module Lit : LIT with module T = T
 
-  module P : PROOF with type term = T.Term.t
+  type lemma
+  module P : CC_PROOF with type lit = Lit.t and type lemma = lemma
 
   type t
   (** An action handle. It is used by the congruence closure
       to perform the actions below. How it performs the actions
       is not specified and is solver-specific. *)
 
-  val raise_conflict : t -> Lit.t list -> P.t -> 'a
+  val raise_conflict : t -> Lit.t list -> lemma -> 'a
   (** [raise_conflict acts c pr] declares that [c] is a tautology of
       the theory of congruence. This does not return (it should raise an
       exception).
       @param pr the proof of [c] being a tautology *)
 
-  val propagate : t -> Lit.t -> reason:(unit -> Lit.t list * P.t) -> unit
+  val propagate : t -> Lit.t -> reason:(unit -> Lit.t list * lemma) -> unit
   (** [propagate acts lit ~reason pr] declares that [reason() => lit]
       is a tautology.
 
@@ -301,15 +250,19 @@ end
 (** Arguments to a congruence closure's implementation *)
 module type CC_ARG = sig
   module T : TERM
-  module P : PROOF with type term = T.Term.t
   module Lit : LIT with module T = T
-  module Actions : CC_ACTIONS with module T=T and module P = P and module Lit = Lit
+  type lemma
+  module P : CC_PROOF with type lit = Lit.t and type lemma = lemma
+  module Actions : CC_ACTIONS
+    with module T=T
+     and module Lit = Lit
+     and type lemma = lemma
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
 end
 
-(** Main congruence closure.
+(** Main congruence closure signature.
 
     The congruence closure handles the theory QF_UF (uninterpreted
     function symbols).
@@ -329,14 +282,17 @@ module type CC_S = sig
   (** first, some aliases. *)
 
   module T : TERM
-  module P : PROOF with type term = T.Term.t
   module Lit : LIT with module T = T
-  module Actions : CC_ACTIONS with module T = T and module Lit = Lit and module P = P
+  type lemma
+  module P : CC_PROOF with type lit = Lit.t and type lemma = lemma
+  module Actions : CC_ACTIONS
+    with module T = T
+    and module Lit = Lit
+    and type lemma = lemma
   type term_store = T.Term.store
   type term = T.Term.t
   type fun_ = T.Fun.t
   type lit = Lit.t
-  type proof = P.t
   type actions = Actions.t
 
   type t
@@ -421,7 +377,6 @@ module type CC_S = sig
     val mk_merge_t : term -> term -> t
     val mk_lit : lit -> t
     val mk_list : t list -> t
-    val mk_proof : P.t -> t
     val mk_theory : t -> t (* TODO: indicate what theory, or even provide a lemma *)
   end
 
@@ -474,7 +429,7 @@ module type CC_S = sig
       participating in the conflict are purely syntactic theories
       like injectivity of constructors. *)
 
-  type ev_on_propagate = t -> lit -> (unit -> lit list * P.t) -> unit
+  type ev_on_propagate = t -> lit -> (unit -> lit list * P.lemma) -> unit
   (** [ev_on_propagate cc lit reason] is called whenever [reason() => lit]
       is a propagated lemma. See {!CC_ACTIONS.propagate}. *)
 
@@ -620,12 +575,22 @@ end
     new lemmas, propagate literals, access the congruence closure, etc. *)
 module type SOLVER_INTERNAL = sig
   module T : TERM
-  module P : PROOF with type term = T.Term.t
 
   type ty = T.Ty.t
   type term = T.Term.t
   type term_store = T.Term.store
   type ty_store = T.Ty.store
+
+  (** {3 Literals}
+
+      A literal is a (preprocessed) term along with its sign.
+      It is directly manipulated by the SAT solver.
+  *)
+  module Lit : LIT with module T = T
+
+  (** {3 Proofs} *)
+  type lemma
+  module P : PROOF with type lit = Lit.t and type lemma = lemma
   type proof = P.t
 
   (** {3 Main type for a solver} *)
@@ -641,13 +606,6 @@ module type SOLVER_INTERNAL = sig
   type actions
   (** Handle that the theories can use to perform actions. *)
 
-  (** {3 Literals}
-
-      A literal is a (preprocessed) term along with its sign.
-      It is directly manipulated by the SAT solver.
-  *)
-  module Lit : LIT with module T = T
-
   type lit = Lit.t
 
   (** {3 Proof helpers} *)
@@ -662,8 +620,10 @@ module type SOLVER_INTERNAL = sig
   (** Congruence closure instance *)
   module CC : CC_S
     with module T = T
-     and module P = P
      and module Lit = Lit
+     and type lemma = lemma
+     and type P.lemma = lemma
+     and type P.lit = lit
      and type Actions.t = actions
 
   val cc : t -> CC.t
@@ -872,15 +832,16 @@ end
     Theory implementors will mostly interact with {!SOLVER_INTERNAL}. *)
 module type SOLVER = sig
   module T : TERM
-  module P : PROOF with type term = T.Term.t
-
   module Lit : LIT with module T = T
+  type lemma
+  module P : PROOF with type lit = Lit.t and type lemma = lemma
 
   module Solver_internal
     : SOLVER_INTERNAL
       with module T = T
-       and module P = P
        and module Lit = Lit
+       and type lemma = lemma
+       and module P = P
   (** Internal solver, available to theories.  *)
 
   type t

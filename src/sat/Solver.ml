@@ -34,10 +34,12 @@ end
 module Make(Plugin : PLUGIN)
 = struct
   module Formula = Plugin.Formula
+  module Proof = Plugin.Proof
 
   type formula = Formula.t
   type theory = Plugin.t
-  type lemma = Plugin.proof
+  type lemma = Plugin.lemma
+  type proof = Plugin.proof
 
   (* ### types ### *)
 
@@ -510,279 +512,6 @@ module Make(Plugin : PLUGIN)
   module Atom = Store.Atom
   module Var = Store.Var
   module Clause = Store.Clause
-
-  (* TODO: mostly, move into a functor outside that works on integers *)
-  module Proof =  struct
-    exception Resolution_error of string
-
-    type atom = Atom.t
-    type clause = Clause.t
-    type formula = Formula.t
-    type lemma = Plugin.proof
-    type nonrec store = store
-
-    let error_res_f msg = Format.kasprintf (fun s -> raise (Resolution_error s)) msg
-
-    let[@inline] clear_var_of_ store (a:atom) = Store.clear_var store (Atom.var a)
-
-    (* Compute resolution of 2 clauses.
-       returns [pivots, resulting_atoms] *)
-    let resolve store (c1:clause) (c2:clause) : atom list * atom list =
-      (* invariants: only atoms in [c2] are marked, and the pivot is
-         cleared when traversing [c1] *)
-      Clause.iter store c2 ~f:(Atom.mark store);
-      let pivots = ref [] in
-      let l =
-        Clause.fold store [] c1
-          ~f:(fun l a ->
-             if Atom.marked store a then l
-             else if Atom.marked store (Atom.neg a) then (
-               pivots := (Atom.abs a) :: !pivots;
-               clear_var_of_ store a;
-               l
-             ) else a::l)
-      in
-      let l =
-        Clause.fold store l c2
-          ~f:(fun l a -> if Atom.marked store a then a::l else l)
-      in
-      Clause.iter store c2 ~f:(clear_var_of_ store);
-      !pivots, l
-
-    (* [find_dups c] returns a list of duplicate atoms, and the deduplicated list *)
-    let find_dups (store:store) (c:clause) : atom list * atom list =
-      let res =
-        Clause.fold store ([], []) c
-          ~f:(fun (dups,l) a ->
-             if Atom.marked store a then (
-               a::dups, l
-             ) else (
-               Atom.mark store a;
-               dups, a::l
-             ))
-      in
-      Clause.iter store c ~f:(clear_var_of_ store);
-      res
-
-    (* do [c1] and [c2] have the same lits, modulo reordering and duplicates? *)
-    let same_lits store (c1:atom Iter.t) (c2:atom Iter.t): bool =
-      let subset a b =
-        Iter.iter (Atom.mark store) b;
-        let res = Iter.for_all (Atom.marked store) a in
-        Iter.iter (clear_var_of_ store) b;
-        res
-      in
-      subset c1 c2 && subset c2 c1
-
-    let prove (store:store) conclusion =
-      match Clause.premise store conclusion with
-      | History [] -> assert false
-      | Empty_premise -> raise Solver_intf.No_proof
-      | _ -> conclusion
-
-    let rec set_atom_proof store a =
-      let aux acc b =
-        if Atom.equal (Atom.neg a) b then acc
-        else set_atom_proof store b :: acc
-      in
-      assert (Var.level store (Atom.var a) >= 0);
-      match Var.reason store (Atom.var a) with
-      | Some (Bcp c | Bcp_lazy (lazy c)) ->
-        Log.debugf 5 (fun k->k "(@[proof.analyze.clause@ :atom %a@ :c %a@])"
-                         (Atom.debug store) a (Clause.debug store) c);
-        if Clause.n_atoms store c = 1 then (
-          Log.debugf 5 (fun k -> k "(@[proof.analyze.old-reason@ %a@])"
-                           (Atom.debug store) a);
-          c
-        ) else (
-          assert (Atom.is_false store a);
-          let r = History (c :: (Clause.fold store [] c ~f:aux)) in
-          let c' = Clause.make_l store ~removable:false [Atom.neg a] r in
-          Var.set_reason store (Atom.var a) (Some (Bcp c'));
-          Log.debugf 5
-            (fun k -> k "(@[proof.analyze.new-reason@ :atom %a@ :c %a@])"
-                (Atom.debug store) a (Clause.debug store) c');
-          c'
-        )
-      | _ ->
-        error_res_f "cannot prove atom %a" (Atom.debug store) a
-
-    let prove_unsat store conflict =
-      if Clause.n_atoms store conflict = 0 then (
-        conflict
-      ) else (
-        Log.debugf 1 (fun k -> k "(@[sat.prove-unsat@ :from %a@])" (Clause.debug store) conflict);
-        let l = Clause.fold store [] conflict
-            ~f:(fun acc a -> set_atom_proof store a :: acc) in
-        let res = Clause.make_l store ~removable:false [] (History (conflict :: l)) in
-        Log.debugf 1 (fun k -> k "(@[sat.proof-found@ %a@])" (Clause.debug store) res);
-        res
-      )
-
-    let prove_atom self a =
-      if Atom.is_true self a &&
-         Var.level self (Atom.var a) = 0 then
-        Some (set_atom_proof self a)
-      else
-        None
-
-    type t = clause
-    and proof_node = {
-      conclusion : clause;
-      step : step;
-    }
-    and step =
-      | Hypothesis of lemma
-      | Assumption
-      | Lemma of lemma
-      | Duplicate of t * atom list
-      | Hyper_res of hyper_res_step
-
-    and hyper_res_step = {
-      hr_init: t;
-      hr_steps: (atom * t) list; (* list of pivot+clause to resolve against [init] *)
-    }
-
-    let[@inline] conclusion (p:t) : clause = p
-
-    (* find pivots for resolving [l] with [init], and also return
-       the atoms of the conclusion *)
-    let find_pivots store (init:clause) (l:clause list) : _ * (atom * t) list =
-      Log.debugf 15
-        (fun k->k "(@[proof.find-pivots@ :init %a@ :l %a@])"
-            (Clause.debug store) init (Format.pp_print_list (Clause.debug store)) l);
-      Clause.iter store init ~f:(Atom.mark store);
-      let steps =
-        List.map
-          (fun c ->
-             let pivot =
-               match
-                 Clause.atoms_iter store c
-                 |> Iter.filter (fun a -> Atom.marked store (Atom.neg a))
-                 |> Iter.to_list
-               with
-                 | [a] -> a
-                 | [] ->
-                   error_res_f "(@[proof.expand.pivot_missing@ %a@])" (Clause.debug store) c
-                 | pivots ->
-                   error_res_f "(@[proof.expand.multiple_pivots@ %a@ :pivots %a@])"
-                     (Clause.debug store) c (Atom.debug_l store) pivots
-             in
-             Clause.iter store c ~f:(Atom.mark store); (* add atoms to result *)
-             clear_var_of_ store pivot;
-             Atom.abs pivot, c)
-          l
-      in
-      (* cleanup *)
-      let res = ref [] in
-      let cleanup_a_ a =
-        if Atom.marked store a then (
-          res := a :: !res;
-          clear_var_of_ store a
-        )
-      in
-      Clause.iter store init ~f:cleanup_a_;
-      List.iter (fun c -> Clause.iter store c ~f:cleanup_a_) l;
-      !res, steps
-
-    let expand store conclusion =
-      Log.debugf 5 (fun k -> k "(@[sat.proof.expand@ @[%a@]@])" (Clause.debug store) conclusion);
-      match Clause.premise store conclusion with
-      | Lemma l ->
-        { conclusion; step = Lemma l; }
-      | Local ->
-        { conclusion; step = Assumption; }
-      | Hyp l ->
-        { conclusion; step = Hypothesis l; }
-      | History [] ->
-        error_res_f "@[empty history for clause@ %a@]" (Clause.debug store) conclusion
-      | History [c] ->
-        let duplicates, res = find_dups store c in
-        assert (same_lits store (Iter.of_list res) (Clause.atoms_iter store conclusion));
-        { conclusion; step = Duplicate (c, duplicates) }
-      | History (c :: r) ->
-        let res, steps = find_pivots store c r in
-        assert (same_lits store (Iter.of_list res) (Clause.atoms_iter store conclusion));
-        { conclusion; step = Hyper_res {hr_init=c; hr_steps=steps};  }
-      | Empty_premise -> raise Solver_intf.No_proof
-
-    let rec res_of_hyper_res store (hr: hyper_res_step) : _ * _ * atom =
-      let {hr_init=c1; hr_steps=l} = hr in
-      match l with
-      | [] -> assert false
-      | [a, c2] -> c1, c2, a (* done *)
-      | (a,c2) :: steps' ->
-        (* resolve [c1] with [c2], then resolve that against [steps] *)
-        let pivots, l = resolve store c1 c2 in
-        assert (match pivots with [a'] -> Atom.equal a a' | _ -> false);
-        let c_1_2 = Clause.make_l store ~removable:true l (History [c1; c2]) in
-        res_of_hyper_res store {hr_init=c_1_2; hr_steps=steps'}
-
-    (* Proof nodes manipulation *)
-    let is_leaf = function
-      | Hypothesis _
-      | Assumption
-      | Lemma _ -> true
-      | Duplicate _
-      | Hyper_res _ -> false
-
-    let parents = function
-      | Hypothesis _
-      | Assumption
-      | Lemma _ -> []
-      | Duplicate (p, _) -> [p]
-      | Hyper_res {hr_init; hr_steps} -> hr_init :: List.map snd hr_steps
-
-    let expl = function
-      | Hypothesis _ -> "hypothesis"
-      | Assumption -> "assumption"
-      | Lemma _ -> "lemma"
-      | Duplicate _ -> "duplicate"
-      | Hyper_res _ -> "hyper-resolution"
-
-    module Tbl = Clause.Tbl
-
-    type task =
-      | Enter of t
-      | Leaving of t
-
-    let spop s = try Some (Stack.pop s) with Stack.Empty -> None
-
-    let rec fold_aux self s h f acc =
-      match spop s with
-      | None -> acc
-      | Some (Leaving c) ->
-        Tbl.add h c true;
-        fold_aux self s h f (f acc (expand self c))
-      | Some (Enter c) ->
-        if not (Tbl.mem h c) then begin
-          Stack.push (Leaving c) s;
-          let node = expand self c in
-          begin match node.step with
-            | Duplicate (p1, _) ->
-              Stack.push (Enter p1) s
-            | Hyper_res {hr_init=p1; hr_steps=l} ->
-              List.iter (fun (_,p2) -> Stack.push (Enter p2) s) l;
-              Stack.push (Enter p1) s;
-            | Hypothesis _ | Assumption | Lemma _ -> ()
-          end
-        end;
-        fold_aux self s h f acc
-
-    let fold self f acc p =
-      let h = Tbl.create 42 in
-      let s = Stack.create () in
-      Stack.push (Enter p) s;
-      fold_aux self s h f acc
-
-    let check_empty_conclusion store (p:t) =
-      if Clause.n_atoms store p > 0 then (
-        error_res_f "@[<2>Proof.check: non empty conclusion for clause@ %a@]"
-          (Clause.debug store) p;
-      )
-
-    let check self (p:t) = fold self (fun () _ -> ()) () p
-  end
 
   module H = (Heap.Make [@specialise]) (struct
     type store = Store.t
@@ -1775,7 +1504,8 @@ module Make(Plugin : PLUGIN)
 
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
-      type nonrec proof = lemma
+      type nonrec proof = proof
+      type nonrec lemma = lemma
       type nonrec formula = formula
       let iter_assumptions=acts_iter st ~full:false st.th_head
       let eval_lit= acts_eval_lit st
@@ -1790,7 +1520,8 @@ module Make(Plugin : PLUGIN)
   (* full slice, for [if_sat] final check *)
   let[@inline] full_slice st : _ Solver_intf.acts =
     let module M = struct
-      type nonrec proof = lemma
+      type nonrec proof = proof
+      type nonrec lemma = lemma
       type nonrec formula = formula
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st

@@ -9,6 +9,7 @@ let name = "th-cstor"
 module type ARG = sig
   module S : Sidekick_core.SOLVER
   val view_as_cstor : S.T.Term.t -> (S.T.Fun.t, S.T.Term.t) cstor_view
+  val lemma_cstor : S.Lit.t Iter.t -> S.lemma
 end
 
 module type S = sig

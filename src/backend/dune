@@ -1,7 +1,0 @@
-(library
-  (name sidekick_backend)
-  (public_name sidekick.backend)
-  (synopsis "Proof backends for sidekick")
-  (flags :standard -warn-error -a+8)
-  (libraries sidekick.sat))
-
