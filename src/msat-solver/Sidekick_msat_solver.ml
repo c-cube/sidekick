@@ -11,7 +11,8 @@
 module type ARG = sig
   open Sidekick_core
   module T : TERM
-  module P : PROOF with type term = T.Term.t
+  type proof
+  module P : PROOF with type term = T.Term.t and type t = proof
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 
@@ -26,6 +27,7 @@ module type S = Sidekick_core.SOLVER
 module Make(A : ARG)
   : S
     with module T = A.T
+     and type proof = A.proof
      and module P = A.P
 = struct
   module T = A.T
@@ -81,6 +83,7 @@ module Make(A : ARG)
     module T = T
     module P = P
     module Lit = Lit_
+    type nonrec proof = proof
     let cc_view = A.cc_view
 
     module Actions = struct
@@ -516,6 +519,8 @@ module Make(A : ARG)
   (** the parametrized SAT Solver *)
   module Sat_solver = Sidekick_sat.Make_cdcl_t(Solver_internal)
 
+  (* TODO: move somewhere else? where it can be used to implement the new
+     proof module?
   module Pre_proof = struct
     module SP = Sat_solver.Proof
     module SC = Sat_solver.Clause
@@ -643,6 +648,7 @@ module Make(A : ARG)
     let pp_debug out self = P.pp_debug ~sharing:false out (to_proof self)
     let output oc (self:t) = P.Quip.output oc (to_proof self)
   end
+     *)
 
   (* main solver state *)
   type t = {

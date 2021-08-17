@@ -15,7 +15,7 @@ module type S = Sidekick_core.CC_S
 module Make (A: CC_ARG)
   : S with module T = A.T
        and module Lit = A.Lit
-       and type lemma = A.lemma
+       and type proof = A.proof
        and module Actions = A.Actions
 = struct
   module T = A.T
@@ -26,7 +26,8 @@ module Make (A: CC_ARG)
   type term_store = T.Term.store
   type lit = Lit.t
   type fun_ = T.Fun.t
-  type lemma = A.lemma
+  type proof = A.proof
+  type dproof = proof -> unit
   type actions = Actions.t
 
   module Term = T.Term
@@ -280,7 +281,7 @@ module Make (A: CC_ARG)
   and ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   and ev_on_new_term = t -> N.t -> term -> unit
   and ev_on_conflict = t -> th:bool -> lit list -> unit
-  and ev_on_propagate = t -> lit -> (unit -> lit list * P.lemma) -> unit
+  and ev_on_propagate = t -> lit -> (unit -> lit list * (proof -> unit)) -> unit
   and ev_on_is_subterm = N.t -> term -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
@@ -306,10 +307,6 @@ module Make (A: CC_ARG)
   (* check if [t] is in the congruence closure.
      Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
   let[@inline] mem (cc:t) (t:term): bool = T_tbl.mem cc.tbl t
-
-  let ret_cc_lemma _what (_lits:lit list) (p_lits:lit Iter.t) =
-    let p = P.lemma_cc p_lits in
-    p
 
   (* print full state *)
   let pp_full out (cc:t) : unit =
@@ -661,10 +658,10 @@ module Make (A: CC_ARG)
         let lits = explain_decompose_expl cc ~th [] e_ab in
         let lits = explain_equal cc ~th lits a ra in
         let lits = explain_equal cc ~th lits b rb in
-        let proof =
+        let emit_proof p =
           let p_lits = Iter.of_list lits |> Iter.map Lit.neg in
-          ret_cc_lemma "true-eq-false" lits p_lits in
-        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) proof
+          P.lemma_cc p p_lits in
+        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) emit_proof
       );
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, but always
@@ -779,12 +776,12 @@ module Make (A: CC_ARG)
              let e = lazy (
                let lazy (th, acc) = half_expl in
                let lits = explain_equal cc ~th acc u1 t1 in
-               let p_lits =
+               let emit_proof p =
                  (* make a tautology, not a true guard *)
-                 Iter.cons lit (Iter.of_list lits |> Iter.map Lit.neg)
+                 let p_lits = Iter.cons lit (Iter.of_list lits |> Iter.map Lit.neg) in
+                 P.lemma_cc p p_lits
                in
-               let p = ret_cc_lemma "bool-parent" lits p_lits in
-               lits, p
+               lits, emit_proof
              ) in
              fun () -> Lazy.force e
            in
@@ -851,11 +848,11 @@ module Make (A: CC_ARG)
     let th = ref true in
     let lits = explain_decompose_expl cc ~th [] expl in
     let lits = List.rev_map Lit.neg lits in
-    let proof =
+    let emit_proof p =
       let p_lits = Iter.of_list lits in
-      ret_cc_lemma "from-expl" lits p_lits
+      P.lemma_cc p p_lits
     in
-    raise_conflict_ cc ~th:!th acts lits proof
+    raise_conflict_ cc ~th:!th acts lits emit_proof
 
   let merge cc n1 n2 expl =
     Log.debugf 5
