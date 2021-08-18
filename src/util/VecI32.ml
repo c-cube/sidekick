@@ -18,6 +18,8 @@ let[@inline] shrink self n = if n < self.sz then self.sz <- n
 let[@inline] size self = self.sz
 let[@inline] is_empty self = self.sz = 0
 
+let[@inline] fill self x = A.fill self.data (Int32.of_int x)
+
 (* ensure capacity is [new_cap] *)
 let resize_cap_ self new_cap =
   assert (A.dim self.data < new_cap);
@@ -34,7 +36,10 @@ let ensure_cap self (n:int) =
 let ensure_size self n =
   if n > self.sz then (
     ensure_cap self n;
-    self.sz <- n
+    for i=self.sz to n-1 do
+      A.set self.data i 0l;
+    done;
+    self.sz <- n;
   )
 
 let[@inline] push (self:t) i : unit =

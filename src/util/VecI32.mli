@@ -11,6 +11,8 @@ val ensure_size : t -> int -> unit
 
 val size : t -> int
 
+val fill : t -> int -> unit
+
 val clear : t -> unit
 
 val is_empty : t -> bool
