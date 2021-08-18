@@ -155,6 +155,35 @@ module type CC_PROOF = sig
       of uninterpreted functions. *)
 end
 
+(** Signature for SAT-solver proof emission, using DRUP.
+
+    We do not store the resolution steps, just the stream of clauses deduced.
+    See {!Sidekick_drup} for checking these proofs. *)
+module type SAT_PROOF = sig
+  type t
+  (** The stored proof (possibly nil, possibly on disk, possibly in memory) *)
+
+  type lit
+  (** A boolean literal for the proof trace *)
+
+  type dproof = t -> unit
+  (** A delayed proof, used to produce proofs on demand from theories. *)
+
+  val enabled : t -> bool
+  (** Do we emit proofs at all? *)
+
+  val emit_input_clause : t -> lit Iter.t -> unit
+  (** Emit an input clause. *)
+
+  val emit_redundant_clause : t -> lit Iter.t -> unit
+  (** Emit a clause deduced by the SAT solver, redundant wrt axioms.
+      The clause must be RUP wrt previous clauses. *)
+
+  val del_clause : t -> lit Iter.t -> unit
+  (** Forget a clause. Only useful for performance considerations. *)
+  (* TODO: replace with something index-based? *)
+end
+
 (** Proofs of unsatisfiability.
 
     We use DRUP(T)-style traces where we simply emit clauses as we go,
@@ -173,18 +202,25 @@ module type PROOF = sig
     with type t := t
      and type lit := lit
 
+  include SAT_PROOF
+    with type t := t
+     and type lit := lit
+
   val begin_subproof : t -> unit
   (** Begins a subproof. The result of this will only be the
       clause with which {!end_subproof} is called; all other intermediate
       steps will be discarded. *)
 
-  val end_subproof : t -> lit Iter.t -> unit
-  (** [end_subproof p lits] ends the current active subproof, which {b must}
-      prove the clause [lits] by RUP. *)
+  val end_subproof : t -> unit
+  (** [end_subproof p] ends the current active subproof, the last result
+      of which is kept. *)
 
   val define_term : t -> term -> term -> unit
   (** [define_term p cst u] defines the new constant [cst] as being equal
       to [u]. *)
+
+  val lemma_true : t -> term -> unit
+  (** [lemma_true p (true)] asserts the clause [(true)] *)
 
   val lemma_preprocess : t -> term -> term -> unit
   (** [lemma_preprocess p t u] asserts that [t = u] is a tautology
@@ -223,6 +259,17 @@ module type LIT = sig
   (** [abs lit] is like [lit] but always positive, i.e. [sign (abs lit) = true] *)
 
   val signed_term : t -> T.Term.t * bool
+  (** Return the atom and the sign *)
+
+  val atom : T.Term.store -> ?sign:bool -> T.Term.t -> t
+  (** [atom store t] makes a literal out of a term, possibly normalizing
+      its sign in the process.
+      @param sign if provided, and [sign=false], negate the resulting lit. *)
+
+  val norm_sign : t -> t * bool
+  (** [norm_sign (+t)] is [+t, true],
+      and [norm_sign (-t)] is [+t, false].
+      In both cases the term is positive, and the boolean reflects the initial sign. *)
 
   val equal : t -> t -> bool
   val hash : t -> int
@@ -594,6 +641,7 @@ end
     new lemmas, propagate literals, access the congruence closure, etc. *)
 module type SOLVER_INTERNAL = sig
   module T : TERM
+  module Lit : LIT with module T = T
 
   type ty = T.Ty.t
   type term = T.Term.t
@@ -602,13 +650,6 @@ module type SOLVER_INTERNAL = sig
   type proof
   type dproof = proof -> unit
   (** Delayed proof. This is used to build a proof step on demand. *)
-
-  (** {3 Literals}
-
-      A literal is a (preprocessed) term along with its sign.
-      It is directly manipulated by the SAT solver.
-  *)
-  module Lit : LIT with module T = T
 
   (** {3 Proofs} *)
   module P : PROOF with type lit = Lit.t and type term = term and type t = proof
@@ -726,7 +767,7 @@ module type SOLVER_INTERNAL = sig
   (** Create a literal. This automatically preprocesses the term. *)
 
   val preprocess_term :
-    t -> add_clause:(Lit.t list -> proof -> unit) -> term -> term * dproof
+    t -> add_clause:(Lit.t list -> dproof -> unit) -> term -> term * dproof
   (** Preprocess a term. *)
 
   val add_lit : t -> actions -> lit -> unit
@@ -989,7 +1030,7 @@ module type SOLVER = sig
     ?stat:Stat.t ->
     ?size:[`Big | `Tiny | `Small] ->
     (* TODO? ?config:Config.t -> *)
-    ?store_proof:bool ->
+    proof:proof ->
     theories:theory list ->
     T.Term.store ->
     T.Ty.store ->
@@ -1018,7 +1059,7 @@ module type SOLVER = sig
 
   val add_theory_l : t -> theory list -> unit
 
-  val mk_atom_lit : t -> lit -> Atom.t
+  val mk_atom_lit : t -> lit -> Atom.t * dproof
   (** [mk_atom_lit _ lit] returns [atom, pr]
       where [atom] is an internal atom for the solver,
       and [pr] is a proof of [|- lit = atom] *)
@@ -1026,7 +1067,7 @@ module type SOLVER = sig
   val mk_atom_lit' : t -> lit -> Atom.t
   (** Like {!mk_atom_t} but skips the proof *)
 
-  val mk_atom_t : t -> ?sign:bool -> term -> Atom.t
+  val mk_atom_t : t -> ?sign:bool -> term -> Atom.t * dproof
   (** [mk_atom_t _ ~sign t] returns [atom, pr]
       where [atom] is an internal representation of [± t],
       and [pr] is a proof of [|- atom = (± t)] *)
@@ -1034,11 +1075,11 @@ module type SOLVER = sig
   val mk_atom_t' : t -> ?sign:bool -> term -> Atom.t
   (** Like {!mk_atom_t} but skips the proof *)
 
-  val add_clause : t -> Atom.t IArray.t -> P.t -> unit
+  val add_clause : t -> Atom.t IArray.t -> dproof -> unit
   (** [add_clause solver cs] adds a boolean clause to the solver.
       Subsequent calls to {!solve} will need to satisfy this clause. *)
 
-  val add_clause_l : t -> Atom.t list -> P.t -> unit
+  val add_clause_l : t -> Atom.t list -> dproof -> unit
   (** Add a clause to the solver, given as a list. *)
 
   val assert_terms : t -> term list -> unit
@@ -1049,32 +1090,10 @@ module type SOLVER = sig
   (** Helper that turns the term into an atom, before adding the result
       to the solver as a unit clause assertion *)
 
-  (** {2 Internal representation of proofs}
-
-      A type or state convertible into {!P.t} *)
-  module Pre_proof : sig
-    type t
-
-    val output : out_channel -> t -> unit
-    (** Output onto a channel, efficiently *)
-
-    val pp_debug : t Fmt.printer
-
-    val pp_dot : t Fmt.printer option
-    (** Optional printer into DOT/graphviz *)
-
-    val check : t -> unit
-    (** Check the proof (to an unspecified level of confidence;
-        this can be a no-op). May fail. *)
-
-    val to_proof : t -> P.t
-  end
-
   (** Result of solving for the current set of clauses *)
   type res =
     | Sat of Model.t (** Satisfiable *)
     | Unsat of {
-        proof: Pre_proof.t option lazy_t; (** proof of unsat *)
         unsat_core: Atom.t list lazy_t; (** subset of assumptions responsible for unsat *)
       } (** Unsatisfiable *)
     | Unknown of Unknown.t

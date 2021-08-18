@@ -33,13 +33,13 @@ end
 
 module Make(Plugin : PLUGIN)
 = struct
+  type formula = Plugin.formula
+  type theory = Plugin.t
+  type proof = Plugin.proof
+  type dproof = proof -> unit
+
   module Formula = Plugin.Formula
   module Proof = Plugin.Proof
-
-  type formula = Formula.t
-  type theory = Plugin.t
-  type lemma = Plugin.lemma
-  type proof = Plugin.proof
 
   (* ### types ### *)
 
@@ -88,26 +88,10 @@ module Make(Plugin : PLUGIN)
   end
   type clause = Clause0.t
 
-  (* TODO: remove, replace with user-provided proof trackng device?
-     for pure SAT, [reason] is sufficient *)
-  type premise =
-    | Hyp of lemma
-    | Local
-    | Lemma of lemma
-    | History of clause list
-    | Empty_premise
-
   and reason =
     | Decision
     | Bcp of clause
     | Bcp_lazy of clause lazy_t
-
-  let kind_of_premise p = match p with
-    | Hyp _ -> "H"
-    | Lemma _ -> "T"
-    | Local -> "L"
-    | History _ -> "C"
-    | Empty_premise -> ""
 
   (* ### stores ### *)
 
@@ -118,7 +102,6 @@ module Make(Plugin : PLUGIN)
     type cstore = {
       c_lits: atom array Vec.t; (* storage for clause content *)
       c_activity: Vec_float.t;
-      c_premise: premise Vec.t;
       c_recycle_idx: VecI32.t; (* recycle clause numbers that were GC'd *)
       c_attached: Bitvec.t;
       c_marked: Bitvec.t; (* TODO : remove *)
@@ -170,7 +153,6 @@ module Make(Plugin : PLUGIN)
         c_store={
           c_lits=Vec.create();
           c_activity=Vec_float.create();
-          c_premise=Vec.create();
           c_recycle_idx=VecI32.create ~cap:0 ();
           c_dead=Bitvec.create();
           c_attached=Bitvec.create();
@@ -245,8 +227,7 @@ module Make(Plugin : PLUGIN)
         | n, None -> Format.fprintf out "%d" n
         | n, Some Decision -> Format.fprintf out "@@%d" n
         | n, Some Bcp c ->
-          let premise = Vec.get self.c_store.c_premise (c:>int) in
-          Format.fprintf out "->%d/%s/%d" n (kind_of_premise premise) (c:>int)
+          Format.fprintf out "->%d/%d" n (c:>int)
         | n, Some (Bcp_lazy _) -> Format.fprintf out "->%d/<lazy>" n
 
       let pp_level self out a =
@@ -274,11 +255,9 @@ module Make(Plugin : PLUGIN)
 
       (** Make a clause with the given atoms *)
 
-      val make_a : store -> removable:bool -> atom array -> premise -> t
-      val make_l : store -> removable:bool -> atom list -> premise -> t
-      val make_vec : store -> removable:bool -> atom Vec.t -> premise -> t
-
-      val premise : store -> t -> premise
+      val make_a : store -> removable:bool -> atom array -> t
+      val make_l : store -> removable:bool -> atom list -> t
+      val make_vec : store -> removable:bool -> atom Vec.t -> t
 
       val n_atoms : store -> t -> int
 
@@ -314,9 +293,9 @@ module Make(Plugin : PLUGIN)
 
       (* TODO: store watch lists inside clauses *)
 
-      let make_a (store:store) ~removable (atoms:atom array) premise : t =
+      let make_a (store:store) ~removable (atoms:atom array) : t =
         let {
-          c_recycle_idx; c_lits; c_activity; c_premise;
+          c_recycle_idx; c_lits; c_activity;
           c_attached; c_dead; c_removable; c_marked;
         } = store.c_store in
         (* allocate new ID *)
@@ -330,7 +309,6 @@ module Make(Plugin : PLUGIN)
         begin
           let new_len = cid + 1 in
           Vec.ensure_size c_lits [||] new_len;
-          Vec.ensure_size c_premise Empty_premise new_len;
           Vec_float.ensure_size c_activity new_len;
           Bitvec.ensure_size c_attached new_len;
           Bitvec.ensure_size c_dead new_len;
@@ -341,16 +319,15 @@ module Make(Plugin : PLUGIN)
         end;
 
         Vec.set c_lits cid atoms;
-        Vec.set c_premise cid premise;
 
         let c = of_int_unsafe cid in
         c
 
-      let make_l store ~removable atoms premise : t =
-        make_a store ~removable (Array.of_list atoms) premise
+      let make_l store ~removable atoms : t =
+        make_a store ~removable (Array.of_list atoms)
 
-      let make_vec store ~removable atoms premise : t =
-        make_a store ~removable (Vec.to_array atoms) premise
+      let make_vec store ~removable atoms : t =
+        make_a store ~removable (Vec.to_array atoms)
 
       let[@inline] n_atoms (store:store) (c:t) : int =
         Array.length (Vec.get store.c_store.c_lits (c:t:>int))
@@ -377,7 +354,6 @@ module Make(Plugin : PLUGIN)
         let {c_lits; _} = store.c_store in
         Array.fold_left f acc (Vec.get c_lits (c:t:>int))
 
-      let[@inline] premise store c = Vec.get store.c_store.c_premise (c:t:>int)
       let[@inline] marked store c = Bitvec.get store.c_store.c_marked (c:t:>int)
       let[@inline] set_marked store c b = Bitvec.set store.c_store.c_marked (c:t:>int) b
       let[@inline] attached store c = Bitvec.get store.c_store.c_attached (c:t:>int)
@@ -389,7 +365,7 @@ module Make(Plugin : PLUGIN)
 
       let dealloc store c : unit =
         assert (dead store c);
-        let {c_lits; c_premise; c_recycle_idx; c_activity;
+        let {c_lits; c_recycle_idx; c_activity;
              c_dead; c_removable; c_attached; c_marked; } = store.c_store in
 
         (* clear data *)
@@ -399,7 +375,6 @@ module Make(Plugin : PLUGIN)
         Bitvec.set c_removable cid false;
         Bitvec.set c_marked cid false;
         Vec.set c_lits cid [||];
-        Vec.set c_premise cid Empty_premise;
         Vec_float.set c_activity cid 0.;
 
         VecI32.push c_recycle_idx cid; (* recycle idx *)
@@ -412,14 +387,14 @@ module Make(Plugin : PLUGIN)
       let[@inline] activity store c = Vec_float.get store.c_store.c_activity (c:t:>int)
       let[@inline] set_activity store c f = Vec_float.set store.c_store.c_activity (c:t:>int) f
 
-      let[@inline] make_removable store l premise =
-        make_l store ~removable:true l premise
+      let[@inline] make_removable store l =
+        make_l store ~removable:true l
 
-      let[@inline] make_removable_a store a premise =
-        make_a store ~removable:true a premise
+      let[@inline] make_removable_a store a =
+        make_a store ~removable:true a
 
-      let[@inline] make_permanent store l premise =
-        let c = make_l store ~removable:false l premise in
+      let[@inline] make_permanent store l =
+        let c = make_l store ~removable:false l in
         assert (not (removable store c)); (* permanent by default *)
         c
 
@@ -428,32 +403,18 @@ module Make(Plugin : PLUGIN)
       let atoms_l store c : _ list = Array.to_list (atoms_a store c)
       let atoms_iter store c = fun k -> iter store c ~f:k
 
-      let short_name store c =
-        let p = premise store c in
-        Printf.sprintf "%s%d" (kind_of_premise p) (c:t:>int)
+      let short_name _store c = Printf.sprintf "cl[%d]" (c:t:>int)
 
       let pp store fmt c =
-        let p = premise store c in
-        Format.fprintf fmt "(cl[%s%d] : %a" (kind_of_premise p) (c:t:>int)
+        Format.fprintf fmt "(cl[%d] : %a" (c:t:>int)
           (Atom.pp_a store) (atoms_a store c)
-
-      let debug_premise out = function
-        | Hyp _ -> Format.fprintf out "hyp"
-        | Lemma _ -> Format.fprintf out "th_lemma"
-        | Local -> Format.fprintf out "local"
-        | History v as p ->
-          Format.fprintf out "(@[res";
-          List.iter (fun c -> Format.fprintf out "@ %s%d," (kind_of_premise p) (c:t:>int)) v;
-          Format.fprintf out "@])"
-        | Empty_premise -> Format.fprintf out "none"
 
       let debug store out c =
         let atoms = atoms_a store c in
-        let p = premise store c in
         Format.fprintf out
-          "(@[cl[%s%d]@ {@[<hov>%a@]}@ :premise %a@])"
-          (kind_of_premise p) (c:t:>int)
-          (Atom.debug_a store) atoms debug_premise p
+          "(@[cl[%d]@ {@[<hov>%a@]}@])"
+          (c:t:>int)
+          (Atom.debug_a store) atoms
     end
 
     (* allocate new variable *)
@@ -557,7 +518,7 @@ module Make(Plugin : PLUGIN)
     th: theory;
     (* user defined theory *)
 
-    store_proof: bool; (* do we store proofs? *)
+    proof: Proof.t; (* the proof object *)
 
     (* Clauses are simplified for efficiency purposes. In the following
        vectors, the comments actually refer to the original non-simplified
@@ -647,7 +608,7 @@ module Make(Plugin : PLUGIN)
   let _nop_on_conflict (_:atom array) = ()
 
   (* Starting environment. *)
-  let create_ ~store ~store_proof (th:theory) : t = {
+  let create_ ~store ~proof (th:theory) : t = {
     store; th;
     unsat_at_0=None;
     next_decisions = [];
@@ -671,7 +632,8 @@ module Make(Plugin : PLUGIN)
 
     var_incr = 1.;
     clause_incr = 1.;
-    store_proof;
+
+    proof;
 
     n_conflicts = 0;
     n_decisions = 0;
@@ -687,10 +649,10 @@ module Make(Plugin : PLUGIN)
 
   let create
       ?on_conflict ?on_decision ?on_new_atom ?on_learnt ?on_gc
-      ?(store_proof=true) ?(size=`Big)
+      ?(size=`Big) ~proof
       (th:theory) : t =
     let store = Store.create ~size () in
-    let self = create_ ~store ~store_proof th in
+    let self = create_ ~store ~proof th in
     self.on_new_atom <- on_new_atom;
     self.on_decision <- on_decision;
     self.on_conflict <- on_conflict;
@@ -806,7 +768,7 @@ module Make(Plugin : PLUGIN)
       clause
     ) else (
       let removable = Clause.removable store clause in
-      Clause.make_l store ~removable !res (History [clause])
+      Clause.make_l store ~removable !res
     )
 
   (* TODO: do it in place in a vec? *)
@@ -948,7 +910,6 @@ module Make(Plugin : PLUGIN)
     Log.debugf 3 (fun k -> k "(@[sat.unsat-conflict@ %a@])" (pp_unsat_cause self) us);
     let us = match us with
       | US_false c ->
-        let c = if self.store_proof then Proof.prove_unsat self.store c else c in
         self.unsat_at_0 <- Some c;
         (match self.on_learnt with Some f -> f self (Clause.atoms_a self.store c) | None -> ());
         US_false c
@@ -979,9 +940,7 @@ module Make(Plugin : PLUGIN)
                and set it as the cause for the propagation of [a], that way we can
                rebuild the whole resolution tree when we want to prove [a]. *)
             let removable = Clause.removable self.store cl in
-            let c' =
-              Clause.make_l self.store ~removable l (History (cl :: history))
-            in
+            let c' = Clause.make_l self.store ~removable l in
             Log.debugf 3
               (fun k -> k "(@[<hv>sat.simplified-reason@ %a@ %a@])"
                   (Clause.debug self.store) cl (Clause.debug self.store) c');
@@ -1208,10 +1167,6 @@ module Make(Plugin : PLUGIN)
   (* add the learnt clause to the clause database, propagate, etc. *)
   let record_learnt_clause (self:t) (confl:clause) (cr:conflict_res): unit =
     let store = self.store in
-    let proof =
-      if self.store_proof
-      then History (Array.to_list cr.cr_history)
-      else Empty_premise in
     begin match cr.cr_learnt with
       | [| |] -> assert false
       | [|fuip|] ->
@@ -1221,14 +1176,14 @@ module Make(Plugin : PLUGIN)
           report_unsat self (US_false confl)
         ) else (
           let uclause =
-            Clause.make_a store ~removable:true cr.cr_learnt proof  in
+            Clause.make_a store ~removable:true cr.cr_learnt in
           (match self.on_learnt with Some f -> f self cr.cr_learnt | None -> ());
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool self fuip ~level:0 (Bcp uclause)
         )
       | _ ->
         let fuip = cr.cr_learnt.(0) in
-        let lclause = Clause.make_a store ~removable:true cr.cr_learnt proof in
+        let lclause = Clause.make_a store ~removable:true cr.cr_learnt in
         if Clause.n_atoms store lclause > 2 then (
           Vec.push self.clauses_learnt lclause; (* potentially gc'able *)
         );
@@ -1287,9 +1242,8 @@ module Make(Plugin : PLUGIN)
           List.iteri (fun i a -> c_atoms.(i) <- a) atoms;
           c
         ) else (
-          let proof = if self.store_proof then History (c::history) else Empty_premise in
           let removable = Clause.removable store c in
-          Clause.make_l store ~removable atoms proof
+          Clause.make_l store ~removable atoms
         )
       in
       assert (Clause.removable store clause = Clause.removable store init);
@@ -1420,10 +1374,11 @@ module Make(Plugin : PLUGIN)
 
   let[@inline] slice_get st i = Vec.get st.trail i
 
-  let acts_add_clause self ?(keep=false) (l:formula list) (lemma:lemma): unit =
+  let acts_add_clause self ?(keep=false) (l:formula list) (dp:dproof): unit =
     let atoms = List.rev_map (make_atom self) l in
     let removable = not keep in
-    let c = Clause.make_l self.store ~removable atoms (Lemma lemma) in
+    let c = Clause.make_l self.store ~removable atoms in
+    if Proof.enabled self.proof then dp self.proof;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
     Vec.push self.clauses_to_add c
 
@@ -1436,10 +1391,11 @@ module Make(Plugin : PLUGIN)
       self.next_decisions <- a :: self.next_decisions
     )
 
-  let acts_raise self (l:formula list) proof : 'a =
+  let acts_raise self (l:formula list) (pr:dproof) : 'a =
     let atoms = List.rev_map (make_atom self) l in
     (* conflicts can be removed *)
-    let c = Clause.make_l self.store ~removable:true atoms (Lemma proof) in
+    let c = Clause.make_l self.store ~removable:true atoms in
+    if Proof.enabled self.proof then pr self.proof;
     Log.debugf 5 (fun k->k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])"
                      (Clause.debug self.store) c);
     raise_notrace (Th_conflict c)
@@ -1460,15 +1416,16 @@ module Make(Plugin : PLUGIN)
       let p = make_atom self f in
       if Atom.is_true store p then ()
       else if Atom.is_false store p then (
-        let lits, proof = mk_expl() in
+        let lits, dp = mk_expl() in
         let l = List.rev_map (fun f -> Atom.neg @@ make_atom self f) lits in
         check_consequence_lits_false_ self l;
-        let c = Clause.make_l store ~removable:true (p :: l) (Lemma proof) in
+        let c = Clause.make_l store ~removable:true (p :: l) in
+        if Proof.enabled self.proof then dp self.proof;
         raise_notrace (Th_conflict c)
       ) else (
         insert_var_order self (Atom.var p);
         let c = lazy (
-          let lits, proof = mk_expl () in
+          let lits, dp = mk_expl () in
           let l = List.rev_map (fun f -> Atom.neg @@ make_atom self f) lits in
           (* note: we can check that invariant here in the [lazy] block,
              as conflict analysis will run in an environment where
@@ -1477,7 +1434,8 @@ module Make(Plugin : PLUGIN)
              (otherwise the propagated lit would have been backtracked and
              discarded already.) *)
           check_consequence_lits_false_ self l;
-          Clause.make_l store ~removable:true (p :: l) (Lemma proof)
+          if Proof.enabled self.proof then dp self.proof;
+          Clause.make_l store ~removable:true (p :: l)
         ) in
         let level = decision_level self in
         self.n_propagations <- 1 + self.n_propagations;
@@ -1505,7 +1463,7 @@ module Make(Plugin : PLUGIN)
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
-      type nonrec lemma = lemma
+      type dproof = proof -> unit
       type nonrec formula = formula
       let iter_assumptions=acts_iter st ~full:false st.th_head
       let eval_lit= acts_eval_lit st
@@ -1521,7 +1479,7 @@ module Make(Plugin : PLUGIN)
   let[@inline] full_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
-      type nonrec lemma = lemma
+      type dproof = proof -> unit
       type nonrec formula = formula
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st
@@ -1842,11 +1800,12 @@ module Make(Plugin : PLUGIN)
       done
     with E_sat -> ()
 
-  let assume self cnf lemma : unit =
+  let assume self cnf dp : unit =
     List.iter
       (fun l ->
          let atoms = List.rev_map (make_atom self) l in
-         let c = Clause.make_l self.store ~removable:false atoms (Hyp lemma) in
+         let c = Clause.make_l self.store ~removable:false atoms in
+         if Proof.enabled self.proof then dp self.proof;
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
          Vec.push self.clauses_to_add c)
@@ -1875,7 +1834,7 @@ module Make(Plugin : PLUGIN)
   (* Result type *)
   type res =
     | Sat of Formula.t Solver_intf.sat_state
-    | Unsat of (atom,clause,Proof.t) Solver_intf.unsat_state
+    | Unsat of (atom,clause) Solver_intf.unsat_state
 
   let pp_all self lvl status =
     Log.debugf lvl
@@ -1911,45 +1870,32 @@ module Make(Plugin : PLUGIN)
         let c = lazy (
           let core = List.rev core in (* increasing trail order *)
           assert (Atom.equal first @@ List.hd core);
-          let proof_of (a:atom) = match Atom.reason self.store a with
-            | Some Decision -> Clause.make_l self.store ~removable:true [a] Local
-            | Some (Bcp c | Bcp_lazy (lazy c)) -> c
-            | None -> assert false
-          in
-          let other_lits = List.filter (fun a -> not (Atom.equal a first)) core in
-          let hist =
-            Clause.make_l self.store ~removable:false [first] Local ::
-            proof_of first ::
-            List.map proof_of other_lits in
-          Clause.make_l self.store ~removable:false [] (History hist)
+          Clause.make_l self.store ~removable:false []
         ) in
         fun () -> Lazy.force c
-    in
-    let get_proof () : Proof.t =
-      let c = unsat_conflict () in
-      Proof.prove self.store c
     in
     let module M = struct
       type nonrec atom = atom
       type clause = Clause.t
       type proof = Proof.t
-      let get_proof = get_proof
       let unsat_conflict = unsat_conflict
       let unsat_assumptions = unsat_assumptions
     end in
     (module M)
 
-  let add_clause_a self c lemma : unit =
+  let add_clause_a self c dp : unit =
     try
-      let c = Clause.make_a self.store ~removable:false c (Hyp lemma) in
+      let c = Clause.make_a self.store ~removable:false c in
+      if Proof.enabled self.proof then dp self.proof;
       add_clause_ self c
     with
     | E_unsat (US_false c) ->
       self.unsat_at_0 <- Some c
 
-  let add_clause self c lemma : unit =
+  let add_clause self c dp : unit =
     try
-      let c = Clause.make_l self.store ~removable:false c (Hyp lemma) in
+      let c = Clause.make_l self.store ~removable:false c in
+      if Proof.enabled self.proof then dp self.proof;
       add_clause_ self c
     with
     | E_unsat (US_false c) ->
@@ -1985,14 +1931,16 @@ module Make_cdcl_t(Plugin : Solver_intf.PLUGIN_CDCL_T) =
 
 module Make_pure_sat(Plugin : Solver_intf.PLUGIN_SAT) =
   Make(struct
-  module Formula = Plugin.Formula
-  type t = unit
-  type proof = Plugin.proof
-  let push_level () = ()
-  let pop_levels _ _ = ()
-  let partial_check () _ = ()
-  let final_check () _ = ()
-  let has_theory = false
-end)
+    type formula = Plugin.formula
+    type proof = Plugin.proof
+    module Formula = Plugin.Formula
+    module Proof = Plugin.Proof
+    type t = unit
+    let push_level () = ()
+    let pop_levels _ _ = ()
+    let partial_check () _ = ()
+    let final_check () _ = ()
+    let has_theory = false
+  end)
 [@@inline][@@specialise]
 
