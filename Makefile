@@ -67,7 +67,7 @@ reindent:
 
 WATCH=@all
 watch:
-	@dune build $(WATCH) -w $(OPTS) --profile=release
+	@dune build $(WATCH) -w $(OPTS)
 	#@dune build @all -w # TODO: once tests pass
 
 .PHONY: clean doc all bench install uninstall remove reinstall bin test
