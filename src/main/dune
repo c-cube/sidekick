@@ -6,7 +6,7 @@
  (package sidekick-bin)
  (modes native)
  (libraries containers iter result sidekick.sat sidekick.core sidekick-base
-            sidekick.msat-solver sidekick-bin.smtlib sidekick.tef
+            sidekick.smt-solver sidekick-bin.smtlib sidekick.tef
             sidekick.memtrace sidekick-bin.lib)
  (flags :standard -safe-string -color always -open Sidekick_util))
 
