@@ -46,8 +46,8 @@ module Make(A : ARG)
   type dproof = proof -> unit
   type lit = Lit.t
 
-  (* actions from msat *)
-  type msat_acts = (lit, proof) Sidekick_sat.acts
+  (* actions from the sat solver *)
+  type sat_acts = (lit, proof) Sidekick_sat.acts
 
   (* the full argument to the congruence closure *)
   module CC_actions = struct
@@ -63,7 +63,7 @@ module Make(A : ARG)
       module Lit = Lit
       type nonrec proof = proof
       type dproof = proof -> unit
-      type t = msat_acts
+      type t = sat_acts
       let[@inline] raise_conflict (a:t) lits (dp:dproof) =
         let (module A) = a in
         A.raise_conflict lits dp
@@ -103,7 +103,7 @@ module Make(A : ARG)
           next: th_states;
         } -> th_states
 
-    type actions = msat_acts
+    type actions = sat_acts
 
     module Simplify = struct
       type t = {
@@ -294,7 +294,7 @@ module Make(A : ARG)
 
           if t != u then (
             Log.debugf 5
-              (fun k->k "(@[msat-solver.preprocess.term@ :from %a@ :to %a@])"
+              (fun k->k "(@[smt-solver.preprocess.term@ :from %a@ :to %a@])"
                   Term.pp t Term.pp u);
           );
 
@@ -345,7 +345,7 @@ module Make(A : ARG)
 
       if not (Lit.equal lit lit') then (
         Log.debugf 10
-          (fun k->k "(@[msat-solver.preprocess.lit@ :lit %a@ :into %a@])"
+          (fun k->k "(@[smt-solver.preprocess.lit@ :lit %a@ :into %a@])"
               Lit.pp lit Lit.pp lit');
       );
 
@@ -428,7 +428,7 @@ module Make(A : ARG)
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
       Log.debugf 2
-        (fun k->k "(@[<hv1>@{<green>msat-solver.assume_lits@}%s[lvl=%d]@ %a@])"
+        (fun k->k "(@[<hv1>@{<green>smt-solver.assume_lits@}%s[lvl=%d]@ %a@])"
             (if final then "[final]" else "") self.level (Util.pp_iter ~sep:"; " Lit.pp) lits);
       (* transmit to CC *)
       let cc = cc self in
@@ -460,10 +460,10 @@ module Make(A : ARG)
         A.iter_assumptions f
 
     (* propagation from the bool solver *)
-    let check_ ~final (self:t) (acts: msat_acts) =
+    let check_ ~final (self:t) (acts: sat_acts) =
       let pb = if final then Profile.begin_ "solver.final-check" else Profile.null_probe in
       let iter = iter_atoms_ acts in
-      Log.debugf 5 (fun k->k "(msat-solver.assume :len %d)" (Iter.length iter));
+      Log.debugf 5 (fun k->k "(smt-solver.assume :len %d)" (Iter.length iter));
       self.on_progress();
       assert_lits_ ~final self acts iter;
       Profile.exit pb
@@ -672,7 +672,7 @@ module Make(A : ARG)
   let add_theory_p (type a) (self:t) (th:a theory_p) : a =
     let (module Th) = th in
     Log.debugf 2
-      (fun k-> k "(@[msat-solver.add-theory@ :name %S@])" Th.name);
+      (fun k-> k "(@[smt-solver.add-theory@ :name %S@])" Th.name);
     let st = Th.create_and_setup self.si in
     (* add push/pop to the internal solver *)
     begin
@@ -694,7 +694,7 @@ module Make(A : ARG)
 
   (* create a new solver *)
   let create ?(stat=Stat.global) ?size ~proof ~theories tst ty_st () : t =
-    Log.debug 5 "msat-solver.create";
+    Log.debug 5 "smt-solver.create";
     let si = Solver_internal.create ~stat ~proof tst ty_st () in
     let self = {
       si;
@@ -738,7 +738,7 @@ module Make(A : ARG)
     |> Iter.iter
       (fun sub ->
          Log.debugf 5 (fun k->k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp sub);
-         (* ensure that msat has a boolean atom for [sub] *)
+         (* ensure that SAT solver has a boolean atom for [sub] *)
          let atom = mk_atom_t_ self sub in
          (* also map [sub] to this atom in the congruence closure, for propagation *)
          let cc = cc self in
@@ -852,7 +852,7 @@ module Make(A : ARG)
 
   let mk_model (self:t) (lits:lit Iter.t) : Model.t =
     Log.debug 1 "(smt.solver.mk-model)";
-    Profile.with_ "msat-solver.mk-model" @@ fun () ->
+    Profile.with_ "smt-solver.mk-model" @@ fun () ->
     let module M = Term.Tbl in
     let model = M.create 128 in
     let {Solver_internal.tst; cc=lazy cc; mk_model=model_hooks; _} = self.si in
@@ -902,25 +902,17 @@ module Make(A : ARG)
 
   let solve ?(on_exit=[]) ?(check=true) ?(on_progress=fun _ -> ())
       ~assumptions (self:t) : res =
-    Profile.with_ "msat-solver.solve" @@ fun () ->
+    Profile.with_ "smt-solver.solve" @@ fun () ->
     let do_on_exit () =
       List.iter (fun f->f()) on_exit;
     in
     self.si.on_progress <- (fun () -> on_progress self);
 
-    (* TODO: msat 0.10
-       let on_conflict =
-      if Profile.enabled()
-      then Some (fun _ -> Profile.instant "sat.conflict")
-      else None
-    in
-    let r = Sat_solver.solve ?on_conflict ~assumptions (solver self) in
-    *)
     let r = Sat_solver.solve ~assumptions (solver self) in
     Stat.incr self.count_solve;
     match r with
     | Sat_solver.Sat (module SAT) ->
-      Log.debug 1 "sidekick.msat-solver: SAT";
+      Log.debug 1 "sidekick.smt-solver: SAT";
       let _lits f = SAT.iter_trail f in
       (* TODO: theory combination *)
       let m = mk_model self _lits in
