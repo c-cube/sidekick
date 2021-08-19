@@ -577,9 +577,9 @@ module Make(A : ARG)
     begin
       let tst = Solver_internal.tst self.si in
       let t_true = Term.bool tst true in
-      Sat_solver.assume self.solver [
-        [Lit.atom tst t_true];
-      ] (fun p -> P.lemma_true p t_true)
+      Sat_solver.add_clause self.solver
+        [Lit.atom tst t_true]
+        (fun p -> P.lemma_true p t_true)
     end;
     self
 

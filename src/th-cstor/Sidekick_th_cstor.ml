@@ -9,7 +9,7 @@ let name = "th-cstor"
 module type ARG = sig
   module S : Sidekick_core.SOLVER
   val view_as_cstor : S.T.Term.t -> (S.T.Fun.t, S.T.Term.t) cstor_view
-  val lemma_cstor : S.Lit.t Iter.t -> S.lemma
+  val lemma_cstor : S.proof -> S.Lit.t Iter.t -> unit
 end
 
 module type S = sig
@@ -53,6 +53,9 @@ module Make(A : ARG) : S with module A = A = struct
         (fun k->k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])"
             name N.pp n1 T.pp v1.t N.pp n2 T.pp v2.t);
       (* build full explanation of why the constructor terms are equal *)
+      (* FIXME: add a (fun p -> A.lemma_cstor p …) here.
+         probably we need [Some a=Some b => a=b] as a lemma for inj,
+         and [Some a /= None] for Error case. *)
       let expl =
         Expl.mk_list [
           e_n1_n2;

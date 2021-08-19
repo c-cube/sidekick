@@ -9,21 +9,24 @@ open Sidekick_base
 
 (** Argument to the SMT solver *)
 module Solver_arg = struct
-  module T = Sidekick_base
+  module T = Sidekick_base.Solver_arg
+  module Lit = Sidekick_base.Lit
 
   let cc_view = Term.cc_view
   let is_valid_literal _ = true
-  module P = Proof
+  module P = Proof_stub
+  type proof = P.t
 end
 
-(** SMT solver, obtained from {!Sidekick_msat_solver} *)
-module Solver = Sidekick_msat_solver.Make(Solver_arg)
+(** SMT solver, obtained from {!Sidekick_smt_solver} *)
+module Solver = Sidekick_smt_solver.Make(Solver_arg)
 
 (** Theory of datatypes *)
 module Th_data = Sidekick_th_data.Make(struct
     module S = Solver
     open Base_types
     open Sidekick_th_data
+    module Proof = Proof_stub
     module Cstor = Cstor
 
     let as_datatype ty = match Ty.view ty with
@@ -56,9 +59,9 @@ module Th_data = Sidekick_th_data.Make(struct
     let ty_is_finite = Ty.finite
     let ty_set_is_finite = Ty.set_finite
 
-    let proof_isa_disj = Proof.isa_disj
-    let proof_isa_split = Proof.isa_split
-    let proof_cstor_inj = Proof.cstor_inj
+    let lemma_isa_disj p lits = Proof.lemma_isa_disj p lits
+    let lemma_isa_split p lits = Proof.lemma_isa_split p lits
+    let lemma_cstor_inj p lits = Proof.lemma_cstor_inj p lits
   end)
 
 (** Reducing boolean formulas to clauses *)
@@ -66,10 +69,11 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
   module S = Solver
   type term = S.T.Term.t
   include Form
-  let proof_bool_eq = Proof.bool_eq
-  let proof_bool_c = Proof.bool_c
-  let proof_ite_true = Proof.ite_true
-  let proof_ite_false = Proof.ite_false
+  let lemma_bool_tauto = Proof_stub.lemma_bool_tauto
+  let lemma_bool_c = Proof_stub.lemma_bool_c
+  let lemma_bool_equiv = Proof_stub.lemma_bool_equiv
+  let lemma_ite_true = Proof_stub.lemma_ite_true
+  let lemma_ite_false = Proof_stub.lemma_ite_false
 end)
 
 (** Theory of Linear Rational Arithmetic *)
@@ -91,8 +95,7 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   let ty_lra _st = Ty.real()
   let has_ty_real t = Ty.equal (T.ty t) (Ty.real())
 
-  let proof_lra = Proof.lra
-  let proof_lra_l = Proof.lra_l
+  let lemma_lra = Proof_stub.lemma_lra
 
   module Gensym = struct
     type t = {

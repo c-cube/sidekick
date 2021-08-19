@@ -312,15 +312,23 @@ module type S = sig
 
   (** {2 Base operations} *)
 
-  val assume : t -> formula list list -> dproof -> unit
+  val assume : t -> formula list list -> unit
   (** Add the list of clauses to the current set of assumptions.
       Modifies the sat solver state in place. *)
 
   val add_clause : t -> atom list -> dproof -> unit
   (** Lower level addition of clauses *)
 
+  val add_input_clause : t -> atom list -> unit
+  (** Like {!add_clause} but with the justification of being an input clause *)
+
   val add_clause_a : t -> atom array -> dproof -> unit
   (** Lower level addition of clauses *)
+
+  val add_input_clause_a : t -> atom array -> unit
+  (** Like {!add_clause_a} but with justification of being an input clause *)
+
+  (* TODO: API to push/pop/clear assumptions from an inner vector *)
 
   val solve :
     ?assumptions:atom list ->

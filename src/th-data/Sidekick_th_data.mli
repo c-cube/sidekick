@@ -30,11 +30,11 @@ type ('c, 'ty) data_ty_view =
 module type ARG = sig
   module S : Sidekick_core.SOLVER
 
-(** Constructor symbols.
+  (** Constructor symbols.
 
-    A constructor is an injective symbol, part of a datatype (or "sum type").
-    For example, in [type option a = Some a | None],
-    the constructors are [Some] and [None]. *)
+      A constructor is an injective symbol, part of a datatype (or "sum type").
+      For example, in [type option a = Some a | None],
+      the constructors are [Some] and [None]. *)
   module Cstor : sig
     type t
     (** Constructor *)
@@ -74,9 +74,9 @@ module type ARG = sig
 
   (* TODO: should we store this ourself? would be simpler… *)
 
-  val proof_isa_split : S.T.Ty.t -> S.T.Term.t Iter.t -> S.P.t
-  val proof_isa_disj : S.T.Ty.t -> S.T.Term.t -> S.T.Term.t -> S.P.t
-  val proof_cstor_inj : Cstor.t -> int -> S.T.Term.t list -> S.T.Term.t list -> S.P.t
+  val lemma_isa_split : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_isa_disj : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_cstor_inj : S.proof -> S.Lit.t Iter.t -> unit
 end
 
 module type S = sig

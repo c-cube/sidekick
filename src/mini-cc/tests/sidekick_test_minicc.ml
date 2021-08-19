@@ -2,7 +2,7 @@ open Sidekick_base
 
 module A = Alcotest
 module CC = Sidekick_mini_cc.Make(struct
-  module T = Sidekick_base.Arg
+  module T = Sidekick_base.Solver_arg
   let cc_view = Term.cc_view
 end)
 

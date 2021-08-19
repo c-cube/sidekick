@@ -74,9 +74,9 @@ module type ARG = sig
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
 
-  val proof_isa_split : S.T.Ty.t -> S.T.Term.t Iter.t -> S.P.t
-  val proof_isa_disj : S.T.Ty.t -> S.T.Term.t -> S.T.Term.t -> S.P.t
-  val proof_cstor_inj : Cstor.t -> int -> S.T.Term.t list -> S.T.Term.t list -> S.P.t
+  val lemma_isa_split : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_isa_disj : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_cstor_inj : S.proof -> S.Lit.t Iter.t -> unit
 end
 
 (** Helper to compute the cardinality of types *)
@@ -574,12 +574,13 @@ module Make(A : ARG) : S with module A = A = struct
         |> Iter.to_rev_list
       in
       SI.add_clause_permanent solver acts c
-        (A.proof_isa_split (T.ty t) @@ (Iter.of_list c|>Iter.map SI.Lit.term));
+        (fun p -> A.lemma_isa_split p (Iter.of_list c));
       Iter.diagonal_l c
         (fun (c1,c2) ->
-           let proof = A.proof_isa_disj (T.ty t) (SI.Lit.term c1) (SI.Lit.term c2) in
+           let emit_proof p =
+             A.lemma_isa_disj p (Iter.of_list [SI.Lit.neg c1; SI.Lit.neg c2]) in
            SI.add_clause_permanent solver acts
-             [SI.Lit.neg c1; SI.Lit.neg c2] proof);
+             [SI.Lit.neg c1; SI.Lit.neg c2] emit_proof);
     )
 
   (* on final check, check acyclicity,

@@ -19,7 +19,6 @@ exception Out_of_space
 
 let file = ref ""
 let p_cnf = ref false
-let p_dot_proof = ref ""
 let p_proof = ref false
 let p_model = ref false
 let check = ref false
@@ -31,8 +30,6 @@ let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
 let proof_file = ref ""
-
-let hyps : Term.t list ref = ref []
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -69,7 +66,6 @@ let argspec = Arg.align [
     "--no-gc", Arg.Clear gc, " disable garbage collection";
     "--restarts", Arg.Set restarts, " enable restarts";
     "--no-restarts", Arg.Clear restarts, " disable restarts";
-    "--dot", Arg.Set_string p_dot_proof, " if provided, print the dot proof in the given file";
     "--stat", Arg.Set p_stat, " print statistics";
     "--proof", Arg.Set p_proof, " print proof";
     "--no-proof", Arg.Clear p_proof, " do not print proof";
@@ -97,7 +93,7 @@ let check_limits () =
   else if s > !size_limit then
     raise Out_of_space
 
-let main_smt ~dot_proof () : _ result =
+let main_smt () : _ result =
   let tst = Term.create ~size:4_096 () in
   let solver =
     let theories =
@@ -123,13 +119,12 @@ let main_smt ~dot_proof () : _ result =
   (* process statements *)
   let res =
     try
-      let hyps = Vec.create() in
       E.fold_l
         (fun () ->
            Process.process_stmt
-             ~hyps ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf ?proof_file
+             ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf ?proof_file
              ~time:!time_limit ~memory:!size_limit
-             ?dot_proof ~pp_model:!p_model
+             ~pp_model:!p_model
              ~check:!check ~progress:!p_progress
              solver)
         () input
@@ -203,8 +198,6 @@ let main () =
     Arg.usage argspec usage;
     exit 2
   );
-  let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
-  check := !check || CCOpt.is_some dot_proof; (* dot requires a proof *)
   let al = Gc.create_alarm check_limits in
   Util.setup_gc();
   let is_cnf = Filename.check_suffix !file ".cnf" in
@@ -212,7 +205,7 @@ let main () =
     if is_cnf then (
       main_cnf ()
     ) else (
-      main_smt ~dot_proof ()
+      main_smt ()
     )
   in
   if !p_gc_stat then (

@@ -4,18 +4,73 @@
 module E = CCResult
 module SS = Sidekick_sat
 
+module Formula = struct
+  type t = int
+  let norm t = if t>0 then t, SS.Same_sign else -t, SS.Negated
+  let abs = abs
+  let sign t = t>0
+  let equal = CCInt.equal
+  let hash = CCHash.int
+  let neg x = -x
+  let pp = Fmt.int
+end
+
+module Proof
+  : Sidekick_sat.PROOF with type lit = Formula.t
+= struct
+  let bpf = Printf.bprintf
+  type lit = Formula.t
+  type t =
+    | Dummy
+    | Inner of {
+        buf: Buffer.t;
+      }
+  type dproof = t -> unit
+
+  let[@inline] enabled = function
+    | Dummy -> false
+    | Inner _ -> true
+
+  let emit_lits_ buf lits =
+    lits (fun i -> bpf buf "%d " i)
+
+  let emit_input_clause self lits =
+    match self with
+    | Dummy -> ()
+    | Inner {buf} ->
+      bpf buf "i "; emit_lits_ buf lits; bpf buf "0\n"
+
+  let emit_redundant_clause self lits =
+    match self with
+    | Dummy -> ()
+    | Inner {buf} ->
+      bpf buf "r "; emit_lits_ buf lits; bpf buf "0\n"
+
+  let del_clause self lits =
+    match self with
+    | Dummy -> ()
+    | Inner {buf} ->
+      bpf buf "d "; emit_lits_ buf lits; bpf buf "0\n"
+
+  (* lifetime *)
+
+  let dummy : t = Dummy
+  let create () : t = Inner {buf=Buffer.create 1_024}
+
+  let to_string = function
+    | Dummy -> ""
+    | Inner {buf} -> Buffer.contents buf
+
+  let to_chan oc = function
+    | Dummy -> ()
+    | Inner {buf} -> Buffer.output_buffer oc buf; flush oc
+end
+
 module Arg = struct
-  module Formula = struct
-    type t = int
-    let norm t = if t>0 then t, SS.Same_sign else -t, SS.Negated
-    let abs = abs
-    let sign t = t>0
-    let equal = CCInt.equal
-    let hash = CCHash.int
-    let neg x = -x
-    let pp = Fmt.int
-  end
-  type proof=unit
+  module Formula = Formula
+  type formula = Formula.t
+  module Proof = Proof
+  type proof = Proof.t
 end
 
 module SAT = Sidekick_sat.Make_pure_sat(Arg)
@@ -35,7 +90,7 @@ module Dimacs = struct
            BL.Dimacs_parser.iter p
              (fun c ->
                 let atoms = List.rev_map get_lit c in
-                SAT.add_clause solver atoms ());
+                SAT.add_input_clause solver atoms);
            Ok ())
     with e ->
       E.of_exn_trace e
@@ -54,8 +109,8 @@ let solve ?(check=false) (solver:SAT.t) : (unit, string) result =
     | SAT.Unsat (module US) ->
 
       if check then (
-        let pr = US.get_proof() in
-        SAT.Proof.check (SAT.store solver) pr;
+        let proof = SAT.proof solver in
+        Proof.check proof;
       );
 
       let t3 = Sys.time () -. t2 in

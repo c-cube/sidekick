@@ -1,3 +1,5 @@
+
+(*
 (** Proofs of unsatisfiability
 
     Proofs are used in sidekick when the problem is found {b unsatisfiable}.
@@ -26,3 +28,4 @@ val ite_false : term -> t
 
 val lra : lit Iter.t -> t
 val lra_l : lit list -> t
+   *)

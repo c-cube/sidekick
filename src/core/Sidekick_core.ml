@@ -1059,6 +1059,8 @@ module type SOLVER = sig
 
   val add_theory_l : t -> theory list -> unit
 
+  (* FIXME: do not handle atoms here, only lits *)
+
   val mk_atom_lit : t -> lit -> Atom.t * dproof
   (** [mk_atom_lit _ lit] returns [atom, pr]
       where [atom] is an internal atom for the solver,

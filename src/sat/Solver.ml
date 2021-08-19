@@ -1901,6 +1901,21 @@ module Make(Plugin : PLUGIN)
     | E_unsat (US_false c) ->
       self.unsat_at_0 <- Some c
 
+  (* FIXME: take lits, not atoms *)
+  let add_input_clause self c =
+    let emit_proof p =
+      let lits = Iter.of_list c |> Iter.map (Atom.formula (store self)) in
+      Proof.emit_input_clause p lits
+    in
+    add_clause self c emit_proof
+
+  let add_input_clause_a self c =
+    let emit_proof p =
+      let lits = Iter.of_array c |> Iter.map (Atom.formula (store self)) in
+      Proof.emit_input_clause p lits
+    in
+    add_clause_a self c emit_proof
+
   let solve ?(assumptions=[]) (st:t) : res =
     cancel_until st 0;
     Vec.clear st.assumptions;

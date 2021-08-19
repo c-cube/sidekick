@@ -1,4 +1,5 @@
 
+(*
 open Base_types
 
 module T = Term
@@ -532,3 +533,4 @@ let pp_debug ~sharing out p =
   in
   let module M = Quip.Make(Out) in
   M.pp_debug ~sharing p out
+   *)
