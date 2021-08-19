@@ -299,6 +299,9 @@ module type S = sig
   val store : t -> store
   (** Store for the solver *)
 
+  val proof : t -> proof
+  (** Access the inner proof *)
+
   (** {2 Types} *)
 
   (** Result type for the solver *)

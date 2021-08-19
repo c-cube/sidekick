@@ -34,9 +34,12 @@ let check ?pb proof : bool =
       Profile.with_ "parse-proof.drup" @@ fun() ->
       CCIO.with_in f
         (fun ic ->
-           let p = BL.Drup_parser.create ic in
+           let p = BL.Drup_parser.create_chan ic in
            BL.Drup_parser.iter p
              (function
+               | BL.Drup_parser.Input c ->
+                 let c = clause_of_int_l cstore c in
+                 Drup_check.Trace.add_input_clause trace c
                | BL.Drup_parser.Add c ->
                  let c = clause_of_int_l cstore c in
                  Drup_check.Trace.add_clause trace c

@@ -1,6 +1,6 @@
 
 {
-  type token = EOF | ZERO | LIT of int | D
+  type token = EOF | ZERO | LIT of int | D | R | I
 }
 
 let number = ['1' - '9'] ['0' - '9']*
@@ -10,6 +10,8 @@ rule token = parse
   | "c"                     { comment lexbuf }
   | [' ' '\t' '\r']         { token lexbuf }
   | "d"                     { D }
+  | "r"                     { R }
+  | "i"                     { I }
   | '\n'                    { Lexing.new_line lexbuf; token lexbuf }
   | '0'                     { ZERO }
   | '-'? number             { LIT (int_of_string (Lexing.lexeme lexbuf)) }

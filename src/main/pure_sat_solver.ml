@@ -15,9 +15,20 @@ module Formula = struct
   let pp = Fmt.int
 end
 
-module Proof
-  : Sidekick_sat.PROOF with type lit = Formula.t
-= struct
+(* TODO: on the fly compression *)
+module Proof : sig
+  include Sidekick_sat.PROOF with type lit = Formula.t
+
+  val dummy : t
+  val create : unit -> t
+  val to_string : t -> string
+  val to_chan : out_channel -> t -> unit
+  type event = Sidekick_bin_lib.Drup_parser.event =
+    | Input of int list
+    | Add of int list
+    | Delete of int list
+  val iter_events : t -> event Iter.t
+end = struct
   let bpf = Printf.bprintf
   type lit = Formula.t
   type t =
@@ -64,6 +75,21 @@ module Proof
   let to_chan oc = function
     | Dummy -> ()
     | Inner {buf} -> Buffer.output_buffer oc buf; flush oc
+
+  module DP = Sidekick_bin_lib.Drup_parser
+
+  type event = DP.event =
+    | Input of int list
+    | Add of int list
+    | Delete of int list
+
+  (* parse the proof back *)
+  let iter_events (self:t) : DP.event Iter.t =
+    match self with
+    | Dummy -> Iter.empty
+    | Inner {buf} ->
+      let dp = DP.create_string (to_string self) in
+      DP.iter dp
 end
 
 module Arg = struct
@@ -96,6 +122,37 @@ module Dimacs = struct
       E.of_exn_trace e
 end
 
+let check_proof proof : bool =
+  Profile.with_ "pure-sat.check-proof" @@ fun () ->
+  let module SDRUP = Sidekick_drup.Make() in
+  let store = SDRUP.Clause.create() in
+  let checker = SDRUP.Checker.create store in
+  let ok = ref true in
+
+  let tr_clause c =
+    let c = List.rev_map SDRUP.Atom.of_int_dimacs c in
+    SDRUP.Clause.of_list store c
+  in
+
+  Proof.iter_events proof
+    (function
+      | Proof.Input c ->
+        let c = tr_clause c in
+        SDRUP.Checker.add_clause checker c
+
+      | Proof.Add c ->
+        let c = tr_clause c in
+        if not (SDRUP.Checker.is_valid_drup checker c) then (
+          ok := false;
+        );
+        SDRUP.Checker.add_clause checker c;
+
+      | Proof.Delete c ->
+        let c = tr_clause c in
+        SDRUP.Checker.del_clause checker c;
+    );
+  !ok
+
 let solve ?(check=false) (solver:SAT.t) : (unit, string) result =
   let res =
     Profile.with_ "solve" (fun () -> SAT.solve solver)
@@ -110,7 +167,10 @@ let solve ?(check=false) (solver:SAT.t) : (unit, string) result =
 
       if check then (
         let proof = SAT.proof solver in
-        Proof.check proof;
+        let ok = check_proof proof in
+        if not ok then (
+          Error.errorf "Proof validation failed"
+        );
       );
 
       let t3 = Sys.time () -. t2 in

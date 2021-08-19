@@ -1830,6 +1830,7 @@ module Make(Plugin : PLUGIN)
 
   let[@inline] theory st = st.th
   let[@inline] store st = st.store
+  let[@inline] proof st = st.proof
 
   (* Result type *)
   type res =
