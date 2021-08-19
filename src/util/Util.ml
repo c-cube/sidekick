@@ -26,6 +26,17 @@ let pp_iarray ?(sep=" ") pp out a =
 let flat_map_l_ia f l =
   CCList.flat_map (fun x -> IArray.to_list @@ f x) l
 
+let array_of_list_map f l =
+  match l with
+  | [] -> [| |]
+  | x :: tl ->
+    let arr = Array.make (List.length tl+1) (f x) in
+    List.iteri (fun i y -> arr.(i+1) <- f y) tl;
+    arr
+
+let array_to_list_map f arr =
+  List.init (Array.length arr) (fun i -> f arr.(i))
+
 let setup_gc () =
   let g = Gc.get () in
   Gc.set {

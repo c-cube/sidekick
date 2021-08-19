@@ -33,12 +33,12 @@ end
 
 module Make(Plugin : PLUGIN)
 = struct
-  type formula = Plugin.formula
+  type lit = Plugin.lit
   type theory = Plugin.t
   type proof = Plugin.proof
   type dproof = proof -> unit
 
-  module Formula = Plugin.Formula
+  module Lit = Plugin.Lit
   module Proof = Plugin.Proof
 
   (* ### types ### *)
@@ -95,7 +95,7 @@ module Make(Plugin : PLUGIN)
 
   (* ### stores ### *)
 
-  module Form_tbl = Hashtbl.Make(Formula)
+  module Lit_tbl = Hashtbl.Make(Lit)
 
   (* variable/atom store *)
   module Store = struct
@@ -111,7 +111,7 @@ module Make(Plugin : PLUGIN)
 
     type t = {
       (* variables *)
-      v_of_form: var Form_tbl.t;
+      v_of_lit: var Lit_tbl.t;
       v_level: int Vec.t;
       v_heap_idx: int Vec.t;
       v_weight: Vec_float.t;
@@ -123,7 +123,7 @@ module Make(Plugin : PLUGIN)
       (* atoms *)
       a_is_true: Bitvec.t;
       a_seen: Bitvec.t;
-      a_form: formula Vec.t;
+      a_form: lit Vec.t;
       (* TODO: store watches in clauses instead *)
       a_watched: clause Vec.t Vec.t;
 
@@ -138,7 +138,7 @@ module Make(Plugin : PLUGIN)
         | `Small -> 16
         | `Big -> 4096
       in
-      { v_of_form = Form_tbl.create size_map;
+      { v_of_lit = Lit_tbl.create size_map;
         v_level = Vec.create();
         v_heap_idx = Vec.create();
         v_weight = Vec_float.create();
@@ -188,7 +188,7 @@ module Make(Plugin : PLUGIN)
     module Atom = struct
       include Atom0
       let[@inline] lit self a = Vec.get self.a_form (a:atom:>int)
-      let formula = lit
+      let lit = lit
       let[@inline] mark self a = Bitvec.set self.a_seen (a:atom:>int) true
       let[@inline] unmark self a = Bitvec.set self.a_seen (a:atom:>int) false
       let[@inline] marked self a = Bitvec.get self.a_seen (a:atom:>int)
@@ -203,7 +203,7 @@ module Make(Plugin : PLUGIN)
       let[@inline] level self a = Var.level self (var a)
       let[@inline] marked_both self a = marked self a && marked self (neg a)
 
-      let pp self fmt a = Formula.pp fmt (lit self a)
+      let pp self fmt a = Lit.pp fmt (lit self a)
 
       let pp_a self fmt v =
         if Array.length v = 0 then (
@@ -242,7 +242,7 @@ module Make(Plugin : PLUGIN)
       let debug self out a =
         Format.fprintf out "%s%d[%a][atom:@[<hov>%a@]]"
           (pp_sign a) (var a:var:>int) (debug_value self) a
-          Formula.pp (lit self a)
+          Lit.pp (lit self a)
 
       let debug_a self out vec =
         Array.iter (fun a -> Format.fprintf out "@[%a@]@ " (debug self) a) vec
@@ -282,8 +282,10 @@ module Make(Plugin : PLUGIN)
       val exists : store -> f:(atom -> bool) -> t -> bool
 
       val atoms_a : store -> t -> atom array
-      val atoms_l : store -> t -> atom list (* allocates *)
-      val atoms_iter : store -> t -> atom Iter.t
+
+      val lits_l : store -> t -> lit list
+      val lits_a : store -> t -> lit array
+      val lits_iter : store -> t -> lit Iter.t
 
       val short_name : store -> t -> string
       val pp : store -> Format.formatter -> t -> unit
@@ -400,8 +402,18 @@ module Make(Plugin : PLUGIN)
 
       let[@inline] atoms_a store c : atom array =
         Vec.get store.c_store.c_lits (c:t:>int)
-      let atoms_l store c : _ list = Array.to_list (atoms_a store c)
-      let atoms_iter store c = fun k -> iter store c ~f:k
+
+      let lits_l store c : lit list =
+        let arr = atoms_a store c in
+        Util.array_to_list_map (Atom.lit store) arr
+
+      let lits_a store c : lit array =
+        let arr = atoms_a store c in
+        Array.map (Atom.lit store) arr
+
+      let lits_iter store c : lit Iter.t =
+        let arr = atoms_a store c in
+        Iter.of_array arr |> Iter.map (Atom.lit store)
 
       let short_name _store c = Printf.sprintf "cl[%d]" (c:t:>int)
 
@@ -418,8 +430,8 @@ module Make(Plugin : PLUGIN)
     end
 
     (* allocate new variable *)
-    let alloc_var_uncached_ ?default_pol:(pol=true) self (form:formula) : var =
-      let {v_count; v_of_form; v_level; v_heap_idx; v_weight;
+    let alloc_var_uncached_ ?default_pol:(pol=true) self (form:lit) : var =
+      let {v_count; v_of_lit; v_level; v_heap_idx; v_weight;
            v_reason; v_seen; v_default_polarity;
            a_is_true; a_seen; a_watched; a_form; c_store=_;
           } = self in
@@ -428,7 +440,7 @@ module Make(Plugin : PLUGIN)
       let v = Var.of_int_unsafe v_idx in
 
       self.v_count <- 1 + v_idx;
-      Form_tbl.add v_of_form form v;
+      Lit_tbl.add v_of_lit form v;
       Vec.push v_level (-1);
       Vec.push v_heap_idx (-1);
       Vec.push v_reason None;
@@ -442,18 +454,18 @@ module Make(Plugin : PLUGIN)
       Bitvec.ensure_size a_seen (2*(v:var:>int));
       Vec.push a_form form;
       Vec.push a_watched (Vec.create());
-      Vec.push a_form (Formula.neg form);
+      Vec.push a_form (Lit.neg form);
       Vec.push a_watched (Vec.create());
       assert (Vec.get a_form (Atom.of_var v:atom:>int) == form);
 
       v
 
     (* create new variable *)
-    let alloc_var (self:t) ?default_pol (t:formula) : var * Solver_intf.negated =
-      let form, negated = Formula.norm t in
-      try Form_tbl.find self.v_of_form form, negated
+    let alloc_var (self:t) ?default_pol (lit:lit) : var * Solver_intf.negated =
+      let lit, negated = Lit.norm lit in
+      try Lit_tbl.find self.v_of_lit lit, negated
       with Not_found ->
-        let v = alloc_var_uncached_ ?default_pol self form in
+        let v = alloc_var_uncached_ ?default_pol self lit in
         v, negated
 
     let clear_var (self:t) (v:var) : unit =
@@ -462,11 +474,20 @@ module Make(Plugin : PLUGIN)
       Atom.unmark self (Atom.na v);
       ()
 
+    let atom_of_var_ v negated : atom =
+      match negated with
+      | Solver_intf.Same_sign -> Atom.pa v
+      | Solver_intf.Negated -> Atom.na v
+
     let alloc_atom (self:t) ?default_pol lit : atom =
       let var, negated = alloc_var self ?default_pol lit in
-      match negated with
-      | Solver_intf.Same_sign -> Atom.pa var
-      | Solver_intf.Negated -> Atom.na var
+      atom_of_var_ var negated
+
+    let find_atom (self:t) lit : atom option =
+      let lit, negated = Lit.norm lit in
+      match Lit_tbl.find self.v_of_lit lit with
+      | v -> Some (atom_of_var_ v negated)
+      | exception Not_found -> None
   end
   type store = Store.t
 
@@ -585,11 +606,10 @@ module Make(Plugin : PLUGIN)
     mutable clause_incr : float;
     (* increment for clauses' activity *)
 
-    mutable on_conflict : (t -> atom array -> unit) option;
-    mutable on_decision : (t -> atom -> unit) option;
-    mutable on_new_atom: (t -> atom -> unit) option;
-    mutable on_learnt : (t -> atom array -> unit) option;
-    mutable on_gc : (t -> atom array -> unit) option;
+    mutable on_conflict : (t -> Clause.t -> unit) option;
+    mutable on_decision : (t -> lit -> unit) option;
+    mutable on_learnt : (t -> Clause.t -> unit) option;
+    mutable on_gc : (t -> lit array -> unit) option;
 
     mutable n_conflicts : int;
     mutable n_propagations : int;
@@ -642,18 +662,16 @@ module Make(Plugin : PLUGIN)
 
     on_conflict = None;
     on_decision= None;
-    on_new_atom = None;
     on_learnt = None;
     on_gc = None;
   }
 
   let create
-      ?on_conflict ?on_decision ?on_new_atom ?on_learnt ?on_gc
+      ?on_conflict ?on_decision ?on_learnt ?on_gc
       ?(size=`Big) ~proof
       (th:theory) : t =
     let store = Store.create ~size () in
     let self = create_ ~store ~proof th in
-    self.on_new_atom <- on_new_atom;
     self.on_decision <- on_decision;
     self.on_conflict <- on_conflict;
     self.on_learnt <- on_learnt;
@@ -682,12 +700,15 @@ module Make(Plugin : PLUGIN)
   let[@inline] insert_var_order st (v:var) : unit =
     H.insert st.order v
 
+  (* find atom for the lit, if any *)
+  let[@inline] find_atom_ (self:t) (p:lit) : atom option =
+    Store.find_atom self.store p
+
   (* create a new atom, pushing it into the decision queue if needed *)
-  let make_atom (self:t) ?default_pol (p:formula) : atom =
+  let make_atom_ (self:t) ?default_pol (p:lit) : atom =
     let a = Store.alloc_atom self.store ?default_pol p in
     if Atom.level self.store a < 0 then (
       insert_var_order self (Atom.var a);
-      (match self.on_new_atom with Some f -> f self a | None -> ());
     ) else (
       assert (Atom.is_true self.store a || Atom.is_false self.store a);
     );
@@ -911,7 +932,7 @@ module Make(Plugin : PLUGIN)
     let us = match us with
       | US_false c ->
         self.unsat_at_0 <- Some c;
-        (match self.on_learnt with Some f -> f self (Clause.atoms_a self.store c) | None -> ());
+        (match self.on_learnt with Some f -> f self c | None -> ());
         US_false c
       | _ -> us
     in
@@ -920,8 +941,8 @@ module Make(Plugin : PLUGIN)
   (* TODO: remove when we use DRUP *)
   (* Simplification of boolean propagation reasons.
      When doing boolean propagation *at level 0*, it can happen
-     that the clause cl, which propagates a formula, also contains
-     other formulas, but has been simplified. in which case, we
+     that the clause cl, which propagates a lit, also contains
+     other lits, but has been simplified. in which case, we
      need to rebuild a clause with correct history, in order to
      be able to build a correct proof at the end of proof search. *)
   let simpl_reason (self:t) (r:reason) : reason =
@@ -936,7 +957,7 @@ module Make(Plugin : PLUGIN)
             r
           ) else (
             (* Clauses in [history] have been used to simplify [cl] into a clause [tmp_cl]
-               with only one formula (which is [a]). So we explicitly create that clause
+               with only one lit (which is [a]). So we explicitly create that clause
                and set it as the cause for the propagation of [a], that way we can
                rebuild the whole resolution tree when we want to prove [a]. *)
             let removable = Clause.removable self.store cl in
@@ -957,7 +978,7 @@ module Make(Plugin : PLUGIN)
     | Decision as r -> r
 
   (* Boolean propagation.
-     Wrapper function for adding a new propagated formula. *)
+     Wrapper function for adding a new propagated lit. *)
   let enqueue_bool (self:t) a ~level:lvl reason : unit =
     let store = self.store in
     if Atom.is_false store a then (
@@ -1177,7 +1198,7 @@ module Make(Plugin : PLUGIN)
         ) else (
           let uclause =
             Clause.make_a store ~removable:true cr.cr_learnt in
-          (match self.on_learnt with Some f -> f self cr.cr_learnt | None -> ());
+          (match self.on_learnt with Some f -> f self uclause | None -> ());
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool self fuip ~level:0 (Bcp uclause)
         )
@@ -1189,7 +1210,7 @@ module Make(Plugin : PLUGIN)
         );
         attach_clause self lclause;
         clause_bump_activity self lclause;
-        (match self.on_learnt with Some f -> f self cr.cr_learnt | None -> ());
+        (match self.on_learnt with Some f -> f self lclause | None -> ());
         assert (cr.cr_is_uip);
         enqueue_bool self fuip ~level:cr.cr_backtrack_lvl (Bcp lclause)
     end;
@@ -1374,25 +1395,25 @@ module Make(Plugin : PLUGIN)
 
   let[@inline] slice_get st i = Vec.get st.trail i
 
-  let acts_add_clause self ?(keep=false) (l:formula list) (dp:dproof): unit =
-    let atoms = List.rev_map (make_atom self) l in
+  let acts_add_clause self ?(keep=false) (l:lit list) (dp:dproof): unit =
+    let atoms = List.rev_map (make_atom_ self) l in
     let removable = not keep in
     let c = Clause.make_l self.store ~removable atoms in
     if Proof.enabled self.proof then dp self.proof;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
     Vec.push self.clauses_to_add c
 
-  let acts_add_decision_lit (self:t) (f:formula) (sign:bool) : unit =
+  let acts_add_decision_lit (self:t) (f:lit) (sign:bool) : unit =
     let store = self.store in
-    let a = make_atom self f in
+    let a = make_atom_ self f in
     let a = if sign then a else Atom.neg a in
     if not (Atom.has_value store a) then (
       Log.debugf 10 (fun k->k "(@[sat.th.add-decision-lit@ %a@])" (Atom.debug store) a);
       self.next_decisions <- a :: self.next_decisions
     )
 
-  let acts_raise self (l:formula list) (pr:dproof) : 'a =
-    let atoms = List.rev_map (make_atom self) l in
+  let acts_raise self (l:lit list) (pr:dproof) : 'a =
+    let atoms = List.rev_map (make_atom_ self) l in
     (* conflicts can be removed *)
     let c = Clause.make_l self.store ~removable:true atoms in
     if Proof.enabled self.proof then pr self.proof;
@@ -1413,11 +1434,11 @@ module Make(Plugin : PLUGIN)
     let store = self.store in
     match expl with
     | Solver_intf.Consequence mk_expl ->
-      let p = make_atom self f in
+      let p = make_atom_ self f in
       if Atom.is_true store p then ()
       else if Atom.is_false store p then (
         let lits, dp = mk_expl() in
-        let l = List.rev_map (fun f -> Atom.neg @@ make_atom self f) lits in
+        let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
         check_consequence_lits_false_ self l;
         let c = Clause.make_l store ~removable:true (p :: l) in
         if Proof.enabled self.proof then dp self.proof;
@@ -1426,7 +1447,7 @@ module Make(Plugin : PLUGIN)
         insert_var_order self (Atom.var p);
         let c = lazy (
           let lits, dp = mk_expl () in
-          let l = List.rev_map (fun f -> Atom.neg @@ make_atom self f) lits in
+          let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
           (* note: we can check that invariant here in the [lazy] block,
              as conflict analysis will run in an environment where
              the literals should be true anyway, since it's an extension of the
@@ -1453,18 +1474,18 @@ module Make(Plugin : PLUGIN)
     else if Atom.is_false self.store a then Solver_intf.L_false
     else Solver_intf.L_undefined
 
-  let[@inline] acts_eval_lit self (f:formula) : Solver_intf.lbool =
-    let a = make_atom self f in
+  let[@inline] acts_eval_lit self (f:lit) : Solver_intf.lbool =
+    let a = make_atom_ self f in
     eval_atom_ self a
 
   let[@inline] acts_mk_lit self ?default_pol f : unit =
-    ignore (make_atom ?default_pol self f : atom)
+    ignore (make_atom_ ?default_pol self f : atom)
 
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
       type dproof = proof -> unit
-      type nonrec formula = formula
+      type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:false st.th_head
       let eval_lit= acts_eval_lit st
       let mk_lit=acts_mk_lit st
@@ -1480,7 +1501,7 @@ module Make(Plugin : PLUGIN)
     let module M = struct
       type nonrec proof = proof
       type dproof = proof -> unit
-      type nonrec formula = formula
+      type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st
       let mk_lit=acts_mk_lit st
@@ -1619,7 +1640,9 @@ module Make(Plugin : PLUGIN)
       let atoms = Clause.atoms_a store c in
       mark_dirty_atom (Atom.neg atoms.(0)); (* need to remove from watchlists *)
       mark_dirty_atom (Atom.neg atoms.(1));
-      (match self.on_gc with Some f -> f self atoms | None -> ());
+      (match self.on_gc with
+       | Some f -> let lits = Clause.lits_a store c in f self lits
+       | None -> ());
     in
 
     (* find clauses to GC *)
@@ -1669,7 +1692,7 @@ module Make(Plugin : PLUGIN)
       let current_level = decision_level self in
       enqueue_bool self atom ~level:current_level Decision;
       self.n_decisions <- 1 + self.n_decisions;
-      (match self.on_decision with Some f -> f self atom | None -> ());
+      (match self.on_decision with Some f -> f self (Atom.lit self.store atom) | None -> ());
     )
 
   and pick_branch_lit self : unit =
@@ -1718,7 +1741,7 @@ module Make(Plugin : PLUGIN)
           add_clause_ st confl
         );
         st.n_conflicts <- 1 + st.n_conflicts;
-        (match st.on_conflict with Some f -> f st (Clause.atoms_a st.store confl) | None -> ());
+        (match st.on_conflict with Some f -> f st confl | None -> ());
 
       | None -> (* No Conflict *)
         assert (st.elt_head = Vec.size st.trail);
@@ -1791,8 +1814,7 @@ module Make(Plugin : PLUGIN)
                 Log.debugf 5 (fun k -> k "(@[sat.theory-conflict-clause@ %a@])"
                                  (Clause.debug self.store) c);
                 self.n_conflicts <- 1 + self.n_conflicts;
-                (match self.on_conflict with
-                   Some f -> f self (Clause.atoms_a self.store c) | None -> ());
+                (match self.on_conflict with Some f -> f self c | None -> ());
                 Vec.push self.clauses_to_add c;
                 flush_clauses self;
             end;
@@ -1800,42 +1822,31 @@ module Make(Plugin : PLUGIN)
       done
     with E_sat -> ()
 
-  let assume self cnf dp : unit =
+  let assume self cnf : unit =
     List.iter
       (fun l ->
-         let atoms = List.rev_map (make_atom self) l in
-         let c = Clause.make_l self.store ~removable:false atoms in
-         if Proof.enabled self.proof then dp self.proof;
+         let atoms = Util.array_of_list_map (make_atom_ self) l in
+         let c = Clause.make_a self.store ~removable:false atoms in
+         if Proof.enabled self.proof then (
+           Proof.emit_input_clause self.proof (Iter.of_list l)
+         );
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
          Vec.push self.clauses_to_add c)
       cnf
 
-  (* Check satisfiability *)
-  let check_clause self c =
-    let res = Clause.exists self.store c ~f:(Atom.is_true self.store) in
-    if not res then (
-      Log.debugf 30
-        (fun k -> k "(@[sat.check-clause@ :not-satisfied @[<hov>%a@]@])"
-            (Clause.debug self.store) c);
-      false
-    ) else
-      true
-
-  let check_vec self v = Vec.for_all (check_clause self) v
-  let check self : bool =
-    Vec.is_empty self.clauses_to_add &&
-    check_vec self self.clauses_hyps &&
-    check_vec self self.clauses_learnt
-
   let[@inline] theory st = st.th
   let[@inline] store st = st.store
   let[@inline] proof st = st.proof
 
+  let[@inline] set_default_pol (self:t) (lit:lit) (pol:bool) : unit =
+    let a = make_atom_ self lit ~default_pol:pol in
+    Var.set_default_pol self.store (Atom.var a) pol
+
   (* Result type *)
   type res =
-    | Sat of Formula.t Solver_intf.sat_state
-    | Unsat of (atom,clause) Solver_intf.unsat_state
+    | Sat of Lit.t Solver_intf.sat_state
+    | Unsat of (lit,clause) Solver_intf.unsat_state
 
   let pp_all self lvl status =
     Log.debugf lvl
@@ -1847,22 +1858,25 @@ module Make(Plugin : PLUGIN)
           (Vec.pp ~sep:"" @@ Clause.debug self.store) self.clauses_hyps
           (Vec.pp ~sep:"" @@ Clause.debug self.store) self.clauses_learnt)
 
-  let mk_sat (self:t) : Formula.t Solver_intf.sat_state =
+  let mk_sat (self:t) : Lit.t Solver_intf.sat_state =
     pp_all self 99 "SAT";
     let t = self.trail in
     let module M = struct
-      type formula = Formula.t
+      type lit = Lit.t
       let iter_trail f = Vec.iter (fun a -> f (Atom.lit self.store a)) t
-      let[@inline] eval f = eval self (make_atom self f)
-      let[@inline] eval_level f = eval_level self (make_atom self f)
+      let[@inline] eval f = eval self (make_atom_ self f)
+      let[@inline] eval_level f = eval_level self (make_atom_ self f)
     end in
     (module M)
 
   let mk_unsat (self:t) (us: unsat_cause) : _ Solver_intf.unsat_state =
     pp_all self 99 "UNSAT";
     let unsat_assumptions () = match us with
-      | US_local {first=_; core} -> core
-      | _ -> []
+      | US_local {first=_; core} ->
+        let store = store self in
+        let lits = Iter.of_list core |> Iter.map (Atom.lit store) in
+        lits
+      | _ -> Iter.empty
     in
     let unsat_conflict = match us with
       | US_false c -> fun() -> c
@@ -1876,7 +1890,7 @@ module Make(Plugin : PLUGIN)
         fun () -> Lazy.force c
     in
     let module M = struct
-      type nonrec atom = atom
+      type nonrec lit = lit
       type clause = Clause.t
       type proof = Proof.t
       let unsat_conflict = unsat_conflict
@@ -1884,7 +1898,7 @@ module Make(Plugin : PLUGIN)
     end in
     (module M)
 
-  let add_clause_a self c dp : unit =
+  let add_clause_atoms_ self (c:atom array) dp : unit =
     try
       let c = Clause.make_a self.store ~removable:false c in
       if Proof.enabled self.proof then dp self.proof;
@@ -1893,47 +1907,49 @@ module Make(Plugin : PLUGIN)
     | E_unsat (US_false c) ->
       self.unsat_at_0 <- Some c
 
-  let add_clause self c dp : unit =
-    try
-      let c = Clause.make_l self.store ~removable:false c in
-      if Proof.enabled self.proof then dp self.proof;
-      add_clause_ self c
-    with
-    | E_unsat (US_false c) ->
-      self.unsat_at_0 <- Some c
+  let add_clause_a self c dp : unit =
+    let c = Array.map (make_atom_ self) c in
+    add_clause_atoms_ self c dp
 
-  (* FIXME: take lits, not atoms *)
-  let add_input_clause self c =
-    let emit_proof p =
-      let lits = Iter.of_list c |> Iter.map (Atom.formula (store self)) in
-      Proof.emit_input_clause p lits
-    in
+  let add_clause self (c:lit list) dp : unit =
+    let c = Util.array_of_list_map (make_atom_ self) c in
+    add_clause_atoms_ self c dp
+
+  let add_input_clause self (c:lit list) =
+    let emit_proof p = Proof.emit_input_clause p (Iter.of_list c) in
     add_clause self c emit_proof
 
   let add_input_clause_a self c =
-    let emit_proof p =
-      let lits = Iter.of_array c |> Iter.map (Atom.formula (store self)) in
-      Proof.emit_input_clause p lits
-    in
+    let emit_proof p = Proof.emit_input_clause p (Iter.of_array c) in
     add_clause_a self c emit_proof
 
-  let solve ?(assumptions=[]) (st:t) : res =
-    cancel_until st 0;
-    Vec.clear st.assumptions;
-    List.iter (Vec.push st.assumptions) assumptions;
+  let solve ?(assumptions=[]) (self:t) : res =
+    cancel_until self 0;
+    Vec.clear self.assumptions;
+    List.iter
+      (fun lit ->
+         let a = make_atom_ self lit in
+         Vec.push self.assumptions a)
+      assumptions;
     try
-      solve_ st;
-      Sat (mk_sat st)
+      solve_ self;
+      Sat (mk_sat self)
     with E_unsat us ->
-      Unsat (mk_unsat st us)
+      Unsat (mk_unsat self us)
 
-  let true_at_level0 st a =
-    try
-      let b, lev = eval_level st a in
-      b && lev = 0
-    with UndecidedLit -> false
+  let true_at_level0 (self:t) (lit:lit) : bool =
+    match find_atom_ self lit with
+    | None -> false
+    | Some a ->
+      try
+        let b, lev = eval_level self a in
+        b && lev = 0
+      with UndecidedLit -> false
 
-  let[@inline] eval_atom self a : Solver_intf.lbool = eval_atom_ self a
+  let[@inline] eval_lit self (lit:lit) : Solver_intf.lbool =
+    match find_atom_ self lit with
+    | Some a -> eval_atom_ self a
+    | None -> Solver_intf.L_undefined
 end
 [@@inline][@@specialise]
 
@@ -1947,9 +1963,9 @@ module Make_cdcl_t(Plugin : Solver_intf.PLUGIN_CDCL_T) =
 
 module Make_pure_sat(Plugin : Solver_intf.PLUGIN_SAT) =
   Make(struct
-    type formula = Plugin.formula
+    type lit = Plugin.lit
     type proof = Plugin.proof
-    module Formula = Plugin.Formula
+    module Lit = Plugin.Lit
     module Proof = Plugin.Proof
     type t = unit
     let push_level () = ()
