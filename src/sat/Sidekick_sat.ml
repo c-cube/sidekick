@@ -19,12 +19,7 @@ type ('lit, 'proof) reason = ('lit, 'proof) Solver_intf.reason =
 module type ACTS = Solver_intf.ACTS
 type ('lit, 'proof) acts = ('lit, 'proof) Solver_intf.acts
 
-type negated = Solver_intf.negated = Negated | Same_sign
-
-(** Print {!negated} values *)
-let pp_negated out = function
-  | Negated -> Format.fprintf out "negated"
-  | Same_sign -> Format.fprintf out "same-sign"
+type negated = bool
 
 (** Print {!lbool} values *)
 let pp_lbool out = function

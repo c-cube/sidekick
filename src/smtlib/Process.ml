@@ -216,8 +216,6 @@ let process_stmt
     (* TODO: more? *)
   in
 
-  let mk_lit ?sign t = Solver.Lit.atom (Solver.tst solver) ?sign t in
-
   begin match stmt with
     | Statement.Stmt_set_logic ("QF_UF"|"QF_LRA"|"QF_UFLRA"|"QF_DT"|"QF_UFDT") ->
       E.return ()
@@ -235,9 +233,7 @@ let process_stmt
       (* FIXME: how to map [l] to [assumptions] in proof? *)
       let assumptions =
         List.map
-          (fun (sign,t) ->
-             let a, _pr = Solver.mk_atom_t solver ~sign t in
-             a)
+          (fun (sign,t) -> Solver.mk_lit_t' solver ~sign t)
           l
       in
       solve
@@ -257,9 +253,9 @@ let process_stmt
       if pp_cnf then (
         Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t
       );
-      let atom, pr_atom = Solver.mk_atom_t solver t in
-      Solver.add_clause solver (IArray.singleton atom)
-        (fun p -> Solver.P.emit_input_clause p (Iter.singleton (mk_lit t)));
+      let lit = Solver.mk_lit_t' solver t in
+      Solver.add_clause solver (IArray.singleton lit)
+        (fun p -> Solver.P.emit_input_clause p (Iter.singleton lit));
       E.return()
 
     | Statement.Stmt_assert_clause c_ts ->
@@ -269,20 +265,20 @@ let process_stmt
       let pr_l = ref [] in
       let c =
         List.map
-          (fun lit ->
-             let a, pr = Solver.mk_atom_t solver lit in
+          (fun t ->
+             let lit, pr = Solver.mk_lit_t solver t in
              pr_l := pr :: !pr_l;
-             a)
+             lit)
           c_ts in
 
       (* proof of assert-input + preprocessing *)
       let emit_proof p =
         let module P = Solver.P in
         P.begin_subproof p;
-        P.emit_input_clause p (Iter.of_list c_ts |> Iter.map mk_lit);
+        let tst = Solver.tst solver in
+        P.emit_input_clause p (Iter.of_list c_ts |> Iter.map (Lit.atom tst));
         List.iter (fun dp -> dp p) !pr_l;
-        P.emit_redundant_clause p
-          (Iter.of_list c |> Iter.map (Solver.Atom.formula solver));
+        P.emit_redundant_clause p (Iter.of_list c);
         P.end_subproof p;
       in
 

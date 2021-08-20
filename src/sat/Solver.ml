@@ -467,7 +467,7 @@ module Make(Plugin : PLUGIN)
 
     (* create new variable *)
     let alloc_var (self:t) ?default_pol (lit:lit) : var * Solver_intf.negated =
-      let lit, negated = Lit.norm lit in
+      let lit, negated = Lit.norm_sign lit in
       try Lit_tbl.find self.v_of_lit lit, negated
       with Not_found ->
         let v = alloc_var_uncached_ ?default_pol self lit in
@@ -480,16 +480,14 @@ module Make(Plugin : PLUGIN)
       ()
 
     let atom_of_var_ v negated : atom =
-      match negated with
-      | Solver_intf.Same_sign -> Atom.pa v
-      | Solver_intf.Negated -> Atom.na v
+      if negated then Atom.na v else Atom.pa v
 
     let alloc_atom (self:t) ?default_pol lit : atom =
       let var, negated = alloc_var self ?default_pol lit in
       atom_of_var_ var negated
 
     let find_atom (self:t) lit : atom option =
-      let lit, negated = Lit.norm lit in
+      let lit, negated = Lit.norm_sign lit in
       match Lit_tbl.find self.v_of_lit lit with
       | v -> Some (atom_of_var_ v negated)
       | exception Not_found -> None
@@ -1844,6 +1842,8 @@ module Make(Plugin : PLUGIN)
   let[@inline] store st = st.store
   let[@inline] proof st = st.proof
 
+  let[@inline] add_lit self ?default_pol lit =
+    ignore (make_atom_ self lit ?default_pol : atom)
   let[@inline] set_default_pol (self:t) (lit:lit) (pol:bool) : unit =
     let a = make_atom_ self lit ~default_pol:pol in
     Var.set_default_pol self.store (Atom.var a) pol

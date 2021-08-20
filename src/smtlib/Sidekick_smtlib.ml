@@ -8,6 +8,7 @@ module Process = Process
 module Solver = Process.Solver
 module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
+module Proof = Sidekick_base.Proof_stub
 
 type 'a or_error = ('a, string) CCResult.t
 

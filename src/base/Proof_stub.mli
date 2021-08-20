@@ -7,6 +7,8 @@ include Sidekick_core.PROOF
   with type lit = Lit.t
    and type term = Term.t
 
+val create : unit -> t
+
 val lemma_bool_tauto : t -> Lit.t Iter.t -> unit
 val lemma_bool_c : t -> string -> term list -> unit
 val lemma_bool_equiv : t -> term -> term -> unit

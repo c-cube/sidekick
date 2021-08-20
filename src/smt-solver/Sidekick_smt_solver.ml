@@ -201,12 +201,6 @@ module Make(A : ARG)
 
     type solver = t
 
-    module Formula = struct
-      include Lit
-      let norm lit =
-        let lit', sign = Lit.norm_sign lit in
-        lit', if sign then Sidekick_sat.Same_sign else Sidekick_sat.Negated
-    end
     module Eq_class = CC.N
     module Expl = CC.Expl
     module Proof = P
@@ -519,12 +513,6 @@ module Make(A : ARG)
   }
   type solver = t
 
-  module Atom = struct
-    include Sat_solver.Atom
-    let pp self out a = pp (Sat_solver.store self.solver) out a
-    let formula self a = formula (Sat_solver.store self.solver) a
-  end
-
   module type THEORY = sig
     type t
     val name : string
@@ -589,12 +577,6 @@ module Make(A : ARG)
   let[@inline] tst self = Solver_internal.tst self.si
   let[@inline] ty_st self = Solver_internal.ty_st self.si
 
-  let[@inline] mk_atom_lit_ self lit : Atom.t = Sat_solver.make_atom self.solver lit
-
-  let mk_atom_t_ self t : Atom.t =
-    let lit = Lit.atom (tst self) t in
-    mk_atom_lit_ self lit
-
   (* map boolean subterms to literals *)
   let add_bool_subterms_ (self:t) (t:Term.t) : unit =
     Term.iter_dag t
@@ -608,28 +590,24 @@ module Make(A : ARG)
       (fun sub ->
          Log.debugf 5 (fun k->k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp sub);
          (* ensure that SAT solver has a boolean atom for [sub] *)
-         let atom = mk_atom_t_ self sub in
+         let lit = Lit.atom self.si.tst sub in
+         Sat_solver.add_lit self.solver lit;
          (* also map [sub] to this atom in the congruence closure, for propagation *)
          let cc = cc self in
-         let store = Sat_solver.store self.solver in
-         CC.set_as_lit cc (CC.add_term cc sub ) (Sat_solver.Atom.formula store atom);
+         CC.set_as_lit cc (CC.add_term cc sub) lit;
          ())
 
-  let rec mk_atom_lit self lit : Atom.t * dproof =
-    let lit, proof = preprocess_lit_ self lit in
-    add_bool_subterms_ self (Lit.term lit);
-    Sat_solver.make_atom self.solver lit, proof
-
-  and preprocess_lit_ self lit : Lit.t * dproof =
+  (* preprocess literals, making them ready for being added to the solver *)
+  let rec preprocess_lit_ self lit : Lit.t * dproof =
     Solver_internal.preprocess_lit_
       ~add_clause:(fun lits proof ->
           (* recursively add these sub-literals, so they're also properly processed *)
           Stat.incr self.si.count_preprocess_clause;
           let pr_l = ref [] in
-          let atoms =
+          let lits =
             List.map
               (fun lit ->
-                 let a, pr = mk_atom_lit self lit in
+                 let a, pr = preprocess_lit_ self lit in
                  (* FIXME                 if not (P.is_trivial_refl pr) then ( *)
                    pr_l := pr :: !pr_l;
                    (*                  ); *)
@@ -637,15 +615,22 @@ module Make(A : ARG)
               lits
           in
           let emit_proof p = List.iter (fun dp -> dp p) !pr_l; in
-          Sat_solver.add_clause self.solver atoms emit_proof)
+          Sat_solver.add_clause self.solver lits emit_proof)
       self.si lit
 
-  let[@inline] mk_atom_t self ?sign t : Atom.t * dproof =
-    let lit = Lit.atom (tst self) ?sign t in
-    mk_atom_lit self lit
+  (* FIXME: should we just add the proof instead? *)
+  let[@inline] preprocess_lit' self lit : Lit.t =
+    fst (preprocess_lit_ self lit)
 
-  let mk_atom_t' self ?sign t = mk_atom_t self ?sign t |> fst
-  let mk_atom_lit' self lit = mk_atom_lit self lit |> fst
+  (* FIXME: should we just assert the proof instead? or do we wait because
+     we're most likely in a subproof? *)
+  let rec mk_lit_t (self:t) ?sign (t:term) : lit * dproof =
+    let lit = Lit.atom ?sign self.si.tst t in
+    let lit, proof = preprocess_lit_ self lit in
+    add_bool_subterms_ self (Lit.term lit);
+    lit, proof
+
+  let[@inline] mk_lit_t' self ?sign lit = mk_lit_t self ?sign lit |> fst
 
   (** {2 Result} *)
 
@@ -686,7 +671,7 @@ module Make(A : ARG)
   type res =
     | Sat of Model.t
     | Unsat of {
-        unsat_core: Atom.t list lazy_t;
+        unsat_core: unit -> lit Iter.t;
       }
     | Unknown of Unknown.t
     (** Result of solving for the current set of clauses *)
@@ -696,14 +681,13 @@ module Make(A : ARG)
   let pp_stats out (self:t) : unit =
     Stat.pp_all out (Stat.all @@ stats self)
 
-  let add_clause (self:t) (c:Atom.t IArray.t) (proof:dproof) : unit =
+  let add_clause (self:t) (c:lit IArray.t) (proof:dproof) : unit =
     Stat.incr self.count_clause;
     Log.debugf 50 (fun k->
-        let store = Sat_solver.store self.solver in
         k "(@[solver.add-clause@ %a@])"
-          (Util.pp_iarray (Sat_solver.Atom.pp store)) c);
+          (Util.pp_iarray Lit.pp) c);
     let pb = Profile.begin_ "add-clause" in
-    Sat_solver.add_clause_a self.solver (c:> Atom.t array) proof;
+    Sat_solver.add_clause_a self.solver (c:> lit array) proof;
     Profile.exit pb
 
   let add_clause_l self c p = add_clause self (IArray.of_list c) p
@@ -714,7 +698,7 @@ module Make(A : ARG)
       P.emit_input_clause p (Iter.of_list c)
     in
     (* FIXME: just emit proofs on the fly? *)
-    let c = CCList.map (mk_atom_lit' self) c in
+    let c = CCList.map (preprocess_lit' self) c in
     add_clause_l self c emit_proof
 
   let assert_term self t = assert_terms self [t]
@@ -788,7 +772,7 @@ module Make(A : ARG)
       do_on_exit ();
       Sat m
     | Sat_solver.Unsat (module UNSAT) ->
-      let unsat_core = lazy (UNSAT.unsat_assumptions ()) in
+      let unsat_core () = UNSAT.unsat_assumptions () in
       do_on_exit ();
       Unsat {unsat_core}
 

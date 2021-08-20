@@ -4,9 +4,9 @@
 module E = CCResult
 module SS = Sidekick_sat
 
-module Formula = struct
+module Lit = struct
   type t = int
-  let norm t = if t>0 then t, SS.Same_sign else -t, SS.Negated
+  let norm_sign t = if t>0 then t, true else -t, false
   let abs = abs
   let sign t = t>0
   let equal = CCInt.equal
@@ -17,7 +17,7 @@ end
 
 (* TODO: on the fly compression *)
 module Proof : sig
-  include Sidekick_sat.PROOF with type lit = Formula.t
+  include Sidekick_sat.PROOF with type lit = Lit.t
 
   val dummy : t
   val create : unit -> t
@@ -30,7 +30,7 @@ module Proof : sig
   val iter_events : t -> event Iter.t
 end = struct
   let bpf = Printf.bprintf
-  type lit = Formula.t
+  type lit = Lit.t
   type t =
     | Dummy
     | Inner of {
@@ -93,8 +93,8 @@ end = struct
 end
 
 module Arg = struct
-  module Formula = Formula
-  type formula = Formula.t
+  module Lit = Lit
+  type lit = Lit.t
   module Proof = Proof
   type proof = Proof.t
 end
@@ -107,16 +107,12 @@ module Dimacs = struct
   module T = Term
 
   let parse_file (solver:SAT.t) (file:string) : (unit, string) result =
-    let get_lit i : SAT.atom = SAT.make_atom solver i in
-
     try
       CCIO.with_in file
         (fun ic ->
            let p = BL.Dimacs_parser.create ic in
            BL.Dimacs_parser.iter p
-             (fun c ->
-                let atoms = List.rev_map get_lit c in
-                SAT.add_input_clause solver atoms);
+             (fun c -> SAT.add_input_clause solver c);
            Ok ())
     with e ->
       E.of_exn_trace e

@@ -972,24 +972,6 @@ module type SOLVER = sig
     theory
   (** Helper to create a theory. *)
 
-  (* TODO: remove? hide? *)
-  (** {3 Boolean Atoms}
-
-      Atoms are the SAT solver's version of our boolean literals
-      (they may have a different representation). *)
-  module Atom : sig
-    type t
-
-    val equal : t -> t -> bool
-    val hash : t -> int
-
-    val pp : solver -> t CCFormat.printer
-    val formula : solver -> t -> lit
-
-    val neg : t -> t
-    val sign : t -> bool
-  end
-
   (** Models
 
       A model can be produced when the solver is found to be in a
@@ -1059,29 +1041,19 @@ module type SOLVER = sig
 
   val add_theory_l : t -> theory list -> unit
 
-  (* FIXME: do not handle atoms here, only lits *)
+  val mk_lit_t : t -> ?sign:bool -> term -> lit * dproof
+  (** [mk_lit_t _ ~sign t] returns [lit, pr]
+      where [lit] is a internal representation of [± t],
+      and [pr] is a proof of [|- lit = (± t)] *)
 
-  val mk_atom_lit : t -> lit -> Atom.t * dproof
-  (** [mk_atom_lit _ lit] returns [atom, pr]
-      where [atom] is an internal atom for the solver,
-      and [pr] is a proof of [|- lit = atom] *)
+  val mk_lit_t' : t -> ?sign:bool -> term -> lit
+  (** Like {!mk_lit_t} but skips the proof *)
 
-  val mk_atom_lit' : t -> lit -> Atom.t
-  (** Like {!mk_atom_t} but skips the proof *)
-
-  val mk_atom_t : t -> ?sign:bool -> term -> Atom.t * dproof
-  (** [mk_atom_t _ ~sign t] returns [atom, pr]
-      where [atom] is an internal representation of [± t],
-      and [pr] is a proof of [|- atom = (± t)] *)
-
-  val mk_atom_t' : t -> ?sign:bool -> term -> Atom.t
-  (** Like {!mk_atom_t} but skips the proof *)
-
-  val add_clause : t -> Atom.t IArray.t -> dproof -> unit
+  val add_clause : t -> lit IArray.t -> dproof -> unit
   (** [add_clause solver cs] adds a boolean clause to the solver.
       Subsequent calls to {!solve} will need to satisfy this clause. *)
 
-  val add_clause_l : t -> Atom.t list -> dproof -> unit
+  val add_clause_l : t -> lit list -> dproof -> unit
   (** Add a clause to the solver, given as a list. *)
 
   val assert_terms : t -> term list -> unit
@@ -1096,16 +1068,18 @@ module type SOLVER = sig
   type res =
     | Sat of Model.t (** Satisfiable *)
     | Unsat of {
-        unsat_core: Atom.t list lazy_t; (** subset of assumptions responsible for unsat *)
+        unsat_core: unit -> lit Iter.t; (** subset of assumptions responsible for unsat *)
       } (** Unsatisfiable *)
     | Unknown of Unknown.t
     (** Unknown, obtained after a timeout, memory limit, etc. *)
+
+  (* TODO: API to push/pop/clear assumptions, in addition to ~assumptions param *)
 
   val solve :
     ?on_exit:(unit -> unit) list ->
     ?check:bool ->
     ?on_progress:(t -> unit) ->
-    assumptions:Atom.t list ->
+    assumptions:lit list ->
     t ->
     res
   (** [solve s] checks the satisfiability of the clauses added so far to [s].

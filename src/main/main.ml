@@ -94,7 +94,12 @@ let check_limits () =
     raise Out_of_space
 
 let main_smt () : _ result =
+  let module Proof = Sidekick_smtlib.Proof in
   let tst = Term.create ~size:4_096 () in
+  (* FIXME: use this to enable/disable actual proof
+    let store_proof = !check || !p_proof || !proof_file <> "" in
+     *)
+  let proof = Proof.create() in
   let solver =
     let theories =
       (* TODO: probes, to load only required theories *)
@@ -104,8 +109,7 @@ let main_smt () : _ result =
         Process.th_lra;
       ]
     in
-    let store_proof = !check || !p_proof || !proof_file <> "" in
-    Process.Solver.create ~store_proof ~theories tst () ()
+    Process.Solver.create ~proof ~theories tst () ()
   in
   let proof_file = if !proof_file ="" then None else Some !proof_file in
   if !check then (
@@ -137,25 +141,31 @@ let main_smt () : _ result =
   res
 
 let main_cnf () : _ result =
+  let module Proof = Pure_sat_solver.Proof in
   let module S = Pure_sat_solver in
+  let proof = Proof.create() in
 
+  (* FIXME: this should go in the proof module *)
   let close_proof_, on_learnt, on_gc =
     if !proof_file ="" then (
       (fun() -> ()), None, None
     ) else (
       let oc = open_out !proof_file in
+      let pp_lits lits =
+        Array.iteri (fun i v ->
+            if i>0 then output_char oc ' ';
+            output_string oc (string_of_int v))
+          lits
+      in
       let pp_c solver c =
         let store = S.SAT.store solver in
-        Array.iteri (fun i a ->
-            if i>0 then output_char oc ' ';
-            let v = S.SAT.Atom.formula store a in
-            output_string oc (string_of_int v))
-          c
+        let lits = S.SAT.Clause.lits_a store c in
+        pp_lits lits
       in
       let on_learnt solver c =
         pp_c solver c; output_string oc " 0\n";
       and on_gc solver c =
-        output_string oc "d "; pp_c solver c; output_string oc " 0\n";
+        output_string oc "d "; pp_lits c; output_string oc " 0\n";
         ()
       and close () =
         flush oc;
@@ -168,8 +178,8 @@ let main_cnf () : _ result =
   let n_atoms = ref 0 in
   let solver =
     S.SAT.create
-      ~on_new_atom:(fun _ _ -> incr n_atoms) ~size:`Big ()
-      ?on_learnt ?on_gc
+      ~size:`Big
+      ?on_learnt ?on_gc ~proof ()
   in
 
   S.Dimacs.parse_file solver !file >>= fun () ->

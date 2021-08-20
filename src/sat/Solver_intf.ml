@@ -53,11 +53,9 @@ type ('lit, 'clause) unsat_state =
                        and type clause = 'clause)
 (** The type of values returned when the solver reaches an UNSAT state. *)
 
-type negated =
-  | Negated     (** changed sign *)
-  | Same_sign   (** kept sign *)
+type negated = bool
 (** This type is used during the normalisation of lits.
-    See {!val:Expr_intf.S.norm} for more details. *)
+    [true] means the literal stayed the same, [false] that its sign was flipped. *)
 
 (** The type of reasons for propagations of a lit [f]. *)
 type ('lit, 'proof) reason =
@@ -147,11 +145,11 @@ module type LIT = sig
   val neg : t -> t
   (** Formula negation *)
 
-  val norm : t -> t * negated
+  val norm_sign : t -> t * negated
   (** Returns a 'normalized' form of the lit, possibly negated
-      (in which case return [Negated]).
+      (in which case return [false]).
       [norm] must be so that [a] and [neg a] normalise to the same lit,
-      but one returns [Negated] and the other [Same_sign]. *)
+      but one returns [false] and the other [true]. *)
 end
 
 module type PROOF = Sidekick_core.SAT_PROOF
@@ -318,6 +316,10 @@ module type S = sig
       @param assumptions additional atomic assumptions to be temporarily added.
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state. *)
+
+  val add_lit : t -> ?default_pol:bool -> lit -> unit
+  (** Ensure the SAT solver handles this particular literal, ie add
+      a boolean variable for it if it's not already there. *)
 
   val set_default_pol : t -> lit -> bool -> unit
   (** Set default polarity for the given boolean variable.
