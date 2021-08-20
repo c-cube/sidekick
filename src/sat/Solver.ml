@@ -82,9 +82,11 @@ module Make(Plugin : PLUGIN)
   module Clause0 : sig
     include INT_ID
     module Tbl : Hashtbl.S with type key = t
+    module CVec : Vec_sig.S with type elt := t
   end = struct
     include Mk_int_id()
     module Tbl = Util.Int_tbl
+    module CVec = VecI32
   end
   type clause = Clause0.t
 
@@ -92,6 +94,9 @@ module Make(Plugin : PLUGIN)
     | Decision
     | Bcp of clause
     | Bcp_lazy of clause lazy_t
+
+  (** Vector of clauses *)
+  module CVec = Clause0.CVec
 
   (* ### stores ### *)
 
@@ -125,7 +130,7 @@ module Make(Plugin : PLUGIN)
       a_seen: Bitvec.t;
       a_form: lit Vec.t;
       (* TODO: store watches in clauses instead *)
-      a_watched: clause Vec.t Vec.t;
+      a_watched: Clause0.CVec.t Vec.t;
 
       (* clauses *)
       c_store: cstore;
@@ -453,9 +458,9 @@ module Make(Plugin : PLUGIN)
       Bitvec.ensure_size a_is_true (2*(v:var:>int));
       Bitvec.ensure_size a_seen (2*(v:var:>int));
       Vec.push a_form form;
-      Vec.push a_watched (Vec.create());
+      Vec.push a_watched (CVec.create ~cap:0 ());
       Vec.push a_form (Lit.neg form);
-      Vec.push a_watched (Vec.create());
+      Vec.push a_watched (CVec.create ~cap:0 ());
       assert (Vec.get a_form (Atom.of_var v:atom:>int) == form);
 
       v
@@ -861,8 +866,8 @@ module Make(Plugin : PLUGIN)
     assert (not @@ Clause.attached store c);
     Log.debugf 20 (fun k -> k "(@[sat.attach-clause@ %a@])" (Clause.debug store) c);
     (* TODO: change when watchlist are updated *)
-    Vec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(0))) c;
-    Vec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(1))) c;
+    CVec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(0))) c;
+    CVec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(1))) c;
     Clause.set_attached store c true;
     ()
 
@@ -1348,9 +1353,9 @@ module Make(Plugin : PLUGIN)
             atoms.(1) <- ak;
             atoms.(k) <- Atom.neg a;
             (* remove [c] from [a.watched], add it to [ak.neg.watched] *)
-            Vec.push (Atom.watched store (Atom.neg ak)) c;
-            assert (Vec.get (Atom.watched store a) i == c);
-            Vec.fast_remove (Atom.watched store a) i;
+            CVec.push (Atom.watched store (Atom.neg ak)) c;
+            assert (Clause.equal (CVec.get (Atom.watched store a) i) c);
+            CVec.fast_remove (Atom.watched store a) i;
             raise_notrace Exit
           )
         done;
@@ -1376,9 +1381,9 @@ module Make(Plugin : PLUGIN)
     let store = self.store in
     let watched = Atom.watched store a in
     let rec aux i =
-      if i >= Vec.size watched then ()
+      if i >= CVec.size watched then ()
       else (
-        let c = Vec.get watched i in
+        let c = CVec.get watched i in
         assert (Clause.attached store c);
         assert (not (Clause.dead store c));
         let j =
@@ -1663,7 +1668,7 @@ module Make(Plugin : PLUGIN)
          assert (Atom.marked store a);
          Atom.unmark store a;
          let w = Atom.watched store a in
-         Vec.filter_in_place (fun c -> not (Clause.dead store c)) w)
+         CVec.filter_in_place (fun c -> not (Clause.dead store c)) w)
       dirty_atoms;
     Vec.clear dirty_atoms;
 
