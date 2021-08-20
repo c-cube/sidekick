@@ -38,7 +38,7 @@ let resize_cap_ self new_cap =
 
 let ensure_cap self (n:int) =
   if n > A.dim self.data then (
-    let new_cap = max n (A.dim self.data * 2 + 10) in
+    let new_cap = max n (max 4 (A.dim self.data * 2)) in
     resize_cap_ self new_cap;
   )
 
