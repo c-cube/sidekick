@@ -435,7 +435,7 @@ module Make(Plugin : PLUGIN)
     end
 
     (* allocate new variable *)
-    let alloc_var_uncached_ ?default_pol:(pol=true) self (form:lit) : var =
+    let alloc_var_uncached_ ?default_pol:(pol=false) self (form:lit) : var =
       let {v_count; v_of_lit; v_level; v_heap_idx; v_weight;
            v_reason; v_seen; v_default_polarity;
            a_is_true; a_seen; a_watched; a_form; c_store=_;
