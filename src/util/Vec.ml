@@ -106,7 +106,6 @@ let prepend v ~into : unit =
     Array.blit v.data 0 into.data 0 v.sz;
   )
 
-
 let filter_in_place f vec =
   let i = ref 0 in
   while !i < size vec do

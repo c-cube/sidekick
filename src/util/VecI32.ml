@@ -18,6 +18,17 @@ let[@inline] shrink self n = if n < self.sz then self.sz <- n
 let[@inline] size self = self.sz
 let[@inline] is_empty self = self.sz = 0
 
+let[@inline] fast_remove t i =
+  assert (i>= 0 && i < t.sz);
+  A.unsafe_set t.data i @@ A.unsafe_get t.data (t.sz - 1);
+  t.sz <- t.sz - 1
+
+let filter_in_place f vec =
+  let i = ref 0 in
+  while !i < size vec do
+    if f (Int32.to_int (A.unsafe_get vec.data !i)) then incr i else fast_remove vec !i
+  done
+
 (* ensure capacity is [new_cap] *)
 let resize_cap_ self new_cap =
   assert (A.dim self.data < new_cap);

@@ -13,6 +13,12 @@ module type S = sig
 
   val push : t -> elt -> unit
 
+  val fast_remove : t -> int -> unit
+  (** Remove element at index [i] without preserving order
+      (swap with last element) *)
+
+  val filter_in_place : (elt -> bool) -> t -> unit
+
   val pop : t -> elt
 
   val get : t -> int -> elt
@@ -21,7 +27,7 @@ module type S = sig
 
   val shrink : t -> int -> unit
 
-  val iter : f:(int -> unit) -> t -> unit
+  val iter : f:(elt -> unit) -> t -> unit
   val iteri : f:(int -> elt -> unit) -> t -> unit
 
   val to_iter : t -> elt Iter.t
