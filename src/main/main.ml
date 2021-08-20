@@ -143,9 +143,10 @@ let main_smt () : _ result =
 let main_cnf () : _ result =
   let module Proof = Pure_sat_solver.Proof in
   let module S = Pure_sat_solver in
-  let proof = Proof.create() in
+  (* TODO: switch proof depending on whether we need proofs or not *)
+  let proof = Proof.dummy in
 
-  (* FIXME: this should go in the proof module *)
+  (* FIXME: this should go in the proof module, or is already redundant? *)
   let close_proof_, on_learnt, on_gc =
     if !proof_file ="" then (
       (fun() -> ()), None, None
