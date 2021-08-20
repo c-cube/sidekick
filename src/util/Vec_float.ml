@@ -10,8 +10,8 @@ type t = {
 
 let mk_arr_ sz : float_arr = A.create Bigarray.float64 Bigarray.c_layout sz
 
-let create () : t =
-  { sz=0; data=mk_arr_ 16 }
+let create ?(cap=16) () : t =
+  { sz=0; data=mk_arr_ cap }
 
 let[@inline] clear self = self.sz <- 0
 let[@inline] shrink self n = if n < self.sz then self.sz <- n

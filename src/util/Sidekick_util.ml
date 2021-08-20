@@ -6,6 +6,7 @@ module Util = Util
 module Vec = Vec
 module VecI32 = VecI32
 module Vec_float = Vec_float
+module Vec_sig = Vec_sig
 module Bitvec = Bitvec
 
 module IArray = IArray
