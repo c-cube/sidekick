@@ -599,13 +599,14 @@ module Make(A : ARG)
 
   (* preprocess literals, making them ready for being added to the solver *)
   let rec preprocess_lit_ self lit : Lit.t * dproof =
-    Solver_internal.preprocess_lit_
+    let lit, proof =
+      Solver_internal.preprocess_lit_
       ~add_clause:(fun lits proof ->
           (* recursively add these sub-literals, so they're also properly processed *)
           Stat.incr self.si.count_preprocess_clause;
           let pr_l = ref [] in
           let lits =
-            List.map
+            CCList.map
               (fun lit ->
                  let a, pr = preprocess_lit_ self lit in
                  (* FIXME                 if not (P.is_trivial_refl pr) then ( *)
@@ -617,6 +618,9 @@ module Make(A : ARG)
           let emit_proof p = List.iter (fun dp -> dp p) !pr_l; in
           Sat_solver.add_clause self.solver lits emit_proof)
       self.si lit
+    in
+    Sat_solver.add_lit self.solver lit;
+    lit, proof
 
   (* FIXME: should we just add the proof instead? *)
   let[@inline] preprocess_lit' self lit : Lit.t =
@@ -627,6 +631,7 @@ module Make(A : ARG)
   let rec mk_lit_t (self:t) ?sign (t:term) : lit * dproof =
     let lit = Lit.atom ?sign self.si.tst t in
     let lit, proof = preprocess_lit_ self lit in
+    Sat_solver.add_lit self.solver lit;
     add_bool_subterms_ self (Lit.term lit);
     lit, proof
 
