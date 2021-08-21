@@ -1,7 +1,0 @@
-
-(library
-  (name sidekick_lit)
-  (public_name sidekick.lit)
-  (synopsis "Implementation of literals for Sidekick")
-  (libraries containers sidekick.core sidekick.util)
-  (flags :standard -warn-error -a+8 -open Sidekick_util))

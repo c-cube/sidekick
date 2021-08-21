@@ -60,7 +60,7 @@ module type ARG = sig
   val has_ty_real : term -> bool
   (** Does this term have the type [Real] *)
 
-  val lemma_lra : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_lra : S.proof -> S.lit Iter.t -> unit
 
   module Gensym : sig
     type t
@@ -100,7 +100,7 @@ module Make(A : ARG) : S with module A = A = struct
   module Tag = struct
     type t =
       | By_def
-      | Lit of Lit.t
+      | Lit of lit
       | CC_eq of N.t * N.t
 
     let pp out = function
@@ -174,7 +174,7 @@ module Make(A : ARG) : S with module A = A = struct
     ()
 
   let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
-  let fresh_lit (self:state) ~mk_lit ~pre : Lit.t =
+  let fresh_lit (self:state) ~mk_lit ~pre : lit =
     let t = fresh_term ~pre self (Ty.bool self.ty_st) in
     mk_lit t
 

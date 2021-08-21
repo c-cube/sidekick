@@ -106,7 +106,15 @@ module type TERM = sig
     (** [as_bool t] is [Some true] if [t] is the term [true], and similarly
         for [false]. For other terms it is [None]. *)
 
-    val abs : store -> t -> t * bool
+    val sign : t -> bool
+    (** For boolean terms, return the sign ([true] for most terms, [false]
+        for [not u]). For non boolean terms just return [true]. *)
+
+    val neg : store -> t -> t
+    (** For boolean terms, return negation of the term.
+        Should fail on non-boolean terms. *)
+
+    val norm_sign : store -> t -> t * bool
     (** [abs t] returns an "absolute value" for the term, along with the
         sign of [t].
 
@@ -196,7 +204,8 @@ module type PROOF = sig
       of the problem's assertions, and the theories) *)
 
   type term
-  type lit
+
+  type lit = private term
 
   include CC_PROOF
     with type t := t
@@ -219,7 +228,7 @@ module type PROOF = sig
   (** [define_term p cst u] defines the new constant [cst] as being equal
       to [u]. *)
 
-  val lemma_true : t -> term -> unit
+  val lemma_true : t -> lit -> unit
   (** [lemma_true p (true)] asserts the clause [(true)] *)
 
   val lemma_preprocess : t -> term -> term -> unit
@@ -233,47 +242,31 @@ end
 
 (** Literals
 
-    Literals are a pair of a boolean-sorted term, and a sign.
-    Positive literals are the same as their term, and negative literals
-    are the negation of their term.
-
+    Literals are boolean terms that have been preprocessed.
     The SAT solver deals only in literals and clauses (sets of literals).
     Everything else belongs in the SMT solver. *)
 module type LIT = sig
-  module T : TERM
-  (** Literals depend on terms *)
-
-  type t
-  (** A literal *)
-
-  val term : t -> T.Term.t
-  (** Get the (positive) term *)
-
-  val sign : t -> bool
-  (** Get the sign. A negated literal has sign [false]. *)
-
-  val neg : t -> t
-  (** Take negation of literal. [sign (neg lit) = not (sign lit)]. *)
-
-  val abs : t -> t
-  (** [abs lit] is like [lit] but always positive, i.e. [sign (abs lit) = true] *)
-
-  val signed_term : t -> T.Term.t * bool
-  (** Return the atom and the sign *)
-
-  val atom : T.Term.store -> ?sign:bool -> T.Term.t -> t
-  (** [atom store t] makes a literal out of a term, possibly normalizing
-      its sign in the process.
-      @param sign if provided, and [sign=false], negate the resulting lit. *)
-
-  val norm_sign : t -> t * bool
-  (** [norm_sign (+t)] is [+t, true],
-      and [norm_sign (-t)] is [+t, false].
-      In both cases the term is positive, and the boolean reflects the initial sign. *)
+  type term
+  module T : TERM with type Term.t = term
+  type t = private term
 
   val equal : t -> t -> bool
   val hash : t -> int
   val pp : t Fmt.printer
+
+  val term : t -> term
+  (** Term-only view *)
+
+  val sign : t -> bool
+  (** Get the sign. A negated literal has sign [false]. *)
+
+  val neg : T.Term.store -> t -> t
+  (** Take negation of literal. [sign (neg lit) = not (sign lit)]. *)
+
+  val norm_sign : T.Term.store -> t -> t * bool
+  (** [norm_sign store (+t)] is [+t, true],
+      and [norm_sign (-t)] is [+t, false].
+      In both cases the term is positive, and the boolean reflects the initial sign. *)
 end
 
 (** Actions provided to the congruence closure.
@@ -283,25 +276,28 @@ end
     be able to create conflicts when the set of (dis)equalities
     is inconsistent *)
 module type CC_ACTIONS = sig
-  module T : TERM
-  module Lit : LIT with module T = T
+  type term
+  module T : TERM with type Term.t = term
+  type lit = private term
 
   type proof
   type dproof = proof -> unit
-  module P : CC_PROOF with type lit = Lit.t and type t = proof
+  module P : CC_PROOF
+    with type lit = lit
+     and type t = proof
 
   type t
   (** An action handle. It is used by the congruence closure
       to perform the actions below. How it performs the actions
       is not specified and is solver-specific. *)
 
-  val raise_conflict : t -> Lit.t list -> dproof -> 'a
+  val raise_conflict : t -> term list -> dproof -> 'a
   (** [raise_conflict acts c pr] declares that [c] is a tautology of
       the theory of congruence. This does not return (it should raise an
       exception).
       @param pr the proof of [c] being a tautology *)
 
-  val propagate : t -> Lit.t -> reason:(unit -> Lit.t list * dproof) -> unit
+  val propagate : t -> term -> reason:(unit -> term list * dproof) -> unit
   (** [propagate acts lit ~reason pr] declares that [reason() => lit]
       is a tautology.
 
@@ -314,16 +310,19 @@ end
 
 (** Arguments to a congruence closure's implementation *)
 module type CC_ARG = sig
-  module T : TERM
-  module Lit : LIT with module T = T
+  type term
+  module T : TERM with type Term.t = term
+  type lit = private term
+
   type proof
-  module P : CC_PROOF with type lit = Lit.t and type t = proof
+  module P : CC_PROOF with type lit = lit and type t = proof
   module Actions : CC_ACTIONS
-    with module T=T
-     and module Lit = Lit
+    with type term=term
+     and module T=T
+     and type lit = lit
      and type proof = proof
 
-  val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
+  val cc_view : term -> (T.Fun.t, term, term Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
 end
 
@@ -346,19 +345,19 @@ module type CC_S = sig
 
   (** first, some aliases. *)
 
-  module T : TERM
-  module Lit : LIT with module T = T
+  type term
+  module T : TERM with type Term.t = term
+  type lit = private term
+
   type proof
   type dproof = proof -> unit
-  module P : CC_PROOF with type lit = Lit.t and type t = proof
+  module P : CC_PROOF with type lit=lit and type t = proof
   module Actions : CC_ACTIONS
-    with module T = T
-    and module Lit = Lit
-    and type proof = proof
+    with type term=term
+     and module T = T
+     and type proof = proof
   type term_store = T.Term.store
-  type term = T.Term.t
   type fun_ = T.Fun.t
-  type lit = Lit.t
   type actions = Actions.t
 
   type t
@@ -441,7 +440,7 @@ module type CC_S = sig
 
     val mk_merge : N.t -> N.t -> t
     val mk_merge_t : term -> term -> t
-    val mk_lit : lit -> t
+    val mk_lit : lit -> t (* true because this literal was asserted *)
     val mk_list : t list -> t
     val mk_theory : t -> t (* TODO: indicate what theory, or even provide a lemma *)
   end
@@ -640,11 +639,12 @@ end
     Theories should interact with the solver via this module, to assert
     new lemmas, propagate literals, access the congruence closure, etc. *)
 module type SOLVER_INTERNAL = sig
-  module T : TERM
-  module Lit : LIT with module T = T
+  type term
+  module T : TERM with type Term.t=term
+  type lit = private term
+  module Lit : LIT with type term = term and type t = lit and module T = T
 
   type ty = T.Ty.t
-  type term = T.Term.t
   type term_store = T.Term.store
   type ty_store = T.Ty.store
   type proof
@@ -652,7 +652,10 @@ module type SOLVER_INTERNAL = sig
   (** Delayed proof. This is used to build a proof step on demand. *)
 
   (** {3 Proofs} *)
-  module P : PROOF with type lit = Lit.t and type term = term and type t = proof
+  module P : PROOF
+    with type term = term
+     and type t = proof
+     and type lit = lit
 
   (** {3 Main type for a solver} *)
   type t
@@ -662,12 +665,14 @@ module type SOLVER_INTERNAL = sig
   val ty_st : t -> ty_store
   val stats : t -> Stat.t
 
+  (** {3 Literals}
+
+      One can create literals from boolean terms. *)
+
   (** {3 Actions for the theories} *)
 
   type actions
   (** Handle that the theories can use to perform actions. *)
-
-  type lit = Lit.t
 
   (** {3 Proof helpers} *)
 
@@ -680,8 +685,9 @@ module type SOLVER_INTERNAL = sig
 
   (** Congruence closure instance *)
   module CC : CC_S
-    with module T = T
-     and module Lit = Lit
+    with type term = term
+     and module T = T
+     and type lit = lit
      and type proof = proof
      and type P.t = proof
      and type P.lit = lit
@@ -767,7 +773,7 @@ module type SOLVER_INTERNAL = sig
   (** Create a literal. This automatically preprocesses the term. *)
 
   val preprocess_term :
-    t -> add_clause:(Lit.t list -> dproof -> unit) -> term -> term * dproof
+    t -> add_clause:(lit list -> dproof -> unit) -> term -> term * dproof
   (** Preprocess a term. *)
 
   val add_lit : t -> actions -> lit -> unit
@@ -892,15 +898,18 @@ end
 
     Theory implementors will mostly interact with {!SOLVER_INTERNAL}. *)
 module type SOLVER = sig
-  module T : TERM
-  module Lit : LIT with module T = T
+  type term
+  module T : TERM with type Term.t = term
+  type lit = private term
+  module Lit : LIT with type term = term and type t = lit and module T = T
   type proof
-  module P : PROOF with type lit = Lit.t and type t = proof and type term = T.Term.t
+  module P : PROOF with type term = term and type t = proof and type lit = lit
 
   module Solver_internal
     : SOLVER_INTERNAL
-      with module T = T
-       and module Lit = Lit
+      with type term = term
+       and module T = T
+       and type lit = lit
        and type proof = proof
        and module P = P
   (** Internal solver, available to theories.  *)
@@ -909,9 +918,7 @@ module type SOLVER = sig
   (** The solver's state. *)
 
   type solver = t
-  type term = T.Term.t
   type ty = T.Ty.t
-  type lit = Lit.t
   type dproof = proof -> unit
   (** Delayed proof. This is used to build a proof step on demand. *)
 
