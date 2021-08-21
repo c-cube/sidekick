@@ -53,7 +53,7 @@ type ('lit, 'clause) unsat_state =
                        and type clause = 'clause)
 (** The type of values returned when the solver reaches an UNSAT state. *)
 
-type negated = bool
+type same_sign = bool
 (** This type is used during the normalisation of lits.
     [true] means the literal stayed the same, [false] that its sign was flipped. *)
 
@@ -145,8 +145,8 @@ module type LIT = sig
   val neg : t -> t
   (** Formula negation *)
 
-  val norm_sign : t -> t * negated
-  (** Returns a 'normalized' form of the lit, possibly negated
+  val norm_sign : t -> t * same_sign
+  (** Returns a 'normalized' form of the lit, possibly same_sign
       (in which case return [false]).
       [norm] must be so that [a] and [neg a] normalise to the same lit,
       but one returns [false] and the other [true]. *)
