@@ -251,7 +251,7 @@ module Make(A : ARG)
     (* actual preprocessing logic, acting on terms.
        this calls all the preprocessing hooks on subterms, ensuring
        a fixpoint. *)
-    let preprocess_term_ (self:t) (module A:PREPROCESS_ACTS) (t:term) : term =
+    let preprocess_term_ (self:t) (module A0:PREPROCESS_ACTS) (t:term) : term =
       let mk_lit_nopreproc t = Lit.atom self.tst t in (* no further simplification *)
 
       (* compute and cache normal form [u] of [t].
@@ -261,19 +261,19 @@ module Make(A : ARG)
          next time we preprocess [t], we will have to re-emit the same
          proofs, even though we will not do any actual preprocessing work.
       *)
-      let rec aux t : term =
+      let rec preproc_rec t : term =
         match Term.Tbl.find self.preprocess_cache t with
         | u -> u
         | exception Not_found ->
           (* try rewrite at root *)
-          let t1 = aux_rec t self.preprocess in
+          let t1 = preproc_with_hooks t self.preprocess in
 
           (* map subterms *)
-          let t2 = Term.map_shallow self.tst aux t1 in
+          let t2 = Term.map_shallow self.tst preproc_rec t1 in
 
           let u =
             if not (Term.equal t t2) then (
-              aux t2 (* fixpoint *)
+              preproc_rec t2 (* fixpoint *)
             ) else (
               t2
             )
@@ -288,7 +288,7 @@ module Make(A : ARG)
             (* make a literal (already preprocessed) *)
             let lit = mk_lit_nopreproc u in
             (* ensure that SAT solver has a boolean atom for [u] *)
-            A.add_lit lit;
+            A0.add_lit lit;
 
             (* also map [sub] to this atom in the congruence closure, for propagation *)
             let cc = cc self in
@@ -305,39 +305,21 @@ module Make(A : ARG)
           u
 
       (* try each function in [hooks] successively *)
-      and aux_rec t hooks : term =
+      and preproc_with_hooks t hooks : term =
         match hooks with
         | [] -> t
         | h :: hooks_tl ->
-          match h self (module A) t with
-          | None -> aux_rec t hooks_tl
-          | Some u -> aux u
-      in
-
-      P.begin_subproof self.proof;
-
-      (* simplify the term *)
-      let t1 = simp_t self t in
-
-      (* preprocess *)
-      let u = aux t1 in
-      (* emit [|- t=u] *)
-      if not (Term.equal t u) then (
-        P.with_proof self.proof (P.lemma_preprocess t u);
-      );
-
-      P.end_subproof self.proof;
-      u
-
-    (* return preprocessed lit + proof they are equal *)
-    let preprocess_lit_ (self:t) (module A0:PREPROCESS_ACTS) (lit:lit) : lit =
+          (* call hook, using [pacts] which will ensure all new
+             literals and clauses are also preprocessed *)
+          match h self (Lazy.force pacts) t with
+          | None -> preproc_with_hooks t hooks_tl
+          | Some u -> preproc_rec u
 
       (* create literal and preprocess it with [pacts], which uses [A0]
          for the base operations, and preprocesses new literals and clauses
          recursively. *)
-      let rec mk_lit ?sign t =
-        Log.debug 0 "A.MK_LIT";
-        let u = preprocess_term_ self (Lazy.force pacts) t in
+      and mk_lit ?sign t =
+        let u = preproc_rec t in
         if not (Term.equal t u) then (
           Log.debugf 10
             (fun k->k "(@[smt-solver.preprocess.t@ :t %a@ :into %a@])"
@@ -364,7 +346,27 @@ module Make(A : ARG)
         end : PREPROCESS_ACTS)
       ) in
 
-      preprocess_lit lit
+      P.begin_subproof self.proof;
+
+      (* simplify the term *)
+      let t1 = simp_t self t in
+
+      (* preprocess *)
+      let u = preproc_rec t1 in
+      (* emit [|- t=u] *)
+      if not (Term.equal t u) then (
+        P.with_proof self.proof (P.lemma_preprocess t u);
+      );
+
+      P.end_subproof self.proof;
+      u
+
+    (* return preprocessed lit *)
+    let preprocess_lit_ (self:t) (pacts:preprocess_actions) (lit:lit) : lit =
+      let t = Lit.term lit in
+      let sign = Lit.sign lit in
+      let u = preprocess_term_ self pacts t in
+      Lit.atom self.tst ~sign u
 
     (* add a clause using [acts] *)
     let add_clause_ self acts lits (proof:dproof) : unit =

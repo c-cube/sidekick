@@ -381,7 +381,6 @@ module Make(A : ARG) : S with module A = A = struct
 
     | LRA_other t when A.has_ty_real t -> None
     | LRA_const _ | LRA_simplex_pred _ | LRA_simplex_var _ | LRA_other _ ->
-      Log.debug 0 "LRA NONE";
       None
 
   let simplify (self:state) (_recurse:_) (t:T.t) : T.t option =

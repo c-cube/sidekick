@@ -1842,7 +1842,6 @@ module Make(Plugin : PLUGIN)
   let[@inline] proof st = st.proof
 
   let[@inline] add_lit self ?default_pol lit =
-    Log.debugf 0 (fun k->k"add lit %a" Lit.pp lit); (* XXX *)
     ignore (make_atom_ self lit ?default_pol : atom)
   let[@inline] set_default_pol (self:t) (lit:lit) (pol:bool) : unit =
     let a = make_atom_ self lit ~default_pol:pol in

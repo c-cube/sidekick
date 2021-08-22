@@ -216,29 +216,37 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* TODO: polarity? *)
   let cnf (self:state) (si:SI.t) (module PA:SI.PREPROCESS_ACTS) (t:T.t) : T.t option =
-    let rec get_lit (t:T.t) : Lit.t =
+    Log.debugf 50 (fun k->k"(@[th-bool.cnf@ %a@])" T.pp t);
+
+    let mk_lit = PA.mk_lit in
+
+    let rec get_lit_opt (t:T.t) : Lit.t option =
       let t_abs, t_sign = T.abs self.tst t in
       let lit_abs =
         match T.Tbl.find self.cnf t_abs with
-        | lit -> lit (* cached *)
+        | lit -> Some lit (* cached *)
         | exception Not_found ->
-          (* compute and cache *)
+          (* compute and cache, if present *)
           let lit = get_lit_uncached si t_abs in
-          if not (T.equal (Lit.term lit) t_abs) then (
-            T.Tbl.add self.cnf t_abs lit;
-            Log.debugf 20
-              (fun k->k "(@[sidekick.bool.add-lit@ :lit %a@ :for-t %a@])"
-                  Lit.pp lit T.pp t_abs);
-          );
+          begin match lit with
+            | None -> ()
+            | Some lit ->
+              if not (T.equal (Lit.term lit) t_abs) then (
+                T.Tbl.add self.cnf t_abs lit;
+                Log.debugf 20
+                  (fun k->k "(@[sidekick.bool.add-lit@ :lit %a@ :for-t %a@])"
+                      Lit.pp lit T.pp t_abs);
+              );
+          end;
           lit
       in
 
-      let lit = if t_sign then lit_abs else Lit.neg lit_abs in
+      let lit = if t_sign then lit_abs else CCOpt.map Lit.neg lit_abs in
       lit
 
-    and equiv_ si ~get_lit ~is_xor ~for_t t_a t_b : Lit.t =
-      let a = get_lit t_a in
-      let b = get_lit t_b in
+    and equiv_ si ~is_xor ~for_t t_a t_b : Lit.t =
+      let a = mk_lit t_a in
+      let b = mk_lit t_b in
       let a = if is_xor then Lit.neg a else a in (* [a xor b] is [(¬a) = b] *)
       let t_proxy, proxy = fresh_lit ~for_t ~mk_lit:PA.mk_lit ~pre:"equiv_" self in
 
@@ -266,17 +274,17 @@ module Make(A : ARG) : S with module A = A = struct
       proxy
 
     (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
-    and get_lit_uncached si t : Lit.t =
+    and get_lit_uncached si t : Lit.t option =
       match A.view_as_bool t with
-      | B_bool b -> PA.mk_lit (T.bool self.tst b)
-      | B_opaque_bool t -> PA.mk_lit t
+      | B_opaque_bool _ -> None
+      | B_bool b -> Some (PA.mk_lit (T.bool self.tst b))
       | B_not u ->
-        let lit = get_lit u in
-        Lit.neg lit
+        let lit = get_lit_opt u in
+        CCOpt.map Lit.neg lit
 
       | B_and l ->
         let t_subs = Iter.to_list l in
-        let subs = List.map get_lit t_subs in
+        let subs = List.map mk_lit t_subs in
         let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit:PA.mk_lit ~pre:"and_" self in
         SI.define_const si ~const:t_proxy ~rhs:t;
         SI.with_proof si (SI.P.define_term t_proxy t);
@@ -289,11 +297,11 @@ module Make(A : ARG) : S with module A = A = struct
           t_subs subs;
         PA.add_clause (proxy :: List.map Lit.neg subs)
           (A.lemma_bool_c "and-i" [t_proxy]);
-        proxy
+        Some proxy
 
       | B_or l ->
         let t_subs = Iter.to_list l in
-        let subs = List.map get_lit t_subs in
+        let subs = List.map mk_lit t_subs in
         let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit:PA.mk_lit ~pre:"or_" self in
         SI.define_const si ~const:t_proxy ~rhs:t;
         SI.with_proof si (SI.P.define_term t_proxy t);
@@ -305,13 +313,13 @@ module Make(A : ARG) : S with module A = A = struct
           t_subs subs;
         PA.add_clause (Lit.neg proxy :: subs)
           (A.lemma_bool_c "or-e" [t_proxy]);
-        proxy
+        Some proxy
 
       | B_imply (t_args, t_u) ->
         (* transform into [¬args \/ u] on the fly *)
         let t_args = Iter.to_list t_args in
-        let args = List.map (fun t -> Lit.neg (get_lit t)) t_args in
-        let u = get_lit t_u in
+        let args = List.map (fun t -> Lit.neg (mk_lit t)) t_args in
+        let u = mk_lit t_u in
         let subs = u :: args in
 
         (* now the or-encoding *)
@@ -327,19 +335,22 @@ module Make(A : ARG) : S with module A = A = struct
           (t_u::t_args) subs;
         PA.add_clause (Lit.neg proxy :: subs)
           (A.lemma_bool_c "imp-e" [t_proxy]);
-        proxy
+        Some proxy
 
-      | B_ite _ | B_eq _ | B_neq _ -> PA.mk_lit t
-      | B_equiv (a,b) -> equiv_ si ~get_lit ~for_t:t ~is_xor:false a b
-      | B_xor  (a,b) -> equiv_ si ~get_lit ~for_t:t ~is_xor:true a b
-      | B_atom u -> PA.mk_lit u
+      | B_ite _ | B_eq _ | B_neq _ -> None
+      | B_equiv (a,b) -> Some (equiv_ si ~for_t:t ~is_xor:false a b)
+      | B_xor  (a,b) -> Some (equiv_ si ~for_t:t ~is_xor:true a b)
+      | B_atom _ -> None
     in
 
-    let lit = get_lit t in
-    let u = Lit.term lit in
-    (* put sign back as a "not" *)
-    let u = if Lit.sign lit then u else A.mk_bool self.tst (B_not u) in
-    if T.equal u t then None else Some u
+    begin match get_lit_opt t with
+      | None -> None
+      | Some lit ->
+        let u = Lit.term lit in
+        (* put sign back as a "not" *)
+        let u = if Lit.sign lit then u else A.mk_bool self.tst (B_not u) in
+        if T.equal u t then None else Some u
+    end
 
   (* check if new terms were added to the congruence closure, that can be turned
      into clauses *)
