@@ -93,8 +93,8 @@ module type ACTS = sig
   val eval_lit: lit -> lbool
   (** Obtain current value of the given literal *)
 
-  val mk_lit: ?default_pol:bool -> lit -> unit
-  (** Map the given lit to a literal, which will be decided by the
+  val add_lit: ?default_pol:bool -> lit -> unit
+  (** Map the given lit to an internal atom, which will be decided by the
       SAT solver. *)
 
   val add_clause: ?keep:bool -> lit list -> dproof -> unit

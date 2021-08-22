@@ -74,9 +74,9 @@ module type ARG = sig
 
   (* TODO: should we store this ourself? would be simpler… *)
 
-  val lemma_isa_split : S.proof -> S.Lit.t Iter.t -> unit
-  val lemma_isa_disj : S.proof -> S.Lit.t Iter.t -> unit
-  val lemma_cstor_inj : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_isa_split : S.Lit.t Iter.t -> S.proof -> unit
+  val lemma_isa_disj : S.Lit.t Iter.t -> S.proof -> unit
+  val lemma_cstor_inj : S.Lit.t Iter.t -> S.proof -> unit
 end
 
 module type S = sig

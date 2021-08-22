@@ -1402,7 +1402,7 @@ module Make(Plugin : PLUGIN)
     let atoms = List.rev_map (make_atom_ self) l in
     let removable = not keep in
     let c = Clause.make_l self.store ~removable atoms in
-    if Proof.enabled self.proof then dp self.proof;
+    Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
     Vec.push self.clauses_to_add c
 
@@ -1415,11 +1415,11 @@ module Make(Plugin : PLUGIN)
       self.next_decisions <- a :: self.next_decisions
     )
 
-  let acts_raise self (l:lit list) (pr:dproof) : 'a =
+  let acts_raise self (l:lit list) (dp:dproof) : 'a =
     let atoms = List.rev_map (make_atom_ self) l in
     (* conflicts can be removed *)
     let c = Clause.make_l self.store ~removable:true atoms in
-    if Proof.enabled self.proof then pr self.proof;
+    Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])"
                      (Clause.debug self.store) c);
     raise_notrace (Th_conflict c)
@@ -1444,7 +1444,7 @@ module Make(Plugin : PLUGIN)
         let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
         check_consequence_lits_false_ self l;
         let c = Clause.make_l store ~removable:true (p :: l) in
-        if Proof.enabled self.proof then dp self.proof;
+        Proof.with_proof self.proof dp;
         raise_notrace (Th_conflict c)
       ) else (
         insert_var_order self (Atom.var p);
@@ -1458,7 +1458,7 @@ module Make(Plugin : PLUGIN)
              (otherwise the propagated lit would have been backtracked and
              discarded already.) *)
           check_consequence_lits_false_ self l;
-          if Proof.enabled self.proof then dp self.proof;
+          Proof.with_proof self.proof dp;
           Clause.make_l store ~removable:true (p :: l)
         ) in
         let level = decision_level self in
@@ -1481,7 +1481,7 @@ module Make(Plugin : PLUGIN)
     let a = make_atom_ self f in
     eval_atom_ self a
 
-  let[@inline] acts_mk_lit self ?default_pol f : unit =
+  let[@inline] acts_add_lit self ?default_pol f : unit =
     ignore (make_atom_ ?default_pol self f : atom)
 
   let[@inline] current_slice st : _ Solver_intf.acts =
@@ -1491,7 +1491,7 @@ module Make(Plugin : PLUGIN)
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:false st.th_head
       let eval_lit= acts_eval_lit st
-      let mk_lit=acts_mk_lit st
+      let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
@@ -1507,7 +1507,7 @@ module Make(Plugin : PLUGIN)
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st
-      let mk_lit=acts_mk_lit st
+      let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
@@ -1830,9 +1830,8 @@ module Make(Plugin : PLUGIN)
       (fun l ->
          let atoms = Util.array_of_list_map (make_atom_ self) l in
          let c = Clause.make_a self.store ~removable:false atoms in
-         if Proof.enabled self.proof then (
-           Proof.emit_input_clause self.proof (Iter.of_list l)
-         );
+         Proof.with_proof self.proof
+           (Proof.emit_input_clause (Iter.of_list l));
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
          Vec.push self.clauses_to_add c)
@@ -1843,6 +1842,7 @@ module Make(Plugin : PLUGIN)
   let[@inline] proof st = st.proof
 
   let[@inline] add_lit self ?default_pol lit =
+    Log.debugf 0 (fun k->k"add lit %a" Lit.pp lit); (* XXX *)
     ignore (make_atom_ self lit ?default_pol : atom)
   let[@inline] set_default_pol (self:t) (lit:lit) (pol:bool) : unit =
     let a = make_atom_ self lit ~default_pol:pol in
@@ -1906,7 +1906,7 @@ module Make(Plugin : PLUGIN)
   let add_clause_atoms_ self (c:atom array) dp : unit =
     try
       let c = Clause.make_a self.store ~removable:false c in
-      if Proof.enabled self.proof then dp self.proof;
+      Proof.with_proof self.proof dp;
       add_clause_ self c
     with
     | E_unsat (US_false c) ->
@@ -1921,12 +1921,12 @@ module Make(Plugin : PLUGIN)
     add_clause_atoms_ self c dp
 
   let add_input_clause self (c:lit list) =
-    let emit_proof p = Proof.emit_input_clause p (Iter.of_list c) in
-    add_clause self c emit_proof
+    let dp = Proof.emit_input_clause (Iter.of_list c) in
+    add_clause self c dp
 
   let add_input_clause_a self c =
-    let emit_proof p = Proof.emit_input_clause p (Iter.of_array c) in
-    add_clause_a self c emit_proof
+    let dp = Proof.emit_input_clause (Iter.of_array c) in
+    add_clause_a self c dp
 
   let solve ?(assumptions=[]) (self:t) : res =
     cancel_until self 0;

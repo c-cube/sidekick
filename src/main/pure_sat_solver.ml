@@ -38,26 +38,26 @@ end = struct
       }
   type dproof = t -> unit
 
-  let[@inline] enabled = function
-    | Dummy -> false
-    | Inner _ -> true
+  let[@inline] with_proof pr f = match pr with
+    | Dummy -> ()
+    | Inner _ -> f pr
 
   let emit_lits_ buf lits =
     lits (fun i -> bpf buf "%d " i)
 
-  let emit_input_clause self lits =
+  let emit_input_clause lits self =
     match self with
     | Dummy -> ()
     | Inner {buf} ->
       bpf buf "i "; emit_lits_ buf lits; bpf buf "0\n"
 
-  let emit_redundant_clause self lits =
+  let emit_redundant_clause lits self =
     match self with
     | Dummy -> ()
     | Inner {buf} ->
       bpf buf "r "; emit_lits_ buf lits; bpf buf "0\n"
 
-  let del_clause self lits =
+  let del_clause lits self =
     match self with
     | Dummy -> ()
     | Inner {buf} ->

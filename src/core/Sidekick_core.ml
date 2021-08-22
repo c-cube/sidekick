@@ -150,7 +150,7 @@ module type CC_PROOF = sig
   type t
   type lit
 
-  val lemma_cc : t -> lit Iter.t -> unit
+  val lemma_cc : lit Iter.t -> t -> unit
   (** [lemma_cc proof lits] asserts that [lits] form a tautology for the theory
       of uninterpreted functions. *)
 end
@@ -169,17 +169,18 @@ module type SAT_PROOF = sig
   type dproof = t -> unit
   (** A delayed proof, used to produce proofs on demand from theories. *)
 
-  val enabled : t -> bool
-  (** Do we emit proofs at all? *)
+  val with_proof : t -> (t -> unit) -> unit
+  (** If proof is enabled, call [f] on it to emit steps.
+      if proof is disabled, the callback won't even be called. *)
 
-  val emit_input_clause : t -> lit Iter.t -> unit
+  val emit_input_clause : lit Iter.t -> t -> unit
   (** Emit an input clause. *)
 
-  val emit_redundant_clause : t -> lit Iter.t -> unit
+  val emit_redundant_clause : lit Iter.t -> t -> unit
   (** Emit a clause deduced by the SAT solver, redundant wrt axioms.
       The clause must be RUP wrt previous clauses. *)
 
-  val del_clause : t -> lit Iter.t -> unit
+  val del_clause : lit Iter.t -> t -> unit
   (** Forget a clause. Only useful for performance considerations. *)
   (* TODO: replace with something index-based? *)
 end
@@ -215,20 +216,17 @@ module type PROOF = sig
   (** [end_subproof p] ends the current active subproof, the last result
       of which is kept. *)
 
-  val define_term : t -> term -> term -> unit
+  val define_term : term -> term -> t -> unit
   (** [define_term p cst u] defines the new constant [cst] as being equal
       to [u]. *)
 
-  val lemma_true : t -> term -> unit
+  val lemma_true : term -> t -> unit
   (** [lemma_true p (true)] asserts the clause [(true)] *)
 
-  val lemma_preprocess : t -> term -> term -> unit
+  val lemma_preprocess : term -> term -> t -> unit
   (** [lemma_preprocess p t u] asserts that [t = u] is a tautology
       and that [t] has been preprocessed into [u].
       From now on, [t] and [u] will be used interchangeably. *)
-
-  val enabled : t -> bool
-  (** Is proof production enabled? *)
 end
 
 (** Literals
@@ -662,9 +660,11 @@ module type SOLVER_INTERNAL = sig
   val ty_st : t -> ty_store
   val stats : t -> Stat.t
 
+  val with_proof : t -> (proof -> unit) -> unit
+
   (** {3 Actions for the theories} *)
 
-  type actions
+  type theory_actions
   (** Handle that the theories can use to perform actions. *)
 
   type lit = Lit.t
@@ -685,7 +685,7 @@ module type SOLVER_INTERNAL = sig
      and type proof = proof
      and type P.t = proof
      and type P.lit = lit
-     and type Actions.t = actions
+     and type Actions.t = theory_actions
 
   val cc : t -> CC.t
   (** Congruence closure for this solver *)
@@ -702,19 +702,21 @@ module type SOLVER_INTERNAL = sig
     val clear : t -> unit
     (** Reset internal cache, etc. *)
 
-    type hook = t -> term -> (term * dproof) option
+    val with_proof : t -> (proof -> unit) -> unit
+
+    type hook = t -> term -> term option
     (** Given a term, try to simplify it. Return [None] if it didn't change.
 
         A simple example could be a hook that takes a term [t],
         and if [t] is [app "+" (const x) (const y)] where [x] and [y] are number,
         returns [Some (const (x+y))], and [None] otherwise. *)
 
-    val normalize : t -> term -> (term * dproof) option
+    val normalize : t -> term -> term option
     (** Normalize a term using all the hooks. This performs
         a fixpoint, i.e. it only stops when no hook applies anywhere inside
         the term. *)
 
-    val normalize_t : t -> term -> term * dproof
+    val normalize_t : t -> term -> term
     (** Normalize a term using all the hooks, along with a proof that the
         simplification is correct.
         returns [t, refl t] if no simplification occurred. *)
@@ -727,58 +729,99 @@ module type SOLVER_INTERNAL = sig
 
   val simplifier : t -> Simplify.t
 
-  val simplify_t : t -> term -> (term * dproof) option
-  (** Simplify input term, returns [Some (u, |- t=u)] if some
+  val simplify_t : t -> term -> term option
+  (** Simplify input term, returns [Some u] if some
       simplification occurred. *)
 
-  val simp_t : t -> term -> term * dproof
-  (** [simp_t si t] returns [u, |- t=u] even if no simplification occurred
+  val simp_t : t -> term -> term
+  (** [simp_t si t] returns [u] even if no simplification occurred
       (in which case [t == u] syntactically).
+      It emits [|- t=u].
       (see {!simplifier}) *)
+
+  (** {3 Preprocessors}
+      These preprocessors turn mixed, raw literals (possibly simplified) into
+      literals suitable for reasoning.
+      Typically some clauses are also added to the solver. *)
+
+  module type PREPROCESS_ACTS = sig
+    val mk_lit : ?sign:bool -> term -> lit
+    (** creates a new literal for a boolean term. *)
+
+    val add_clause : lit list -> dproof -> unit
+    (** pushes a new clause into the SAT solver. *)
+
+    val add_lit : ?default_pol:bool -> lit -> unit
+    (** Ensure the literal will be decided/handled by the SAT solver. *)
+  end
+
+  type preprocess_actions = (module PREPROCESS_ACTS)
+  (** Actions available to the preprocessor *)
+
+  type preprocess_hook =
+    t ->
+    preprocess_actions ->
+    term -> term option
+  (** Given a term, try to preprocess it. Return [None] if it didn't change,
+      or [Some (u)] if [t=u].
+      Can also add clauses to define new terms.
+
+      Preprocessing might transform terms to make them more amenable
+      to reasoning, e.g. by removing boolean formulas via Tseitin encoding,
+      adding clauses that encode their meaning in the same move.
+
+      @param preprocess_actions actions available during preprocessing.
+  *)
+
+  val on_preprocess : t -> preprocess_hook -> unit
+  (** Add a hook that will be called when terms are preprocessed *)
+
+  val preprocess_acts_of_acts : t -> theory_actions -> preprocess_actions
+  (** Obtain preprocessor actions, from theory actions *)
 
   (** {3 hooks for the theory} *)
 
-  val raise_conflict : t -> actions -> lit list -> dproof -> 'a
+  val raise_conflict : t -> theory_actions -> lit list -> dproof -> 'a
   (** Give a conflict clause to the solver *)
 
-  val push_decision : t -> actions -> lit -> unit
+  val push_decision : t -> theory_actions -> lit -> unit
   (** Ask the SAT solver to decide the given literal in an extension of the
       current trail. This is useful for theory combination.
       If the SAT solver backtracks, this (potential) decision is removed
       and forgotten. *)
 
-  val propagate: t -> actions -> lit -> reason:(unit -> lit list * dproof) -> unit
+  val propagate: t -> theory_actions -> lit -> reason:(unit -> lit list * dproof) -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val propagate_l: t -> actions -> lit -> lit list -> dproof -> unit
+  val propagate_l: t -> theory_actions -> lit -> lit list -> dproof -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val add_clause_temp : t -> actions -> lit list -> dproof -> unit
+  val add_clause_temp : t -> theory_actions -> lit list -> dproof -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
-  val add_clause_permanent : t -> actions -> lit list -> dproof -> unit
+  val add_clause_permanent : t -> theory_actions -> lit list -> dproof -> unit
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
-  val mk_lit : t -> actions -> ?sign:bool -> term -> lit
+  val mk_lit : t -> theory_actions -> ?sign:bool -> term -> lit
   (** Create a literal. This automatically preprocesses the term. *)
 
-  val preprocess_term :
-    t -> add_clause:(Lit.t list -> dproof -> unit) -> term -> term * dproof
-  (** Preprocess a term. *)
+  val preprocess_term : t -> preprocess_actions -> term -> term
+  (** Preprocess a term. The preprocessing proof is automatically emitted. *)
 
-  val add_lit : t -> actions -> lit -> unit
+  val add_lit : t -> theory_actions -> ?default_pol:bool -> lit -> unit
   (** Add the given literal to the SAT solver, so it gets assigned
-      a boolean value *)
+      a boolean value.
+      @param default_pol default polarity for the corresponding atom *)
 
-  val add_lit_t : t -> actions -> ?sign:bool -> term -> unit
+  val add_lit_t : t -> theory_actions -> ?sign:bool -> term -> unit
   (** Add the given (signed) bool term to the SAT solver, so it gets assigned
       a boolean value *)
 
-  val cc_raise_conflict_expl : t -> actions -> CC.Expl.t -> 'a
+  val cc_raise_conflict_expl : t -> theory_actions -> CC.Expl.t -> 'a
   (** Raise a conflict with the given congruence closure explanation.
       it must be a theory tautology that [expl ==> absurd].
       To be used in theories. *)
@@ -789,12 +832,12 @@ module type SOLVER_INTERNAL = sig
   val cc_are_equal : t -> term -> term -> bool
   (** Are these two terms equal in the congruence closure? *)
 
-  val cc_merge : t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit
+  val cc_merge : t -> theory_actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit
   (** Merge these two nodes in the congruence closure, given this explanation.
       It must be a theory tautology that [expl ==> n1 = n2].
       To be used in theories. *)
 
-  val cc_merge_t : t -> actions -> term -> term -> CC.Expl.t -> unit
+  val cc_merge_t : t -> theory_actions -> term -> term -> CC.Expl.t -> unit
   (** Merge these two terms in the congruence closure, given this explanation.
       See {!cc_merge} *)
 
@@ -806,10 +849,10 @@ module type SOLVER_INTERNAL = sig
   (** Return [true] if the term is explicitly in the congruence closure.
       To be used in theories *)
 
-  val on_cc_pre_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit
+  val on_cc_pre_merge : t -> (CC.t -> theory_actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit
   (** Callback for when two classes containing data for this key are merged (called before) *)
 
-  val on_cc_post_merge : t -> (CC.t -> actions -> CC.N.t -> CC.N.t -> unit) -> unit
+  val on_cc_post_merge : t -> (CC.t -> theory_actions -> CC.N.t -> CC.N.t -> unit) -> unit
   (** Callback for when two classes containing data for this key are merged (called after)*)
 
   val on_cc_new_term : t -> (CC.t -> CC.N.t -> term -> unit) -> unit
@@ -826,7 +869,7 @@ module type SOLVER_INTERNAL = sig
   val on_cc_propagate : t -> (CC.t -> lit -> (unit -> lit list * dproof) -> unit) -> unit
   (** Callback called on every CC propagation *)
 
-  val on_partial_check : t -> (t -> actions -> lit Iter.t -> unit) -> unit
+  val on_partial_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
   (** Register callbacked to be called with the slice of literals
       newly added on the trail.
 
@@ -834,38 +877,13 @@ module type SOLVER_INTERNAL = sig
       to be complete, only correct. It's given only the slice of
       the trail consisting in new literals. *)
 
-  val on_final_check: t -> (t -> actions -> lit Iter.t -> unit) -> unit
+  val on_final_check: t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
   (** Register callback to be called during the final check.
 
       Must be complete (i.e. must raise a conflict if the set of literals is
       not satisfiable) and can be expensive. The function
       is given the whole trail.
   *)
-
-  (** {3 Preprocessors}
-      These preprocessors turn mixed, raw literals (possibly simplified) into
-      literals suitable for reasoning.
-      Typically some clauses are also added to the solver. *)
-
-  type preprocess_hook =
-    t ->
-    mk_lit:(term -> lit) ->
-    add_clause:(lit list -> dproof -> unit) ->
-    term -> (term * dproof) option
-  (** Given a term, try to preprocess it. Return [None] if it didn't change,
-      or [Some (u,p)] if [t=u] and [p] is a proof of [t=u].
-      Can also add clauses to define new terms.
-
-      Preprocessing might transform terms to make them more amenable
-      to reasoning, e.g. by removing boolean formulas via Tseitin encoding,
-      adding clauses that encode their meaning in the same move.
-
-      @param mk_lit creates a new literal for a boolean term.
-      @param add_clause pushes a new clause into the SAT solver.
-  *)
-
-  val on_preprocess : t -> preprocess_hook -> unit
-  (** Add a hook that will be called when terms are preprocessed *)
 
   (** {3 Model production} *)
 
@@ -1041,13 +1059,12 @@ module type SOLVER = sig
 
   val add_theory_l : t -> theory list -> unit
 
-  val mk_lit_t : t -> ?sign:bool -> term -> lit * dproof
-  (** [mk_lit_t _ ~sign t] returns [lit, pr]
-      where [lit] is a internal representation of [± t],
-      and [pr] is a proof of [|- lit = (± t)] *)
+  val mk_lit_t : t -> ?sign:bool -> term -> lit
+  (** [mk_lit_t _ ~sign t] returns [lit'],
+      where [lit'] is [preprocess(lit)] and [lit] is
+      an internal representation of [± t].
 
-  val mk_lit_t' : t -> ?sign:bool -> term -> lit
-  (** Like {!mk_lit_t} but skips the proof *)
+      The proof of [|- lit = lit'] is directly added to the solver's proof. *)
 
   val add_clause : t -> lit IArray.t -> dproof -> unit
   (** [add_clause solver cs] adds a boolean clause to the solver.

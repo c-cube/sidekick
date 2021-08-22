@@ -36,20 +36,20 @@ module type ARG = sig
       Only enable if some theories are susceptible to
       create boolean formulas during the proof search. *)
 
-  val lemma_bool_tauto : S.P.t -> S.Lit.t Iter.t -> unit
+  val lemma_bool_tauto : S.Lit.t Iter.t -> S.P.t -> unit
   (** Boolean tautology lemma (clause) *)
 
-  val lemma_bool_c : S.P.t -> string -> term list -> unit
+  val lemma_bool_c : string -> term list -> S.P.t -> unit
   (** Basic boolean logic lemma for a clause [|- c].
       [proof_bool_c b name cs] is the rule designated by [name]. *)
 
-  val lemma_bool_equiv : S.P.t -> term -> term -> unit
+  val lemma_bool_equiv : term -> term -> S.P.t -> unit
   (** Boolean tautology lemma (equivalence) *)
 
-  val lemma_ite_true : S.P.t -> a:term -> ite:term -> unit
+  val lemma_ite_true : a:term -> ite:term -> S.P.t -> unit
   (** lemma [a => ite a b c = b] *)
 
-  val lemma_ite_false : S.P.t -> a:term -> ite:term -> unit
+  val lemma_ite_false : a:term -> ite:term -> S.P.t -> unit
   (** lemma [¬a => ite a b c = c] *)
 
   (** Fresh symbol generator.
@@ -102,7 +102,7 @@ module Make(A : ARG) : S with module A = A = struct
   type state = {
     tst: T.store;
     ty_st: Ty.store;
-    cnf: (Lit.t * SI.dproof) T.Tbl.t; (* tseitin CNF *)
+    cnf: Lit.t T.Tbl.t; (* tseitin CNF *)
     gensym: A.Gensym.t;
   }
 
@@ -118,14 +118,16 @@ module Make(A : ARG) : S with module A = A = struct
   let is_true t = match T.as_bool t with Some true -> true | _ -> false
   let is_false t = match T.as_bool t with Some false -> true | _ -> false
 
-  let simplify (self:state) (simp:SI.Simplify.t) (t:T.t) : (T.t * SI.dproof) option =
+  let simplify (self:state) (simp:SI.Simplify.t) (t:T.t) : T.t option =
     let tst = self.tst in
     let ret u =
-      let emit_proof p =
-        A.lemma_bool_equiv p t u;
-        A.S.P.lemma_preprocess p t u;
-      in
-      Some (u, emit_proof)
+      if not (T.equal t u) then (
+        SI.Simplify.with_proof simp (fun p ->
+          A.lemma_bool_equiv t u p;
+          A.S.P.lemma_preprocess t u p;
+        );
+      );
+      Some u
     in
     match A.view_as_bool t with
     | B_bool _ -> None
@@ -148,14 +150,14 @@ module Make(A : ARG) : S with module A = A = struct
     | B_ite (a,b,c) ->
       (* directly simplify [a] so that maybe we never will simplify one
          of the branches *)
-      let a, pr_a = SI.Simplify.normalize_t simp a in
+      let a = SI.Simplify.normalize_t simp a in
       begin match A.view_as_bool a with
         | B_bool true ->
-          let emit_proof p = pr_a p; A.lemma_ite_true p ~a ~ite:t in
-          Some (b, emit_proof)
+          SI.Simplify.with_proof simp (A.lemma_ite_true ~a ~ite:t);
+          Some b
         | B_bool false ->
-          let emit_proof p = pr_a p; A.lemma_ite_false p ~a ~ite:t in
-          Some (c, emit_proof)
+          SI.Simplify.with_proof simp (A.lemma_ite_false ~a ~ite:t);
+          Some c
         | _ ->
           None
       end
@@ -186,136 +188,124 @@ module Make(A : ARG) : S with module A = A = struct
     proxy, mk_lit proxy
 
   (* preprocess "ite" away *)
-  let preproc_ite self si ~mk_lit ~add_clause (t:T.t) : (T.t * SI.dproof) option =
+  let preproc_ite self si (module PA:SI.PREPROCESS_ACTS) (t:T.t) : T.t option =
     match A.view_as_bool t with
     | B_ite (a,b,c) ->
-      let a, pr_a = SI.simp_t si a in
+      let a = SI.simp_t si a in
       begin match A.view_as_bool a with
         | B_bool true ->
           (* [a=true |- ite a b c=b], [|- a=true] ==> [|- t=b] *)
-          let emit_proof p = pr_a p; A.lemma_ite_true p ~a ~ite:t in
-          Some (b, emit_proof)
+          SI.with_proof si (A.lemma_ite_true ~a ~ite:t);
+          Some b
         | B_bool false ->
           (* [a=false |- ite a b c=c], [|- a=false] ==> [|- t=c] *)
-          let emit_proof p = pr_a p; A.lemma_ite_false p ~a ~ite:t in
-          Some (c, emit_proof)
+          SI.with_proof si (A.lemma_ite_false ~a ~ite:t);
+          Some c
         | _ ->
           let t_ite = fresh_term self ~for_t:t ~pre:"ite" (T.ty b) in
           SI.define_const si ~const:t_ite ~rhs:t;
-          let lit_a = mk_lit a in
-          add_clause [Lit.neg lit_a; mk_lit (eq self.tst t_ite b)]
-            (fun p -> A.lemma_ite_true p ~a ~ite:t);
-          add_clause [lit_a; mk_lit (eq self.tst t_ite c)]
+          SI.with_proof si (SI.P.define_term t_ite t);
+          let lit_a = PA.mk_lit a in
+          PA.add_clause [Lit.neg lit_a; PA.mk_lit (eq self.tst t_ite b)]
+            (fun p -> A.lemma_ite_true ~a ~ite:t p);
+          PA.add_clause [lit_a; PA.mk_lit (eq self.tst t_ite c)]
             (fun p -> A.lemma_ite_false p ~a ~ite:t);
-          Some (t_ite, fun p -> SI.P.define_term p t_ite t)
+          Some t_ite
       end
     | _ -> None
 
   (* TODO: polarity? *)
-  let cnf (self:state) (si:SI.t) ~mk_lit ~add_clause (t:T.t) : (T.t * SI.dproof) option =
-    let rec get_lit_and_proof_ (t:T.t) : Lit.t * _ =
+  let cnf (self:state) (si:SI.t) (module PA:SI.PREPROCESS_ACTS) (t:T.t) : T.t option =
+    let rec get_lit (t:T.t) : Lit.t =
       let t_abs, t_sign = T.abs self.tst t in
-      let lit_abs, pr =
+      let lit_abs =
         match T.Tbl.find self.cnf t_abs with
-        | lit_pr -> lit_pr (* cached *)
+        | lit -> lit (* cached *)
         | exception Not_found ->
           (* compute and cache *)
-          let lit, pr = get_lit_uncached si t_abs in
+          let lit = get_lit_uncached si t_abs in
           if not (T.equal (Lit.term lit) t_abs) then (
-            T.Tbl.add self.cnf t_abs (lit, pr);
+            T.Tbl.add self.cnf t_abs lit;
             Log.debugf 20
               (fun k->k "(@[sidekick.bool.add-lit@ :lit %a@ :for-t %a@])"
                   Lit.pp lit T.pp t_abs);
           );
-          lit, pr
+          lit
       in
 
       let lit = if t_sign then lit_abs else Lit.neg lit_abs in
-      lit, pr
+      lit
 
-    and equiv_ si ~get_lit ~is_xor ~for_t t_a t_b : Lit.t * SI.dproof =
+    and equiv_ si ~get_lit ~is_xor ~for_t t_a t_b : Lit.t =
       let a = get_lit t_a in
       let b = get_lit t_b in
       let a = if is_xor then Lit.neg a else a in (* [a xor b] is [(¬a) = b] *)
-      let t_proxy, proxy = fresh_lit ~for_t ~mk_lit ~pre:"equiv_" self in
+      let t_proxy, proxy = fresh_lit ~for_t ~mk_lit:PA.mk_lit ~pre:"equiv_" self in
 
       SI.define_const si ~const:t_proxy ~rhs:for_t;
+      SI.with_proof si (SI.P.define_term t_proxy for_t);
+
       let add_clause c pr =
-        add_clause c pr
+        PA.add_clause c pr
       in
 
       (* proxy => a<=> b,
          ¬proxy => a xor b *)
       add_clause [Lit.neg proxy; Lit.neg a; b]
-        (fun p ->
-           if is_xor then A.lemma_bool_c p "xor-e+" [t_proxy]
-           else A.lemma_bool_c p "eq-e" [t_proxy; t_a]);
+        (if is_xor then A.lemma_bool_c "xor-e+" [t_proxy]
+         else A.lemma_bool_c "eq-e" [t_proxy; t_a]);
       add_clause [Lit.neg proxy; Lit.neg b; a]
-        (fun p ->
-           if is_xor then A.lemma_bool_c p "xor-e-" [t_proxy]
-           else A.lemma_bool_c p "eq-e" [t_proxy; t_b]);
+        (if is_xor then A.lemma_bool_c "xor-e-" [t_proxy]
+         else A.lemma_bool_c "eq-e" [t_proxy; t_b]);
       add_clause [proxy; a; b]
-        (fun p -> if is_xor then A.lemma_bool_c p "xor-i" [t_proxy; t_a]
-          else A.lemma_bool_c p "eq-i+" [t_proxy]);
+        (if is_xor then A.lemma_bool_c "xor-i" [t_proxy; t_a]
+         else A.lemma_bool_c "eq-i+" [t_proxy]);
       add_clause [proxy; Lit.neg a; Lit.neg b]
-        (fun p ->
-           if is_xor then A.lemma_bool_c p "xor-i" [t_proxy; t_b]
-           else A.lemma_bool_c p "eq-i-" [t_proxy]);
-      proxy, (fun p->SI.P.define_term p t_proxy for_t)
+        (if is_xor then A.lemma_bool_c "xor-i" [t_proxy; t_b]
+         else A.lemma_bool_c "eq-i-" [t_proxy]);
+      proxy
 
     (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
-    and get_lit_uncached si t : Lit.t * SI.dproof =
-      let sub_p = ref [] in
-
-      let get_lit t =
-        let lit, pr = get_lit_and_proof_ t in
-        if Lit.term lit != t then (
-          sub_p := pr :: !sub_p;
-        );
-        lit
-      in
-
+    and get_lit_uncached si t : Lit.t =
       match A.view_as_bool t with
-      | B_bool b -> mk_lit (T.bool self.tst b), (fun _->())
-      | B_opaque_bool t -> mk_lit t, (fun _->())
+      | B_bool b -> PA.mk_lit (T.bool self.tst b)
+      | B_opaque_bool t -> PA.mk_lit t
       | B_not u ->
-        let lit, pr = get_lit_and_proof_ u in
-        Lit.neg lit, pr
+        let lit = get_lit u in
+        Lit.neg lit
 
       | B_and l ->
         let t_subs = Iter.to_list l in
         let subs = List.map get_lit t_subs in
-        let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit ~pre:"and_" self in
+        let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit:PA.mk_lit ~pre:"and_" self in
         SI.define_const si ~const:t_proxy ~rhs:t;
+        SI.with_proof si (SI.P.define_term t_proxy t);
         (* add clauses *)
         List.iter2
           (fun t_u u ->
-             add_clause
+             PA.add_clause
                [Lit.neg proxy; u]
-               (fun p -> A.lemma_bool_c p "and-e" [t_proxy; t_u]))
+               (A.lemma_bool_c "and-e" [t_proxy; t_u]))
           t_subs subs;
-        add_clause (proxy :: List.map Lit.neg subs)
-          (fun p -> A.lemma_bool_c p "and-i" [t_proxy]);
-        let emit_proof p =
-          SI.P.define_term p t_proxy t;
-        in
-        proxy, emit_proof
+        PA.add_clause (proxy :: List.map Lit.neg subs)
+          (A.lemma_bool_c "and-i" [t_proxy]);
+        proxy
 
       | B_or l ->
         let t_subs = Iter.to_list l in
         let subs = List.map get_lit t_subs in
-        let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit ~pre:"or_" self in
+        let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit:PA.mk_lit ~pre:"or_" self in
         SI.define_const si ~const:t_proxy ~rhs:t;
+        SI.with_proof si (SI.P.define_term t_proxy t);
         (* add clauses *)
         List.iter2
           (fun t_u u ->
-             add_clause [Lit.neg u; proxy]
-               (fun p -> A.lemma_bool_c p "or-i" [t_proxy; t_u]))
+             PA.add_clause [Lit.neg u; proxy]
+               (A.lemma_bool_c "or-i" [t_proxy; t_u]))
           t_subs subs;
-        add_clause (Lit.neg proxy :: subs)
-          (fun p -> A.lemma_bool_c p "or-e" [t_proxy]);
-        let emit_proof p = SI.P.define_term p t_proxy t in
-        proxy, emit_proof
+        PA.add_clause (Lit.neg proxy :: subs)
+          (A.lemma_bool_c "or-e" [t_proxy]);
+        proxy
 
       | B_imply (t_args, t_u) ->
         (* transform into [¬args \/ u] on the fly *)
@@ -325,35 +315,35 @@ module Make(A : ARG) : S with module A = A = struct
         let subs = u :: args in
 
         (* now the or-encoding *)
-        let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit ~pre:"implies_" self in
+        let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit:PA.mk_lit ~pre:"implies_" self in
         SI.define_const si ~const:t_proxy ~rhs:t;
+        SI.with_proof si (SI.P.define_term t_proxy t);
 
         (* add clauses *)
         List.iter2
           (fun t_u u ->
-             add_clause [Lit.neg u; proxy]
-               (fun p -> A.lemma_bool_c p "imp-i" [t_proxy; t_u]))
+             PA.add_clause [Lit.neg u; proxy]
+               (A.lemma_bool_c "imp-i" [t_proxy; t_u]))
           (t_u::t_args) subs;
-        add_clause (Lit.neg proxy :: subs)
-          (fun p -> A.lemma_bool_c p "imp-e" [t_proxy]);
-        let emit_proof p = SI.P.define_term p t_proxy t in
-        proxy, emit_proof
+        PA.add_clause (Lit.neg proxy :: subs)
+          (A.lemma_bool_c "imp-e" [t_proxy]);
+        proxy
 
-      | B_ite _ | B_eq _ | B_neq _ -> mk_lit t, (fun _ ->())
+      | B_ite _ | B_eq _ | B_neq _ -> PA.mk_lit t
       | B_equiv (a,b) -> equiv_ si ~get_lit ~for_t:t ~is_xor:false a b
       | B_xor  (a,b) -> equiv_ si ~get_lit ~for_t:t ~is_xor:true a b
-      | B_atom u -> mk_lit u, (fun _->())
+      | B_atom u -> PA.mk_lit u
     in
 
-    let lit, pr = get_lit_and_proof_ t in
+    let lit = get_lit t in
     let u = Lit.term lit in
     (* put sign back as a "not" *)
     let u = if Lit.sign lit then u else A.mk_bool self.tst (B_not u) in
-    if T.equal u t then None else Some (u, pr)
+    if T.equal u t then None else Some u
 
   (* check if new terms were added to the congruence closure, that can be turned
      into clauses *)
-  let check_new_terms (self:state) si (acts:SI.actions) (_trail:_ Iter.t) : unit =
+  let check_new_terms (self:state) si (acts:SI.theory_actions) (_trail:_ Iter.t) : unit =
     let cc_ = SI.cc si in
     let all_terms =
       let open SI in
@@ -362,15 +352,14 @@ module Make(A : ARG) : S with module A = A = struct
       |> Iter.map CC.N.term
     in
     let cnf_of t =
-      cnf self si t
-        ~mk_lit:(SI.mk_lit si acts) ~add_clause:(SI.add_clause_permanent si acts)
+      let pacts = SI.preprocess_acts_of_acts si acts in
+      cnf self si pacts t
     in
     begin
       all_terms
         (fun t -> match cnf_of t with
            | None -> ()
-           | Some (u, _pr_t_u) ->
-             (* FIXME: what to do with pr_t_u? emit it? *)
+           | Some u ->
              Log.debugf 5
                (fun k->k "(@[th-bool-static.final-check.cnf@ %a@ :yields %a@])"
                    T.pp t T.pp u);

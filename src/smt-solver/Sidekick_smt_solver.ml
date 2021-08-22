@@ -103,27 +103,28 @@ module Make(A : ARG)
           next: th_states;
         } -> th_states
 
-    type actions = sat_acts
+    type theory_actions = sat_acts
 
     module Simplify = struct
       type t = {
         tst: term_store;
         ty_st: ty_store;
+        proof: proof;
         mutable hooks: hook list;
         cache: Term.t Term.Tbl.t;
       }
-      and hook = t -> term -> (term * dproof) option
+      and hook = t -> term -> term option
 
-      let create tst ty_st : t =
-        {tst; ty_st; hooks=[]; cache=Term.Tbl.create 32;}
+      let create tst ty_st ~proof : t =
+        {tst; ty_st; proof; hooks=[]; cache=Term.Tbl.create 32;}
+
       let[@inline] tst self = self.tst
       let[@inline] ty_st self = self.ty_st
+      let[@inline] with_proof self f = P.with_proof self.proof f
       let add_hook self f = self.hooks <- f :: self.hooks
       let clear self = Term.Tbl.clear self.cache
 
-      let normalize (self:t) (t:Term.t) : (Term.t * dproof) option =
-        let sub_proofs_: dproof list ref = ref [] in
-
+      let normalize (self:t) (t:Term.t) : Term.t option =
         (* compute and cache normal form of [t] *)
         let rec aux t : Term.t =
           match Term.Tbl.find self.cache t with
@@ -140,32 +141,30 @@ module Make(A : ARG)
           | h :: hooks_tl ->
             match h self t with
             | None -> aux_rec t hooks_tl
-            | Some (u, _) when Term.equal t u -> aux_rec t hooks_tl
-            | Some (u, pr_t_u) ->
-              sub_proofs_ := pr_t_u :: !sub_proofs_;
-              aux u
+            | Some u when Term.equal t u -> aux_rec t hooks_tl
+            | Some u -> aux u (* fixpoint *)
         in
         let u = aux t in
         if Term.equal t u then None
         else (
           (* proof: [sub_proofs |- t=u] by CC + subproof *)
-          let emit_proof p =
-            if not (T.Term.equal t u) then (
-              P.begin_subproof p;
-              List.iter (fun dp -> dp p) !sub_proofs_;
-              P.lemma_preprocess p t u;
-              P.end_subproof p;
-            )
-          in
-          Some (u, emit_proof)
+          P.with_proof self.proof (P.lemma_preprocess t u);
+          Some u
         )
 
       let normalize_t self t =
         match normalize self t with
-        | Some (u,pr) -> u, pr
-        | None -> t, (fun _ -> ())
+        | Some u -> u
+        | None -> t
     end
     type simplify_hook = Simplify.hook
+
+    module type PREPROCESS_ACTS = sig
+      val mk_lit : ?sign:bool -> term -> lit
+      val add_clause : lit list -> dproof -> unit
+      val add_lit : ?default_pol:bool -> lit -> unit
+    end
+    type preprocess_actions = (module PREPROCESS_ACTS)
 
     type t = {
       tst: Term.store; (** state for managing terms *)
@@ -181,19 +180,18 @@ module Make(A : ARG)
       simp: Simplify.t;
       mutable preprocess: preprocess_hook list;
       mutable mk_model: model_hook list;
-      preprocess_cache: (Term.t * dproof list) Term.Tbl.t;
+      preprocess_cache: Term.t Term.Tbl.t;
       mutable t_defs : (term*term) list; (* term definitions *)
       mutable th_states : th_states; (** Set of theories *)
-      mutable on_partial_check: (t -> actions -> lit Iter.t -> unit) list;
-      mutable on_final_check: (t -> actions -> lit Iter.t -> unit) list;
+      mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
+      mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
       mutable level: int;
     }
 
     and preprocess_hook =
       t ->
-      mk_lit:(term -> lit) ->
-      add_clause:(lit list -> dproof -> unit) ->
-      term -> (term * dproof) option
+      preprocess_actions ->
+      term -> term option
 
     and model_hook =
       recurse:(t -> CC.N.t -> term) ->
@@ -208,6 +206,7 @@ module Make(A : ARG)
     let[@inline] cc (t:t) = Lazy.force t.cc
     let[@inline] tst t = t.tst
     let[@inline] ty_st t = t.ty_st
+    let[@inline] with_proof self f = Proof.with_proof self.proof f
     let stats t = t.stat
 
     let define_const (self:t) ~const ~rhs : unit =
@@ -215,24 +214,24 @@ module Make(A : ARG)
 
     let simplifier self = self.simp
     let simplify_t self (t:Term.t) : _ option = Simplify.normalize self.simp t
-    let simp_t self (t:Term.t) : Term.t * dproof = Simplify.normalize_t self.simp t
+    let simp_t self (t:Term.t) : Term.t = Simplify.normalize_t self.simp t
 
     let add_simplifier (self:t) f : unit = Simplify.add_hook self.simp f
 
     let on_preprocess self f = self.preprocess <- f :: self.preprocess
     let on_model_gen self f = self.mk_model <- f :: self.mk_model
 
-    let push_decision (_self:t) (acts:actions) (lit:lit) : unit =
+    let push_decision (_self:t) (acts:theory_actions) (lit:lit) : unit =
       let (module A) = acts in
       let sign = Lit.sign lit in
       A.add_decision_lit (Lit.abs lit) sign
 
-    let[@inline] raise_conflict self (acts:actions) c proof : 'a =
+    let[@inline] raise_conflict self (acts:theory_actions) c proof : 'a =
       let (module A) = acts in
       Stat.incr self.count_conflict;
       A.raise_conflict c proof
 
-    let[@inline] propagate self (acts:actions) p ~reason : unit =
+    let[@inline] propagate self (acts:theory_actions) p ~reason : unit =
       let (module A) = acts in
       Stat.incr self.count_propagate;
       A.propagate p (Sidekick_sat.Consequence reason)
@@ -240,51 +239,61 @@ module Make(A : ARG)
     let[@inline] propagate_l self acts p cs proof : unit =
       propagate self acts p ~reason:(fun()->cs,proof)
 
-    let add_sat_clause_ self (acts:actions) ~keep lits (proof:dproof) : unit =
+    let add_sat_clause_ self (acts:theory_actions) ~keep lits (proof:dproof) : unit =
       let (module A) = acts in
       Stat.incr self.count_axiom;
       A.add_clause ~keep lits proof
 
-    let preprocess_term_ (self:t) ~add_clause (t:term) : term * dproof =
-      let mk_lit t = Lit.atom self.tst t in (* no further simplification *)
+    let add_sat_lit self ?default_pol (acts:theory_actions) (lit:Lit.t) : unit =
+      let (module A) = acts in
+      A.add_lit ?default_pol lit
+
+    (* actual preprocessing logic, acting on terms.
+       this calls all the preprocessing hooks on subterms, ensuring
+       a fixpoint. *)
+    let preprocess_term_ (self:t) (module A:PREPROCESS_ACTS) (t:term) : term =
+      let mk_lit_nopreproc t = Lit.atom self.tst t in (* no further simplification *)
 
       (* compute and cache normal form [u] of [t].
-         Also cache a list of proofs [ps] such
-         that [ps |- t=u] by CC. *)
-      let rec aux t : term * dproof list =
-        match Term.Tbl.find self.preprocess_cache t with
-        | u, ps ->
-          u, ps
-        | exception Not_found ->
-          let sub_p: _ list ref = ref [] in
 
+         Also cache a list of proofs [ps] such that [ps |- t=u] by CC.
+         It is important that we cache the proofs here, because
+         next time we preprocess [t], we will have to re-emit the same
+         proofs, even though we will not do any actual preprocessing work.
+      *)
+      let rec aux t : term =
+        match Term.Tbl.find self.preprocess_cache t with
+        | u -> u
+        | exception Not_found ->
           (* try rewrite at root *)
-          let t1 = aux_rec ~sub_p t self.preprocess in
+          let t1 = aux_rec t self.preprocess in
 
           (* map subterms *)
-          let t2 =
-            Term.map_shallow self.tst
-              (fun t_sub ->
-                 let u_sub, ps_t = aux t_sub in
-                 if not (Term.equal t_sub u_sub) then (
-                   sub_p := List.rev_append ps_t !sub_p;
-                 );
-                 u_sub)
-              t1
-          in
+          let t2 = Term.map_shallow self.tst aux t1 in
 
           let u =
             if not (Term.equal t t2) then (
-              (* fixpoint *)
-              let v, ps_t2_v = aux t2 in
-              if not (Term.equal t2 v) then (
-                sub_p := List.rev_append ps_t2_v !sub_p
-              );
-              v
+              aux t2 (* fixpoint *)
             ) else (
               t2
             )
           in
+
+          (* signal boolean subterms, so as to decide them
+             in the SAT solver *)
+          if Ty.is_bool (Term.ty u) then (
+            Log.debugf 5
+              (fun k->k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp u);
+
+            (* make a literal (already preprocessed) *)
+            let lit = mk_lit_nopreproc u in
+            (* ensure that SAT solver has a boolean atom for [u] *)
+            A.add_lit lit;
+
+            (* also map [sub] to this atom in the congruence closure, for propagation *)
+            let cc = cc self in
+            CC.set_as_lit cc (CC.add_term cc u) lit;
+          );
 
           if t != u then (
             Log.debugf 5
@@ -292,87 +301,114 @@ module Make(A : ARG)
                   Term.pp t Term.pp u);
           );
 
-          Term.Tbl.add self.preprocess_cache t (u,!sub_p);
-          u, !sub_p
+          Term.Tbl.add self.preprocess_cache t u;
+          u
 
       (* try each function in [hooks] successively *)
-      and aux_rec ~sub_p t hooks : term =
+      and aux_rec t hooks : term =
         match hooks with
         | [] -> t
         | h :: hooks_tl ->
-          match h self ~mk_lit ~add_clause t with
-          | None -> aux_rec ~sub_p t hooks_tl
-          | Some (u, ps_t_u) ->
-            sub_p := ps_t_u :: !sub_p;
-            let v, ps_u_v = aux u in
-            if t != v then (
-              sub_p := List.rev_append ps_u_v !sub_p;
-            );
-            v
+          match h self (module A) t with
+          | None -> aux_rec t hooks_tl
+          | Some u -> aux u
       in
 
-      let t1, p_t_t1 = simp_t self t in
+      P.begin_subproof self.proof;
 
-      let u, ps_t1_u = aux t1 in
+      (* simplify the term *)
+      let t1 = simp_t self t in
 
-      let emit_proof_t_eq_u =
-        if t != u then (
-          let hyps =
-            if t == t1 then ps_t1_u
-            else p_t_t1 :: ps_t1_u in
-          let emit_proof p =
-            P.begin_subproof p;
-            List.iter (fun dp -> dp p) hyps;
-            P.lemma_preprocess p t u;
-            P.end_subproof p;
-          in
-          emit_proof
-        ) else (fun _->())
-      in
-
-      u, emit_proof_t_eq_u
-
-    (* return preprocessed lit + proof they are equal *)
-    let preprocess_lit_ (self:t) ~add_clause (lit:lit) : lit * dproof =
-      let t, p = Lit.term lit |> preprocess_term_ self ~add_clause in
-      let lit' = Lit.atom self.tst ~sign:(Lit.sign lit) t in
-
-      if not (Lit.equal lit lit') then (
-        Log.debugf 10
-          (fun k->k "(@[smt-solver.preprocess.lit@ :lit %a@ :into %a@])"
-              Lit.pp lit Lit.pp lit');
+      (* preprocess *)
+      let u = aux t1 in
+      (* emit [|- t=u] *)
+      if not (Term.equal t u) then (
+        P.with_proof self.proof (P.lemma_preprocess t u);
       );
 
-      lit', p
+      P.end_subproof self.proof;
+      u
+
+    (* return preprocessed lit + proof they are equal *)
+    let preprocess_lit_ (self:t) (module A0:PREPROCESS_ACTS) (lit:lit) : lit =
+
+      (* create literal and preprocess it with [pacts], which uses [A0]
+         for the base operations, and preprocesses new literals and clauses
+         recursively. *)
+      let rec mk_lit ?sign t =
+        Log.debug 0 "A.MK_LIT";
+        let u = preprocess_term_ self (Lazy.force pacts) t in
+        if not (Term.equal t u) then (
+          Log.debugf 10
+            (fun k->k "(@[smt-solver.preprocess.t@ :t %a@ :into %a@])"
+                Term.pp t Term.pp u);
+        );
+        Lit.atom self.tst ?sign u
+
+      and preprocess_lit (lit:lit) : lit =
+        let t = Lit.term lit in
+        let sign = Lit.sign lit in
+        mk_lit ~sign t
+
+      (* wrap [A0] so that all operations go throught preprocessing *)
+      and pacts = lazy (
+        (module struct
+          let add_lit ?default_pol lit =
+            let lit = preprocess_lit lit in
+            A0.add_lit lit
+          let add_clause c pr =
+            Stat.incr self.count_preprocess_clause;
+            let c = CCList.map preprocess_lit c in
+            A0.add_clause c pr
+          let mk_lit = mk_lit
+        end : PREPROCESS_ACTS)
+      ) in
+
+      preprocess_lit lit
 
     (* add a clause using [acts] *)
     let add_clause_ self acts lits (proof:dproof) : unit =
-      Stat.incr self.count_preprocess_clause;
       add_sat_clause_ self acts ~keep:true lits proof
 
-    (* FIXME: should we store the proof somewhere? *)
-    let mk_lit self acts ?sign t : Lit.t =
-      let add_clause = add_clause_ self acts in
-      let lit, _p =
-        preprocess_lit_ self ~add_clause @@ Lit.atom self.tst ?sign t
-      in
-      lit
-
-    let[@inline] preprocess_term self ~add_clause (t:term) : term * dproof =
-      preprocess_term_ self ~add_clause t
-
-    let[@inline] add_clause_temp self acts lits (proof:dproof) : unit =
-      add_sat_clause_ self acts ~keep:false lits proof
-
-    let[@inline] add_clause_permanent self acts lits (proof:dproof) : unit =
-      add_sat_clause_ self acts ~keep:true lits proof
-
-    let[@inline] add_lit _self (acts:actions) lit : unit =
+    let[@inline] add_lit _self (acts:theory_actions) ?default_pol lit : unit =
       let (module A) = acts in
-      A.mk_lit lit
+      A.add_lit ?default_pol lit
+
+    let preprocess_acts_of_acts (self:t) (acts:theory_actions) : preprocess_actions =
+      (module struct
+        let mk_lit ?sign t = Lit.atom self.tst ?sign t
+        let add_clause = add_clause_ self acts
+        let add_lit = add_lit self acts
+      end)
+
+    let preprocess_clause_ (self:t) (acts:theory_actions) (c:lit list) : lit list =
+      let pacts = preprocess_acts_of_acts self acts in
+      let c = CCList.map (preprocess_lit_ self pacts) c in
+      c
+
+    (* make literal and preprocess it *)
+    let[@inline] mk_plit (self:t) (pacts:preprocess_actions) ?sign (t:term) : lit =
+      let lit = Lit.atom self.tst ?sign t in
+      preprocess_lit_ self pacts lit
+
+    let[@inline] preprocess_term self (pacts:preprocess_actions) (t:term) : term =
+      preprocess_term_ self pacts t
+
+    let[@inline] add_clause_temp self acts c (proof:dproof) : unit =
+      let c = preprocess_clause_ self acts c in
+      add_sat_clause_ self acts ~keep:false c proof
+
+    let[@inline] add_clause_permanent self acts c (proof:dproof) : unit =
+      let c = preprocess_clause_ self acts c in
+      add_sat_clause_ self acts ~keep:true c proof
+
+    let[@inline] mk_lit (self:t) (acts:theory_actions) ?sign t : lit =
+      let pacts = preprocess_acts_of_acts self acts in
+      mk_plit self pacts ?sign t
 
     let add_lit_t self acts ?sign t =
-      let lit = mk_lit self acts ?sign t in
+      let pacts = preprocess_acts_of_acts self acts in
+      let lit = mk_plit self pacts ?sign t in
       add_lit self acts lit
 
     let on_final_check self f = self.on_final_check <- f :: self.on_final_check
@@ -420,7 +456,7 @@ module Make(A : ARG)
     exception E_loop_exit
 
     (* handle a literal assumed by the SAT solver *)
-    let assert_lits_ ~final (self:t) (acts:actions) (lits:Lit.t Iter.t) : unit =
+    let assert_lits_ ~final (self:t) (acts:theory_actions) (lits:Lit.t Iter.t) : unit =
       Log.debugf 2
         (fun k->k "(@[<hv1>@{<green>smt-solver.assume_lits@}%s[lvl=%d]@ %a@])"
             (if final then "[final]" else "") self.level (Util.pp_iter ~sep:"; " Lit.pp) lits);
@@ -448,7 +484,7 @@ module Make(A : ARG)
       );
       ()
 
-    let[@inline] iter_atoms_ (acts:actions) : _ Iter.t =
+    let[@inline] iter_atoms_ (acts:theory_actions) : _ Iter.t =
       fun f ->
         let (module A) = acts in
         A.iter_assumptions f
@@ -481,7 +517,7 @@ module Make(A : ARG)
         proof;
         th_states=Ths_nil;
         stat;
-        simp=Simplify.create tst ty_st;
+        simp=Simplify.create tst ty_st ~proof;
         on_progress=(fun () -> ());
         preprocess=[];
         mk_model=[];
@@ -507,6 +543,7 @@ module Make(A : ARG)
     si: Solver_internal.t;
     solver: Sat_solver.t;
     stat: Stat.t;
+    proof: P.t;
     count_clause: int Stat.counter;
     count_solve: int Stat.counter;
     (* config: Config.t *)
@@ -554,7 +591,7 @@ module Make(A : ARG)
     Log.debug 5 "smt-solver.create";
     let si = Solver_internal.create ~stat ~proof tst ty_st () in
     let self = {
-      si;
+      si; proof;
       solver=Sat_solver.create ~proof ?size si;
       stat;
       count_clause=Stat.mk_int stat "solver.add-clause";
@@ -567,7 +604,7 @@ module Make(A : ARG)
       let t_true = Term.bool tst true in
       Sat_solver.add_clause self.solver
         [Lit.atom tst t_true]
-        (fun p -> P.lemma_true p t_true)
+        (P.lemma_true t_true)
     end;
     self
 
@@ -577,65 +614,25 @@ module Make(A : ARG)
   let[@inline] tst self = Solver_internal.tst self.si
   let[@inline] ty_st self = Solver_internal.ty_st self.si
 
-  (* map boolean subterms to literals *)
-  let add_bool_subterms_ (self:t) (t:Term.t) : unit =
-    Term.iter_dag t
-    |> Iter.filter (fun t -> Ty.is_bool @@ Term.ty t)
-    |> Iter.filter
-      (fun t -> match A.cc_view t with
-         | Sidekick_core.CC_view.Not _ -> false (* will process the subterm just later *)
-         | _ -> true)
-    |> Iter.filter (fun t -> A.is_valid_literal t)
-    |> Iter.iter
-      (fun sub ->
-         Log.debugf 5 (fun k->k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp sub);
-         (* ensure that SAT solver has a boolean atom for [sub] *)
-         let lit = Lit.atom self.si.tst sub in
-         Sat_solver.add_lit self.solver lit;
-         (* also map [sub] to this atom in the congruence closure, for propagation *)
-         let cc = cc self in
-         CC.set_as_lit cc (CC.add_term cc sub) lit;
-         ())
+  let preprocess_acts_of_solver_
+      (self:t) : (module Solver_internal.PREPROCESS_ACTS) =
+    (module struct
+      let mk_lit ?sign t = Lit.atom ?sign self.si.tst t
+      let add_lit ?default_pol lit =
+        Sat_solver.add_lit self.solver ?default_pol lit
+      let add_clause c pr =
+        Sat_solver.add_clause self.solver c pr
+    end)
 
-  (* preprocess literals, making them ready for being added to the solver *)
-  let rec preprocess_lit_ self lit : Lit.t * dproof =
-    let lit, proof =
-      Solver_internal.preprocess_lit_
-      ~add_clause:(fun lits proof ->
-          (* recursively add these sub-literals, so they're also properly processed *)
-          Stat.incr self.si.count_preprocess_clause;
-          let pr_l = ref [] in
-          let lits =
-            CCList.map
-              (fun lit ->
-                 let a, pr = preprocess_lit_ self lit in
-                 (* FIXME                 if not (P.is_trivial_refl pr) then ( *)
-                   pr_l := pr :: !pr_l;
-                   (*                  ); *)
-                 a)
-              lits
-          in
-          let emit_proof p = List.iter (fun dp -> dp p) !pr_l; in
-          Sat_solver.add_clause self.solver lits emit_proof)
-      self.si lit
-    in
-    Sat_solver.add_lit self.solver lit;
-    lit, proof
+  (* preprocess literal *)
+  let preprocess_lit_ (self:t) (lit:lit) : lit =
+    let pacts = preprocess_acts_of_solver_ self in
+    Solver_internal.preprocess_lit_ self.si pacts lit
 
-  (* FIXME: should we just add the proof instead? *)
-  let[@inline] preprocess_lit' self lit : Lit.t =
-    fst (preprocess_lit_ self lit)
-
-  (* FIXME: should we just assert the proof instead? or do we wait because
-     we're most likely in a subproof? *)
-  let rec mk_lit_t (self:t) ?sign (t:term) : lit * dproof =
-    let lit = Lit.atom ?sign self.si.tst t in
-    let lit, proof = preprocess_lit_ self lit in
-    Sat_solver.add_lit self.solver lit;
-    add_bool_subterms_ self (Lit.term lit);
-    lit, proof
-
-  let[@inline] mk_lit_t' self ?sign lit = mk_lit_t self ?sign lit |> fst
+  (* make a literal from a term, ensuring it is properly preprocessed *)
+  let mk_lit_t (self:t) ?sign (t:term) : lit =
+    let pacts = preprocess_acts_of_solver_ self in
+    Solver_internal.mk_plit self.si pacts ?sign t
 
   (** {2 Result} *)
 
@@ -699,12 +696,11 @@ module Make(A : ARG)
 
   let assert_terms self c =
     let c = CCList.map (fun t -> Lit.atom (tst self) t) c in
-    let emit_proof p =
-      P.emit_input_clause p (Iter.of_list c)
-    in
-    (* FIXME: just emit proofs on the fly? *)
-    let c = CCList.map (preprocess_lit' self) c in
-    add_clause_l self c emit_proof
+    let c = CCList.map (preprocess_lit_ self) c in
+    (* TODO: if c != c0 then P.emit_redundant_clause c
+       because we jsut preprocessed it away? *)
+    let dp = P.emit_input_clause (Iter.of_list c) in
+    add_clause_l self c dp
 
   let assert_term self t = assert_terms self [t]
 

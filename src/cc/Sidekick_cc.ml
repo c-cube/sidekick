@@ -660,7 +660,7 @@ module Make (A: CC_ARG)
         let lits = explain_equal cc ~th lits b rb in
         let emit_proof p =
           let p_lits = Iter.of_list lits |> Iter.map Lit.neg in
-          P.lemma_cc p p_lits in
+          P.lemma_cc p_lits p in
         raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) emit_proof
       );
       (* We will merge [r_from] into [r_into].
@@ -779,7 +779,7 @@ module Make (A: CC_ARG)
                let emit_proof p =
                  (* make a tautology, not a true guard *)
                  let p_lits = Iter.cons lit (Iter.of_list lits |> Iter.map Lit.neg) in
-                 P.lemma_cc p p_lits
+                 P.lemma_cc p_lits p
                in
                lits, emit_proof
              ) in
@@ -850,7 +850,7 @@ module Make (A: CC_ARG)
     let lits = List.rev_map Lit.neg lits in
     let emit_proof p =
       let p_lits = Iter.of_list lits in
-      P.lemma_cc p p_lits
+      P.lemma_cc p_lits p
     in
     raise_conflict_ cc ~th:!th acts lits emit_proof
 

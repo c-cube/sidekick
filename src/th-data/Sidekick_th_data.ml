@@ -74,9 +74,9 @@ module type ARG = sig
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
 
-  val lemma_isa_split : S.proof -> S.Lit.t Iter.t -> unit
-  val lemma_isa_disj : S.proof -> S.Lit.t Iter.t -> unit
-  val lemma_cstor_inj : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_isa_split : S.Lit.t Iter.t -> S.proof -> unit
+  val lemma_isa_disj : S.Lit.t Iter.t -> S.proof -> unit
+  val lemma_cstor_inj : S.Lit.t Iter.t -> S.proof -> unit
 end
 
 (** Helper to compute the cardinality of types *)
@@ -496,7 +496,7 @@ module Make(A : ARG) : S with module A = A = struct
       end;
       g
 
-    let check (self:t) (solver:SI.t) (acts:SI.actions) : unit =
+    let check (self:t) (solver:SI.t) (acts:SI.theory_actions) : unit =
       let cc = SI.cc solver in
       (* create graph *)
       let g = mk_graph self cc in
@@ -574,19 +574,19 @@ module Make(A : ARG) : S with module A = A = struct
         |> Iter.to_rev_list
       in
       SI.add_clause_permanent solver acts c
-        (fun p -> A.lemma_isa_split p (Iter.of_list c));
+        (A.lemma_isa_split (Iter.of_list c));
       Iter.diagonal_l c
         (fun (c1,c2) ->
-           let emit_proof p =
-             A.lemma_isa_disj p (Iter.of_list [SI.Lit.neg c1; SI.Lit.neg c2]) in
+           let pr =
+             A.lemma_isa_disj (Iter.of_list [SI.Lit.neg c1; SI.Lit.neg c2]) in
            SI.add_clause_permanent solver acts
-             [SI.Lit.neg c1; SI.Lit.neg c2] emit_proof);
+             [SI.Lit.neg c1; SI.Lit.neg c2] pr);
     )
 
   (* on final check, check acyclicity,
      then make sure we have done case split on all terms that
      need it. *)
-  let on_final_check (self:t) (solver:SI.t) (acts:SI.actions) trail =
+  let on_final_check (self:t) (solver:SI.t) (acts:SI.theory_actions) trail =
     Profile.with_ "data.final-check" @@ fun () ->
     check_is_a self solver acts trail;
 

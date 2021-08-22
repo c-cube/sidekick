@@ -8,7 +8,7 @@ type t = unit
 type dproof = t -> unit
 
 let create () : t = ()
-let enabled _ = false
+let with_proof _ _ = ()
 
 let begin_subproof _ = ()
 let end_subproof _ = ()
@@ -26,5 +26,5 @@ let lemma_isa_split _ _ = ()
 let lemma_bool_tauto _ _ = ()
 let lemma_bool_c _ _ _ = ()
 let lemma_bool_equiv _ _ _ = ()
-let lemma_ite_true _ ~a:_ ~ite:_  = ()
-let lemma_ite_false _ ~a:_ ~ite:_  = ()
+let lemma_ite_true ~a:_ ~ite:_ _ = ()
+let lemma_ite_false ~a:_ ~ite:_ _ = ()

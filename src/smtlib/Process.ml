@@ -233,7 +233,7 @@ let process_stmt
       (* FIXME: how to map [l] to [assumptions] in proof? *)
       let assumptions =
         List.map
-          (fun (sign,t) -> Solver.mk_lit_t' solver ~sign t)
+          (fun (sign,t) -> Solver.mk_lit_t solver ~sign t)
           l
       in
       solve
@@ -253,33 +253,24 @@ let process_stmt
       if pp_cnf then (
         Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t
       );
-      let lit = Solver.mk_lit_t' solver t in
+      let lit = Solver.mk_lit_t solver t in
       Solver.add_clause solver (IArray.singleton lit)
-        (fun p -> Solver.P.emit_input_clause p (Iter.singleton lit));
+        (Solver.P.emit_input_clause (Iter.singleton lit));
       E.return()
 
     | Statement.Stmt_assert_clause c_ts ->
       if pp_cnf then (
         Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c_ts
       );
-      let pr_l = ref [] in
-      let c =
-        List.map
-          (fun t ->
-             let lit, pr = Solver.mk_lit_t solver t in
-             pr_l := pr :: !pr_l;
-             lit)
-          c_ts in
+
+      let c = CCList.map (fun t -> Solver.mk_lit_t solver t) c_ts in
 
       (* proof of assert-input + preprocessing *)
       let emit_proof p =
         let module P = Solver.P in
-        P.begin_subproof p;
         let tst = Solver.tst solver in
-        P.emit_input_clause p (Iter.of_list c_ts |> Iter.map (Lit.atom tst));
-        List.iter (fun dp -> dp p) !pr_l;
-        P.emit_redundant_clause p (Iter.of_list c);
-        P.end_subproof p;
+        P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) p;
+        P.emit_redundant_clause (Iter.of_list c) p;
       in
 
       Solver.add_clause solver (IArray.of_list c) emit_proof;
