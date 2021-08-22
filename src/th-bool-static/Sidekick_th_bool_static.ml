@@ -277,7 +277,7 @@ module Make(A : ARG) : S with module A = A = struct
     and get_lit_uncached si t : Lit.t option =
       match A.view_as_bool t with
       | B_opaque_bool _ -> None
-      | B_bool b -> Some (PA.mk_lit (T.bool self.tst b))
+      | B_bool _ -> None
       | B_not u ->
         let lit = get_lit_opt u in
         CCOpt.map Lit.neg lit
