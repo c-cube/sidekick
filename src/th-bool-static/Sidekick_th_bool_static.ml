@@ -102,13 +102,11 @@ module Make(A : ARG) : S with module A = A = struct
   type state = {
     tst: T.store;
     ty_st: Ty.store;
-    cnf: Lit.t T.Tbl.t; (* tseitin CNF *)
     gensym: A.Gensym.t;
   }
 
   let create tst ty_st : state =
     { tst; ty_st;
-      cnf=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
     }
 
@@ -220,31 +218,8 @@ module Make(A : ARG) : S with module A = A = struct
 
     let mk_lit = PA.mk_lit in
 
-    let rec get_lit_opt (t:T.t) : Lit.t option =
-      let t_abs, t_sign = T.abs self.tst t in
-      let lit_abs =
-        match T.Tbl.find self.cnf t_abs with
-        | lit -> Some lit (* cached *)
-        | exception Not_found ->
-          (* compute and cache, if present *)
-          let lit = get_lit_uncached si t_abs in
-          begin match lit with
-            | None -> ()
-            | Some lit ->
-              if not (T.equal (Lit.term lit) t_abs) then (
-                T.Tbl.add self.cnf t_abs lit;
-                Log.debugf 20
-                  (fun k->k "(@[sidekick.bool.add-lit@ :lit %a@ :for-t %a@])"
-                      Lit.pp lit T.pp t_abs);
-              );
-          end;
-          lit
-      in
-
-      let lit = if t_sign then lit_abs else CCOpt.map Lit.neg lit_abs in
-      lit
-
-    and equiv_ si ~is_xor ~for_t t_a t_b : Lit.t =
+    (* handle boolean equality *)
+    let equiv_ si ~is_xor ~for_t t_a t_b : Lit.t =
       let a = mk_lit t_a in
       let b = mk_lit t_b in
       let a = if is_xor then Lit.neg a else a in (* [a xor b] is [(¬a) = b] *)
@@ -272,14 +247,15 @@ module Make(A : ARG) : S with module A = A = struct
         (if is_xor then A.lemma_bool_c "xor-i" [t_proxy; t_b]
          else A.lemma_bool_c "eq-i-" [t_proxy]);
       proxy
+    in
 
     (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
-    and get_lit_uncached si t : Lit.t option =
+    let rec get_lit_for_term_ t : Lit.t option =
       match A.view_as_bool t with
       | B_opaque_bool _ -> None
       | B_bool _ -> None
       | B_not u ->
-        let lit = get_lit_opt u in
+        let lit = get_lit_for_term_ u in
         CCOpt.map Lit.neg lit
 
       | B_and l ->
@@ -343,7 +319,7 @@ module Make(A : ARG) : S with module A = A = struct
       | B_atom _ -> None
     in
 
-    begin match get_lit_opt t with
+    begin match get_lit_for_term_ t with
       | None -> None
       | Some lit ->
         let u = Lit.term lit in
