@@ -594,7 +594,7 @@ module Make(A : ARG)
     let si = Solver_internal.create ~stat ~proof tst ty_st () in
     let self = {
       si; proof;
-      solver=Sat_solver.create ~proof ?size si;
+      solver=Sat_solver.create ~proof ?size ~stat si;
       stat;
       count_clause=Stat.mk_int stat "solver.add-clause";
       count_solve=Stat.mk_int stat "solver.solve";

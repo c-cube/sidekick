@@ -176,11 +176,10 @@ let main_cnf () : _ result =
     )
   in
 
-  let n_atoms = ref 0 in
+  let stat = Stat.create () in
   let solver =
     S.SAT.create
-      ~size:`Big
-      ?on_learnt ?on_gc ~proof ()
+      ~size:`Big ?on_learnt ?on_gc ~proof ~stat ()
   in
 
   S.Dimacs.parse_file solver !file >>= fun () ->
@@ -188,10 +187,7 @@ let main_cnf () : _ result =
 
   close_proof_();
   if !p_stat then (
-    Fmt.printf "; n-conflicts: %d n-decisions: %d n-propagations: %d@.\
-                ; n-restarts: %d n-atoms: %d@."
-      (S.SAT.n_conflicts solver) (S.SAT.n_decisions solver)
-      (S.SAT.n_propagations solver) (S.SAT.n_restarts solver) !n_atoms;
+    Fmt.printf "%a@." Stat.pp_all (Stat.all stat);
   );
   r
 

@@ -259,6 +259,7 @@ module type S = sig
     ?on_decision:(t -> lit -> unit) ->
     ?on_learnt:(t -> Clause.t -> unit) ->
     ?on_gc:(t -> lit array -> unit) ->
+    ?stat:Stat.t ->
     ?size:[`Tiny|`Small|`Big] ->
     proof:Proof.t ->
     theory ->
@@ -274,6 +275,9 @@ module type S = sig
 
   val store : t -> store
   (** Store for the solver *)
+
+  val stat : t -> Stat.t
+  (** Statistics *)
 
   val proof : t -> proof
   (** Access the inner proof *)
@@ -331,10 +335,5 @@ module type S = sig
 
   val eval_lit : t -> lit -> lbool
   (** Evaluate atom in current state *)
-
-  val n_propagations : t -> int
-  val n_decisions : t -> int
-  val n_conflicts : t -> int
-  val n_restarts : t -> int
 end
 

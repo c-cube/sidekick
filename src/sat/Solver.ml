@@ -132,17 +132,20 @@ module Make(Plugin : PLUGIN)
       (* TODO: store watches in clauses instead *)
       a_watched: Clause0.CVec.t Vec.t;
 
+      stat_n_atoms: int Stat.counter;
+
       (* clauses *)
       c_store: cstore;
     }
     type store = t
 
-    let create ?(size=`Big) () : t =
+    let create ?(size=`Big) ~stat () : t =
       let size_map = match size with
         | `Tiny -> 8
         | `Small -> 16
         | `Big -> 4096
       in
+      let stat_n_atoms = Stat.mk_int stat "sat.n-atoms" in
       { v_of_lit = Lit_tbl.create size_map;
         v_level = Vec.create();
         v_heap_idx = Vec.create();
@@ -155,6 +158,7 @@ module Make(Plugin : PLUGIN)
         a_form=Vec.create();
         a_watched=Vec.create();
         a_seen=Bitvec.create();
+        stat_n_atoms;
         c_store={
           c_lits=Vec.create();
           c_activity=Vec_float.create();
@@ -437,12 +441,14 @@ module Make(Plugin : PLUGIN)
     (* allocate new variable *)
     let alloc_var_uncached_ ?default_pol:(pol=true) self (form:lit) : var =
       let {v_count; v_of_lit; v_level; v_heap_idx; v_weight;
-           v_reason; v_seen; v_default_polarity;
+           v_reason; v_seen; v_default_polarity; stat_n_atoms;
            a_is_true; a_seen; a_watched; a_form; c_store=_;
           } = self in
 
       let v_idx = v_count in
       let v = Var.of_int_unsafe v_idx in
+
+      Stat.incr stat_n_atoms;
 
       self.v_count <- 1 + v_idx;
       Lit_tbl.add v_of_lit form v;
@@ -614,10 +620,11 @@ module Make(Plugin : PLUGIN)
     mutable on_learnt : (t -> Clause.t -> unit) option;
     mutable on_gc : (t -> lit array -> unit) option;
 
-    mutable n_conflicts : int;
-    mutable n_propagations : int;
-    mutable n_decisions : int;
-    mutable n_restarts : int;
+    stat: Stat.t;
+    n_conflicts: int Stat.counter;
+    n_propagations : int Stat.counter;
+    n_decisions : int Stat.counter;
+    n_restarts : int Stat.counter;
   }
   type solver = t
 
@@ -631,7 +638,7 @@ module Make(Plugin : PLUGIN)
   let _nop_on_conflict (_:atom array) = ()
 
   (* Starting environment. *)
-  let create_ ~store ~proof (th:theory) : t = {
+  let create_ ~store ~proof ~stat (th:theory) : t = {
     store; th;
     unsat_at_0=None;
     next_decisions = [];
@@ -658,10 +665,11 @@ module Make(Plugin : PLUGIN)
 
     proof;
 
-    n_conflicts = 0;
-    n_decisions = 0;
-    n_propagations = 0;
-    n_restarts = 0;
+    stat;
+    n_conflicts = Stat.mk_int stat "sat.n-conflicts";
+    n_decisions = Stat.mk_int stat "sat.n-decisions";
+    n_propagations = Stat.mk_int stat "sat.n-propagations";
+    n_restarts = Stat.mk_int stat "sat.n-restarts";
 
     on_conflict = None;
     on_decision= None;
@@ -670,11 +678,11 @@ module Make(Plugin : PLUGIN)
   }
 
   let create
-      ?on_conflict ?on_decision ?on_learnt ?on_gc
+      ?on_conflict ?on_decision ?on_learnt ?on_gc ?(stat=Stat.global)
       ?(size=`Big) ~proof
       (th:theory) : t =
-    let store = Store.create ~size () in
-    let self = create_ ~store ~proof th in
+    let store = Store.create ~size ~stat () in
+    let self = create_ ~store ~proof ~stat th in
     self.on_decision <- on_decision;
     self.on_conflict <- on_conflict;
     self.on_learnt <- on_learnt;
@@ -682,12 +690,8 @@ module Make(Plugin : PLUGIN)
     self
 
   let[@inline] decision_level st = Vec.size st.var_levels
-
   let[@inline] nb_clauses st = Vec.size st.clauses_hyps
-  let n_propagations self = self.n_propagations
-  let n_decisions self = self.n_decisions
-  let n_conflicts self = self.n_conflicts
-  let n_restarts self = self.n_restarts
+  let stat self = self.stat
 
   (* Do we have a level-0 empty clause? *)
   let[@inline] check_unsat_ st =
@@ -1363,7 +1367,7 @@ module Make(Plugin : PLUGIN)
           self.elt_head <- Vec.size self.trail;
           raise_notrace (Conflict c)
         ) else (
-          self.n_propagations <- 1 + self.n_propagations;
+          Stat.incr self.n_propagations;
           enqueue_bool self first ~level:(decision_level self) (Bcp c)
         );
         Watch_kept
@@ -1462,7 +1466,7 @@ module Make(Plugin : PLUGIN)
           Clause.make_l store ~removable:true (p :: l)
         ) in
         let level = decision_level self in
-        self.n_propagations <- 1 + self.n_propagations;
+        Stat.incr self.n_propagations;
         enqueue_bool self p ~level (Bcp_lazy c)
       )
 
@@ -1694,7 +1698,7 @@ module Make(Plugin : PLUGIN)
       new_decision_level self;
       let current_level = decision_level self in
       enqueue_bool self atom ~level:current_level Decision;
-      self.n_decisions <- 1 + self.n_decisions;
+      Stat.incr self.n_decisions;
       (match self.on_decision with Some f -> f self (Atom.lit self.store atom) | None -> ());
     )
 
@@ -1743,7 +1747,7 @@ module Make(Plugin : PLUGIN)
         ) else (
           add_clause_ st confl
         );
-        st.n_conflicts <- 1 + st.n_conflicts;
+        Stat.incr st.n_conflicts;
         (match st.on_conflict with Some f -> f st confl | None -> ());
 
       | None -> (* No Conflict *)
@@ -1752,7 +1756,7 @@ module Make(Plugin : PLUGIN)
         if n_of_conflicts > 0 && !conflictC >= n_of_conflicts then (
           Log.debug 1 "(sat.restarting)";
           cancel_until st 0;
-          st.n_restarts <- 1 + st.n_restarts;
+          Stat.incr st.n_restarts;
           raise_notrace Restart
         );
         (* if decision_level() = 0 then simplify (); *)
@@ -1816,7 +1820,7 @@ module Make(Plugin : PLUGIN)
                   ~f:(fun a -> insert_var_order self (Atom.var a));
                 Log.debugf 5 (fun k -> k "(@[sat.theory-conflict-clause@ %a@])"
                                  (Clause.debug self.store) c);
-                self.n_conflicts <- 1 + self.n_conflicts;
+                Stat.incr self.n_conflicts;
                 (match self.on_conflict with Some f -> f self c | None -> ());
                 Vec.push self.clauses_to_add c;
                 flush_clauses self;
