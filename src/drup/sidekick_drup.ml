@@ -49,6 +49,7 @@ module type S = sig
     val pp : t Fmt.printer
 
     val of_list : store -> atom list -> t
+    val of_iter : store -> atom Iter.t -> t
   end
   type clause = Clause.t
 
@@ -95,6 +96,7 @@ module Make() : S = struct
         not (is_true self a) && not (is_false self a)
       let set = Bitvec.set
     end
+    module Set = CCSet.Make(CCInt)
     module Map = struct
       type 'a t = 'a Vec.t
       let create () = Vec.create ()
@@ -125,6 +127,7 @@ module Make() : S = struct
     val set_watches : t -> atom * atom -> unit
     val pp : t Fmt.printer
     val of_list : store -> atom list -> t
+    val of_iter : store -> atom Iter.t -> t
     module Set : CCSet.S with type elt = t
     module Tbl : CCHashtbl.S with type key = t
   end = struct
@@ -153,13 +156,15 @@ module Make() : S = struct
         | (p,q) -> Fmt.fprintf out "@ :watches (%a,%a)" Atom.pp p Atom.pp q in
       Fmt.fprintf out "(@[cl[%d]@ %a%a])"
         self.id (Fmt.Dump.array Atom.pp) self.atoms pp_watches self.watches
-    let of_list self atoms : t =
+    let of_iter self (atoms:atom Iter.t) : t =
       (* normalize + find in table *)
-      let atoms = List.sort_uniq Atom.compare atoms |> Array.of_list in
+      let atoms = Atom.Set.of_iter atoms |> Atom.Set.to_iter |> Iter.to_array  in
       let id = self.n in
       self.n <- 1 + self.n;
       let c = {atoms; id; watches=Atom.dummy, Atom.dummy} in
       c
+    let of_list self atoms : t = of_iter self (Iter.of_list atoms)
+
     module As_key = struct
       type nonrec t=t
       let[@inline] hash a = CCHash.int a.id

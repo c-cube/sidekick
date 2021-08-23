@@ -3,8 +3,9 @@ module BL = Sidekick_bin_lib
 
 let clause_of_int_l store atoms : Drup_check.clause =
   atoms
-  |> CCList.map Drup_check.Atom.of_int_dimacs
-  |> Drup_check.Clause.of_list store
+  |> Iter.of_list
+  |> Iter.map Drup_check.Atom.of_int_dimacs
+  |> Drup_check.Clause.of_iter store
 
 let check ?pb proof : bool =
   Profile.with_ "check" @@ fun() ->
@@ -28,26 +29,40 @@ let check ?pb proof : bool =
       Error.errorf "unknown problem file extension '%s'" (Filename.extension f)
   end;
 
+  let add_proof_from_chan ic =
+    let p = BL.Drup_parser.create_chan ic in
+    BL.Drup_parser.iter p
+      (function
+        | BL.Drup_parser.Input c ->
+          let c = clause_of_int_l cstore c in
+          Drup_check.Trace.add_input_clause trace c
+        | BL.Drup_parser.Add c ->
+          let c = clause_of_int_l cstore c in
+          Drup_check.Trace.add_clause trace c
+        | BL.Drup_parser.Delete c ->
+          let c = clause_of_int_l cstore c in
+          Drup_check.Trace.del_clause trace c)
+  in
+
   (* add proof to trace *)
   begin match proof with
     | f when Filename.extension f = ".drup" ->
+      (* read file *)
       Profile.with_ "parse-proof.drup" @@ fun() ->
-      CCIO.with_in f
-        (fun ic ->
-           let p = BL.Drup_parser.create_chan ic in
-           BL.Drup_parser.iter p
-             (function
-               | BL.Drup_parser.Input c ->
-                 let c = clause_of_int_l cstore c in
-                 Drup_check.Trace.add_input_clause trace c
-               | BL.Drup_parser.Add c ->
-                 let c = clause_of_int_l cstore c in
-                 Drup_check.Trace.add_clause trace c
-               | BL.Drup_parser.Delete c ->
-                 let c = clause_of_int_l cstore c in
-                 Drup_check.Trace.del_clause trace c))
+      CCIO.with_in f add_proof_from_chan
+
+    | f when Filename.extension f = ".gz" ->
+      (* read compressed proof *)
+      Profile.with_ "parse-proof.drup" @@ fun() ->
+      (* TODO: more graceful failure mode here *)
+      assert (Filename.extension @@ Filename.chop_extension f = ".drup");
+      let cmd = Printf.sprintf "gzip --keep -d -c \"%s\"" f in
+      Log.debugf 1 (fun k->k"command to open proof: %s" cmd);
+      let p = Unix.open_process_in cmd in
+      CCFun.finally ~h:(fun () -> ignore (Unix.close_process_in p))
+        ~f:(fun () -> add_proof_from_chan p)
+
     | f ->
-      (* TODO: handle .drup.gz *)
       Error.errorf "unknown proof file extension '%s'" (Filename.extension f)
   end;
 
