@@ -83,6 +83,8 @@ let () =
   Printexc.record_backtrace true;
   Sidekick_tef.setup();
 
+  let t1 = Unix.gettimeofday() in
+
   Arg.parse opts (fun f -> files := f :: !files) "checker [opt]* [file]+";
 
   let ok =
@@ -96,7 +98,7 @@ let () =
     | _ -> Error.errorf "expected <problem>? <proof>"
   in
 
-  let t2 = Mtime_clock.elapsed () |> Mtime.Span.to_s in
+  let t2 = Unix.gettimeofday() -. t1 in
   Format.printf "c %s@." (if ok then "OK" else "FAIL");
   Format.printf "c elapsed time: %.3fs@." t2;
   if not ok then exit 1
