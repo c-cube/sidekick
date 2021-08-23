@@ -940,6 +940,8 @@ module Make(Plugin : PLUGIN)
       | US_false c ->
         self.unsat_at_0 <- Some c;
         (match self.on_learnt with Some f -> f self c | None -> ());
+        Proof.with_proof self.proof
+          (Proof.emit_redundant_clause (Clause.lits_iter self.store c));
         US_false c
       | _ -> us
     in
@@ -1206,6 +1208,8 @@ module Make(Plugin : PLUGIN)
           let uclause =
             Clause.make_a store ~removable:true cr.cr_learnt in
           (match self.on_learnt with Some f -> f self uclause | None -> ());
+          Proof.with_proof self.proof
+            (Proof.emit_redundant_clause (Clause.lits_iter self.store uclause));
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool self fuip ~level:0 (Bcp uclause)
         )
@@ -1218,6 +1222,8 @@ module Make(Plugin : PLUGIN)
         attach_clause self lclause;
         clause_bump_activity self lclause;
         (match self.on_learnt with Some f -> f self lclause | None -> ());
+        Proof.with_proof self.proof
+          (Proof.emit_redundant_clause (Clause.lits_iter self.store lclause));
         assert (cr.cr_is_uip);
         enqueue_bool self fuip ~level:cr.cr_backtrack_lvl (Bcp lclause)
     end;
@@ -1650,6 +1656,8 @@ module Make(Plugin : PLUGIN)
       (match self.on_gc with
        | Some f -> let lits = Clause.lits_a store c in f self lits
        | None -> ());
+      Proof.with_proof self.proof
+        (Proof.del_clause (Clause.lits_iter store c));
     in
 
     (* find clauses to GC *)
@@ -1943,6 +1951,8 @@ module Make(Plugin : PLUGIN)
       solve_ self;
       Sat (mk_sat self)
     with E_unsat us ->
+      (* emit empty clause *)
+      Proof.with_proof self.proof (Proof.emit_redundant_clause Iter.empty);
       Unsat (mk_unsat self us)
 
   let true_at_level0 (self:t) (lit:lit) : bool =
