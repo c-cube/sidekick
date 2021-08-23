@@ -3,4 +3,4 @@
  (public_name sidekick.smt-solver)
  (libraries containers iter sidekick.core sidekick.util
             sidekick.cc sidekick.sat)
- (flags :standard -open Sidekick_util))
+ (flags :standard -warn-error -a+8 -open Sidekick_util))
