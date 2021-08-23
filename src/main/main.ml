@@ -143,49 +143,28 @@ let main_smt () : _ result =
 let main_cnf () : _ result =
   let module Proof = Pure_sat_solver.Proof in
   let module S = Pure_sat_solver in
-  (* TODO: switch proof depending on whether we need proofs or not *)
-  let proof = Proof.dummy in
 
-  (* FIXME: this should go in the proof module, or is already redundant? *)
-  let close_proof_, on_learnt, on_gc =
-    if !proof_file ="" then (
-      (fun() -> ()), None, None
+  let proof, in_memory_proof =
+    if !check then (
+      let pr, inmp = Proof.create_in_memory () in
+      pr, Some inmp
+    ) else if !proof_file <> "" then (
+      Proof.create_to_file !proof_file, None
     ) else (
-      let oc = open_out !proof_file in
-      let pp_lits lits =
-        Array.iteri (fun i v ->
-            if i>0 then output_char oc ' ';
-            output_string oc (string_of_int v))
-          lits
-      in
-      let pp_c solver c =
-        let store = S.SAT.store solver in
-        let lits = S.SAT.Clause.lits_a store c in
-        pp_lits lits
-      in
-      let on_learnt solver c =
-        pp_c solver c; output_string oc " 0\n";
-      and on_gc solver c =
-        output_string oc "d "; pp_lits c; output_string oc " 0\n";
-        ()
-      and close () =
-        flush oc;
-        close_out_noerr oc;
-      in
-      close, Some on_learnt, Some on_gc
+      Proof.dummy, None
     )
   in
 
   let stat = Stat.create () in
-  let solver =
-    S.SAT.create
-      ~size:`Big ?on_learnt ?on_gc ~proof ~stat ()
-  in
+  let solver = S.SAT.create ~size:`Big ~proof ~stat () in
 
   S.Dimacs.parse_file solver !file >>= fun () ->
-  let r = S.solve  ~check:!check solver in
+  let r = S.solve ~check:!check ?in_memory_proof solver in
 
-  close_proof_();
+  (* FIXME: if in memory proof and !proof_file<>"",
+     then dump proof into file now *)
+
+  Proof.close proof;
   if !p_stat then (
     Fmt.printf "%a@." Stat.pp_all (Stat.all stat);
   );
