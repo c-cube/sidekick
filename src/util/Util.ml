@@ -35,7 +35,7 @@ let array_of_list_map f l =
     arr
 
 let array_to_list_map f arr =
-  List.init (Array.length arr) (fun i -> f arr.(i))
+  CCList.init (Array.length arr) (fun i -> f arr.(i))
 
 let setup_gc () =
   let g = Gc.get () in
