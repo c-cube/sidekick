@@ -13,619 +13,505 @@ module type PLUGIN_CDCL_T = Solver_intf.PLUGIN_CDCL_T
 let invalid_argf fmt =
   Format.kasprintf (fun msg -> invalid_arg ("sidekick.sat: " ^ msg)) fmt
 
+module type INT_ID = sig
+  type t = private int
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val hash : t -> int
+  val to_int : t -> int
+  val of_int_unsafe : int -> t
+end
+
+module Mk_int_id() = struct
+  type t = int
+  let equal : t -> t -> bool = (=)
+  let compare : t -> t -> int = compare
+  let hash = CCHash.int
+  let[@inline] to_int i = i
+  external of_int_unsafe : int -> t = "%identity"
+end
+
 module Make(Plugin : PLUGIN)
 = struct
-  module Formula = Plugin.Formula
-
-  type formula = Formula.t
+  type lit = Plugin.lit
   type theory = Plugin.t
-  type lemma = Plugin.proof
+  type proof = Plugin.proof
+  type dproof = proof -> unit
 
-  type var = {
-    vid : int;
-    pa : atom;
-    na : atom;
-    mutable v_fields : int;
-    mutable v_level : int;
-    mutable v_idx: int; (** position in heap *)
-    mutable v_weight : float; (** Weight (for the heap), tracking activity *)
-    mutable reason : reason option;
-  }
+  module Lit = Plugin.Lit
+  module Proof = Plugin.Proof
 
-  and atom = {
-    aid : int;
-    var : var;
-    neg : atom;
-    lit : formula;
-    mutable is_true : bool;
-    watched : clause Vec.t;
-  }
+  (* ### types ### *)
 
-  and clause = {
-    cid: int;
-    atoms : atom array;
-    mutable cpremise : premise;
-    mutable activity : float;
-    mutable flags: int; (* bitfield *)
-  }
+  (* a boolean variable (positive int) *)
+  module Var0 : sig
+    include INT_ID
+    module Set : Set.S with type elt = t
+  end = struct
+    include Mk_int_id()
+    module Set = Util.Int_set
+  end
+  type var = Var0.t
+
+  (* a signed atom. +v is (v << 1), -v is (v<<1 | 1) *)
+  module Atom0 : sig
+    include INT_ID
+    val neg : t -> t
+    val sign : t -> bool
+
+    val of_var : var -> t
+    val var : t -> var
+    val abs : t -> t
+    val pa : var -> t
+    val na : var -> t
+    module Set : CCSet.S with type elt = t
+  end = struct
+    include Mk_int_id()
+    let[@inline] neg i = (i lxor 1)
+    let[@inline] sign i = (i land 1) = 0
+
+    let[@inline] pa v = (v:var:>int) lsl 1
+    let of_var = pa
+    let[@inline] abs a = a land (lnot 1)
+    let[@inline] var a = Var0.of_int_unsafe (a lsr 1)
+    let[@inline] na v = (((v:var:>int) lsl 1) lor 1)
+    module Set = Util.Int_set
+  end
+  type atom = Atom0.t
+
+  module Clause0 : sig
+    include INT_ID
+    module Tbl : Hashtbl.S with type key = t
+    module CVec : Vec_sig.S with type elt := t
+  end = struct
+    include Mk_int_id()
+    module Tbl = Util.Int_tbl
+    module CVec = VecI32
+  end
+  type clause = Clause0.t
 
   and reason =
     | Decision
     | Bcp of clause
     | Bcp_lazy of clause lazy_t
 
-  (* TODO: remove, replace with user-provided proof trackng device?
-     for pure SAT, [reason] is sufficient *)
-  and premise =
-    | Hyp of lemma
-    | Local
-    | Lemma of lemma
-    | History of clause list
-    | Empty_premise
+  (** Vector of clauses *)
+  module CVec = Clause0.CVec
 
-  (* Constructors *)
-  module MF = Hashtbl.Make(Formula)
+  (* ### stores ### *)
 
-  (* state for variables. declared separately because it simplifies our
-     life below, as it's required to construct new atoms/variables *)
-  type st = {
-    f_map: var MF.t;
-    vars: var Vec.t;
-    mutable cpt_mk_var: int;
-    mutable cpt_mk_clause: int;
-  }
+  module Lit_tbl = Hashtbl.Make(Lit)
 
-  let create_st ?(size=`Big) () : st =
-    let size_map = match size with
-      | `Tiny -> 8
-      | `Small -> 16
-      | `Big -> 4096
-    in
-    { f_map = MF.create size_map;
-      vars = Vec.create();
-      cpt_mk_var = 0;
-      cpt_mk_clause = 0;
+  (* variable/atom store *)
+  module Store = struct
+    type cstore = {
+      c_lits: atom array Vec.t; (* storage for clause content *)
+      c_activity: Vec_float.t;
+      c_recycle_idx: VecI32.t; (* recycle clause numbers that were GC'd *)
+      c_attached: Bitvec.t;
+      c_marked: Bitvec.t; (* TODO : remove *)
+      c_removable: Bitvec.t;
+      c_dead: Bitvec.t;
     }
 
-  let nb_elt st = Vec.size st.vars
-  let get_elt st i = Vec.get st.vars i
-  let iter_elt st f = Vec.iter f st.vars
+    type t = {
+      (* variables *)
+      v_of_lit: var Lit_tbl.t;
+      v_level: int Vec.t;
+      v_heap_idx: int Vec.t;
+      v_weight: Vec_float.t;
+      v_reason: reason option Vec.t;
+      v_seen: Bitvec.t;
+      v_default_polarity: Bitvec.t;
+      mutable v_count : int;
 
-  let kind_of_clause c = match c.cpremise with
-    | Hyp _ -> "H"
-    | Lemma _ -> "T"
-    | Local -> "L"
-    | History _ -> "C"
-    | Empty_premise -> ""
+      (* atoms *)
+      a_is_true: Bitvec.t;
+      a_seen: Bitvec.t;
+      a_form: lit Vec.t;
+      (* TODO: store watches in clauses instead *)
+      a_watched: Clause0.CVec.t Vec.t;
 
-  (* some boolean flags for variables, used as masks *)
-  let seen_var = 0b1
-  let seen_pos = 0b10
-  let seen_neg = 0b100
-  let default_pol_true = 0b1000
+      stat_n_atoms: int Stat.counter;
 
-  module Var = struct
-    let[@inline] level v = v.v_level
-    let[@inline] pos v = v.pa
-    let[@inline] neg v = v.na
-    let[@inline] reason v = v.reason
-    let[@inline] weight v = v.v_weight
-    let[@inline] set_weight v w = v.v_weight <- w
-    let[@inline] mark v = v.v_fields <- v.v_fields lor seen_var
-    let[@inline] unmark v = v.v_fields <- v.v_fields land (lnot seen_var)
-    let[@inline] marked v = (v.v_fields land seen_var) <> 0
-    let[@inline] set_default_pol_true v = v.v_fields <- v.v_fields lor default_pol_true
-    let[@inline] set_default_pol_false v = v.v_fields <- v.v_fields land (lnot default_pol_true)
-    let[@inline] default_pol v = (v.v_fields land default_pol_true) <> 0
-    let[@inline] idx v = v.v_idx
-    let[@inline] set_idx v i = v.v_idx <- i
+      (* clauses *)
+      c_store: cstore;
+    }
+    type store = t
 
-    let make ?(default_pol=true) (st:st) (t:formula) : var * Solver_intf.negated =
-      let lit, negated = Formula.norm t in
-      try
-        MF.find st.f_map lit, negated
-      with Not_found ->
-        let cpt_double = st.cpt_mk_var lsl 1 in
-        let rec var  =
-          { vid = st.cpt_mk_var;
-            pa = pa;
-            na = na;
-            v_fields = 0;
-            v_level = -1;
-            v_idx= -1;
-            v_weight = 0.;
-            reason = None;
-          }
-        and pa =
-          { var = var;
-            lit = lit;
-            watched = Vec.create();
-            neg = na;
-            is_true = false;
-            aid = cpt_double (* aid = vid*2 *) }
-        and na =
-          { var = var;
-            lit = Formula.neg lit;
-            watched = Vec.create();
-            neg = pa;
-            is_true = false;
-            aid = cpt_double + 1 (* aid = vid*2+1 *) } in
-        MF.add st.f_map lit var;
-        st.cpt_mk_var <- st.cpt_mk_var + 1;
-        if default_pol then set_default_pol_true var;
-        Vec.push st.vars var;
-        var, negated
-
-    (* Marking helpers *)
-    let[@inline] clear v =
-      v.v_fields <- 0
-
-    let[@inline] seen_both v =
-      (seen_pos land v.v_fields <> 0) &&
-      (seen_neg land v.v_fields <> 0)
-  end
-
-  module Atom = struct
-    type t = atom
-    let[@inline] level a = a.var.v_level
-    let[@inline] var a = a.var
-    let[@inline] neg a = a.neg
-    let[@inline] abs a = a.var.pa
-    let[@inline] formula a = a.lit
-    let[@inline] equal a b = a == b
-    let[@inline] sign a = a == abs a
-    let[@inline] hash a = Hashtbl.hash a.aid
-    let[@inline] compare a b = compare a.aid b.aid
-    let[@inline] reason a = Var.reason a.var
-    let[@inline] id a = a.aid
-    let[@inline] is_true a = a.is_true
-    let[@inline] is_false a = a.neg.is_true
-    let has_value a = is_true a || is_false a
-
-    let[@inline] seen a =
-      if sign a
-      then (seen_pos land a.var.v_fields <> 0)
-      else (seen_neg land a.var.v_fields <> 0)
-
-    let[@inline] mark a =
-      let pos = equal a (abs a) in
-      if pos then (
-        a.var.v_fields <- seen_pos lor a.var.v_fields
-      ) else (
-        a.var.v_fields <- seen_neg lor a.var.v_fields
-      )
-
-    let[@inline] make ?default_pol st lit =
-      let var, negated = Var.make ?default_pol st lit in
-      match negated with
-      | Solver_intf.Negated -> var.na
-      | Solver_intf.Same_sign -> var.pa
-
-    let pp fmt a = Formula.pp fmt a.lit
-
-    let pp_a fmt v =
-      if Array.length v = 0 then (
-        Format.fprintf fmt "∅"
-      ) else (
-        pp fmt v.(0);
-        if (Array.length v) > 1 then begin
-          for i = 1 to (Array.length v) - 1 do
-            Format.fprintf fmt " ∨ %a" pp v.(i)
-          done
-        end
-      )
-
-    (* Complete debug printing *)
-    let pp_sign a = if a == a.var.pa then "+" else "-"
-
-    let debug_reason fmt = function
-      | n, _ when n < 0 ->
-        Format.fprintf fmt "%%"
-      | n, None ->
-        Format.fprintf fmt "%d" n
-      | n, Some Decision ->
-        Format.fprintf fmt "@@%d" n
-      | n, Some Bcp c ->
-        Format.fprintf fmt "->%d/%s/%d" n (kind_of_clause c) c.cid
-      | n, Some (Bcp_lazy _) ->
-        Format.fprintf fmt "->%d/<lazy>" n
-
-    let pp_level fmt a =
-      debug_reason fmt (a.var.v_level, a.var.reason)
-
-    let debug_value fmt a =
-      if a.is_true then
-        Format.fprintf fmt "T%a" pp_level a
-      else if a.neg.is_true then
-        Format.fprintf fmt "F%a" pp_level a
-      else
-        Format.fprintf fmt ""
-
-    let debug out a =
-      Format.fprintf out "%s%d[%a][atom:@[<hov>%a@]]"
-        (pp_sign a) (a.var.vid+1) debug_value a Formula.pp a.lit
-
-    let debug_a out vec =
-      Array.iter (fun a -> Format.fprintf out "%a@ " debug a) vec
-    let debug_l out l =
-      List.iter (fun a -> Format.fprintf out "%a@ " debug a) l
-
-    module Set = Set.Make(struct type t=atom let compare=compare end)
-  end
-
-  module Clause = struct
-    type t = clause
-
-    let make_a =
-      let n = ref 0 in
-      fun ~flags atoms premise ->
-        let cid = !n in
-        incr n;
-        { cid;
-          atoms = atoms;
-          flags;
-          activity = 0.;
-          cpremise = premise}
-
-    let make ~flags l premise = make_a ~flags (Array.of_list l) premise
-
-    let empty = make [] (History [])
-    let[@inline] equal c1 c2 = c1.cid = c2.cid
-    let[@inline] hash c = Hashtbl.hash c.cid
-    let[@inline] atoms c = c.atoms
-    let[@inline] atoms_seq c = Iter.of_array c.atoms
-    let[@inline] atoms_l c = Array.to_list c.atoms
-
-    let flag_attached = 0b1
-    let flag_visited = 0b10
-    let flag_removable = 0b100
-    let flag_dead = 0b1000
-
-    let[@inline] make_removable l premise = make ~flags:flag_removable l premise
-    let[@inline] make_removable_a l premise = make_a ~flags:flag_removable l premise
-    let[@inline] make_permanent l premise = make ~flags:0 l premise
-
-    let[@inline] visited c = (c.flags land flag_visited) <> 0
-    let[@inline] set_visited c b =
-      if b then c.flags <- c.flags lor flag_visited
-      else c.flags <- c.flags land lnot flag_visited
-
-    let[@inline] attached c = (c.flags land flag_attached) <> 0
-    let[@inline] set_attached c b =
-      if b then c.flags <- c.flags lor flag_attached
-      else c.flags <- c.flags land lnot flag_attached
-
-    let[@inline] removable c = (c.flags land flag_removable) <> 0
-    let[@inline] set_removable c b =
-      if b then c.flags <- c.flags lor flag_removable
-      else c.flags <- c.flags land lnot flag_removable
-
-    let[@inline] dead c = (c.flags land flag_dead) <> 0
-    let[@inline] set_dead c = c.flags <- c.flags lor flag_dead
-
-    let[@inline] activity c = c.activity
-    let[@inline] set_activity c w = c.activity <- w
-
-    module Tbl = Hashtbl.Make(struct
-        type t = clause
-        let hash = hash
-        let equal = equal
-      end)
-
-    let short_name c = Printf.sprintf "%s%d" (kind_of_clause c) c.cid
-    let pp fmt c =
-      Format.fprintf fmt "(cl[%s%d] : %a" (kind_of_clause c) c.cid Atom.pp_a c.atoms
-
-    let debug_premise out = function
-      | Hyp _ -> Format.fprintf out "hyp"
-      | Lemma _ -> Format.fprintf out "th_lemma"
-      | Local -> Format.fprintf out "local"
-      | History v ->
-        Format.fprintf out "(@[res";
-        List.iter (fun c -> Format.fprintf out "@ %s%d," (kind_of_clause c) c.cid) v;
-        Format.fprintf out "@])"
-      | Empty_premise -> Format.fprintf out "none"
-
-    let debug out ({atoms=arr; cpremise=cp;_}as c) =
-      Format.fprintf out
-        "(@[cl[%s%d]@ {@[<hov>%a@]}@ :premise %a@])"
-        (kind_of_clause c) c.cid Atom.debug_a arr debug_premise cp
-  end
-
-  module Proof =  struct
-    exception Resolution_error of string
-
-    type atom = Atom.t
-    type clause = Clause.t
-    type formula = Formula.t
-    type lemma = Plugin.proof
-
-    let error_res_f msg = Format.kasprintf (fun s -> raise (Resolution_error s)) msg
-
-    let[@inline] clear_var_of_ (a:atom) = Var.clear a.var
-
-    (* Compute resolution of 2 clauses.
-       returns [pivots, resulting_atoms] *)
-    let resolve (c1:clause) (c2:clause) : atom list * atom list =
-      (* invariants: only atoms in [c2] are marked, and the pivot is
-         cleared when traversing [c1] *)
-      Array.iter Atom.mark c2.atoms;
-      let pivots = ref [] in
-      let l =
-        Array.fold_left
-          (fun l a ->
-             if Atom.seen a then l
-             else if Atom.seen a.neg then (
-               pivots := a.var.pa :: !pivots;
-               clear_var_of_ a;
-               l
-             ) else a::l)
-          [] c1.atoms
+    let create ?(size=`Big) ~stat () : t =
+      let size_map = match size with
+        | `Tiny -> 8
+        | `Small -> 16
+        | `Big -> 4096
       in
-      let l =
-        Array.fold_left (fun l a -> if Atom.seen a then a::l else l) l c2.atoms
-      in
-      Array.iter clear_var_of_ c2.atoms;
-      !pivots, l
+      let stat_n_atoms = Stat.mk_int stat "sat.n-atoms" in
+      { v_of_lit = Lit_tbl.create size_map;
+        v_level = Vec.create();
+        v_heap_idx = Vec.create();
+        v_weight = Vec_float.create();
+        v_reason = Vec.create();
+        v_seen = Bitvec.create();
+        v_default_polarity = Bitvec.create();
+        v_count = 0;
+        a_is_true=Bitvec.create();
+        a_form=Vec.create();
+        a_watched=Vec.create();
+        a_seen=Bitvec.create();
+        stat_n_atoms;
+        c_store={
+          c_lits=Vec.create();
+          c_activity=Vec_float.create();
+          c_recycle_idx=VecI32.create ~cap:0 ();
+          c_dead=Bitvec.create();
+          c_attached=Bitvec.create();
+          c_removable=Bitvec.create();
+          c_marked=Bitvec.create();
+        }
+      }
 
-    (* [find_dups c] returns a list of duplicate atoms, and the deduplicated list *)
-    let find_dups (c:clause) : atom list * atom list =
-      let res =
-        Array.fold_left
-          (fun (dups,l) a ->
-             if Atom.seen a then (
-               a::dups, l
-             ) else (
-               Atom.mark a;
-               dups, a::l
-             ))
-          ([], []) c.atoms
-      in
-      Array.iter clear_var_of_ c.atoms;
-      res
+    (** Number of variables *)
+    let[@inline] n_vars self : int = Vec.size self.v_level
 
-    (* do [c1] and [c2] have the same lits, modulo reordering and duplicates? *)
-    let same_lits (c1:atom Iter.t) (c2:atom Iter.t): bool =
-      let subset a b =
-        Iter.iter Atom.mark b;
-        let res = Iter.for_all Atom.seen a in
-        Iter.iter clear_var_of_ b;
-        res
-      in
-      subset c1 c2 && subset c2 c1
+    (** iterate on variables *)
+    let iter_vars self f =
+      Vec.iteri (fun i _ -> f (Var0.of_int_unsafe i)) self.v_level
 
-    let prove conclusion =
-      match conclusion.cpremise with
-      | History [] -> assert false
-      | Empty_premise -> raise Solver_intf.No_proof
-      | _ -> conclusion
+    module Var = struct
+      include Var0
+      let[@inline] level self v = Vec.get self.v_level (v:var:>int)
+      let[@inline] set_level self v l = Vec.set self.v_level (v:var:>int) l
+      let[@inline] reason self v = Vec.get self.v_reason (v:var:>int)
+      let[@inline] set_reason self v r = Vec.set self.v_reason (v:var:>int) r
+      let[@inline] weight self v = Vec_float.get self.v_weight (v:var:>int)
+      let[@inline] set_weight self v w = Vec_float.set self.v_weight (v:var:>int) w
+      let[@inline] mark self v = Bitvec.set self.v_seen (v:var:>int) true
+      let[@inline] unmark self v = Bitvec.set self.v_seen (v:var:>int) false
+      let[@inline] marked self v = Bitvec.get self.v_seen (v:var:>int)
+      let[@inline] set_default_pol self v b = Bitvec.set self.v_default_polarity (v:var:>int) b
+      let[@inline] default_pol self v = Bitvec.get self.v_default_polarity (v:var:>int)
+      let[@inline] heap_idx self v = Vec.get self.v_heap_idx (v:var:>int)
+      let[@inline] set_heap_idx self v i = Vec.set self.v_heap_idx (v:var:>int) i
+    end
 
-    let rec set_atom_proof a =
-      let aux acc b =
-        if Atom.equal a.neg b then acc
-        else set_atom_proof b :: acc
-      in
-      assert (a.var.v_level >= 0);
-      match (a.var.reason) with
-      | Some (Bcp c | Bcp_lazy (lazy c)) ->
-        Log.debugf 5 (fun k->k "(@[proof.analyze.clause@ :atom %a@ :c %a@])" Atom.debug a Clause.debug c);
-        if Array.length c.atoms = 1 then (
-          Log.debugf 5 (fun k -> k "(@[proof.analyze.old-reason@ %a@])" Atom.debug a);
-          c
+    module Atom = struct
+      include Atom0
+      let[@inline] lit self a = Vec.get self.a_form (a:atom:>int)
+      let lit = lit
+      let[@inline] mark self a = Bitvec.set self.a_seen (a:atom:>int) true
+      let[@inline] unmark self a = Bitvec.set self.a_seen (a:atom:>int) false
+      let[@inline] marked self a = Bitvec.get self.a_seen (a:atom:>int)
+      let[@inline] watched self a = Vec.get self.a_watched (a:atom:>int)
+      let[@inline] is_true self a = Bitvec.get self.a_is_true (a:atom:>int)
+      let[@inline] set_is_true self a b = Bitvec.set self.a_is_true (a:atom:>int) b
+
+      let[@inline] is_false self a = is_true self (neg a)
+      let[@inline] has_value self a = is_true self a || is_false self a
+
+      let[@inline] reason self a = Var.reason self (var a)
+      let[@inline] level self a = Var.level self (var a)
+      let[@inline] marked_both self a = marked self a && marked self (neg a)
+
+      let pp self fmt a = Lit.pp fmt (lit self a)
+
+      let pp_a self fmt v =
+        if Array.length v = 0 then (
+          Format.fprintf fmt "@<1>∅"
         ) else (
-          assert (a.neg.is_true);
-          let r = History (c :: (Array.fold_left aux [] c.atoms)) in
-          let c' = Clause.make_permanent [a.neg] r in
-          a.var.reason <- Some (Bcp c');
-          Log.debugf 5
-            (fun k -> k "(@[proof.analyze.new-reason@ :atom %a@ :c %a@])" Atom.debug a Clause.debug c');
-          c'
-        )
-      | _ ->
-        error_res_f "cannot prove atom %a" Atom.debug a
-
-    let prove_unsat conflict =
-      if Array.length conflict.atoms = 0 then (
-        conflict
-      ) else (
-        Log.debugf 1 (fun k -> k "(@[sat.prove-unsat@ :from %a@])" Clause.debug conflict);
-        let l = Array.fold_left (fun acc a -> set_atom_proof a :: acc) [] conflict.atoms in
-        let res = Clause.make_permanent [] (History (conflict :: l)) in
-        Log.debugf 1 (fun k -> k "(@[sat.proof-found@ %a@])" Clause.debug res);
-        res
-      )
-
-    let prove_atom a =
-      if a.is_true && a.var.v_level = 0 then
-        Some (set_atom_proof a)
-      else
-        None
-
-    type t = clause
-    and proof_node = {
-      conclusion : clause;
-      step : step;
-    }
-    and step =
-      | Hypothesis of lemma
-      | Assumption
-      | Lemma of lemma
-      | Duplicate of t * atom list
-      | Hyper_res of hyper_res_step
-
-    and hyper_res_step = {
-      hr_init: t;
-      hr_steps: (atom * t) list; (* list of pivot+clause to resolve against [init] *)
-    }
-
-    let[@inline] conclusion (p:t) : clause = p
-
-    (* find pivots for resolving [l] with [init], and also return
-       the atoms of the conclusion *)
-    let find_pivots (init:clause) (l:clause list) : _ * (atom * t) list =
-      Log.debugf 15
-        (fun k->k "(@[proof.find-pivots@ :init %a@ :l %a@])"
-            Clause.debug init (Format.pp_print_list Clause.debug) l);
-      Array.iter Atom.mark init.atoms;
-      let steps =
-        List.map
-          (fun c ->
-             let pivot =
-               match
-                 Iter.of_array c.atoms
-                 |> Iter.filter (fun a -> Atom.seen (Atom.neg a))
-                 |> Iter.to_list
-               with
-                 | [a] -> a
-                 | [] ->
-                   error_res_f "(@[proof.expand.pivot_missing@ %a@])" Clause.debug c
-                 | pivots ->
-                   error_res_f "(@[proof.expand.multiple_pivots@ %a@ :pivots %a@])"
-                     Clause.debug c Atom.debug_l pivots
-             in
-             Array.iter Atom.mark c.atoms; (* add atoms to result *)
-             clear_var_of_ pivot;
-             Atom.abs pivot, c)
-          l
-      in
-      (* cleanup *)
-      let res = ref [] in
-      let cleanup_a_ a =
-        if Atom.seen a then (
-          res := a :: !res;
-          clear_var_of_ a
-        )
-      in
-      Array.iter cleanup_a_ init.atoms;
-      List.iter (fun c -> Array.iter cleanup_a_ c.atoms) l;
-      !res, steps
-
-    let expand conclusion =
-      Log.debugf 5 (fun k -> k "(@[sat.proof.expand@ @[%a@]@])" Clause.debug conclusion);
-      match conclusion.cpremise with
-      | Lemma l ->
-        { conclusion; step = Lemma l; }
-      | Local ->
-        { conclusion; step = Assumption; }
-      | Hyp l ->
-        { conclusion; step = Hypothesis l; }
-      | History [] ->
-        error_res_f "@[empty history for clause@ %a@]" Clause.debug conclusion
-      | History [c] ->
-        let duplicates, res = find_dups c in
-        assert (same_lits (Iter.of_list res) (Clause.atoms_seq conclusion));
-        { conclusion; step = Duplicate (c, duplicates) }
-      | History (c :: r) ->
-        let res, steps = find_pivots c r in
-        assert (same_lits (Iter.of_list res) (Clause.atoms_seq conclusion));
-        { conclusion; step = Hyper_res {hr_init=c; hr_steps=steps};  }
-      | Empty_premise -> raise Solver_intf.No_proof
-
-    let rec res_of_hyper_res (hr: hyper_res_step) : _ * _ * atom =
-      let {hr_init=c1; hr_steps=l} = hr in
-      match l with
-      | [] -> assert false
-      | [a, c2] -> c1, c2, a (* done *)
-      | (a,c2) :: steps' ->
-        (* resolve [c1] with [c2], then resolve that against [steps] *)
-        let pivots, l = resolve c1 c2 in
-        assert (match pivots with [a'] -> Atom.equal a a' | _ -> false);
-        let c_1_2 = Clause.make_removable l (History [c1; c2]) in
-        res_of_hyper_res {hr_init=c_1_2; hr_steps=steps'}
-
-    (* Proof nodes manipulation *)
-    let is_leaf = function
-      | Hypothesis _
-      | Assumption
-      | Lemma _ -> true
-      | Duplicate _
-      | Hyper_res _ -> false
-
-    let parents = function
-      | Hypothesis _
-      | Assumption
-      | Lemma _ -> []
-      | Duplicate (p, _) -> [p]
-      | Hyper_res {hr_init; hr_steps} -> hr_init :: List.map snd hr_steps
-
-    let expl = function
-      | Hypothesis _ -> "hypothesis"
-      | Assumption -> "assumption"
-      | Lemma _ -> "lemma"
-      | Duplicate _ -> "duplicate"
-      | Hyper_res _ -> "hyper-resolution"
-
-    (* Compute unsat-core by accumulating the leaves *)
-    let unsat_core proof =
-      let rec aux res acc = function
-        | [] -> res, acc
-        | c :: r ->
-          if not @@ Clause.visited c then (
-            Clause.set_visited c true;
-            match c.cpremise with
-            | Empty_premise -> raise Solver_intf.No_proof
-            | Hyp _ | Lemma _ | Local -> aux (c :: res) acc r
-            | History h ->
-              let l = List.fold_left (fun acc c ->
-                  if not @@ Clause.visited c then c :: acc else acc) r h in
-              aux res (c :: acc) l
-          ) else (
-            aux res acc r
-          )
-      in
-      let res, tmp = aux [] [] [proof] in
-      List.iter (fun c -> Clause.set_visited c false) res;
-      List.iter (fun c -> Clause.set_visited c false) tmp;
-      res
-
-    module Tbl = Clause.Tbl
-
-    type task =
-      | Enter of t
-      | Leaving of t
-
-    let spop s = try Some (Stack.pop s) with Stack.Empty -> None
-
-    let rec fold_aux s h f acc =
-      match spop s with
-      | None -> acc
-      | Some (Leaving c) ->
-        Tbl.add h c true;
-        fold_aux s h f (f acc (expand c))
-      | Some (Enter c) ->
-        if not (Tbl.mem h c) then begin
-          Stack.push (Leaving c) s;
-          let node = expand c in
-          begin match node.step with
-            | Duplicate (p1, _) ->
-              Stack.push (Enter p1) s
-            | Hyper_res {hr_init=p1; hr_steps=l} ->
-              List.iter (fun (_,p2) -> Stack.push (Enter p2) s) l;
-              Stack.push (Enter p1) s;
-            | Hypothesis _ | Assumption | Lemma _ -> ()
+          pp self fmt v.(0);
+          if (Array.length v) > 1 then begin
+            for i = 1 to (Array.length v) - 1 do
+              Format.fprintf fmt " @<1>∨ %a" (pp self) v.(i)
+            done
           end
+        )
+
+      (* Complete debug printing *)
+
+      let[@inline] pp_sign a = if sign a then "+" else "-"
+
+      (* print level+reason of assignment *)
+      let debug_reason self out = function
+        | n, _ when n < 0 -> Format.fprintf out "%%"
+        | n, None -> Format.fprintf out "%d" n
+        | n, Some Decision -> Format.fprintf out "@@%d" n
+        | n, Some Bcp c ->
+          Format.fprintf out "->%d/%d" n (c:>int)
+        | n, Some (Bcp_lazy _) -> Format.fprintf out "->%d/<lazy>" n
+
+      let pp_level self out a =
+        let v = var a in
+        debug_reason self out (Var.level self v, Var.reason self v)
+
+      let debug_value self out (a:atom) =
+        if is_true self a then Format.fprintf out "T%a" (pp_level self) a
+        else if is_false self a then Format.fprintf out "F%a" (pp_level self) a
+        else ()
+
+      let debug self out a =
+        Format.fprintf out "%s%d[%a][atom:@[<hov>%a@]]"
+          (pp_sign a) (var a:var:>int) (debug_value self) a
+          Lit.pp (lit self a)
+
+      let debug_a self out vec =
+        Array.iter (fun a -> Format.fprintf out "@[%a@]@ " (debug self) a) vec
+      let debug_l self out l =
+        List.iter (fun a -> Format.fprintf out "@[%a@]@ " (debug self) a) l
+    end
+
+    module Clause : sig
+      include module type of Clause0 with type t = Clause0.t
+
+      (** Make a clause with the given atoms *)
+
+      val make_a : store -> removable:bool -> atom array -> t
+      val make_l : store -> removable:bool -> atom list -> t
+      val make_vec : store -> removable:bool -> atom Vec.t -> t
+
+      val n_atoms : store -> t -> int
+
+      val marked : store -> t -> bool
+      val set_marked : store -> t -> bool -> unit
+      val attached : store -> t -> bool
+      val set_attached : store -> t -> bool -> unit
+      val removable : store -> t -> bool
+      val set_removable : store -> t -> bool -> unit
+
+      val dead : store -> t -> bool
+      val set_dead : store -> t -> bool -> unit
+      val dealloc : store -> t -> unit
+      (** Delete the clause *)
+
+      val activity : store -> t -> float
+      val set_activity : store -> t -> float -> unit
+
+      val iter : store -> f:(atom -> unit) -> t -> unit
+      val fold : store -> f:('a -> atom -> 'a) -> 'a -> t -> 'a
+      val for_all : store -> f:(atom -> bool) -> t -> bool
+      val exists : store -> f:(atom -> bool) -> t -> bool
+
+      val atoms_a : store -> t -> atom array
+
+      val lits_l : store -> t -> lit list
+      val lits_a : store -> t -> lit array
+      val lits_iter : store -> t -> lit Iter.t
+
+      val short_name : store -> t -> string
+      val pp : store -> Format.formatter -> t -> unit
+      val debug : store -> Format.formatter -> t -> unit
+    end = struct
+      include Clause0
+
+      (* TODO: store watch lists inside clauses *)
+
+      let make_a (store:store) ~removable (atoms:atom array) : t =
+        let {
+          c_recycle_idx; c_lits; c_activity;
+          c_attached; c_dead; c_removable; c_marked;
+        } = store.c_store in
+        (* allocate new ID *)
+        let cid =
+          if VecI32.is_empty c_recycle_idx then (
+            Vec.size c_lits
+          ) else VecI32.pop c_recycle_idx
+        in
+
+        (* allocate space *)
+        begin
+          let new_len = cid + 1 in
+          Vec.ensure_size c_lits [||] new_len;
+          Vec_float.ensure_size c_activity new_len;
+          Bitvec.ensure_size c_attached new_len;
+          Bitvec.ensure_size c_dead new_len;
+          Bitvec.ensure_size c_removable new_len;
+          Bitvec.ensure_size c_marked new_len;
+
+          Bitvec.set c_removable cid removable;
         end;
-        fold_aux s h f acc
 
-    let fold f acc p =
-      let h = Tbl.create 42 in
-      let s = Stack.create () in
-      Stack.push (Enter p) s;
-      fold_aux s h f acc
+        Vec.set c_lits cid atoms;
 
-    let check_empty_conclusion (p:t) =
-      if Array.length p.atoms > 0 then (
-        error_res_f "@[<2>Proof.check: non empty conclusion for clause@ %a@]" Clause.debug p;
-      )
+        let c = of_int_unsafe cid in
+        c
 
-    let check (p:t) = fold (fun () _ -> ()) () p
+      let make_l store ~removable atoms : t =
+        make_a store ~removable (Array.of_list atoms)
+
+      let make_vec store ~removable atoms : t =
+        make_a store ~removable (Vec.to_array atoms)
+
+      let[@inline] n_atoms (store:store) (c:t) : int =
+        Array.length (Vec.get store.c_store.c_lits (c:t:>int))
+
+      let[@inline] iter (store:store) ~f c =
+        let {c_lits; _} = store.c_store in
+        Array.iter f (Vec.get c_lits (c:t:>int))
+
+      exception Early_exit
+
+      let for_all store ~f c =
+        try
+          iter store c ~f:(fun x -> if not (f x) then raise_notrace Early_exit);
+          true
+        with Early_exit -> false
+
+      let exists store ~f c =
+        try
+          iter store c ~f:(fun x -> if f x then raise_notrace Early_exit);
+          false
+        with Early_exit -> true
+
+      let fold (store:store) ~f acc c =
+        let {c_lits; _} = store.c_store in
+        Array.fold_left f acc (Vec.get c_lits (c:t:>int))
+
+      let[@inline] marked store c = Bitvec.get store.c_store.c_marked (c:t:>int)
+      let[@inline] set_marked store c b = Bitvec.set store.c_store.c_marked (c:t:>int) b
+      let[@inline] attached store c = Bitvec.get store.c_store.c_attached (c:t:>int)
+      let[@inline] set_attached store c b = Bitvec.set store.c_store.c_attached (c:t:>int) b
+      let[@inline] dead store c = Bitvec.get store.c_store.c_dead (c:t:>int)
+      let[@inline] set_dead store c b = Bitvec.set store.c_store.c_dead (c:t:>int) b
+      let[@inline] removable store c = Bitvec.get store.c_store.c_removable (c:t:>int)
+      let[@inline] set_removable store c b = Bitvec.set store.c_store.c_removable (c:t:>int) b
+
+      let dealloc store c : unit =
+        assert (dead store c);
+        let {c_lits; c_recycle_idx; c_activity;
+             c_dead; c_removable; c_attached; c_marked; } = store.c_store in
+
+        (* clear data *)
+        let cid = (c:t:>int) in
+        Bitvec.set c_attached cid false;
+        Bitvec.set c_dead cid false;
+        Bitvec.set c_removable cid false;
+        Bitvec.set c_marked cid false;
+        Vec.set c_lits cid [||];
+        Vec_float.set c_activity cid 0.;
+
+        VecI32.push c_recycle_idx cid; (* recycle idx *)
+        ()
+
+      let copy_flags store c1 c2 : unit =
+        set_removable store c2 (removable store c1);
+        ()
+
+      let[@inline] activity store c = Vec_float.get store.c_store.c_activity (c:t:>int)
+      let[@inline] set_activity store c f = Vec_float.set store.c_store.c_activity (c:t:>int) f
+
+      let[@inline] make_removable store l =
+        make_l store ~removable:true l
+
+      let[@inline] make_removable_a store a =
+        make_a store ~removable:true a
+
+      let[@inline] make_permanent store l =
+        let c = make_l store ~removable:false l in
+        assert (not (removable store c)); (* permanent by default *)
+        c
+
+      let[@inline] atoms_a store c : atom array =
+        Vec.get store.c_store.c_lits (c:t:>int)
+
+      let lits_l store c : lit list =
+        let arr = atoms_a store c in
+        Util.array_to_list_map (Atom.lit store) arr
+
+      let lits_a store c : lit array =
+        let arr = atoms_a store c in
+        Array.map (Atom.lit store) arr
+
+      let lits_iter store c : lit Iter.t =
+        let arr = atoms_a store c in
+        Iter.of_array arr |> Iter.map (Atom.lit store)
+
+      let short_name _store c = Printf.sprintf "cl[%d]" (c:t:>int)
+
+      let pp store fmt c =
+        Format.fprintf fmt "(cl[%d] : %a" (c:t:>int)
+          (Atom.pp_a store) (atoms_a store c)
+
+      let debug store out c =
+        let atoms = atoms_a store c in
+        Format.fprintf out
+          "(@[cl[%d]@ {@[<hov>%a@]}@])"
+          (c:t:>int)
+          (Atom.debug_a store) atoms
+    end
+
+    (* allocate new variable *)
+    let alloc_var_uncached_ ?default_pol:(pol=true) self (form:lit) : var =
+      let {v_count; v_of_lit; v_level; v_heap_idx; v_weight;
+           v_reason; v_seen; v_default_polarity; stat_n_atoms;
+           a_is_true; a_seen; a_watched; a_form; c_store=_;
+          } = self in
+
+      let v_idx = v_count in
+      let v = Var.of_int_unsafe v_idx in
+
+      Stat.incr stat_n_atoms;
+
+      self.v_count <- 1 + v_idx;
+      Lit_tbl.add v_of_lit form v;
+      Vec.push v_level (-1);
+      Vec.push v_heap_idx (-1);
+      Vec.push v_reason None;
+      Vec_float.push v_weight 0.;
+      Bitvec.ensure_size v_seen v_idx;
+      Bitvec.ensure_size v_default_polarity v_idx;
+      Bitvec.set v_default_polarity v_idx pol;
+
+      assert (Vec.size a_form = 2 * (v:var:>int));
+      Bitvec.ensure_size a_is_true (2*(v:var:>int));
+      Bitvec.ensure_size a_seen (2*(v:var:>int));
+      Vec.push a_form form;
+      Vec.push a_watched (CVec.create ~cap:0 ());
+      Vec.push a_form (Lit.neg form);
+      Vec.push a_watched (CVec.create ~cap:0 ());
+      assert (Vec.get a_form (Atom.of_var v:atom:>int) == form);
+
+      v
+
+    (* create new variable *)
+    let alloc_var (self:t) ?default_pol (lit:lit) : var * Solver_intf.same_sign =
+      let lit, same_sign = Lit.norm_sign lit in
+      try Lit_tbl.find self.v_of_lit lit, same_sign
+      with Not_found ->
+        let v = alloc_var_uncached_ ?default_pol self lit in
+        v, same_sign
+
+    let clear_var (self:t) (v:var) : unit =
+      Var.unmark self v;
+      Atom.unmark self (Atom.pa v);
+      Atom.unmark self (Atom.na v);
+      ()
+
+    let atom_of_var_ v same_sign : atom =
+      if same_sign then Atom.pa v else Atom.na v
+
+    let alloc_atom (self:t) ?default_pol lit : atom =
+      let var, same_sign = alloc_var self ?default_pol lit in
+      atom_of_var_ var same_sign
+
+    let find_atom (self:t) lit : atom option =
+      let lit, same_sign = Lit.norm_sign lit in
+      match Lit_tbl.find self.v_of_lit lit with
+      | v -> Some (atom_of_var_ v same_sign)
+      | exception Not_found -> None
   end
+  type store = Store.t
+
+  module Atom = Store.Atom
+  module Var = Store.Var
+  module Clause = Store.Clause
 
   module H = (Heap.Make [@specialise]) (struct
+    type store = Store.t
     type t = var
-    let[@inline] cmp i j = Var.weight j < Var.weight i (* comparison by weight *)
-    let idx = Var.idx
-    let set_idx = Var.set_idx
+    let[@inline] cmp store i j =
+      Var.weight store j < Var.weight store i (* comparison by weight *)
+    let heap_idx = Var.heap_idx
+    let set_heap_idx = Var.set_heap_idx
+    let of_int_unsafe = Var.of_int_unsafe
   end)
 
   (* cause of "unsat", possibly conditional to local assumptions *)
@@ -642,37 +528,36 @@ module Make(Plugin : PLUGIN)
   exception Restart
   exception Conflict of clause
 
-  (* Log levels *)
-  let error = 1
-  let warn = 3
-  let info = 5
-  let debug = 50
-
   let var_decay : float = 1. /. 0.95
-  (* inverse of the activity factor for variables. Default 1/0.95 *)
+  (* inverse of the activity factor for variables *)
 
   let clause_decay : float = 1. /. 0.999
-  (* inverse of the activity factor for clauses. Default 1/0.999 *)
+  (* inverse of the activity factor for clauses *)
 
   let restart_inc : float = 1.5
-  (* multiplicative factor for restart limit, default 1.5 *)
+  (* multiplicative factor for restart limit *)
 
   let learntsize_inc : float = 1.1
-  (* multiplicative factor for [learntsize_factor] at each restart, default 1.1 *)
+  (* multiplicative factor for [learntsize_factor] at each restart *)
 
   (* Singleton type containing the current state *)
   type t = {
-    st : st;
+    store : store;
+    (* atom/var/clause store *)
+
     th: theory;
+    (* user defined theory *)
 
-    store_proof: bool; (* do we store proofs? *)
+    proof: Proof.t; (* the proof object *)
 
-    (* Clauses are simplified for eficiency purposes. In the following
+    (* Clauses are simplified for efficiency purposes. In the following
        vectors, the comments actually refer to the original non-simplified
        clause. *)
 
+    (* TODO: this should be a veci32 *)
     clauses_hyps : clause Vec.t;
     (* clauses added by the user *)
+
     clauses_learnt : clause Vec.t;
     (* learnt clauses (tautologies true at any time, whatever the user level) *)
 
@@ -719,15 +604,27 @@ module Make(Plugin : PLUGIN)
     to_clear: var Vec.t;
     (* variables to unmark *)
 
+    (* temporaries *)
+
+    temp_atom_vec : atom Vec.t;
+    temp_clause_vec : clause Vec.t;
+
     mutable var_incr : float;
     (* increment for variables' activity *)
 
     mutable clause_incr : float;
     (* increment for clauses' activity *)
 
-    mutable on_conflict : (atom array -> unit) option;
-    mutable on_decision : (atom -> unit) option;
-    mutable on_new_atom: (atom -> unit) option;
+    mutable on_conflict : (t -> Clause.t -> unit) option;
+    mutable on_decision : (t -> lit -> unit) option;
+    mutable on_learnt : (t -> Clause.t -> unit) option;
+    mutable on_gc : (t -> lit array -> unit) option;
+
+    stat: Stat.t;
+    n_conflicts: int Stat.counter;
+    n_propagations : int Stat.counter;
+    n_decisions : int Stat.counter;
+    n_restarts : int Stat.counter;
   }
   type solver = t
 
@@ -741,8 +638,8 @@ module Make(Plugin : PLUGIN)
   let _nop_on_conflict (_:atom array) = ()
 
   (* Starting environment. *)
-  let create_ ~st ~store_proof (th:theory) : t = {
-    st; th;
+  let create_ ~store ~proof ~stat (th:theory) : t = {
+    store; th;
     unsat_at_0=None;
     next_decisions = [];
 
@@ -751,6 +648,8 @@ module Make(Plugin : PLUGIN)
 
     clauses_to_add = Vec.create ();
     to_clear=Vec.create();
+    temp_clause_vec=Vec.create();
+    temp_atom_vec=Vec.create();
 
     th_head = 0;
     elt_head = 0;
@@ -759,28 +658,40 @@ module Make(Plugin : PLUGIN)
     var_levels = Vec.create();
     assumptions= Vec.create();
 
-    order = H.create();
+    order = H.create store;
 
     var_incr = 1.;
     clause_incr = 1.;
-    store_proof;
+
+    proof;
+
+    stat;
+    n_conflicts = Stat.mk_int stat "sat.n-conflicts";
+    n_decisions = Stat.mk_int stat "sat.n-decisions";
+    n_propagations = Stat.mk_int stat "sat.n-propagations";
+    n_restarts = Stat.mk_int stat "sat.n-restarts";
+
     on_conflict = None;
     on_decision= None;
-    on_new_atom = None;
+    on_learnt = None;
+    on_gc = None;
   }
 
   let create
-      ?on_conflict ?on_decision ?on_new_atom
-      ?(store_proof=true) ?(size=`Big) (th:theory) : t =
-    let st = create_st ~size () in
-    let st = create_ ~st ~store_proof th in
-    st.on_new_atom <- on_new_atom;
-    st.on_decision <- on_decision;
-    st.on_conflict <- on_conflict;
-    st
+      ?on_conflict ?on_decision ?on_learnt ?on_gc ?(stat=Stat.global)
+      ?(size=`Big) ~proof
+      (th:theory) : t =
+    let store = Store.create ~size ~stat () in
+    let self = create_ ~store ~proof ~stat th in
+    self.on_decision <- on_decision;
+    self.on_conflict <- on_conflict;
+    self.on_learnt <- on_learnt;
+    self.on_gc <- on_gc;
+    self
 
-  let[@inline] nb_clauses st = Vec.size st.clauses_hyps
   let[@inline] decision_level st = Vec.size st.var_levels
+  let[@inline] nb_clauses st = Vec.size st.clauses_hyps
+  let stat self = self.stat
 
   (* Do we have a level-0 empty clause? *)
   let[@inline] check_unsat_ st =
@@ -788,25 +699,25 @@ module Make(Plugin : PLUGIN)
     | Some c -> raise (E_unsat (US_false c))
     | None -> ()
 
-  let mk_atom ?default_pol st (f:formula) : atom =
-    let res = Atom.make ?default_pol st.st f in
-    res
-
   (* Variable and literal activity.
      Activity is used to decide on which variable to decide when propagation
      is done. Uses a heap (implemented in Iheap), to keep track of variable activity.
      To be more general, the heap only stores the variable/literal id (i.e an int).
   *)
-  let insert_var_order st (v:var) : unit =
+  let[@inline] insert_var_order st (v:var) : unit =
     H.insert st.order v
 
-  let make_atom st (p:formula) : atom =
-    let a = mk_atom st p in
-    if a.var.v_level < 0 then (
-      insert_var_order st a.var;
-      (match st.on_new_atom with Some f -> f a | None -> ());
+  (* find atom for the lit, if any *)
+  let[@inline] find_atom_ (self:t) (p:lit) : atom option =
+    Store.find_atom self.store p
+
+  (* create a new atom, pushing it into the decision queue if needed *)
+  let make_atom_ (self:t) ?default_pol (p:lit) : atom =
+    let a = Store.alloc_atom self.store ?default_pol p in
+    if Atom.level self.store a < 0 then (
+      insert_var_order self (Atom.var a);
     ) else (
-      assert (a.is_true || a.neg.is_true);
+      assert (Atom.is_true self.store a || Atom.is_false self.store a);
     );
     a
 
@@ -820,24 +731,28 @@ module Make(Plugin : PLUGIN)
     st.clause_incr <- st.clause_incr *. clause_decay
 
   (* increase activity of [v] *)
-  let var_bump_activity st v =
-    v.v_weight <- v.v_weight +. st.var_incr;
-    if v.v_weight > 1e100 then (
-      for i = 0 to nb_elt st.st - 1 do
-        Var.set_weight (get_elt st.st i) ((Var.weight (get_elt st.st i)) *. 1e-100)
-      done;
-      st.var_incr <- st.var_incr *. 1e-100;
+  let var_bump_activity self v =
+    let store = self.store in
+    Var.set_weight store v (Var.weight store v +. self.var_incr);
+    if Var.weight store v > 1e100 then (
+      Store.iter_vars store
+        (fun v ->
+           Var.set_weight store v (Var.weight store v *. 1e-100));
+      self.var_incr <- self.var_incr *. 1e-100;
     );
-    if H.in_heap v then (
-      H.decrease st.order v
+    if H.in_heap self.order v then (
+      H.decrease self.order v
     )
 
   (* increase activity of clause [c] *)
-  let clause_bump_activity st (c:clause) : unit =
-    c.activity <- c.activity +. st.clause_incr;
-    if c.activity > 1e20 then (
-      Vec.iter (fun c -> c.activity <- c.activity *. 1e-20) st.clauses_learnt;
-      st.clause_incr <- st.clause_incr *. 1e-20
+  let clause_bump_activity self (c:clause) : unit =
+    let store = self.store in
+    Clause.set_activity store c (Clause.activity store c +. self.clause_incr);
+    if Clause.activity store c > 1e20 then (
+      Vec.iter
+        (fun c -> Clause.set_activity store c (Clause.activity store c *. 1e-20))
+        self.clauses_learnt;
+      self.clause_incr <- self.clause_incr *. 1e-20
     )
 
   (* Simplification of clauses.
@@ -859,30 +774,32 @@ module Make(Plugin : PLUGIN)
     else Array.to_list (Array.sub arr i (Array.length arr - i))
 
   (* Eliminates atom duplicates in clauses *)
-  let eliminate_duplicates clause : clause =
+  let eliminate_duplicates store clause : clause =
     let trivial = ref false in
     let duplicates = ref [] in
     let res = ref [] in
-    Array.iter (fun a ->
-        if Atom.seen a then duplicates := a :: !duplicates
+    Clause.iter store clause
+      ~f:(fun a ->
+        if Atom.marked store a then duplicates := a :: !duplicates
         else (
-          Atom.mark a;
+          Atom.mark store a;
           res := a :: !res
-        ))
-      clause.atoms;
+        ));
     List.iter
       (fun a ->
-         if Var.seen_both a.var then trivial := true;
-         Var.clear a.var)
+         if Atom.marked_both store a then trivial := true;
+         Store.clear_var store (Atom.var a))
       !res;
     if !trivial then (
       raise Trivial
     ) else if !duplicates = [] then (
       clause
     ) else (
-      Clause.make ~flags:clause.flags !res (History [clause])
+      let removable = Clause.removable store clause in
+      Clause.make_l store ~removable !res
     )
 
+  (* TODO: do it in place in a vec? *)
   (* Partition literals for new clauses, into:
      - true literals (maybe makes the clause trivial if the lit is proved true at level 0)
      - unassigned literals, yet to be decided
@@ -890,26 +807,26 @@ module Make(Plugin : PLUGIN)
 
      Clauses that propagated false lits are remembered to reconstruct resolution proofs.
   *)
-  let partition atoms : atom list * clause list =
+  let partition store atoms : atom list * clause list =
     let rec partition_aux trues unassigned falses history i =
       if i >= Array.length atoms then (
         trues @ unassigned @ falses, history
       ) else (
         let a = atoms.(i) in
-        if a.is_true then (
-          let l = a.var.v_level in
+        if Atom.is_true store a then (
+          let l = Atom.level store a in
           if l = 0 then
-            raise Trivial (* A var true at level 0 gives a trivially true clause *)
+            raise_notrace Trivial (* Atom var true at level 0 gives a trivially true clause *)
           else
             (a :: trues) @ unassigned @ falses @
             (arr_to_list atoms (i + 1)), history
-        ) else if a.neg.is_true then (
-          let l = a.var.v_level in
+        ) else if Atom.is_false store a then (
+          let l = Atom.level store a in
           if l = 0 then (
-            match a.var.reason with
+            match Atom.reason store a with
             | Some (Bcp cl | Bcp_lazy (lazy cl)) ->
               partition_aux trues unassigned falses (cl :: history) (i + 1)
-            (* A var false at level 0 can be eliminated from the clause,
+            (* Atom var false at level 0 can be eliminated from the clause,
                but we need to kepp in mind that we used another clause to simplify it. *)
             (* TODO: get a proof of the propagation. *)
             | None | Some Decision -> assert false
@@ -942,98 +859,105 @@ module Make(Plugin : PLUGIN)
 
   (* Attach/Detach a clause.
 
-     A clause is attached (to its watching lits) when it is first added,
+     Atom clause is attached (to its watching lits) when it is first added,
      either because it is assumed or learnt.
 
   *)
-  let attach_clause c =
-    assert (not @@ Clause.attached c);
-    Log.debugf debug (fun k -> k "(@[sat.attach-clause@ %a@])" Clause.debug c);
-    Vec.push c.atoms.(0).neg.watched c;
-    Vec.push c.atoms.(1).neg.watched c;
-    Clause.set_attached c true;
+  let attach_clause (self:t) c =
+    let store = self.store in
+    assert (not @@ Clause.attached store c);
+    Log.debugf 20 (fun k -> k "(@[sat.attach-clause@ %a@])" (Clause.debug store) c);
+    (* TODO: change when watchlist are updated *)
+    CVec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(0))) c;
+    CVec.push (Atom.watched store (Atom.neg (Clause.atoms_a store c).(1))) c;
+    Clause.set_attached store c true;
     ()
 
   (* Backtracking.
      Used to backtrack, i.e cancel down to [lvl] excluded,
      i.e we want to go back to the state the solver was in
          when decision level [lvl] was created. *)
-  let cancel_until st lvl =
+  let cancel_until (self:t) lvl =
+    let store = self.store in
     assert (lvl >= 0);
     (* Nothing to do if we try to backtrack to a non-existent level. *)
-    if decision_level st <= lvl then (
-      Log.debugf debug (fun k -> k "(@[sat.cancel-until.nop@ :already-at-level <= %d@])" lvl)
+    if decision_level self <= lvl then (
+      Log.debugf 20 (fun k -> k "(@[sat.cancel-until.nop@ :already-at-level <= %d@])" lvl)
     ) else (
-      Log.debugf info (fun k -> k "(@[sat.cancel-until %d@])" lvl);
+      Log.debugf 5 (fun k -> k "(@[sat.cancel-until %d@])" lvl);
       (* We set the head of the solver and theory queue to what it was. *)
-      let head = ref (Vec.get st.var_levels lvl) in
-      st.elt_head <- !head;
-      st.th_head <- !head;
+      let head = ref (Vec.get self.var_levels lvl) in
+      self.elt_head <- !head;
+      self.th_head <- !head;
       (* Now we need to cleanup the vars that are not valid anymore
          (i.e to the right of elt_head in the queue. *)
-      for c = st.elt_head to Vec.size st.trail - 1 do
-        let a = Vec.get st.trail c in
-        (* A literal is unassigned, we nedd to add it back to
+      for c = self.elt_head to Vec.size self.trail - 1 do
+        let a = Vec.get self.trail c in
+        (* Atom literal is unassigned, we nedd to add it back to
            the heap of potentially assignable literals, unless it has
            a level lower than [lvl], in which case we just move it back. *)
-        (* A variable is not true/false anymore, one of two things can happen: *)
-        if a.var.v_level <= lvl then (
+        (* Atom variable is not true/false anymore, one of two things can happen: *)
+        if Atom.level store a <= lvl then (
           (* It is a late propagation, which has a level
              lower than where we backtrack, so we just move it to the head
              of the queue, to be propagated again. *)
-          Vec.set st.trail !head a;
+          Vec.set self.trail !head a;
           head := !head + 1
         ) else (
           (* it is a result of bolean propagation, or a semantic propagation
              with a level higher than the level to which we backtrack,
              in that case, we simply unset its value and reinsert it into the heap. *)
-          a.is_true <- false;
-          a.neg.is_true <- false;
-          a.var.v_level <- -1;
-          a.var.reason <- None;
-          insert_var_order st a.var
+          Atom.set_is_true store a false;
+          Atom.set_is_true store (Atom.neg a) false;
+          Var.set_level store (Atom.var a) (-1);
+          Var.set_reason store (Atom.var a) None;
+          insert_var_order self (Atom.var a)
         )
       done;
       (* Recover the right theory state. *)
-      let n = decision_level st - lvl in
+      let n = decision_level self - lvl in
       assert (n>0);
       (* Resize the vectors according to their new size. *)
-      Vec.shrink st.trail !head;
-      Vec.shrink st.var_levels lvl;
-      Plugin.pop_levels st.th n;
-      st.next_decisions <- [];
+      Vec.shrink self.trail !head;
+      Vec.shrink self.var_levels lvl;
+      Plugin.pop_levels self.th n;
+      self.next_decisions <- [];
     );
     ()
 
-  let pp_unsat_cause out = function
+  let pp_unsat_cause self out = function
     | US_local {first=_; core} ->
       Format.fprintf out "(@[unsat-cause@ :false-assumptions %a@])"
-        (Format.pp_print_list Atom.pp) core
+        (Format.pp_print_list (Atom.pp self.store)) core
     | US_false c ->
-      Format.fprintf out "(@[unsat-cause@ :false %a@])" Clause.debug c
+      Format.fprintf out "(@[unsat-cause@ :false %a@])" (Clause.debug self.store) c
 
   (* Unsatisfiability is signaled through an exception, since it can happen
      in multiple places (adding new clauses, or solving for instance). *)
-  let report_unsat st (us:unsat_cause) : _ =
-    Log.debugf info (fun k -> k "(@[sat.unsat-conflict@ %a@])" pp_unsat_cause us);
+  let report_unsat self (us:unsat_cause) : _ =
+    Log.debugf 3 (fun k -> k "(@[sat.unsat-conflict@ %a@])" (pp_unsat_cause self) us);
     let us = match us with
       | US_false c ->
-        let c = if st.store_proof then Proof.prove_unsat c else c in
-        st.unsat_at_0 <- Some c;
+        self.unsat_at_0 <- Some c;
+        (match self.on_learnt with Some f -> f self c | None -> ());
+        Proof.with_proof self.proof
+          (Proof.emit_redundant_clause (Clause.lits_iter self.store c));
         US_false c
       | _ -> us
     in
     raise (E_unsat us)
 
+  (* TODO: remove when we use DRUP *)
   (* Simplification of boolean propagation reasons.
      When doing boolean propagation *at level 0*, it can happen
-     that the clause cl, which propagates a formula, also contains
-     other formulas, but has been simplified. in which case, we
+     that the clause cl, which propagates a lit, also contains
+     other lits, but has been simplified. in which case, we
      need to rebuild a clause with correct history, in order to
      be able to build a correct proof at the end of proof search. *)
-  let simpl_reason : reason -> reason = function
+  let simpl_reason (self:t) (r:reason) : reason =
+    match r with
     | (Bcp cl | Bcp_lazy (lazy cl)) as r ->
-      let l, history = partition cl.atoms in
+      let l, history = partition self.store (Clause.atoms_a self.store cl) in
       begin match l with
         | [_] ->
           if history = [] then (
@@ -1042,44 +966,49 @@ module Make(Plugin : PLUGIN)
             r
           ) else (
             (* Clauses in [history] have been used to simplify [cl] into a clause [tmp_cl]
-               with only one formula (which is [a]). So we explicitly create that clause
+               with only one lit (which is [a]). So we explicitly create that clause
                and set it as the cause for the propagation of [a], that way we can
                rebuild the whole resolution tree when we want to prove [a]. *)
-            let c' = Clause.make ~flags:cl.flags l (History (cl :: history)) in
-            Log.debugf debug
-              (fun k -> k "(@[<hv>sat.simplified-reason@ %a@ %a@])" Clause.debug cl Clause.debug c');
+            let removable = Clause.removable self.store cl in
+            let c' = Clause.make_l self.store ~removable l in
+            Log.debugf 3
+              (fun k -> k "(@[<hv>sat.simplified-reason@ %a@ %a@])"
+                  (Clause.debug self.store) cl (Clause.debug self.store) c');
             Bcp c'
           )
         | _ ->
-          Log.debugf error
+          Log.debugf 0
             (fun k ->
                k "(@[<v2>sat.simplify-reason.failed@ :at %a@ %a@]"
-                 (Vec.pp ~sep:"" Atom.debug) (Vec.of_list l)
-                 Clause.debug cl);
+                 (Vec.pp ~sep:"" (Atom.debug self.store)) (Vec.of_list l)
+                 (Clause.debug self.store) cl);
           assert false
       end
     | Decision as r -> r
 
   (* Boolean propagation.
-     Wrapper function for adding a new propagated formula. *)
-  let enqueue_bool st a ~level:lvl reason : unit =
-    if a.neg.is_true then (
-      Log.debugf error
-        (fun k->k "(@[sat.error.trying to enqueue a false literal %a@])" Atom.debug a);
+     Wrapper function for adding a new propagated lit. *)
+  let enqueue_bool (self:t) a ~level:lvl reason : unit =
+    let store = self.store in
+    if Atom.is_false store a then (
+      Log.debugf 0
+        (fun k->k "(@[sat.error.trying to enqueue a false literal %a@])" (Atom.debug store) a);
       assert false
     );
-    assert (not a.is_true && a.var.v_level < 0 &&
-            a.var.reason = None && lvl >= 0);
+    assert (not (Atom.is_true store a) &&
+            Atom.level store a < 0 &&
+            Atom.reason store a == None && lvl >= 0);
     let reason =
       if lvl > 0 then reason
-      else simpl_reason reason
+      else simpl_reason self reason
     in
-    a.is_true <- true;
-    a.var.v_level <- lvl;
-    a.var.reason <- Some reason;
-    Vec.push st.trail a;
-    Log.debugf debug
-      (fun k->k "(@[sat.enqueue[%d]@ %a@])" (Vec.size st.trail) Atom.debug a);
+    Atom.set_is_true store a true;
+    Var.set_level store (Atom.var a) lvl;
+    Var.set_reason store (Atom.var a) (Some reason);
+    Vec.push self.trail a;
+    Log.debugf 20
+      (fun k->k "(@[sat.enqueue[%d]@ %a@])"
+          (Vec.size self.trail) (Atom.debug store) a);
     ()
 
   (* swap elements of array *)
@@ -1091,10 +1020,10 @@ module Make(Plugin : PLUGIN)
     )
 
   (* move atoms assigned at high levels first *)
-  let put_high_level_atoms_first (arr:atom array) : unit =
+  let put_high_level_atoms_first (store:store) (arr:atom array) : unit =
     Array.iteri
       (fun i a ->
-         if i>0 && Atom.level a > Atom.level arr.(0) then (
+         if i>0 && Atom.level store a > Atom.level store arr.(0) then (
            (* move first to second, [i]-th to first, second to [i] *)
            if i=1 then (
              swap_arr arr 0 1;
@@ -1104,7 +1033,9 @@ module Make(Plugin : PLUGIN)
              arr.(0) <- arr.(i);
              arr.(i) <- tmp;
            );
-         ) else if i>1 && Atom.level a > Atom.level arr.(1) then (
+         ) else if i>1 &&
+                   Atom.level store a > Atom.level store arr.(1)
+         then (
            swap_arr arr 1 i;
          ))
       arr
@@ -1113,20 +1044,21 @@ module Make(Plugin : PLUGIN)
      and a boolean stating whether it is
      a UIP ("Unique Implication Point")
      precond: the atom list is sorted by decreasing decision level *)
-  let backtrack_lvl _st (arr: atom array) : int * bool =
+  let backtrack_lvl (self:t) (arr: atom array) : int * bool =
+    let store = self.store in
     if Array.length arr <= 1 then (
       0, true
     ) else (
       let a = arr.(0) in
       let b = arr.(1) in
-      assert(a.var.v_level > 0);
-      if a.var.v_level > b.var.v_level then (
+      assert (Atom.level store a > 0);
+      if Atom.level store a > Atom.level store b then (
         (* backtrack below [a], so we can propagate [not a] *)
-        b.var.v_level, true
+        Atom.level store b, true
       ) else (
-        assert (a.var.v_level = b.var.v_level);
-        assert (a.var.v_level >= 0);
-        max (a.var.v_level - 1) 0, false
+        assert (Atom.level store a = Atom.level store b);
+        assert (Atom.level store a >= 0);
+        max (Atom.level store a - 1) 0, false
       )
     )
 
@@ -1139,62 +1071,78 @@ module Make(Plugin : PLUGIN)
   type conflict_res = {
     cr_backtrack_lvl : int; (* level to backtrack to *)
     cr_learnt: atom array; (* lemma learnt from conflict *)
-    cr_history: clause list; (* justification *)
+    cr_history: clause array; (* justification *)
     cr_is_uip: bool; (* conflict is UIP? *)
   }
 
-  (* conflict analysis for SAT
-     Same idea as the mcsat analyze function (without semantic propagations),
-     except we look the the Last UIP (TODO: check ?), and do it in an imperative
-     and efficient manner. *)
-  let analyze st c_clause : conflict_res =
-    let pathC  = ref 0 in
-    let learnt = ref [] in
-    let cond   = ref true in
-    let blevel = ref 0 in
-    let to_unmark = st.to_clear in (* for cleanup *)
-    let c      = ref (Some c_clause) in
-    let tr_ind = ref (Vec.size st.trail - 1) in
-    let history = ref [] in
-    assert (decision_level st > 0);
+  (* conflict analysis, starting with top of trail and conflict clause *)
+  let analyze (self:t) c_clause : conflict_res =
+    let store = self.store in
+
+    let to_unmark = self.to_clear in (* for cleanup *)
     Vec.clear to_unmark;
+    let learnt = self.temp_atom_vec in
+    Vec.clear learnt;
+    let history = self.temp_clause_vec in
+    Vec.clear history;
+
+    (* loop variables *)
+    let pathC  = ref 0 in
+    let continue = ref true in
+    let blevel = ref 0 in
+    let c = ref (Some c_clause) in (* current clause to analyze/resolve *)
+    let tr_ind = ref (Vec.size self.trail - 1) in (* pointer in trail *)
+
+    (* conflict level *)
+    assert (decision_level self > 0);
     let conflict_level =
-      if Plugin.has_theory
-      then Array.fold_left (fun acc p -> max acc p.var.v_level) 0 c_clause.atoms
-      else decision_level st
+      if Plugin.has_theory then (
+        Clause.fold store 0 c_clause
+          ~f:(fun acc p -> max acc (Atom.level store p))
+      ) else (
+        decision_level self
+      )
     in
-    Log.debugf debug
-      (fun k -> k "(@[sat.analyze-conflict@ :c-level %d@ :clause %a@])" conflict_level Clause.debug c_clause);
-    while !cond do
+    Log.debugf 30
+      (fun k -> k "(@[sat.analyze-conflict@ :c-level %d@ :clause %a@])"
+          conflict_level (Clause.debug store) c_clause);
+
+    while !continue do
       begin match !c with
         | None ->
-          Log.debug debug "(@[sat.analyze-conflict: skipping resolution for semantic propagation@])"
+          Log.debug 30
+            "(@[sat.analyze-conflict: skipping resolution for semantic propagation@])"
         | Some clause ->
-          Log.debugf debug (fun k->k"(@[sat.analyze-conflict.resolve@ %a@])"  Clause.debug clause);
-          if Clause.removable clause then (
-            clause_bump_activity st clause;
+          Log.debugf 30
+            (fun k->k"(@[sat.analyze-conflict.resolve@ %a@])" (Clause.debug store) clause);
+          if Clause.removable store clause then (
+            clause_bump_activity self clause;
           );
-          history := clause :: !history;
+          Vec.push history clause;
           (* visit the current predecessors *)
-          for j = 0 to Array.length clause.atoms - 1 do
-            let q = clause.atoms.(j) in
-            assert (q.is_true || q.neg.is_true && q.var.v_level >= 0); (* unsure? *)
-            if q.var.v_level <= 0 then (
-              assert (q.neg.is_true);
-              match q.var.reason with
-              | Some (Bcp cl | Bcp_lazy (lazy cl)) -> history := cl :: !history
+          let atoms = Clause.atoms_a store clause in
+          for j = 0 to Array.length atoms - 1 do
+            let q = atoms.(j) in
+            assert (Atom.is_true store q ||
+                    Atom.is_false store q &&
+                    Atom.level store q >= 0); (* unsure? *)
+            if Atom.level store q <= 0 then (
+              assert (Atom.is_false store q);
+              match Atom.reason store q with
+              | Some (Bcp cl | Bcp_lazy (lazy cl)) ->
+                Vec.push history cl
               | Some Decision | None -> assert false
             );
-            if not (Var.marked q.var) then (
-              Var.mark q.var;
-              Vec.push to_unmark q.var;
-              if q.var.v_level > 0 then (
-                var_bump_activity st q.var;
-                if q.var.v_level >= conflict_level then (
+            if not (Var.marked store (Atom.var q)) then (
+              Var.mark store (Atom.var q);
+              Vec.push to_unmark (Atom.var q);
+              if Atom.level store q > 0 then (
+                var_bump_activity self (Atom.var q);
+                if Atom.level store q >= conflict_level then (
                   incr pathC;
                 ) else (
-                  learnt := q :: !learnt;
-                  blevel := max !blevel q.var.v_level
+                  Vec.push learnt q;
+                  blevel := max !blevel (Atom.level store q)
                 )
               )
             )
@@ -1203,160 +1151,178 @@ module Make(Plugin : PLUGIN)
 
       (* look for the next node to expand *)
       while
-        let a = Vec.get st.trail !tr_ind in
-        Log.debugf debug
-          (fun k -> k "(@[sat.analyze-conflict.at-trail-elt@ %a@])" Atom.debug a);
-        (not (Var.marked a.var)) ||
-        (a.var.v_level < conflict_level)
+        let a = Vec.get self.trail !tr_ind in
+        Log.debugf 30
+          (fun k -> k "(@[sat.analyze-conflict.at-trail-elt@ %a@])" (Atom.debug store) a);
+        (not (Var.marked store (Atom.var a))) ||
+        (Atom.level store a < conflict_level)
       do
         decr tr_ind;
       done;
-      let p = Vec.get st.trail !tr_ind in
+      let p = Vec.get self.trail !tr_ind in
       decr pathC;
       decr tr_ind;
-      match !pathC, p.var.reason with
+      match !pathC, Atom.reason store p with
       | 0, _ ->
-        cond := false;
-        learnt := p.neg :: List.rev !learnt
+        continue := false;
+        Vec.push learnt (Atom.neg p)
       | n, Some (Bcp cl | Bcp_lazy (lazy cl)) ->
         assert (n > 0);
-        assert (p.var.v_level >= conflict_level);
+        assert (Atom.level store p >= conflict_level);
         c := Some cl
       | _, (None | Some Decision) -> assert false
     done;
-    Vec.iter Var.clear to_unmark;
+
+    Vec.iter (Store.clear_var store) to_unmark;
     Vec.clear to_unmark;
+
     (* put high-level literals first, so that:
        - they make adequate watch lits
        - the first literal is the UIP, if any *)
-    let a = Array.of_list !learnt in
-    Array.fast_sort (fun p q -> compare q.var.v_level p.var.v_level) a;
+    let cr_learnt = Vec.to_array learnt in
+    Vec.clear learnt;
+    Array.sort (fun p q -> compare (Atom.level store q) (Atom.level store p)) cr_learnt;
+
+    let cr_history = Vec.to_array history in
+    Vec.clear history;
+
     (* put_high_level_atoms_first a; *)
-    let level, is_uip = backtrack_lvl st a in
+    let level, is_uip = backtrack_lvl self cr_learnt in
     { cr_backtrack_lvl = level;
-      cr_learnt = a;
-      cr_history = List.rev !history;
+      cr_learnt;
+      cr_history;
       cr_is_uip = is_uip;
     }
 
   (* add the learnt clause to the clause database, propagate, etc. *)
-  let record_learnt_clause st (confl:clause) (cr:conflict_res): unit =
-    let proof = if st.store_proof then History cr.cr_history else Empty_premise in
+  let record_learnt_clause (self:t) (confl:clause) (cr:conflict_res): unit =
+    let store = self.store in
     begin match cr.cr_learnt with
       | [| |] -> assert false
       | [|fuip|] ->
-        assert (cr.cr_backtrack_lvl = 0 && decision_level st = 0);
-        if fuip.neg.is_true then (
+        assert (cr.cr_backtrack_lvl = 0 && decision_level self = 0);
+        if Atom.is_false store fuip then (
           (* incompatible at level 0 *)
-          report_unsat st (US_false confl)
+          report_unsat self (US_false confl)
         ) else (
-          let uclause = Clause.make_removable_a cr.cr_learnt proof  in
+          let uclause =
+            Clause.make_a store ~removable:true cr.cr_learnt in
+          (match self.on_learnt with Some f -> f self uclause | None -> ());
+          Proof.with_proof self.proof
+            (Proof.emit_redundant_clause (Clause.lits_iter self.store uclause));
           (* no need to attach [uclause], it is true at level 0 *)
-          enqueue_bool st fuip ~level:0 (Bcp uclause)
+          enqueue_bool self fuip ~level:0 (Bcp uclause)
         )
       | _ ->
         let fuip = cr.cr_learnt.(0) in
-        let lclause = Clause.make_removable_a cr.cr_learnt proof in
-        if Array.length lclause.atoms > 2 then (
-          Vec.push st.clauses_learnt lclause; (* potentially gc'able *)
+        let lclause = Clause.make_a store ~removable:true cr.cr_learnt in
+        if Clause.n_atoms store lclause > 2 then (
+          Vec.push self.clauses_learnt lclause; (* potentially gc'able *)
         );
-        attach_clause lclause;
-        clause_bump_activity st lclause;
+        attach_clause self lclause;
+        clause_bump_activity self lclause;
+        (match self.on_learnt with Some f -> f self lclause | None -> ());
+        Proof.with_proof self.proof
+          (Proof.emit_redundant_clause (Clause.lits_iter self.store lclause));
         assert (cr.cr_is_uip);
-        enqueue_bool st fuip ~level:cr.cr_backtrack_lvl (Bcp lclause)
+        enqueue_bool self fuip ~level:cr.cr_backtrack_lvl (Bcp lclause)
     end;
-    var_decay_activity st;
-    clause_decay_activity st
+    var_decay_activity self;
+    clause_decay_activity self
 
   (* process a conflict:
      - learn clause
      - backtrack
      - report unsat if conflict at level 0
   *)
-  let add_boolean_conflict st (confl:clause): unit =
-    Log.debugf info (fun k -> k "(@[sat.add-bool-conflict@ %a@])" Clause.debug confl);
-    st.next_decisions <- [];
-    assert (decision_level st >= 0);
-    if decision_level st = 0 ||
-       Array.for_all (fun a -> a.var.v_level <= 0) confl.atoms then (
+  let add_boolean_conflict (self:t) (confl:clause): unit =
+    let store = self.store in
+    Log.debugf 5 (fun k -> k "(@[sat.add-bool-conflict@ %a@])" (Clause.debug store) confl);
+    self.next_decisions <- [];
+    assert (decision_level self >= 0);
+    if decision_level self = 0 ||
+       Clause.for_all store confl ~f:(fun a -> Atom.level store a <= 0) then (
       (* Top-level conflict *)
-      report_unsat st (US_false confl);
+      report_unsat self (US_false confl);
     );
-    let cr = analyze st confl in
-    cancel_until st (max cr.cr_backtrack_lvl 0);
-    record_learnt_clause st confl cr
+    let cr = analyze self confl in
+    cancel_until self (max cr.cr_backtrack_lvl 0);
+    record_learnt_clause self confl cr
 
   (* Get the correct vector to insert a clause in. *)
-  let[@inline] add_clause_to_vec st c =
-    if Clause.removable c then (
-      Vec.push st.clauses_learnt c
+  let[@inline] add_clause_to_vec self c =
+    if Clause.removable self.store c then (
+      Vec.push self.clauses_learnt c
     ) else (
-      Vec.push st.clauses_hyps c
+      Vec.push self.clauses_hyps c
     )
 
   (* Add a new clause, simplifying, propagating, and backtracking if
      the clause is false in the current trail *)
-  let add_clause_ st (init:clause) : unit =
-    Log.debugf debug (fun k -> k "(@[sat.add-clause@ @[<hov>%a@]@])" Clause.debug init);
+  let add_clause_ (self:t) (init:clause) : unit =
+    let store = self.store in
+    Log.debugf 30 (fun k -> k "(@[sat.add-clause@ @[<hov>%a@]@])" (Clause.debug store) init);
     (* Insertion of new lits is done before simplification. Indeed, else a lit in a
        trivial clause could end up being not decided on, which is a bug. *)
-    Array.iter (fun x -> insert_var_order st x.var) init.atoms;
+    Clause.iter store init ~f:(fun x -> insert_var_order self (Atom.var x));
     try
-      let c = eliminate_duplicates init in
-      assert (c.flags = init.flags);
-      Log.debugf debug (fun k -> k "(@[sat.dups-removed@ %a@])" Clause.debug c);
-      let atoms, history = partition c.atoms in
+      let c = eliminate_duplicates store init in
+      Log.debugf 30 (fun k -> k "(@[sat.dups-removed@ %a@])" (Clause.debug store) c);
+      let atoms, history = partition store (Clause.atoms_a store c) in
       let clause =
         if history = [] then (
           (* just update order of atoms *)
-          List.iteri (fun i a -> c.atoms.(i) <- a) atoms;
+          let c_atoms = Clause.atoms_a store c in
+          List.iteri (fun i a -> c_atoms.(i) <- a) atoms;
           c
         ) else (
-          let proof = if st.store_proof then History (c::history) else Empty_premise in
-          Clause.make ~flags:c.flags atoms proof
+          let removable = Clause.removable store c in
+          Clause.make_l store ~removable atoms
         )
       in
-      assert (clause.flags = init.flags);
-      Log.debugf info (fun k->k "(@[sat.new-clause@ @[<hov>%a@]@])" Clause.debug clause);
+      assert (Clause.removable store clause = Clause.removable store init);
+      Log.debugf 5 (fun k->k "(@[sat.new-clause@ @[<hov>%a@]@])" (Clause.debug store) clause);
       match atoms with
       | [] ->
-        report_unsat st @@ US_false clause
+        report_unsat self @@ US_false clause
       | [a]   ->
-        cancel_until st 0;
-        if a.neg.is_true then (
+        cancel_until self 0;
+        if Atom.is_false store a then (
           (* cannot recover from this *)
-          report_unsat st @@ US_false clause
-        ) else if a.is_true then (
+          report_unsat self @@ US_false clause
+        ) else if Atom.is_true store a then (
           () (* atom is already true, nothing to do *)
         ) else (
-          Log.debugf debug
-            (fun k->k "(@[sat.add-clause.unit-clause@ :propagating %a@])" Atom.debug a);
-          add_clause_to_vec st clause;
-          enqueue_bool st a ~level:0 (Bcp clause)
+          Log.debugf 40
+            (fun k->k "(@[sat.add-clause.unit-clause@ :propagating %a@])" (Atom.debug store) a);
+          add_clause_to_vec self clause;
+          enqueue_bool self a ~level:0 (Bcp clause)
         )
       | a::b::_ ->
-        add_clause_to_vec st clause;
-        if a.neg.is_true then (
-          (* Atoms need to be sorted in decreasing order of decision level,
+        add_clause_to_vec self clause;
+        if Atom.is_false store a then (
+          (* Atom need to be sorted in decreasing order of decision level,
              or we might watch the wrong literals. *)
-          put_high_level_atoms_first clause.atoms;
-          attach_clause clause;
-          add_boolean_conflict st clause
+          put_high_level_atoms_first store (Clause.atoms_a store clause);
+          attach_clause self clause;
+          add_boolean_conflict self clause
         ) else (
-          attach_clause clause;
-          if b.neg.is_true && not a.is_true && not a.neg.is_true then (
-            let lvl = List.fold_left (fun m a -> max m a.var.v_level) 0 atoms in
-            cancel_until st lvl;
-            enqueue_bool st a ~level:lvl (Bcp clause)
+          attach_clause self clause;
+          if Atom.is_false store b &&
+             not (Atom.is_true store a) &&
+             not (Atom.is_false store a) then (
+            let lvl = List.fold_left (fun m a -> max m (Atom.level store a)) 0 atoms in
+            cancel_until self lvl;
+            enqueue_bool self a ~level:lvl (Bcp clause)
           )
         )
     with Trivial ->
-      Log.debugf info
-        (fun k->k "(@[sat.add-clause@ :ignore-trivial @[%a@]@])" Clause.debug init)
+      Log.debugf 5
+        (fun k->k "(@[sat.add-clause@ :ignore-trivial @[%a@]@])" (Clause.debug store) init)
 
   let[@inline never] flush_clauses_ st =
     while not @@ Vec.is_empty st.clauses_to_add do
-      let c = Vec.pop st.clauses_to_add in
+      let c = Vec.pop_exn st.clauses_to_add in
       add_clause_ st c
     done
 
@@ -1372,41 +1338,43 @@ module Make(Plugin : PLUGIN)
      [i] is the index of [c] in [a.watched]
      @return whether [c] was removed from [a.watched]
   *)
-  let propagate_in_clause st (a:atom) (c:clause) (i:int): watch_res =
-    let atoms = c.atoms in
+  let propagate_in_clause (self:t) (a:atom) (c:clause) (i:int): watch_res =
+    let store = self.store in
+    let atoms = Clause.atoms_a store c in
     let first = atoms.(0) in
-    if first == a.neg then (
+    if first = Atom.neg a then (
       (* false lit must be at index 1 *)
       atoms.(0) <- atoms.(1);
       atoms.(1) <- first
     ) else (
-      assert (a.neg == atoms.(1))
+      assert (Atom.neg a = atoms.(1))
     );
     let first = atoms.(0) in
-    if first.is_true
-    then Watch_kept (* true clause, keep it in watched *)
-    else (
+    if Atom.is_true store first then (
+      Watch_kept (* true clause, keep it in watched *)
+    ) else (
       try (* look for another watch lit *)
         for k = 2 to Array.length atoms - 1 do
           let ak = atoms.(k) in
-          if not (ak.neg.is_true) then (
+          if not (Atom.is_false store ak) then (
             (* watch lit found: update and exit *)
             atoms.(1) <- ak;
-            atoms.(k) <- a.neg;
+            atoms.(k) <- Atom.neg a;
             (* remove [c] from [a.watched], add it to [ak.neg.watched] *)
-            Vec.push ak.neg.watched c;
-            assert (Vec.get a.watched i == c);
-            Vec.fast_remove a.watched i;
+            CVec.push (Atom.watched store (Atom.neg ak)) c;
+            assert (Clause.equal (CVec.get (Atom.watched store a) i) c);
+            CVec.fast_remove (Atom.watched store a) i;
             raise_notrace Exit
           )
         done;
         (* no watch lit found *)
-        if first.neg.is_true then (
+        if Atom.is_false store first then (
           (* clause is false *)
-          st.elt_head <- Vec.size st.trail;
+          self.elt_head <- Vec.size self.trail;
           raise_notrace (Conflict c)
         ) else (
-          enqueue_bool st first ~level:(decision_level st) (Bcp c)
+          Stat.incr self.n_propagations;
+          enqueue_bool self first ~level:(decision_level self) (Bcp c)
         );
         Watch_kept
       with Exit ->
@@ -1417,22 +1385,19 @@ module Make(Plugin : PLUGIN)
      clause watching [a] to see if the clause is false, unit, or has
      other possible watches
      @param res the optional conflict clause that the propagation might trigger *)
-  let propagate_atom st a : unit =
-    let watched = a.watched in
+  let propagate_atom (self:t) a : unit =
+    let store = self.store in
+    let watched = Atom.watched store a in
     let rec aux i =
-      if i >= Vec.size watched then ()
+      if i >= CVec.size watched then ()
       else (
-        let c = Vec.get watched i in
-        assert (Clause.attached c);
+        let c = CVec.get watched i in
+        assert (Clause.attached store c);
+        assert (not (Clause.dead store c));
         let j =
-          if Clause.dead c then (
-            Vec.fast_remove watched i;
-            i
-          ) else (
-            match propagate_in_clause st a c i with
-            | Watch_kept -> i+1
-            | Watch_removed -> i (* clause at this index changed *)
-          )
+          match propagate_in_clause self a c i with
+          | Watch_kept -> i+1
+          | Watch_removed -> i (* clause at this index changed *)
         in
         aux j
       )
@@ -1443,89 +1408,100 @@ module Make(Plugin : PLUGIN)
 
   let[@inline] slice_get st i = Vec.get st.trail i
 
-  let acts_add_clause st ?(keep=false) (l:formula list) (lemma:lemma): unit =
-    let atoms = List.rev_map (mk_atom st) l in
-    let flags = if keep then 0 else Clause.flag_removable in
-    let c = Clause.make ~flags atoms (Lemma lemma) in
-    Log.debugf info (fun k->k "(@[sat.th.add-clause@ %a@])" Clause.debug c);
-    Vec.push st.clauses_to_add c
+  let acts_add_clause self ?(keep=false) (l:lit list) (dp:dproof): unit =
+    let atoms = List.rev_map (make_atom_ self) l in
+    let removable = not keep in
+    let c = Clause.make_l self.store ~removable atoms in
+    Proof.with_proof self.proof dp;
+    Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
+    Vec.push self.clauses_to_add c
 
-  let acts_add_decision_lit (st:t) (f:formula) (sign:bool) : unit =
-    let a = mk_atom st f in
+  let acts_add_decision_lit (self:t) (f:lit) (sign:bool) : unit =
+    let store = self.store in
+    let a = make_atom_ self f in
     let a = if sign then a else Atom.neg a in
-    if not (Atom.has_value a) then (
-      Log.debugf 10 (fun k->k "(@[sat.th.add-decision-lit@ %a@])" Atom.debug a);
-      st.next_decisions <- a :: st.next_decisions
+    if not (Atom.has_value store a) then (
+      Log.debugf 10 (fun k->k "(@[sat.th.add-decision-lit@ %a@])" (Atom.debug store) a);
+      self.next_decisions <- a :: self.next_decisions
     )
 
-  let acts_raise st (l:formula list) proof : 'a =
-    let atoms = List.rev_map (mk_atom st) l in
+  let acts_raise self (l:lit list) (dp:dproof) : 'a =
+    let atoms = List.rev_map (make_atom_ self) l in
     (* conflicts can be removed *)
-    let c = Clause.make_removable atoms (Lemma proof) in
-    Log.debugf 5 (fun k->k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])" Clause.debug c);
+    let c = Clause.make_l self.store ~removable:true atoms in
+    Proof.with_proof self.proof dp;
+    Log.debugf 5 (fun k->k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])"
+                     (Clause.debug self.store) c);
     raise_notrace (Th_conflict c)
 
-  let check_consequence_lits_false_ l : unit =
-    match List.find Atom.is_true l with
+  let check_consequence_lits_false_ self l : unit =
+    let store = self.store in
+    match List.find (Atom.is_true store) l with
     | a ->
       invalid_argf
         "slice.acts_propagate:@ Consequence should contain only true literals, but %a isn't"
-        Atom.debug (Atom.neg a)
+        (Atom.debug store) (Atom.neg a)
     | exception Not_found -> ()
 
-  let acts_propagate (st:t) f = function
+  let acts_propagate (self:t) f expl =
+    let store = self.store in
+    match expl with
     | Solver_intf.Consequence mk_expl ->
-      let p = mk_atom st f in
-      if Atom.is_true p then ()
-      else if Atom.is_false p then (
-        let lits, proof = mk_expl() in
-        let l = List.rev_map (fun f -> Atom.neg @@ mk_atom st f) lits in
-        check_consequence_lits_false_ l;
-        let c = Clause.make_removable (p :: l) (Lemma proof) in
+      let p = make_atom_ self f in
+      if Atom.is_true store p then ()
+      else if Atom.is_false store p then (
+        let lits, dp = mk_expl() in
+        let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
+        check_consequence_lits_false_ self l;
+        let c = Clause.make_l store ~removable:true (p :: l) in
+        Proof.with_proof self.proof dp;
         raise_notrace (Th_conflict c)
       ) else (
-        insert_var_order st p.var;
+        insert_var_order self (Atom.var p);
         let c = lazy (
-          let lits, proof = mk_expl () in
-          let l = List.rev_map (fun f -> Atom.neg @@ mk_atom st f) lits in
+          let lits, dp = mk_expl () in
+          let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
           (* note: we can check that invariant here in the [lazy] block,
              as conflict analysis will run in an environment where
              the literals should be true anyway, since it's an extension of the
              current trail
              (otherwise the propagated lit would have been backtracked and
              discarded already.) *)
-          check_consequence_lits_false_ l;
-          Clause.make_removable (p :: l) (Lemma proof)
+          check_consequence_lits_false_ self l;
+          Proof.with_proof self.proof dp;
+          Clause.make_l store ~removable:true (p :: l)
         ) in
-        let level = decision_level st in
-        enqueue_bool st p ~level (Bcp_lazy c)
+        let level = decision_level self in
+        Stat.incr self.n_propagations;
+        enqueue_bool self p ~level (Bcp_lazy c)
       )
 
-  let[@specialise] acts_iter st ~full head f : unit =
-    for i = (if full then 0 else head) to Vec.size st.trail-1 do
-      let a = Vec.get st.trail i in
-      f a.lit
+  let[@specialise] acts_iter self ~full head f : unit =
+    for i = (if full then 0 else head) to Vec.size self.trail-1 do
+      let a = Vec.get self.trail i in
+      f (Atom.lit self.store a);
     done
 
-  let eval_atom_ a =
-    if Atom.is_true a then Solver_intf.L_true
-    else if Atom.is_false a then Solver_intf.L_false
+  let eval_atom_ self a =
+    if Atom.is_true self.store a then Solver_intf.L_true
+    else if Atom.is_false self.store a then Solver_intf.L_false
     else Solver_intf.L_undefined
 
-  let[@inline] acts_eval_lit st (f:formula) : Solver_intf.lbool =
-    let a = mk_atom st f in
-    eval_atom_ a
+  let[@inline] acts_eval_lit self (f:lit) : Solver_intf.lbool =
+    let a = make_atom_ self f in
+    eval_atom_ self a
 
-  let[@inline] acts_mk_lit st ?default_pol f : unit =
-    ignore (mk_atom ?default_pol st f : atom)
+  let[@inline] acts_add_lit self ?default_pol f : unit =
+    ignore (make_atom_ ?default_pol self f : atom)
 
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
-      type nonrec proof = lemma
-      type nonrec formula = formula
+      type nonrec proof = proof
+      type dproof = proof -> unit
+      type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:false st.th_head
       let eval_lit= acts_eval_lit st
-      let mk_lit=acts_mk_lit st
+      let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
@@ -1536,11 +1512,12 @@ module Make(Plugin : PLUGIN)
   (* full slice, for [if_sat] final check *)
   let[@inline] full_slice st : _ Solver_intf.acts =
     let module M = struct
-      type nonrec proof = lemma
-      type nonrec formula = formula
+      type nonrec proof = proof
+      type dproof = proof -> unit
+      type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st
-      let mk_lit=acts_mk_lit st
+      let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
@@ -1549,29 +1526,30 @@ module Make(Plugin : PLUGIN)
     (module M)
 
   (* Assert that the conflict is indeeed a conflict *)
-  let check_is_conflict_ (c:Clause.t) : unit =
-    if not @@ Array.for_all (Atom.is_false) c.atoms then (
-      invalid_argf "conflict should be false: %a" Clause.debug c
+  let check_is_conflict_ self (c:Clause.t) : unit =
+    if not @@ Clause.for_all self.store c ~f:(Atom.is_false self.store) then (
+      Log.debugf 0 (fun k->k"conflict should be false: %a" (Clause.debug self.store) c);
+      assert false
     )
 
   (* some boolean literals were decided/propagated within Msat. Now we
      need to inform the theory of those assumptions, so it can do its job.
      @return the conflict clause, if the theory detects unsatisfiability *)
-  let rec theory_propagate st : clause option =
-    assert (st.elt_head = Vec.size st.trail);
-    assert (st.th_head <= st.elt_head);
-    if st.th_head = st.elt_head then (
+  let rec theory_propagate self : clause option =
+    assert (self.elt_head = Vec.size self.trail);
+    assert (self.th_head <= self.elt_head);
+    if self.th_head = self.elt_head then (
       None (* fixpoint/no propagation *)
     ) else (
-      let slice = current_slice st in
-      st.th_head <- st.elt_head; (* catch up *)
-      match Plugin.partial_check st.th slice with
+      let slice = current_slice self in
+      self.th_head <- self.elt_head; (* catch up *)
+      match Plugin.partial_check self.th slice with
       | () ->
-        flush_clauses st;
-        propagate st
+        flush_clauses self;
+        propagate self
       | exception Th_conflict c ->
-        check_is_conflict_ c;
-        Array.iter (fun a -> insert_var_order st a.var) c.atoms;
+        check_is_conflict_ self c;
+        Clause.iter self.store c ~f:(fun a -> insert_var_order self (Atom.var a));
         Some c
     )
 
@@ -1598,87 +1576,163 @@ module Make(Plugin : PLUGIN)
 
   (* compute unsat core from assumption [a] *)
   let analyze_final (self:t) (a:atom) : atom list =
-    Log.debugf 5 (fun k->k "(@[sat.analyze-final@ :lit %a@])" Atom.debug a);
-    assert (Atom.is_false a);
+    let store = self.store in
+    Log.debugf 5 (fun k->k "(@[sat.analyze-final@ :lit %a@])" (Atom.debug store) a);
+    assert (Atom.is_false store a);
     let core = ref [a] in
     let idx = ref (Vec.size self.trail - 1) in
-    Var.mark a.var;
-    let seen = ref [a.var] in
+    Var.mark store (Atom.var a);
+    let seen = ref [Atom.var a] in
     while !idx >= 0 do
       let a' = Vec.get self.trail !idx in
-      if Var.marked a'.var then (
-        match Atom.reason a' with
+      if Var.marked store (Atom.var a') then (
+        match Atom.reason store a' with
         | Some Decision -> core := a' :: !core
         | Some (Bcp c | Bcp_lazy (lazy c)) ->
-          Array.iter
-            (fun a ->
-               let v = a.var in
-               if not @@ Var.marked v then (
+          Clause.iter store c
+            ~f:(fun a ->
+               let v = Atom.var a in
+               if not (Var.marked store v) then (
                  seen := v :: !seen;
-                 Var.mark v;
+                 Var.mark store v;
                ))
-            c.atoms
         | None -> ()
       );
       decr idx
     done;
-    List.iter Var.unmark !seen;
-    Log.debugf 5 (fun k->k "(@[sat.analyze-final.done@ :core %a@])" (Format.pp_print_list Atom.debug) !core);
+    List.iter (Var.unmark store) !seen;
+    Log.debugf 5 (fun k->k "(@[sat.analyze-final.done@ :core %a@])"
+                     (Format.pp_print_list (Atom.debug store)) !core);
     !core
 
-  (* remove some learnt clauses. *)
-  let reduce_db (st:t) (n_of_learnts: int) : unit =
-    let v = st.clauses_learnt in
-    Log.debugf 3 (fun k->k "(@[sat.gc.start :keep %d :out-of %d@])" n_of_learnts (Vec.size v));
-    assert (Vec.size v > n_of_learnts);
+  (* GC: remove some learnt clauses.
+     This works even during the proof with a non empty trail. *)
+  let reduce_clause_db (self:t) (n_of_learnts: int) : unit =
+    let store = self.store in
+
+    Log.debugf 3 (fun k->k "(@[sat.gc.start :keep %d :out-of %d@])"
+                     n_of_learnts (Vec.size self.clauses_learnt));
+    assert (Vec.size self.clauses_learnt > n_of_learnts);
+
     (* sort by decreasing activity *)
-    Vec.sort v (fun c1 c2 -> compare c2.activity c1.activity);
-    let n_collected = ref 0 in
-    while Vec.size v > n_of_learnts do
-      let c = Vec.pop v in
-      assert (Clause.removable c);
-      Clause.set_dead c;
-      assert (Clause.dead c);
-      incr n_collected;
+    Vec.sort self.clauses_learnt
+      (fun c1 c2 -> compare (Clause.activity store c2) (Clause.activity store c1));
+
+    let dirty_atoms = self.temp_atom_vec in
+    let to_be_gc = self.temp_clause_vec in (* clauses to collect *)
+    let to_be_pushed_back = Vec.create() in (* clauses we need to keep *)
+    assert (Vec.is_empty dirty_atoms);
+    assert (Vec.is_empty to_be_gc);
+
+    (* [a] is watching at least one removed clause, we'll need to
+       trim its watchlist *)
+    let mark_dirty_atom a =
+      if not (Atom.marked store a) then (
+        Atom.mark store a;
+        Vec.push dirty_atoms a;
+      )
+    in
+
+    (* first, mark clauses used on the trail, we cannot GC them.
+       TODO: once we use DRUP, we can avoid marking level-0 explanations
+       as they will never participate in resolution. *)
+    Vec.iter
+      (fun a ->
+         match Atom.reason store a with
+         | Some (Bcp c) -> Clause.set_marked store c true
+         | Some (Bcp_lazy lc) when Lazy.is_val lc ->
+           Clause.set_marked store (Lazy.force lc) true
+         | _ -> ())
+      self.trail;
+
+    (* GC the clause [c] *)
+    let flag_clause_for_gc c =
+      assert (Clause.removable store c);
+      Vec.push to_be_gc c;
+      Clause.set_dead store c true;
+      let atoms = Clause.atoms_a store c in
+      mark_dirty_atom (Atom.neg atoms.(0)); (* need to remove from watchlists *)
+      mark_dirty_atom (Atom.neg atoms.(1));
+      (match self.on_gc with
+       | Some f -> let lits = Clause.lits_a store c in f self lits
+       | None -> ());
+      Proof.with_proof self.proof
+        (Proof.del_clause (Clause.lits_iter store c));
+    in
+
+    (* find clauses to GC *)
+    while Vec.size self.clauses_learnt > n_of_learnts do
+      let c = Vec.pop_exn self.clauses_learnt in
+      if Clause.marked store c then (
+        Vec.push to_be_pushed_back c; (* must keep it, it's on the trail *)
+      ) else (
+        flag_clause_for_gc c;
+        Log.debugf 10 (fun k->k"(@[sat.gc.will-collect@ %a@])" (Clause.debug store) c);
+      )
     done;
-    Log.debugf 3 (fun k->k "(@[sat.gc.done :collected %d@])" !n_collected);
+    let n_collected = Vec.size to_be_gc in
+
+    (* update watchlist of dirty atoms *)
+    Vec.iter
+      (fun a ->
+         assert (Atom.marked store a);
+         Atom.unmark store a;
+         let w = Atom.watched store a in
+         CVec.filter_in_place (fun c -> not (Clause.dead store c)) w)
+      dirty_atoms;
+    Vec.clear dirty_atoms;
+
+    (* actually remove the clauses now that they are detached *)
+    Vec.iter (Clause.dealloc store) to_be_gc;
+    Vec.clear to_be_gc;
+    (* restore other clauses *)
+    Vec.iter
+      (fun c ->
+         Clause.set_marked store c false;
+         Vec.push self.clauses_learnt c)
+      to_be_pushed_back;
+
+    Log.debugf 3 (fun k->k "(@[sat.gc.done :collected %d@])" n_collected);
     ()
 
   (* Decide on a new literal, and enqueue it into the trail *)
-  let rec pick_branch_aux st atom : unit =
-    let v = atom.var in
-    if v.v_level >= 0 then (
-      assert (v.pa.is_true || v.na.is_true);
-      pick_branch_lit st
+  let rec pick_branch_aux self atom : unit =
+    let v = Atom.var atom in
+    if Var.level self.store v >= 0 then (
+      assert (Atom.is_true self.store (Atom.pa v) ||
+              Atom.is_true self.store (Atom.na v));
+      pick_branch_lit self
     ) else (
-      new_decision_level st;
-      let current_level = decision_level st in
-      enqueue_bool st atom ~level:current_level Decision;
-      (match st.on_decision with Some f -> f atom | None -> ());
+      new_decision_level self;
+      let current_level = decision_level self in
+      enqueue_bool self atom ~level:current_level Decision;
+      Stat.incr self.n_decisions;
+      (match self.on_decision with Some f -> f self (Atom.lit self.store atom) | None -> ());
     )
 
-  and pick_branch_lit st =
-    match st.next_decisions with
+  and pick_branch_lit self : unit =
+    match self.next_decisions with
     | atom :: tl ->
-      st.next_decisions <- tl;
-      pick_branch_aux st atom
-    | [] when decision_level st < Vec.size st.assumptions ->
+      self.next_decisions <- tl;
+      pick_branch_aux self atom
+    | [] when decision_level self < Vec.size self.assumptions ->
       (* use an assumption *)
-      let a = Vec.get st.assumptions (decision_level st) in
-      if Atom.is_true a then (
-        new_decision_level st; (* pseudo decision level, [a] is already true *)
-        pick_branch_lit st
-      ) else if Atom.is_false a then (
+      let a = Vec.get self.assumptions (decision_level self) in
+      if Atom.is_true self.store a then (
+        new_decision_level self; (* pseudo decision level, [a] is already true *)
+        pick_branch_lit self
+      ) else if Atom.is_false self.store a then (
         (* root conflict, find unsat core *)
-        let core = analyze_final st a in
+        let core = analyze_final self a in
         raise (E_unsat (US_local {first=a; core}))
       ) else (
-        pick_branch_aux st a
+        pick_branch_aux self a
       )
     | [] ->
-      begin match H.remove_min st.order with
+      begin match H.remove_min self.order with
         | v ->
-          pick_branch_aux st (if Var.default_pol v then v.pa else v.na)
+          pick_branch_aux self
+            (if Var.default_pol self.store v then Atom.pa v else Atom.na v)
         | exception Not_found -> raise_notrace E_sat
       end
 
@@ -1696,37 +1750,39 @@ module Make(Plugin : PLUGIN)
            might 'forget' the initial conflict clause, and only add the
            analyzed backtrack clause. So in those case, we use add_clause
            to make sure the initial conflict clause is also added. *)
-        if Clause.attached confl then (
+        if Clause.attached st.store confl then (
           add_boolean_conflict st confl
         ) else (
           add_clause_ st confl
         );
-        (match st.on_conflict with Some f -> f confl.atoms | None -> ());
+        Stat.incr st.n_conflicts;
+        (match st.on_conflict with Some f -> f st confl | None -> ());
 
       | None -> (* No Conflict *)
         assert (st.elt_head = Vec.size st.trail);
         assert (st.elt_head = st.th_head);
         if n_of_conflicts > 0 && !conflictC >= n_of_conflicts then (
-          Log.debug info "(sat.restarting)";
+          Log.debug 1 "(sat.restarting)";
           cancel_until st 0;
+          Stat.incr st.n_restarts;
           raise_notrace Restart
         );
         (* if decision_level() = 0 then simplify (); *)
 
         if n_of_learnts > 0 &&
            Vec.size st.clauses_learnt - Vec.size st.trail > n_of_learnts then (
-          reduce_db st n_of_learnts;
+          reduce_clause_db st n_of_learnts;
         );
 
         pick_branch_lit st
     done
 
-  let eval_level (_st:t) (a:atom) =
-    let lvl = a.var.v_level in
-    if Atom.is_true a then (
+  let eval_level (self:t) (a:atom) =
+    let lvl = Atom.level self.store a in
+    if Atom.is_true self.store a then (
       assert (lvl >= 0);
       true, lvl
-    ) else if Atom.is_false a then (
+    ) else if Atom.is_false self.store a then (
       false, lvl
     ) else (
       raise UndecidedLit
@@ -1738,113 +1794,105 @@ module Make(Plugin : PLUGIN)
 
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
-  let solve_ (st:t) : unit =
-    Log.debugf 5 (fun k->k "(@[sat.solve :assms %d@])" (Vec.size st.assumptions));
-    check_unsat_ st;
+  let solve_ (self:t) : unit =
+    Log.debugf 5 (fun k->k "(@[sat.solve :assms %d@])" (Vec.size self.assumptions));
+    check_unsat_ self;
     try
-      flush_clauses st; (* add initial clauses *)
+      flush_clauses self; (* add initial clauses *)
       let n_of_conflicts = ref (float_of_int restart_first) in
-      let n_of_learnts = ref ((float_of_int (nb_clauses st)) *. learntsize_factor) in
+      let n_of_learnts = ref ((float_of_int (nb_clauses self)) *. learntsize_factor) in
       while true do
         begin try
-            search st (int_of_float !n_of_conflicts) (int_of_float !n_of_learnts)
+            search self (int_of_float !n_of_conflicts) (int_of_float !n_of_learnts)
           with
           | Restart ->
             n_of_conflicts := !n_of_conflicts *. restart_inc;
             n_of_learnts   := !n_of_learnts *. learntsize_inc
           | E_sat ->
-            assert (st.elt_head = Vec.size st.trail &&
-                    Vec.is_empty st.clauses_to_add &&
-                    st.next_decisions=[]);
-            begin match Plugin.final_check st.th (full_slice st) with
+            assert (self.elt_head = Vec.size self.trail &&
+                    Vec.is_empty self.clauses_to_add &&
+                    self.next_decisions=[]);
+            begin match Plugin.final_check self.th (full_slice self) with
               | () ->
-                if st.elt_head = Vec.size st.trail &&
-                   Vec.is_empty st.clauses_to_add &&
-                   st.next_decisions = []
+                if self.elt_head = Vec.size self.trail &&
+                   Vec.is_empty self.clauses_to_add &&
+                   self.next_decisions = []
                 then (
                   raise_notrace E_sat
                 );
                 (* otherwise, keep on *)
-                flush_clauses st;
+                flush_clauses self;
               | exception Th_conflict c ->
-                check_is_conflict_ c;
-                Array.iter (fun a -> insert_var_order st a.var) c.atoms;
-                Log.debugf info (fun k -> k "(@[sat.theory-conflict-clause@ %a@])" Clause.debug c);
-                (match st.on_conflict with Some f -> f c.atoms | None -> ());
-                Vec.push st.clauses_to_add c;
-                flush_clauses st;
+                check_is_conflict_ self c;
+                Clause.iter self.store c
+                  ~f:(fun a -> insert_var_order self (Atom.var a));
+                Log.debugf 5 (fun k -> k "(@[sat.theory-conflict-clause@ %a@])"
+                                 (Clause.debug self.store) c);
+                Stat.incr self.n_conflicts;
+                (match self.on_conflict with Some f -> f self c | None -> ());
+                Vec.push self.clauses_to_add c;
+                flush_clauses self;
             end;
         end
       done
     with E_sat -> ()
 
-  let assume st cnf lemma =
+  let assume self cnf : unit =
     List.iter
       (fun l ->
-         let atoms = List.rev_map (mk_atom st) l in
-         let c = Clause.make_permanent atoms (Hyp lemma) in
-         Log.debugf debug (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])" Clause.debug c);
-         Vec.push st.clauses_to_add c)
+         let atoms = Util.array_of_list_map (make_atom_ self) l in
+         let c = Clause.make_a self.store ~removable:false atoms in
+         Proof.with_proof self.proof
+           (Proof.emit_input_clause (Iter.of_list l));
+         Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
+                           (Clause.debug self.store) c);
+         Vec.push self.clauses_to_add c)
       cnf
 
-  (* Check satisfiability *)
-  let check_clause c =
-    let res = Array.exists (fun a -> a.is_true) c.atoms in
-    if not res then (
-      Log.debugf debug
-        (fun k -> k "(@[sat.check-clause@ :not-satisfied @[<hov>%a@]@])" Clause.debug c);
-      false
-    ) else
-      true
-
-  let check_vec v = Vec.for_all check_clause v
-  let check st : bool =
-    Vec.is_empty st.clauses_to_add &&
-    check_vec st.clauses_hyps &&
-    check_vec st.clauses_learnt
-
   let[@inline] theory st = st.th
+  let[@inline] store st = st.store
+  let[@inline] proof st = st.proof
 
-  (* Unsafe access to internal data *)
-
-  let hyps env = env.clauses_hyps
-
-  let history env = env.clauses_learnt
-
-  let trail env = env.trail
+  let[@inline] add_lit self ?default_pol lit =
+    ignore (make_atom_ self lit ?default_pol : atom)
+  let[@inline] set_default_pol (self:t) (lit:lit) (pol:bool) : unit =
+    let a = make_atom_ self lit ~default_pol:pol in
+    Var.set_default_pol self.store (Atom.var a) pol
 
   (* Result type *)
   type res =
-    | Sat of Formula.t Solver_intf.sat_state
-    | Unsat of (atom,clause,Proof.t) Solver_intf.unsat_state
+    | Sat of Lit.t Solver_intf.sat_state
+    | Unsat of (lit,clause) Solver_intf.unsat_state
 
-  let pp_all st lvl status =
+  let pp_all self lvl status =
     Log.debugf lvl
       (fun k -> k
           "(@[<v>sat.full-state :res %s - Full summary:@,@[<hov 2>Trail:@\n%a@]@,\
            @[<hov 2>Hyps:@\n%a@]@,@[<hov 2>Lemmas:@\n%a@]@,@]@."
           status
-          (Vec.pp ~sep:"" Atom.debug) (trail st)
-          (Vec.pp ~sep:"" Clause.debug) (hyps st)
-          (Vec.pp ~sep:"" Clause.debug) (history st)
-      )
+          (Vec.pp ~sep:"" @@ Atom.debug self.store) self.trail
+          (Vec.pp ~sep:"" @@ Clause.debug self.store) self.clauses_hyps
+          (Vec.pp ~sep:"" @@ Clause.debug self.store) self.clauses_learnt)
 
-  let mk_sat (st:t) : Formula.t Solver_intf.sat_state =
-    pp_all st 99 "SAT";
-    let t = trail st in
+  let mk_sat (self:t) : Lit.t Solver_intf.sat_state =
+    pp_all self 99 "SAT";
+    let t = self.trail in
     let module M = struct
-      type formula = Formula.t
-      let iter_trail f = Vec.iter (fun a -> f (Atom.formula a)) t
-      let[@inline] eval f = eval st (mk_atom st f)
-      let[@inline] eval_level f = eval_level st (mk_atom st f)
+      type lit = Lit.t
+      let iter_trail f = Vec.iter (fun a -> f (Atom.lit self.store a)) t
+      let[@inline] eval f = eval self (make_atom_ self f)
+      let[@inline] eval_level f = eval_level self (make_atom_ self f)
     end in
     (module M)
 
-  let mk_unsat (st:t) (us: unsat_cause) : _ Solver_intf.unsat_state =
-    pp_all st 99 "UNSAT";
+  let mk_unsat (self:t) (us: unsat_cause) : _ Solver_intf.unsat_state =
+    pp_all self 99 "UNSAT";
     let unsat_assumptions () = match us with
-      | US_local {first=_; core} -> core
-      | _ -> []
+      | US_local {first=_; core} ->
+        let store = store self in
+        let lits = Iter.of_list core |> Iter.map (Atom.lit store) in
+        lits
+      | _ -> Iter.empty
     in
     let unsat_conflict = match us with
       | US_false c -> fun() -> c
@@ -1853,67 +1901,73 @@ module Make(Plugin : PLUGIN)
         let c = lazy (
           let core = List.rev core in (* increasing trail order *)
           assert (Atom.equal first @@ List.hd core);
-          let proof_of (a:atom) = match Atom.reason a with
-            | Some Decision -> Clause.make_removable [a] Local
-            | Some (Bcp c | Bcp_lazy (lazy c)) -> c
-            | None -> assert false
-          in
-          let other_lits = List.filter (fun a -> not (Atom.equal a first)) core in
-          let hist =
-            Clause.make_permanent [first] Local ::
-            proof_of first ::
-            List.map proof_of other_lits in
-          Clause.make_permanent [] (History hist)
+          Clause.make_l self.store ~removable:false []
         ) in
         fun () -> Lazy.force c
     in
-    let get_proof () =
-      let c = unsat_conflict () in
-      Proof.prove c
-    in
     let module M = struct
-      type nonrec atom = atom
+      type nonrec lit = lit
       type clause = Clause.t
       type proof = Proof.t
-      let get_proof = get_proof
       let unsat_conflict = unsat_conflict
       let unsat_assumptions = unsat_assumptions
     end in
     (module M)
 
-  let add_clause_a st c lemma : unit =
+  let add_clause_atoms_ self (c:atom array) dp : unit =
     try
-      let c = Clause.make_a ~flags:0 c (Hyp lemma) in
-      add_clause_ st c
+      let c = Clause.make_a self.store ~removable:false c in
+      Proof.with_proof self.proof dp;
+      add_clause_ self c
     with
     | E_unsat (US_false c) ->
-      st.unsat_at_0 <- Some c
+      self.unsat_at_0 <- Some c
 
-  let add_clause st c lemma : unit =
-    try
-      let c = Clause.make_permanent c (Hyp lemma) in
-      add_clause_ st c
-    with
-    | E_unsat (US_false c) ->
-      st.unsat_at_0 <- Some c
+  let add_clause_a self c dp : unit =
+    let c = Array.map (make_atom_ self) c in
+    add_clause_atoms_ self c dp
 
-  let solve ?(assumptions=[]) (st:t) : res =
-    cancel_until st 0;
-    Vec.clear st.assumptions;
-    List.iter (Vec.push st.assumptions) assumptions;
+  let add_clause self (c:lit list) dp : unit =
+    let c = Util.array_of_list_map (make_atom_ self) c in
+    add_clause_atoms_ self c dp
+
+  let add_input_clause self (c:lit list) =
+    let dp = Proof.emit_input_clause (Iter.of_list c) in
+    add_clause self c dp
+
+  let add_input_clause_a self c =
+    let dp = Proof.emit_input_clause (Iter.of_array c) in
+    add_clause_a self c dp
+
+  let solve ?(assumptions=[]) (self:t) : res =
+    cancel_until self 0;
+    Vec.clear self.assumptions;
+    List.iter
+      (fun lit ->
+         let a = make_atom_ self lit in
+         Vec.push self.assumptions a)
+      assumptions;
     try
-      solve_ st;
-      Sat (mk_sat st)
+      solve_ self;
+      Sat (mk_sat self)
     with E_unsat us ->
-      Unsat (mk_unsat st us)
+      (* emit empty clause *)
+      Proof.with_proof self.proof (Proof.emit_redundant_clause Iter.empty);
+      Unsat (mk_unsat self us)
 
-  let true_at_level0 st a =
-    try
-      let b, lev = eval_level st a in
-      b && lev = 0
-    with UndecidedLit -> false
+  let true_at_level0 (self:t) (lit:lit) : bool =
+    match find_atom_ self lit with
+    | None -> false
+    | Some a ->
+      try
+        let b, lev = eval_level self a in
+        b && lev = 0
+      with UndecidedLit -> false
 
-  let[@inline] eval_atom _st a : Solver_intf.lbool = eval_atom_ a
+  let[@inline] eval_lit self (lit:lit) : Solver_intf.lbool =
+    match find_atom_ self lit with
+    | Some a -> eval_atom_ self a
+    | None -> Solver_intf.L_undefined
 end
 [@@inline][@@specialise]
 
@@ -1927,14 +1981,16 @@ module Make_cdcl_t(Plugin : Solver_intf.PLUGIN_CDCL_T) =
 
 module Make_pure_sat(Plugin : Solver_intf.PLUGIN_SAT) =
   Make(struct
-  module Formula = Plugin.Formula
-  type t = unit
-  type proof = Plugin.proof
-  let push_level () = ()
-  let pop_levels _ _ = ()
-  let partial_check () _ = ()
-  let final_check () _ = ()
-  let has_theory = false
-end)
+    type lit = Plugin.lit
+    type proof = Plugin.proof
+    module Lit = Plugin.Lit
+    module Proof = Plugin.Proof
+    type t = unit
+    let push_level () = ()
+    let pop_levels _ _ = ()
+    let partial_check () _ = ()
+    let final_check () _ = ()
+    let has_theory = false
+  end)
 [@@inline][@@specialise]
 

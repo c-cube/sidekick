@@ -135,12 +135,10 @@ let mk_progress (_s:Solver.t) : _ -> unit =
 let solve
     ?gc:_
     ?restarts:_
-    ?dot_proof
     ?(pp_model=false)
     ?proof_file
     ?(check=false)
     ?time:_ ?memory:_ ?(progress=false)
-    ?hyps:_
     ~assumptions
     s : unit =
   let t1 = Sys.time() in
@@ -168,32 +166,19 @@ let solve
          *)
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
-    | Solver.Unsat {proof;_} ->
-
-      let proof_opt =
-        if check||CCOpt.is_some proof_file then Lazy.force proof
-        else None
-      in
+    | Solver.Unsat _ ->
 
       if check then (
+        ()
+        (* FIXME: check trace?
         match proof_opt with
         | Some p ->
           Profile.with_ "unsat.check" (fun () -> Solver.Pre_proof.check p);
         | _ -> ()
+           *)
       );
 
-      begin match dot_proof, proof, Solver.Pre_proof.pp_dot with
-        | Some file, lazy (Some p), Some pp_dot ->
-          Profile.with_ "dot.proof" @@ fun () ->
-          CCIO.with_out file
-            (fun oc ->
-               Log.debugf 1 (fun k->k "write proof into `%s`" file);
-               let fmt = Format.formatter_of_out_channel oc in
-               pp_dot fmt p;
-               Format.pp_print_flush fmt (); flush oc)
-        | _ -> ()
-      end;
-
+      (* FIXME: instead, create a proof if proof file or --check is given
       begin match proof_file, proof with
         | Some file, lazy (Some p) ->
           Profile.with_ "proof.write-file" @@ fun () ->
@@ -202,6 +187,7 @@ let solve
             (fun oc -> Proof.Quip.output oc p; flush oc)
         | _ -> ()
       end;
+         *)
 
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
@@ -212,9 +198,8 @@ let solve
 
 (* process a single statement *)
 let process_stmt
-    ?hyps
     ?gc ?restarts ?(pp_cnf=false)
-    ?dot_proof ?proof_file ?pp_model ?(check=false)
+    ?proof_file ?pp_model ?(check=false)
     ?time ?memory ?progress
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
@@ -230,6 +215,7 @@ let process_stmt
           ID.pp id (Util.pp_list Ty.pp) args Ty.pp ret);
     (* TODO: more? *)
   in
+
   begin match stmt with
     | Statement.Stmt_set_logic ("QF_UF"|"QF_LRA"|"QF_UFLRA"|"QF_DT"|"QF_UFDT") ->
       E.return ()
@@ -247,15 +233,13 @@ let process_stmt
       (* FIXME: how to map [l] to [assumptions] in proof? *)
       let assumptions =
         List.map
-          (fun (sign,t) ->
-             let a, _pr = Solver.mk_atom_t solver ~sign t in
-             a)
+          (fun (sign,t) -> Solver.mk_lit_t solver ~sign t)
           l
       in
       solve
-        ?gc ?restarts ?dot_proof ~check ?proof_file ?pp_model
+        ?gc ?restarts ~check ?proof_file ?pp_model
         ?time ?memory ?progress
-        ~assumptions ?hyps
+        ~assumptions
         solver;
       E.return()
     | Statement.Stmt_ty_decl (id,n) ->
@@ -269,34 +253,27 @@ let process_stmt
       if pp_cnf then (
         Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t
       );
-      let atom, pr_atom = Solver.mk_atom_t solver t in
-      CCOpt.iter (fun h -> Vec.push h [atom]) hyps;
-      Solver.add_clause solver (IArray.singleton atom)
-        Proof.(hres_l (assertion t) [p1 pr_atom]);
+      let lit = Solver.mk_lit_t solver t in
+      Solver.add_clause solver (IArray.singleton lit)
+        (Solver.P.emit_input_clause (Iter.singleton lit));
       E.return()
 
     | Statement.Stmt_assert_clause c_ts ->
       if pp_cnf then (
         Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c_ts
       );
-      let pr_l = ref [] in
-      let c =
-        List.map
-          (fun lit ->
-             let a, pr = Solver.mk_atom_t solver lit in
-             if not (Proof.is_trivial_refl pr) then pr_l := pr :: !pr_l;
-             a)
-          c_ts in
-      CCOpt.iter (fun h -> Vec.push h c) hyps;
 
-      let proof =
-        let open Proof in
-        let p = assertion_c (Iter.of_list c_ts |> Iter.map (fun t->lit_a t)) in
-        (* rewrite with preprocessing proofs *)
-        if !pr_l = [] then p else hres_l p (List.rev_map p1 !pr_l)
+      let c = CCList.map (fun t -> Solver.mk_lit_t solver t) c_ts in
+
+      (* proof of assert-input + preprocessing *)
+      let emit_proof p =
+        let module P = Solver.P in
+        let tst = Solver.tst solver in
+        P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) p;
+        P.emit_redundant_clause (Iter.of_list c) p;
       in
 
-      Solver.add_clause solver (IArray.of_list c) proof ;
+      Solver.add_clause solver (IArray.of_list c) emit_proof;
       E.return()
 
     | Statement.Stmt_data _ ->

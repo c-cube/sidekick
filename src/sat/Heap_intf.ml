@@ -1,17 +1,23 @@
 
 module type RANKED = sig
-  type t
+  type store
+  type t = private int
 
-  val idx: t -> int
+  val heap_idx : store -> t -> int
   (** Index in heap. return -1 if never set *)
 
-  val set_idx : t -> int -> unit
+  val set_heap_idx : store -> t -> int -> unit
   (** Update index in heap *)
 
-  val cmp : t -> t -> bool
+  val cmp : store -> t -> t -> bool
+
+  val of_int_unsafe : int -> t
+  (** turn an integer back into an element *)
 end
 
 module type S = sig
+  type elt_store
+
   type elt
   (** Type of elements *)
 
@@ -19,13 +25,13 @@ module type S = sig
   (** Heap of {!elt}, whose priority is increased or decreased
       incrementally (see {!decrease} for instance) *)
 
-  val create : unit -> t
+  val create : elt_store -> t
   (** Create a heap *)
 
   val decrease : t -> elt -> unit
   (** [decrease h x] decreases the value associated to [x] within [h] *)
 
-  val in_heap : elt -> bool
+  val in_heap : t -> elt -> bool
 
   (*val increase : (int -> int -> bool) -> t -> int -> unit*)
 

@@ -5,7 +5,7 @@
 
 J?=3
 TIMEOUT?=30
-OPTS= -j $(J)
+OPTS= -j $(J) --profile=release
 
 dev: build-dev
 
@@ -13,7 +13,7 @@ dev: build-dev
 #dev: build-dev test
 
 build-install:
-	@dune build $(OPTS) @install --profile=release
+	@dune build $(OPTS) @install
 
 build: build-install
 
@@ -35,6 +35,9 @@ snapshots:
 $(TESTTOOL)-quick: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick
+$(TESTTOOL)-local: snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-local
 $(TESTTOOL)-smt-QF_UF: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_UF-$(DATE).csv --task sidekick-smt-nodir tests/QF_UF
@@ -67,7 +70,7 @@ reindent:
 
 WATCH=@all
 watch:
-	@dune build $(WATCH) -w $(OPTS) --profile=release
+	@dune build $(WATCH) -w $(OPTS)
 	#@dune build @all -w # TODO: once tests pass
 
 .PHONY: clean doc all bench install uninstall remove reinstall bin test

@@ -4,7 +4,7 @@
 module Solver_intf = Solver_intf
 
 module type S = Solver_intf.S
-module type FORMULA = Solver_intf.FORMULA
+module type LIT = Solver_intf.LIT
 module type PLUGIN_CDCL_T = Solver_intf.PLUGIN_CDCL_T
 module type PROOF = Solver_intf.PROOF
 
@@ -13,18 +13,13 @@ type lbool = Solver_intf.lbool = L_true | L_false | L_undefined
 module type SAT_STATE = Solver_intf.SAT_STATE
 type 'form sat_state = 'form Solver_intf.sat_state
 
-type ('formula, 'proof) reason = ('formula, 'proof) Solver_intf.reason =
-  | Consequence of (unit -> 'formula list * 'proof) [@@unboxed]
+type ('lit, 'proof) reason = ('lit, 'proof) Solver_intf.reason =
+  | Consequence of (unit -> 'lit list * 'proof) [@@unboxed]
 
 module type ACTS = Solver_intf.ACTS
-type ('formula, 'proof) acts = ('formula, 'proof) Solver_intf.acts
+type ('lit, 'proof) acts = ('lit, 'proof) Solver_intf.acts
 
-type negated = Solver_intf.negated = Negated | Same_sign
-
-(** Print {!negated} values *)
-let pp_negated out = function
-  | Negated -> Format.fprintf out "negated"
-  | Same_sign -> Format.fprintf out "same-sign"
+type negated = bool
 
 (** Print {!lbool} values *)
 let pp_lbool out = function

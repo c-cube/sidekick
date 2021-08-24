@@ -19,7 +19,6 @@ exception Out_of_space
 
 let file = ref ""
 let p_cnf = ref false
-let p_dot_proof = ref ""
 let p_proof = ref false
 let p_model = ref false
 let check = ref false
@@ -31,8 +30,6 @@ let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
 let proof_file = ref ""
-
-let hyps : Term.t list ref = ref []
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -69,7 +66,6 @@ let argspec = Arg.align [
     "--no-gc", Arg.Clear gc, " disable garbage collection";
     "--restarts", Arg.Set restarts, " enable restarts";
     "--no-restarts", Arg.Clear restarts, " disable restarts";
-    "--dot", Arg.Set_string p_dot_proof, " if provided, print the dot proof in the given file";
     "--stat", Arg.Set p_stat, " print statistics";
     "--proof", Arg.Set p_proof, " print proof";
     "--no-proof", Arg.Clear p_proof, " do not print proof";
@@ -97,8 +93,13 @@ let check_limits () =
   else if s > !size_limit then
     raise Out_of_space
 
-let main_smt ~dot_proof () : _ result =
+let main_smt () : _ result =
+  let module Proof = Sidekick_smtlib.Proof in
   let tst = Term.create ~size:4_096 () in
+  (* FIXME: use this to enable/disable actual proof
+    let store_proof = !check || !p_proof || !proof_file <> "" in
+     *)
+  let proof = Proof.create() in
   let solver =
     let theories =
       (* TODO: probes, to load only required theories *)
@@ -108,8 +109,7 @@ let main_smt ~dot_proof () : _ result =
         Process.th_lra;
       ]
     in
-    let store_proof = !check || !p_proof || !proof_file <> "" in
-    Process.Solver.create ~store_proof ~theories tst () ()
+    Process.Solver.create ~proof ~theories tst () ()
   in
   let proof_file = if !proof_file ="" then None else Some !proof_file in
   if !check then (
@@ -123,13 +123,12 @@ let main_smt ~dot_proof () : _ result =
   (* process statements *)
   let res =
     try
-      let hyps = Vec.create() in
       E.fold_l
         (fun () ->
            Process.process_stmt
-             ~hyps ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf ?proof_file
+             ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf ?proof_file
              ~time:!time_limit ~memory:!size_limit
-             ?dot_proof ~pp_model:!p_model
+             ~pp_model:!p_model
              ~check:!check ~progress:!p_progress
              solver)
         () input
@@ -142,23 +141,32 @@ let main_smt ~dot_proof () : _ result =
   res
 
 let main_cnf () : _ result =
-  let n_decision = ref 0 in
-  let n_confl = ref 0 in
-  let n_atoms = ref 0 in
-  let solver =
-    Pure_sat_solver.SAT.create
-      ~on_conflict:(fun _ -> incr n_confl)
-      ~on_decision:(fun _ -> incr n_decision)
-      ~on_new_atom:(fun _ -> incr n_atoms)
-      ~size:`Big ()
+  let module Proof = Pure_sat_solver.Proof in
+  let module S = Pure_sat_solver in
+
+  let proof, in_memory_proof =
+    if !check then (
+      let pr, inmp = Proof.create_in_memory () in
+      pr, Some inmp
+    ) else if !proof_file <> "" then (
+      Proof.create_to_file !proof_file, None
+    ) else (
+      Proof.dummy, None
+    )
   in
 
-  Pure_sat_solver.Dimacs.parse_file solver !file >>= fun () ->
-  let r = Pure_sat_solver.solve ~check:!check solver in
+  let stat = Stat.create () in
+  let solver = S.SAT.create ~size:`Big ~proof ~stat () in
 
+  S.Dimacs.parse_file solver !file >>= fun () ->
+  let r = S.solve ~check:!check ?in_memory_proof solver in
+
+  (* FIXME: if in memory proof and !proof_file<>"",
+     then dump proof into file now *)
+
+  Proof.close proof;
   if !p_stat then (
-    Fmt.printf "; n-atoms: %d n-conflicts: %d n-decisions: %d@."
-      !n_atoms !n_confl !n_decision;
+    Fmt.printf "%a@." Stat.pp_all (Stat.all stat);
   );
   r
 
@@ -176,8 +184,6 @@ let main () =
     Arg.usage argspec usage;
     exit 2
   );
-  let dot_proof = if !p_dot_proof = "" then None else Some !p_dot_proof in
-  check := !check || CCOpt.is_some dot_proof; (* dot requires a proof *)
   let al = Gc.create_alarm check_limits in
   Util.setup_gc();
   let is_cnf = Filename.check_suffix !file ".cnf" in
@@ -185,7 +191,7 @@ let main () =
     if is_cnf then (
       main_cnf ()
     ) else (
-      main_smt ~dot_proof ()
+      main_smt ()
     )
   in
   if !p_gc_stat then (

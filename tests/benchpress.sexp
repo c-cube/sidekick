@@ -21,6 +21,14 @@
       (dirs $cur_dir/sat $cur_dir/unsat $cur_dir/pigeon))))
 
 (task
+  (name sidekick-smt-local)
+  (action
+    (run_provers
+      (provers sidekick-dev z3)
+      (timeout 10)
+      (dirs $cur_dir/))))
+
+(task
   (name sidekick-smt-nodir)
   (action
     (run_provers

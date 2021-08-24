@@ -16,6 +16,11 @@ val pp_iarray : ?sep:string -> 'a CCFormat.printer -> 'a IArray.t CCFormat.print
 
 val flat_map_l_ia : ('a -> 'b IArray.t) -> 'a list -> 'b list
 
+val array_of_list_map : ('a -> 'b) -> 'a list -> 'b array
+(** [array_of_list_map f l] is the same as [Array.of_list @@ List.map f l] *)
+
+val array_to_list_map : ('a -> 'b) -> 'a array -> 'b list
+
 val setup_gc : unit -> unit
 (** Change parameters of the GC *)
 

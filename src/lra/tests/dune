@@ -1,25 +1,15 @@
-(executable
- (name run_tests)
- (modules run_tests test_simplex2)
- (libraries containers sidekick.arith-lra
-            sidekick.zarith zarith iter alcotest qcheck)
- (flags :standard -warn-error -a+8 -color always))
 
-(alias
- (name runtest)
- (locks /test)
- (package sidekick)
- (action
-   (progn
-     (run ./run_tests.exe alcotest) ; run regressions first
-     (run ./run_tests.exe qcheck --verbose))))
+(library
+  (name sidekick_test_simplex2)
+  (libraries zarith sidekick.arith-lra sidekick.util sidekick.zarith
+             qcheck alcotest))
 
 (rule
-  (targets test_simplex2.ml)
+  (targets sidekick_test_simplex2.ml)
   (enabled_if (>= %{ocaml_version} 4.08.0))
   (action (copy test_simplex2.real.ml %{targets})))
 
 (rule
-  (targets test_simplex2.ml)
+  (targets sidekick_test_simplex2.ml)
   (enabled_if (< %{ocaml_version} 4.08.0))
   (action (with-stdout-to %{targets} (echo "let props=[];; let tests=\"simplex2\",[]"))))

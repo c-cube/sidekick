@@ -29,25 +29,11 @@ module Ty = Base_types.Ty
 module Statement = Base_types.Statement
 module Data = Base_types.Data
 module Select = Base_types.Select
-module Proof = Proof
 module Form = Form
+
+module Solver_arg = Solver_arg
+module Lit = Lit
+module Proof_stub = Proof_stub
 
 (* re-export *)
 module IArray = IArray
-
-(** Concrete implementation of {!Sidekick_core.TERM}
-
-    this module gathers most definitions above in a form
-    that is compatible with what Sidekick expects for terms, functions, etc.
-*)
-module Arg
-  : Sidekick_core.TERM
-    with type Term.t = Term.t
-     and type Fun.t = Fun.t
-     and type Ty.t = Ty.t
-     and type Term.store = Term.store
-= struct
-  module Term = Term
-  module Fun = Fun
-  module Ty = Ty
-end

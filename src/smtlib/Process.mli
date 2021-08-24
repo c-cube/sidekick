@@ -3,10 +3,11 @@
 open Sidekick_base
 
 module Solver
-  : Sidekick_msat_solver.S with type T.Term.t = Term.t
+  : Sidekick_smt_solver.S with type T.Term.t = Term.t
                             and type T.Term.store = Term.store
                             and type T.Ty.t = Ty.t
                             and type T.Ty.store = Ty.store
+                            and type proof = Proof_stub.t
 
 val th_bool : Solver.theory
 val th_data : Solver.theory
@@ -20,11 +21,9 @@ module Check_cc : sig
 end
 
 val process_stmt :
-  ?hyps:Solver.Atom.t list Vec.t ->
   ?gc:bool ->
   ?restarts:bool ->
   ?pp_cnf:bool ->
-  ?dot_proof:string ->
   ?proof_file:string ->
   ?pp_model:bool ->
   ?check:bool ->

@@ -15,11 +15,19 @@ let[@inline] shrink t i =
   assert (i<=t.sz);
   t.sz <- i
 
-let[@inline] pop t =
+let[@inline] pop_exn t =
   if t.sz = 0 then invalid_arg "vec.pop";
   let x = Array.unsafe_get t.data (t.sz - 1) in
   t.sz <- t.sz - 1;
   x
+
+let[@inline] pop t =
+  if t.sz = 0 then None
+  else (
+    let x = Array.unsafe_get t.data (t.sz - 1) in
+    t.sz <- t.sz - 1;
+    Some x
+  )
 
 let[@inline] size t = t.sz
 
@@ -31,17 +39,38 @@ let[@inline] copy t : _ t =
   let data = Array.copy t.data in
   {t with data}
 
+let resize_ t x size =
+  let arr' = Array.make size x in
+  Array.blit t.data 0 arr' 0 t.sz;
+  t.data <- arr';
+  ()
+
+let ensure_cap_ self x n =
+  if n > Array.length self.data then (
+    let new_size = max n (2 * Array.length self.data) in
+    resize_ self (x()) new_size
+  )
+
+let ensure_size_with self f n =
+  ensure_cap_ self f n;
+  if n > self.sz then (
+    for i=self.sz to n-1 do
+      self.data.(i) <- f();
+    done;
+    self.sz <- n
+  )
+
+let ensure_size self x n = ensure_size_with self (fun() -> x) n
+
 (* grow the array *)
 let[@inline never] grow_to_double_size t x : unit =
-  if Array.length t.data = Sys.max_array_length then (
-    failwith "vec: cannot resize";
-  );
-  let size =
+  let new_size =
     min Sys.max_array_length (max 4 (2 * Array.length t.data))
   in
-  let arr' = Array.make size x in
-  Array.blit t.data 0 arr' 0 (Array.length t.data);
-  t.data <- arr';
+  if new_size = t.sz then (
+    failwith "vec: cannot resize";
+  );
+  resize_ t x new_size;
   assert (Array.length t.data > t.sz);
   ()
 
@@ -66,6 +95,16 @@ let[@inline] fast_remove t i =
   assert (i>= 0 && i < t.sz);
   Array.unsafe_set t.data i @@ Array.unsafe_get t.data (t.sz - 1);
   t.sz <- t.sz - 1
+
+let prepend v ~into : unit =
+  if v.sz = 0 then ()
+  else (
+    if v.sz + into.sz > Array.length into.data then (
+      resize_ into v.data.(0) (v.sz + into.sz);
+    );
+    Array.blit into.data 0 into.data v.sz into.sz; (* shift elements *)
+    Array.blit v.data 0 into.data 0 v.sz;
+  )
 
 let filter_in_place f vec =
   let i = ref 0 in

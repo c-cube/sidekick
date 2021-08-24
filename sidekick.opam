@@ -15,6 +15,7 @@ depends: [
   "containers" { >= "3.0" & < "4.0" }
   "iter" { >= "1.0" & < "2.0" }
   "ocaml" { >= "4.04" }
+  "zarith" { with-test }
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]
