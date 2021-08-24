@@ -235,10 +235,10 @@ module Make(A : ARG)
     let[@inline] propagate_l self acts p cs proof : unit =
       propagate self acts p ~reason:(fun()->cs,proof)
 
-    let add_sat_clause_ self (acts:theory_actions) ~keep lits (proof:dproof) : unit =
+    let add_sat_clause_ self (acts:theory_actions) ~lifetime lits (proof:dproof) : unit =
       let (module A) = acts in
       Stat.incr self.count_axiom;
-      A.add_clause ~keep lits proof
+      A.add_clause ~lifetime lits proof
 
     let add_sat_lit _self ?default_pol (acts:theory_actions) (lit:Lit.t) : unit =
       let (module A) = acts in
