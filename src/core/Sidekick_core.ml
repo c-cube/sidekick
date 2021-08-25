@@ -383,6 +383,8 @@ module type CC_S = sig
       merged, to detect conflicts and solve equations à la Shostak.
   *)
   module N : sig
+    type store
+
     type t
     (** An equivalent class, containing terms that are proved
         to be equal.
@@ -390,7 +392,7 @@ module type CC_S = sig
         A value of type [t] points to a particular term, but see
         {!find} to get the representative of the class. *)
 
-    val term : t -> term
+    val term : store -> t -> term
     (** Term contained in this equivalence class.
         If [is_root n], then [term n] is the class' representative term. *)
 
@@ -402,19 +404,19 @@ module type CC_S = sig
     val hash : t -> int
     (** An opaque hash of this node. *)
 
-    val pp : t Fmt.printer
+    val pp : store -> t Fmt.printer
     (** Unspecified printing of the node, for example its term,
         a unique ID, etc. *)
 
-    val is_root : t -> bool
+    val is_root : store -> t -> bool
     (** Is the node a root (ie the representative of its class)?
         See {!find} to get the root. *)
 
-    val iter_class : t -> t Iter.t
+    val iter_class : store -> t -> t Iter.t
     (** Traverse the congruence class.
         Precondition: [is_root n] (see {!find} below) *)
 
-    val iter_parents : t -> t Iter.t
+    val iter_parents : store -> t -> t Iter.t
     (** Traverse the parents of the class.
         Precondition: [is_root n] (see {!find} below) *)
 
@@ -455,6 +457,9 @@ module type CC_S = sig
   (** {3 Accessors} *)
 
   val term_store : t -> term_store
+
+  val n_store : t -> N.store
+  (** Store of nodes *)
 
   val find : t -> node -> repr
   (** Current representative *)
@@ -1213,13 +1218,14 @@ end = struct
     else None
 
   let on_new_term self cc n (t:T.t) : unit =
-    Log.debugf 50 (fun k->k "@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);
+    let nstore = CC.n_store cc in
+    Log.debugf 50 (fun k->k "@[monoid[%s].on-new-term.try@ %a@])" M.name (N.pp nstore) n);
     let maybe_m, l = M.of_term cc n t in
     begin match maybe_m with
       | Some v ->
         Log.debugf 20
           (fun k->k "(@[monoid[%s].on-new-term@ :n %a@ :value %a@])"
-              M.name N.pp n M.pp v);
+              M.name (N.pp nstore) n M.pp v);
         SI.CC.set_bitfield cc self.field_has_value true n;
         N_tbl.add self.values n v
       | None -> ()
@@ -1228,25 +1234,25 @@ end = struct
       (fun (n_u,m_u) ->
         Log.debugf 20
           (fun k->k "(@[monoid[%s].on-new-term.sub@ :n %a@ :sub-t %a@ :value %a@])"
-              M.name N.pp n N.pp n_u M.pp m_u);
+              M.name (N.pp nstore) n (N.pp nstore) n_u M.pp m_u);
         let n_u = CC.find cc n_u in
         if CC.get_bitfield self.cc self.field_has_value n_u then (
           let m_u' =
             try N_tbl.find self.values n_u
             with Not_found ->
-              Error.errorf "node %a has bitfield but no value" N.pp n_u
+              Error.errorf "node %a has bitfield but no value" (N.pp nstore) n_u
           in
           match M.merge cc n_u m_u n_u m_u' (Expl.mk_list []) with
           | Error expl ->
             Error.errorf
               "when merging@ @[for node %a@],@ \
                values %a and %a:@ conflict %a"
-              N.pp n_u M.pp m_u M.pp m_u' CC.Expl.pp expl
+              (N.pp nstore) n_u M.pp m_u M.pp m_u' CC.Expl.pp expl
           | Ok m_u_merged ->
             Log.debugf 20
               (fun k->k "(@[monoid[%s].on-new-term.sub.merged@ \
                          :n %a@ :sub-t %a@ :value %a@])"
-                  M.name N.pp n N.pp n_u M.pp m_u_merged);
+                  M.name (N.pp nstore) n (N.pp nstore) n_u M.pp m_u_merged);
             N_tbl.add self.values n_u m_u_merged;
         ) else (
           (* just add to [n_u] *)
@@ -1261,12 +1267,13 @@ end = struct
     N_tbl.to_iter self.values
 
   let on_pre_merge (self:t) cc acts n1 n2 e_n1_n2 : unit =
+    let nstore = CC.n_store cc in
     begin match get self n1, get self n2 with
       | Some v1, Some v2 ->
         Log.debugf 5
           (fun k->k
               "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 %a@ :val2 %a@])@])"
-              M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2);
+              M.name (N.pp nstore) n1 M.pp v1 (N.pp nstore) n2 M.pp v2);
         begin match M.merge cc n1 v1 n2 v2 e_n1_n2 with
           | Ok v' ->
             N_tbl.remove self.values n2; (* only keep repr *)
@@ -1282,7 +1289,8 @@ end = struct
     end
 
   let pp out (self:t) : unit =
-    let pp_e out (t,v) = Fmt.fprintf out "(@[%a@ :has %a@])" N.pp t M.pp v in
+    let nstore = CC.n_store self.cc in
+    let pp_e out (t,v) = Fmt.fprintf out "(@[%a@ :has %a@])" (N.pp nstore) t M.pp v in
     Fmt.fprintf out "(@[%a@])" (Fmt.iter pp_e) (iter_all self)
 
   let create_and_setup ?size (solver:SI.t) : t =

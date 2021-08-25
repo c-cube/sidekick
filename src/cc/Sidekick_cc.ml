@@ -33,6 +33,31 @@ module Make (A: CC_ARG)
   module Term = T.Term
   module Fun = T.Fun
 
+  (* nodes are represented as integer offsets *)
+  module Node0 : sig
+    include Int_id.S
+    module NVec : Vec_sig.S with type elt := t
+    module Set : CCSet.S with type elt = t
+    module Tbl : CCHashtbl.S with type key = t
+  end = struct
+    include Int_id.Make()
+    module NVec = VecI32
+    module Set = Util.Int_set
+    module Tbl = Util.Int_tbl
+  end
+  module NVec = Node0.NVec
+
+  type node = Node0.t
+  type repr = node (* a node that is representative of its class *)
+
+  (* we keep several bitvectors in the congruence closure,
+     each mapping nodes to a boolean.
+     An individual bitvector is represented as its offset in the list of
+     bitvectors. *)
+  module Bit_field : Int_id.S = Int_id.Make()
+  type bitfield = Bit_field.t
+
+  (* TODO: remove
   module Bits : sig
     type t = private int
     type field
@@ -62,22 +87,24 @@ module Make (A: CC_ARG)
     let merge = (lor)
     let equal : t -> t -> bool = CCEqual.poly
   end
+  *)
 
-  (** A node of the congruence closure.
-      An equivalence class is represented by its "root" element,
-      the representative. *)
-  type node = {
-    n_term: term;
-    mutable n_sig0: signature option; (* initial signature *)
-    mutable n_bits: Bits.t; (* bitfield for various properties *)
-    mutable n_parents: node Bag.t; (* parent terms of this node *)
-    mutable n_root: node; (* representative of congruence class (itself if a representative) *)
-    mutable n_next: node; (* pointer to next element of congruence class *)
-    mutable n_size: int; (* size of the class *)
-    mutable n_as_lit: lit option; (* TODO: put into payload? and only in root? *)
-    mutable n_expl: explanation_forest_link; (* the rooted forest for explanations *)
+  (* TODO: sparse vec for n_sig0? *)
+
+  (* the node store, holds data for all the nodes *)
+  type node_store = {
+    n_term: term Vec.t; (* term for the node *)
+    n_sig0: signature Vec.t; (* initial signature, if any *)
+    n_parents: node Bag.t Vec.t; (* node -> parents(class(node)) *)
+    n_root: NVec.t; (* node -> repr(class(node)) *)
+    n_next: NVec.t; (* node -> next(class(node)) *)
+    n_size: VecI32.t; (* node -> size(class(node)) *)
+    n_as_lit: lit Int_tbl.t; (* root -> literal, if any *)
+    n_expl: explanation_forest_link Vec.t; (* proof forest *)
+    n_bitfields: Bitvec.t Vec.t; (* bitfield idx -> atom -> bool *)
   }
 
+  (* TODO: use node array for 3rd param *)
   and signature = (fun_, node, node list) view
 
   and explanation_forest_link =
@@ -97,67 +124,71 @@ module Make (A: CC_ARG)
     | E_and of explanation * explanation
     | E_theory of explanation
 
-  type repr = node
-
   module N = struct
-    type t = node
+    include Node0
+    type store = node_store
 
-    let[@inline] equal (n1:t) n2 = n1 == n2
-    let[@inline] hash n = Term.hash n.n_term
-    let[@inline] term n = n.n_term
-    let[@inline] pp out n = Term.pp out n.n_term
-    let[@inline] as_lit n = n.n_as_lit
+    let[@inline] term self n = Vec.get self.n_term (n:t:>int)
+    let[@inline] pp self out n = Term.pp out (term self n)
+    let[@inline] as_lit self n = n.n_as_lit
 
-    let make (t:term) : t =
-      let rec n = {
-        n_term=t;
-        n_sig0= None;
-        n_bits=Bits.empty;
-        n_parents=Bag.empty;
-        n_as_lit=None; (* TODO: provide a method to do it *)
-        n_root=n;
-        n_expl=FL_none;
-        n_next=n;
-        n_size=1;
-      } in
+    let alloc (self:store) (t:term) : t =
+      let {
+        n_term; n_sig0; n_parents; n_root; n_next; n_size
+      } = self in
+      let n = Node0.of_int_unsafe (Vec.size n_term) in
+      Vec.push n_term t;
+      Vec.push n_sig0 (Opaque n); (* to be changed *)
+      Vec.push n_parents Bag.empty;
+      NVec.push n_root n;
+      NVec.push n_next n;
+      VecI32.push n_size 1;
       n
 
-    let[@inline] is_root (n:node) : bool = n.n_root == n
+    let[@inline] is_root (self:store) (n:node) : bool =
+      let n2 = NVec.get self.n_root (n:t:>int) in
+      equal n n2
 
     (* traverse the equivalence class of [n] *)
-    let iter_class_ (n:node) : node Iter.t =
+    let iter_class_ (self:store) (n:t) : t Iter.t =
       fun yield ->
         let rec aux u =
           yield u;
-          if u.n_next != n then aux u.n_next
+          let u2 = NVec.get self.n_next (u:t:>int) in
+          if not (equal n u2) then aux u2
         in
         aux n
 
-    let[@inline] iter_class n =
-      assert (is_root n);
-      iter_class_ n
+    let[@inline] iter_class self n =
+      assert (is_root self n);
+      iter_class_ self n
 
-    let[@inline] iter_parents (n:node) : node Iter.t =
-      assert (is_root n);
-      Bag.to_iter n.n_parents
+    let[@inline] iter_parents self (n:node) : node Iter.t =
+      assert (is_root self n);
+      Bag.to_iter (Vec.get self.n_parents (n:t:>int))
 
-    type bitfield = Bits.field
-    let[@inline] get_field f t = Bits.get f t.n_bits
-    let[@inline] set_field f b t = t.n_bits <- Bits.set f b t.n_bits
+    (* TODO: use a vec of bitvec *)
+    type nonrec bitfield = bitfield
+
+    let[@inline] get_field (self:store) (f:bitfield) (n:t) =
+      let bv = Vec.get self.n_bitfields (f:>int) in
+      Bitvec.get bv (n:t:>int)
+
+    let[@inline] set_field (self:store) (f:bitfield) (n:t) b : unit =
+      let bv = Vec.get self.n_bitfields (f:>int) in
+      Bitvec.set bv (n:t:>int) b
+
+    (* non-recursive, inlinable function for [find] *)
+    let[@inline] find (self:store) (n:t) : repr =
+      let n2 = NVec.get self.n_root (n:t:>int) in
+      assert (is_root self n2);
+      n2
+
+    let[@inline] same_class self (n1:node) (n2:node): bool =
+      equal (find self n1) (find self n2)
   end
 
-  module N_tbl = CCHashtbl.Make(N)
-
-  (* non-recursive, inlinable function for [find] *)
-  let[@inline] find_ (n:node) : repr =
-    let n2 = n.n_root in
-    assert (N.is_root n2);
-    n2
-
-  let[@inline] same_class (n1:node)(n2:node): bool =
-    N.equal (find_ n1) (find_ n2)
-
-  let[@inline] find _ n = find_ n
+  module N_tbl = Node0.Tbl
 
   module Expl = struct
     type t = explanation
