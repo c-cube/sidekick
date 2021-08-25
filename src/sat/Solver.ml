@@ -13,24 +13,6 @@ module type PLUGIN_CDCL_T = Solver_intf.PLUGIN_CDCL_T
 let invalid_argf fmt =
   Format.kasprintf (fun msg -> invalid_arg ("sidekick.sat: " ^ msg)) fmt
 
-module type INT_ID = sig
-  type t = private int
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val hash : t -> int
-  val to_int : t -> int
-  val of_int_unsafe : int -> t
-end
-
-module Mk_int_id() = struct
-  type t = int
-  let equal : t -> t -> bool = (=)
-  let compare : t -> t -> int = compare
-  let hash = CCHash.int
-  let[@inline] to_int i = i
-  external of_int_unsafe : int -> t = "%identity"
-end
-
 module Make(Plugin : PLUGIN)
 = struct
   type lit = Plugin.lit
@@ -45,17 +27,17 @@ module Make(Plugin : PLUGIN)
 
   (* a boolean variable (positive int) *)
   module Var0 : sig
-    include INT_ID
+    include Int_id.S
     module Set : Set.S with type elt = t
   end = struct
-    include Mk_int_id()
+    include Int_id.Make()
     module Set = Util.Int_set
   end
   type var = Var0.t
 
   (* a signed atom. +v is (v << 1), -v is (v<<1 | 1) *)
   module Atom0 : sig
-    include INT_ID
+    include Int_id.S
     val neg : t -> t
     val sign : t -> bool
 
@@ -66,7 +48,7 @@ module Make(Plugin : PLUGIN)
     val na : var -> t
     module Set : CCSet.S with type elt = t
   end = struct
-    include Mk_int_id()
+    include Int_id.Make()
     let[@inline] neg i = (i lxor 1)
     let[@inline] sign i = (i land 1) = 0
 
@@ -80,11 +62,11 @@ module Make(Plugin : PLUGIN)
   type atom = Atom0.t
 
   module Clause0 : sig
-    include INT_ID
+    include Int_id.S
     module Tbl : Hashtbl.S with type key = t
     module CVec : Vec_sig.S with type elt := t
   end = struct
-    include Mk_int_id()
+    include Int_id.Make()
     module Tbl = Util.Int_tbl
     module CVec = VecI32
   end
