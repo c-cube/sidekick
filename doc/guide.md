@@ -97,12 +97,11 @@ for legibility:
 # open Sidekick_base;;
 # open Sidekick_base_solver;;
 # #install_printer Term.pp;;
+# #install_printer Lit.pp;;
 # #install_printer Ty.pp;;
 # #install_printer Fun.pp;;
 # #install_printer Model.pp;;
 # #install_printer Solver.Model.pp;;
-# #install_printer Proof.pp_debug;;
-Proof.pp_debug has a wrong type for a printing function.
 ```
 
 ## First steps in solving
@@ -197,16 +196,11 @@ A list of theories can be added initially, or later using
 `Solver.add_theory`.
 
 ```ocaml
-# let solver = Solver.create ~theories:[th_bool] tstore () ();;
+# let solver = Solver.create ~theories:[th_bool] ~proof:(Proof_stub.create()) tstore () ();;
 val solver : Solver.t = <abstr>
 
 # Solver.add_theory;;
 - : Solver.t -> Solver.theory -> unit = <fun>
-
-# (* print solver's atoms *)
-  let pp_atom out a = Solver.Atom.pp solver out a;;
-val pp_atom : Format.formatter -> Solver.Atom.t -> unit = <fun>
-# #install_printer pp_atom;;
 ```
 
 Alright, let's do some solving now ⚙️. We're going to assert
@@ -240,11 +234,11 @@ whether the assertions and hypotheses are satisfiable together.
 
 ```ocaml
 # Solver.solve solver
-    ~assumptions:[Solver.mk_atom_t' solver p;
-                  Solver.mk_atom_t' solver q ~sign:false];;
+    ~assumptions:[Solver.mk_lit_t solver p;
+                  Solver.mk_lit_t solver q ~sign:false];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>}
 ```
 
 Here it's unsat, because we asserted "p = q", and then assumed "p"
@@ -301,7 +295,7 @@ val q_imp_not_r : Term.t = (=> q (not r))
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>}
 ```
 
 This time we got _unsat_ and there is no way of undoing it.
@@ -315,13 +309,8 @@ We can solve linear real arithmetic problems as well.
 Let's create a new solver and add the theory of reals to it.
 
 ```ocaml
-# let solver = Solver.create ~theories:[th_bool; th_lra] tstore () ();;
+# let solver = Solver.create ~theories:[th_bool; th_lra] ~proof:(Proof_stub.create()) tstore () ();;
 val solver : Solver.t = <abstr>
-
-# (* print solver's atoms *)
-  let pp_atom out a = Solver.Atom.pp solver out a;;
-val pp_atom : Format.formatter -> Solver.Atom.t -> unit = <fun>
-# #install_printer pp_atom;;
 ```
 
 Create a few arithmetic constants.
@@ -362,15 +351,15 @@ val a_geq_1 : Term.t = (>= a 1)
 val b_leq_half : Term.t = (<= b 1/2)
 
 # let res = Solver.solve solver
-    ~assumptions:[Solver.mk_atom_t' solver p;
-                  Solver.mk_atom_t' solver a_geq_1;
-                  Solver.mk_atom_t' solver b_leq_half];;
+    ~assumptions:[Solver.mk_lit_t solver p;
+                  Solver.mk_lit_t solver a_geq_1;
+                  Solver.mk_lit_t solver b_leq_half];;
 val res : Solver.res =
   Sidekick_base_solver.Solver.Unsat
-   {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+   {Sidekick_base_solver.Solver.unsat_core = <fun>}
 
-# match res with Solver.Unsat {unsat_core=lazy us; _} -> us | _ -> assert false;;
-- : Solver.Atom.t list = [(a >= 1); (b <= 1/2)]
+# match res with Solver.Unsat {unsat_core=us; _} -> us() |> Iter.to_list | _ -> assert false;;
+- : Proof_stub.lit list = [(a >= 1); (b <= 1/2)]
 ```
 
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
@@ -412,13 +401,8 @@ val f1_u1 : Term.t = (f1 u1)
 Anyway, Sidekick knows how to reason about functions.
 
 ```ocaml
-# let solver = Solver.create ~theories:[] tstore () ();;
+# let solver = Solver.create ~theories:[] ~proof:(Proof_stub.create()) tstore () ();;
 val solver : Solver.t = <abstr>
-
-# (* print solver's atoms *)
-  let pp_atom out a = Solver.Atom.pp solver out a;;
-val pp_atom : Format.formatter -> Solver.Atom.t -> unit = <fun>
-# #install_printer pp_atom;;
 
 # (* helper *)
   let appf1 x = Term.app_fun_l tstore f1 x;;
@@ -435,16 +419,16 @@ val appf1 : Term.t list -> Term.t = <fun>
 - : unit = ()
 
 # Solver.solve solver
-    ~assumptions:[Solver.mk_atom_t' solver ~sign:false (Term.eq tstore u1 (appf1[u1]))];;
+    ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u1 (appf1[u1]))];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>}
 
 # Solver.solve solver
-    ~assumptions:[Solver.mk_atom_t' solver ~sign:false (Term.eq tstore u2 u3)];;
+    ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u2 u3)];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.proof = <lazy>; unsat_core = <lazy>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>}
 ```
 
 Assuming: `f1(u1)=u2, f1(u2)=u3, f1^2(u1)=u1, f1^3(u1)=u1`,

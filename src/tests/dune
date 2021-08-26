@@ -26,4 +26,4 @@
  (locks /test)
  (package sidekick-bin)
  (action
-   (diff basic.drup basic.drup.expected)))
+   (diff basic.drup.expected basic.drup)))
