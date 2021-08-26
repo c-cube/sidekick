@@ -437,7 +437,7 @@ module type CC_S = sig
       when asked to justify why 2 terms are equal. *)
   module Expl : sig
     type t
-    val pp : t Fmt.printer
+    val pp : N.store -> t Fmt.printer
 
     val mk_merge : N.t -> N.t -> t
     val mk_merge_t : term -> term -> t
@@ -536,6 +536,8 @@ module type CC_S = sig
 
       There may be restrictions on how many distinct fields are allocated
       for a given congruence closure (e.g. at most {!Sys.int_size} fields).
+
+      @param descr description for the field.
   *)
 
   val get_bitfield : t -> N.bitfield -> N.t -> bool
@@ -1247,7 +1249,7 @@ end = struct
             Error.errorf
               "when merging@ @[for node %a@],@ \
                values %a and %a:@ conflict %a"
-              (N.pp nstore) n_u M.pp m_u M.pp m_u' CC.Expl.pp expl
+              (N.pp nstore) n_u M.pp m_u M.pp m_u' (CC.Expl.pp nstore) expl
           | Ok m_u_merged ->
             Log.debugf 20
               (fun k->k "(@[monoid[%s].on-new-term.sub.merged@ \
