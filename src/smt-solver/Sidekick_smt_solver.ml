@@ -612,6 +612,7 @@ module Make(A : ARG)
 
   let[@inline] solver self = self.solver
   let[@inline] cc self = Solver_internal.cc self.si
+  let[@inline] n_store self = CC.n_store (cc self)
   let[@inline] stats self = self.stat
   let[@inline] tst self = Solver_internal.tst self.si
   let[@inline] ty_st self = Solver_internal.ty_st self.si
@@ -712,6 +713,7 @@ module Make(A : ARG)
     let module M = Term.Tbl in
     let model = M.create 128 in
     let {Solver_internal.tst; cc=lazy cc; mk_model=model_hooks; _} = self.si in
+    let nstore = n_store self in
 
     (* first, add all literals to the model using the given propositional model
        [lits]. *)
@@ -725,13 +727,13 @@ module Make(A : ARG)
       let repr = CC.find cc n in
 
       (* see if a value is found already (always the case if it's a boolean) *)
-      match M.get model (N.term repr) with
+      match M.get model (N.term nstore repr) with
       | Some t_val -> t_val
       | None ->
 
         (* try each model hook *)
         let rec aux = function
-          | [] -> N.term repr
+          | [] -> N.term nstore repr
           | h :: hooks ->
             begin match h ~recurse:(fun _ n -> val_for_class n) self.si repr with
               | None -> aux hooks
@@ -740,7 +742,7 @@ module Make(A : ARG)
         in
 
         let t_val = aux model_hooks in
-        M.replace model (N.term repr) t_val; (* be sure to cache the value *)
+        M.replace model (N.term nstore repr) t_val; (* be sure to cache the value *)
         t_val
     in
 
@@ -748,9 +750,9 @@ module Make(A : ARG)
     Solver_internal.CC.all_classes (Solver_internal.cc self.si)
       (fun repr ->
          let t_val = val_for_class repr in (* value for this class *)
-         N.iter_class repr
+         N.iter_class nstore repr
            (fun u ->
-              let t_u = N.term u in
+              let t_u = N.term nstore u in
               if not (N.equal u repr) && not (Term.equal t_u t_val) then (
                 M.replace model t_u t_val;
               )));

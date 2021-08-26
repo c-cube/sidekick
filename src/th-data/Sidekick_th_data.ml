@@ -209,6 +209,7 @@ module Make(A : ARG) : S with module A = A = struct
       if any *)
   module Monoid_cstor = struct
     module SI = SI
+    module CC = SI.CC
     let name = "th-data.cstor"
 
     (* associate to each class a unique constructor term in the class (if any) *)
@@ -218,10 +219,10 @@ module Make(A : ARG) : S with module A = A = struct
       c_args: N.t IArray.t;
     }
 
-    let pp out (v:t) =
+    let pp nstore out (v:t) =
       Fmt.fprintf out "(@[%s@ :cstor %a@ :n %a@ :args [@[%a@]]@])"
-        name A.Cstor.pp v.c_cstor N.pp v.c_n
-        (Util.pp_iarray N.pp) v.c_args
+        name A.Cstor.pp v.c_cstor (N.pp nstore) v.c_n
+        (Util.pp_iarray (N.pp nstore)) v.c_args
 
     (* attach data to constructor terms *)
     let of_term cc n (t:T.t) : _ option * _ list =
@@ -232,9 +233,10 @@ module Make(A : ARG) : S with module A = A = struct
       | _ -> None, []
 
     let merge cc n1 c1 n2 c2 e_n1_n2 : _ result =
+      let nstore = CC.n_store cc in
       Log.debugf 5
         (fun k->k "(@[%s.merge@ (@[:c1 %a@ %a@])@ (@[:c2 %a@ %a@])@])"
-            name N.pp n1 pp c1 N.pp n2 pp c2);
+            name (N.pp nstore) n1 (pp nstore) c1 (N.pp nstore) n2 (pp nstore) c2);
       (* build full explanation of why the constructor terms are equal *)
       (* TODO: have a sort of lemma (injectivity) here to justify this in the proof *)
       let expl =
@@ -284,14 +286,17 @@ module Make(A : ARG) : S with module A = A = struct
       parent_select: select list; (* parents that are [select] *)
     }
 
-    let pp_select out s = Fmt.fprintf out "(@[sel[%d]-%a@ :n %a@])" s.sel_idx A.Cstor.pp s.sel_cstor N.pp s.sel_n
-    let pp_is_a out s = Fmt.fprintf out "(@[is-%a@ :n %a@])" A.Cstor.pp s.is_a_cstor N.pp s.is_a_n
-    let pp out (v:t) =
+    let pp_select nstore out s =
+      Fmt.fprintf out "(@[sel[%d]-%a@ :n %a@])"
+        s.sel_idx A.Cstor.pp s.sel_cstor (N.pp nstore) s.sel_n
+    let pp_is_a nstore out s =
+      Fmt.fprintf out "(@[is-%a@ :n %a@])" A.Cstor.pp s.is_a_cstor (N.pp nstore) s.is_a_n
+    let pp nstore out (v:t) =
       Fmt.fprintf out
         "(@[%s@ @[:sel [@[%a@]]@]@ @[:is-a [@[%a@]]@]@])"
         name
-        (Util.pp_list pp_select) v.parent_select
-        (Util.pp_list pp_is_a) v.parent_is_a
+        (Util.pp_list @@ pp_select nstore) v.parent_select
+        (Util.pp_list @@ pp_is_a nstore) v.parent_is_a
 
     (* attach data to constructor terms *)
     let of_term cc n (t:T.t) : _ option * _ list =
@@ -313,9 +318,10 @@ module Make(A : ARG) : S with module A = A = struct
       | T_cstor _ | T_other _ -> None, []
 
     let merge cc n1 v1 n2 v2 _e : _ result =
+      let nstore = SI.CC.n_store cc in
       Log.debugf 5
         (fun k->k "(@[%s.merge@ @[:c1 %a %a@]@ @[:c2 %a %a@]@])"
-            name N.pp n1 pp v1 N.pp n2 pp v2);
+            name (N.pp nstore) n1 (pp nstore) v1 (N.pp nstore) n2 (pp nstore) v2);
       let parent_is_a = v1.parent_is_a @ v2.parent_is_a in
       let parent_select = v1.parent_select @ v2.parent_select in
       Ok {parent_is_a; parent_select;}
@@ -371,6 +377,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   let on_new_term (self:t) cc (n:N.t) (t:T.t) : unit =
     on_new_term_look_at_ty self n t; (* might have to decide [t] *)
+    let nstore = SI.CC.n_store cc in
     match A.view_as_data t with
     | T_is_a (c_t, u) ->
       let n_u = SI.CC.add_term cc u in
@@ -382,7 +389,7 @@ module Make(A : ARG) : S with module A = A = struct
           let is_true = A.Cstor.equal cstor.c_cstor c_t in
           Log.debugf 5
             (fun k->k "(@[%s.on-new-term.is-a.reduce@ :t %a@ :to %B@ :n %a@ :sub-cstor %a@])"
-                name T.pp t is_true N.pp n Monoid_cstor.pp cstor);
+                name T.pp t is_true (N.pp nstore) n (Monoid_cstor.pp nstore) cstor);
           SI.CC.merge cc n (SI.CC.n_bool cc is_true)
             Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
       end
@@ -393,7 +400,7 @@ module Make(A : ARG) : S with module A = A = struct
         | Some cstor when A.Cstor.equal cstor.c_cstor c_t ->
           Log.debugf 5
             (fun k->k "(@[%s.on-new-term.select.reduce@ :n %a@ :sel get[%d]-%a@])"
-                name N.pp n i A.Cstor.pp c_t);
+                name (N.pp nstore) n i A.Cstor.pp c_t);
           assert (i < IArray.length cstor.c_args);
           let u_i = IArray.get cstor.c_args i in
           SI.CC.merge cc n u_i Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
@@ -409,11 +416,13 @@ module Make(A : ARG) : S with module A = A = struct
     | _ -> assert false
 
   let on_pre_merge (self:t) (cc:SI.CC.t) acts n1 n2 expl : unit =
+    let nstore = SI.CC.n_store cc in
     let merge_is_a n1 (c1:Monoid_cstor.t) n2 (is_a2:Monoid_parents.is_a) =
       let is_true = A.Cstor.equal c1.c_cstor is_a2.is_a_cstor in
       Log.debugf 50
         (fun k->k "(@[%s.on-merge.is-a.reduce@ %a@ :to %B@ :n1 %a@ :n2 %a@ :sub-cstor %a@])"
-            name Monoid_parents.pp_is_a is_a2 is_true N.pp n1 N.pp n2 Monoid_cstor.pp c1);
+            name (Monoid_parents.pp_is_a nstore) is_a2 is_true
+            (N.pp nstore) n1 (N.pp nstore) n2 (Monoid_cstor.pp nstore) c1);
       SI.CC.merge cc is_a2.is_a_n (SI.CC.n_bool cc is_true)
         Expl.(mk_list [mk_merge n1 c1.c_n; mk_merge n1 n2;
                        mk_merge n2 is_a2.is_a_arg] |> mk_theory)
@@ -422,7 +431,7 @@ module Make(A : ARG) : S with module A = A = struct
       if A.Cstor.equal c1.c_cstor sel2.sel_cstor then (
         Log.debugf 5
           (fun k->k "(@[%s.on-merge.select.reduce@ :n2 %a@ :sel get[%d]-%a@])"
-              name N.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
+              name (N.pp nstore) n2 sel2.sel_idx (Monoid_cstor.pp nstore) c1);
         assert (sel2.sel_idx < IArray.length c1.c_args);
         let u_i = IArray.get c1.c_args sel2.sel_idx in
         SI.CC.merge cc sel2.sel_n u_i
@@ -437,7 +446,8 @@ module Make(A : ARG) : S with module A = A = struct
       | Some c1, Some p2 ->
         Log.debugf 50
           (fun k->k "(@[<hv>%s.pre-merge@ (@[:n1 %a@ :c1 %a@])@ (@[:n2 %a@ :p2 %a@])@])"
-              name N.pp n1 Monoid_cstor.pp c1 N.pp n2 Monoid_parents.pp p2);
+              name (N.pp nstore) n1 (Monoid_cstor.pp nstore) c1
+              (N.pp nstore) n2 (Monoid_parents.pp nstore) p2);
         List.iter (fun is_a2 -> merge_is_a n1 c1 n2 is_a2) p2.parent_is_a;
         List.iter (fun s2 -> merge_select n1 c1 n2 s2) p2.parent_select;
     in
@@ -459,14 +469,16 @@ module Make(A : ARG) : S with module A = A = struct
 
     type graph = node N_tbl.t
 
-    let pp_node out (n:node) =
+    let pp_node nstore out (n:node) =
+      let ppn = N.pp nstore in
       Fmt.fprintf out "(@[node@ :repr %a@ :cstor_n %a@ @[:cstor_args %a@]@])"
-        N.pp n.repr N.pp n.cstor_n
-        Fmt.(Dump.list @@ hvbox @@ pair ~sep:(return "@ --> ") N.pp N.pp) n.cstor_args
-    let pp_path = Fmt.Dump.(list@@pair N.pp pp_node)
-    let pp_graph out (g:graph) : unit =
+        ppn n.repr ppn n.cstor_n
+        Fmt.(Dump.list @@ hvbox @@ pair ~sep:(return "@ --> ") ppn ppn) n.cstor_args
+    let pp_path nstore = Fmt.Dump.(list@@pair (N.pp nstore) (pp_node nstore))
+    let pp_graph nstore out (g:graph) : unit =
       let pp_entry out (n,node) =
-        Fmt.fprintf out "@[<1>@[graph_node[%a]@]@ := %a@]" N.pp n pp_node node
+        Fmt.fprintf out "@[<1>@[graph_node[%a]@]@ := %a@]"
+          (N.pp nstore) n (pp_node nstore) node
       in
       if N_tbl.length g = 0 then (
         Fmt.string out "(graph ø)"
@@ -475,6 +487,7 @@ module Make(A : ARG) : S with module A = A = struct
       )
 
     let mk_graph (self:t) cc : graph =
+      let nstore = SI.CC.n_store cc in
       let g: graph = N_tbl.create ~size:32 () in
       let traverse_sub cstor : _ list =
         IArray.to_list_map
@@ -485,7 +498,7 @@ module Make(A : ARG) : S with module A = A = struct
         (* populate tbl with [repr->node] *)
         ST_cstors.iter_all self.cstors
           (fun (repr, cstor) ->
-             assert (N.is_root repr);
+             assert (N.is_root nstore repr);
              assert (not @@ N_tbl.mem g repr);
              let node = {
                repr; cstor_n=cstor.Monoid_cstor.c_n;
@@ -498,13 +511,14 @@ module Make(A : ARG) : S with module A = A = struct
 
     let check (self:t) (solver:SI.t) (acts:SI.theory_actions) : unit =
       let cc = SI.cc solver in
+      let nstore = SI.CC.n_store cc in
       (* create graph *)
       let g = mk_graph self cc in
       Log.debugf 50
-        (fun k->k"(@[%s.acyclicity.graph@ %a@])" name pp_graph g);
+        (fun k->k"(@[%s.acyclicity.graph@ %a@])" name (pp_graph nstore) g);
       (* traverse the graph, looking for cycles *)
       let rec traverse ~path (n:N.t) (r:repr) : unit =
-        assert (N.is_root r);
+        assert (N.is_root nstore r);
         match N_tbl.find g r with
         | exception Not_found -> ()
         | {flag=Done; _} -> () (* no need *)
@@ -523,7 +537,7 @@ module Make(A : ARG) : S with module A = A = struct
           Stat.incr self.stat_acycl_conflict;
           Log.debugf 5
             (fun k->k "(@[%s.acyclicity.raise_confl@ %a@ @[:path %a@]@])"
-                name Expl.pp expl pp_path path);
+                name (Expl.pp nstore) expl (pp_path nstore) path);
           SI.CC.raise_conflict_from_expl cc acts expl
         | {flag=New; _} as node_r ->
           node_r.flag <- Open;
@@ -559,7 +573,8 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* add clauses [∨_c is-c(n)] and [¬(is-a n) ∨ ¬(is-b n)] *)
   let decide_class_ (self:t) (solver:SI.t) acts (n:N.t) : unit =
-    let t = N.term n in
+    let nstore = SI.CC.n_store (SI.cc solver) in
+    let t = N.term nstore n in
     (* [t] might have been expanded already, in case of duplicates in [l] *)
     if not @@ T.Tbl.mem self.case_split_done t then (
       T.Tbl.add self.case_split_done t ();
@@ -589,6 +604,7 @@ module Make(A : ARG) : S with module A = A = struct
   let on_final_check (self:t) (solver:SI.t) (acts:SI.theory_actions) trail =
     Profile.with_ "data.final-check" @@ fun () ->
     check_is_a self solver acts trail;
+    let nstore = SI.CC.n_store (SI.cc solver) in
 
     (* acyclicity check first *)
     Acyclicity_.check self solver acts;
@@ -600,7 +616,7 @@ module Make(A : ARG) : S with module A = A = struct
       |> Iter.filter
         (fun n ->
            not (ST_cstors.mem self.cstors n) &&
-           not (T.Tbl.mem self.case_split_done (N.term n)))
+           not (T.Tbl.mem self.case_split_done (N.term nstore n)))
       |> Iter.to_rev_list
     in
     begin match remaining_to_decide with
@@ -611,7 +627,8 @@ module Make(A : ARG) : S with module A = A = struct
         ()
       | l ->
         Log.debugf 10
-          (fun k->k "(@[%s.final-check.must-decide@ %a@])" name (Util.pp_list N.pp) l);
+          (fun k->k "(@[%s.final-check.must-decide@ %a@])"
+              name (Util.pp_list (N.pp nstore)) l);
         Profile.instant "data.case-split";
         List.iter (decide_class_ self solver acts) l
     end;
@@ -621,21 +638,21 @@ module Make(A : ARG) : S with module A = A = struct
         N_tbl.to_iter self.to_decide_for_complete_model
         |> Iter.map (fun (n,_) -> SI.cc_find solver n)
         |> Iter.filter
-          (fun n -> not (T.Tbl.mem self.case_split_done (N.term n))
+          (fun n -> not (T.Tbl.mem self.case_split_done (N.term nstore n))
                     && not (ST_cstors.mem self.cstors n))
         |> Iter.head
       in
       match next_decision with
       | None -> () (* all decided *)
       | Some n ->
-        let t = N.term n in
+        let t = N.term nstore n in
 
         Profile.instant "data.decide";
 
         (* use a constructor that will not lead to an infinite loop *)
         let base_cstor =
           match Card.base_cstor self.cards (T.ty t) with
-          | None -> Error.errorf "th-data:@ %a should have base cstor" N.pp n
+          | None -> Error.errorf "th-data:@ %a should have base cstor" (N.pp nstore) n
           | Some c -> c
         in
         let cstor_app =
@@ -657,11 +674,13 @@ module Make(A : ARG) : S with module A = A = struct
   let on_model_gen (self:t) ~recurse (si:SI.t) (n:N.t) : T.t option =
     (* TODO: option to complete model or not (by picking sth at leaves)? *)
     let cc = SI.cc si in
+    let nstore = SI.CC.n_store cc in
     let repr = SI.CC.find cc n in
     match ST_cstors.get self.cstors repr with
     | None -> None
     | Some c ->
-      Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
+      Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-cstor@ %a@])"
+                        (Monoid_cstor.pp nstore) c);
       let args = IArray.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t

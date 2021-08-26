@@ -37,7 +37,7 @@ module Make(A : ARG) : S with module A = A = struct
     }
 
     let name = name
-    let pp out (v:t) =
+    let pp _nstore out (v:t) =
       Fmt.fprintf out "(@[cstor %a@ :term %a@])" Fun.pp v.cstor T.pp v.t
 
     (* attach data to constructor terms *)
@@ -49,9 +49,10 @@ module Make(A : ARG) : S with module A = A = struct
       | _ -> None, []
 
     let merge cc n1 v1 n2 v2 e_n1_n2 : _ result =
+      let nstore = SI.CC.n_store cc in
       Log.debugf 5
         (fun k->k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])"
-            name N.pp n1 T.pp v1.t N.pp n2 T.pp v2.t);
+            name (N.pp nstore) n1 T.pp v1.t (N.pp nstore) n2 T.pp v2.t);
       (* build full explanation of why the constructor terms are equal *)
       (* FIXME: add a (fun p -> A.lemma_cstor p …) here.
          probably we need [Some a=Some b => a=b] as a lemma for inj,

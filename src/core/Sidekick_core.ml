@@ -1132,7 +1132,7 @@ module type MONOID_ARG = sig
   type t
   (** Some type with a monoid structure *)
 
-  val pp : t Fmt.printer
+  val pp : SI.CC.N.store -> t Fmt.printer
 
   val name : string
   (** name of the monoid structure (short) *)
@@ -1227,7 +1227,7 @@ end = struct
       | Some v ->
         Log.debugf 20
           (fun k->k "(@[monoid[%s].on-new-term@ :n %a@ :value %a@])"
-              M.name (N.pp nstore) n M.pp v);
+              M.name (N.pp nstore) n (M.pp nstore) v);
         SI.CC.set_bitfield cc self.field_has_value true n;
         N_tbl.add self.values n v
       | None -> ()
@@ -1236,7 +1236,7 @@ end = struct
       (fun (n_u,m_u) ->
         Log.debugf 20
           (fun k->k "(@[monoid[%s].on-new-term.sub@ :n %a@ :sub-t %a@ :value %a@])"
-              M.name (N.pp nstore) n (N.pp nstore) n_u M.pp m_u);
+              M.name (N.pp nstore) n (N.pp nstore) n_u (M.pp nstore) m_u);
         let n_u = CC.find cc n_u in
         if CC.get_bitfield self.cc self.field_has_value n_u then (
           let m_u' =
@@ -1249,12 +1249,12 @@ end = struct
             Error.errorf
               "when merging@ @[for node %a@],@ \
                values %a and %a:@ conflict %a"
-              (N.pp nstore) n_u M.pp m_u M.pp m_u' (CC.Expl.pp nstore) expl
+              (N.pp nstore) n_u (M.pp nstore) m_u (M.pp nstore) m_u' (CC.Expl.pp nstore) expl
           | Ok m_u_merged ->
             Log.debugf 20
               (fun k->k "(@[monoid[%s].on-new-term.sub.merged@ \
                          :n %a@ :sub-t %a@ :value %a@])"
-                  M.name (N.pp nstore) n (N.pp nstore) n_u M.pp m_u_merged);
+                  M.name (N.pp nstore) n (N.pp nstore) n_u (M.pp nstore) m_u_merged);
             N_tbl.add self.values n_u m_u_merged;
         ) else (
           (* just add to [n_u] *)
@@ -1275,7 +1275,7 @@ end = struct
         Log.debugf 5
           (fun k->k
               "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 %a@ :val2 %a@])@])"
-              M.name (N.pp nstore) n1 M.pp v1 (N.pp nstore) n2 M.pp v2);
+              M.name (N.pp nstore) n1 (M.pp nstore) v1 (N.pp nstore) n2 (M.pp nstore) v2);
         begin match M.merge cc n1 v1 n2 v2 e_n1_n2 with
           | Ok v' ->
             N_tbl.remove self.values n2; (* only keep repr *)
@@ -1292,7 +1292,7 @@ end = struct
 
   let pp out (self:t) : unit =
     let nstore = CC.n_store self.cc in
-    let pp_e out (t,v) = Fmt.fprintf out "(@[%a@ :has %a@])" (N.pp nstore) t M.pp v in
+    let pp_e out (t,v) = Fmt.fprintf out "(@[%a@ :has %a@])" (N.pp nstore) t (M.pp nstore) v in
     Fmt.fprintf out "(@[%a@])" (Fmt.iter pp_e) (iter_all self)
 
   let create_and_setup ?size (solver:SI.t) : t =

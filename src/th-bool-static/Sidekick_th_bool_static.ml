@@ -331,12 +331,12 @@ module Make(A : ARG) : S with module A = A = struct
   (* check if new terms were added to the congruence closure, that can be turned
      into clauses *)
   let check_new_terms (self:state) si (acts:SI.theory_actions) (_trail:_ Iter.t) : unit =
-    let cc_ = SI.cc si in
+    let cc = SI.cc si in
+    let nstore = SI.CC.n_store cc in
     let all_terms =
-      let open SI in
-      CC.all_classes cc_
-      |> Iter.flat_map CC.N.iter_class
-      |> Iter.map CC.N.term
+      SI.CC.all_classes cc
+      |> Iter.flat_map (SI.CC.N.iter_class nstore)
+      |> Iter.map (SI.CC.N.term nstore)
     in
     let cnf_of t =
       let pacts = SI.preprocess_acts_of_acts si acts in
@@ -350,7 +350,7 @@ module Make(A : ARG) : S with module A = A = struct
              Log.debugf 5
                (fun k->k "(@[th-bool-static.final-check.cnf@ %a@ :yields %a@])"
                    T.pp t T.pp u);
-             SI.CC.merge_t cc_ t u (SI.CC.Expl.mk_list []);
+             SI.CC.merge_t cc t u (SI.CC.Expl.mk_list []);
              ());
     end;
     ()

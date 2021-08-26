@@ -95,24 +95,27 @@ module Make(A : ARG) : S with module A = A = struct
   module T = A.S.T.Term
   module Lit = A.S.Solver_internal.Lit
   module SI = A.S.Solver_internal
-  module N = A.S.Solver_internal.CC.N
+  module CC = SI.CC
+  module N = CC.N
 
   module Tag = struct
     type t =
       | By_def
       | Lit of Lit.t
-      | CC_eq of N.t * N.t
+      | CC_eq of CC.t * N.t * N.t
 
     let pp out = function
       | By_def -> Fmt.string out "by-def"
       | Lit l -> Fmt.fprintf out "(@[lit %a@])" Lit.pp l
-      | CC_eq (n1,n2) -> Fmt.fprintf out "(@[cc-eq@ %a@ %a@])" N.pp n1 N.pp n2
+      | CC_eq (cc,n1,n2) ->
+        let nstore = CC.n_store cc in
+        Fmt.fprintf out "(@[cc-eq@ %a@ %a@])" (N.pp nstore) n1 (N.pp nstore) n2
 
-    let to_lits si = function
+    let to_lits = function
       | By_def -> []
       | Lit l -> [l]
-      | CC_eq (n1,n2) ->
-        SI.CC.explain_eq (SI.cc si) n1 n2
+      | CC_eq (cc,n1,n2) ->
+        SI.CC.explain_eq cc n1 n2
   end
 
   module SimpVar
@@ -416,7 +419,7 @@ module Make(A : ARG) : S with module A = A = struct
     Profile.with1 "simplex.check-cert" SimpSolver._check_cert cert;
     let confl =
       SimpSolver.Unsat_cert.lits cert
-      |> CCList.flat_map (Tag.to_lits si)
+      |> CCList.flat_map Tag.to_lits
       |>  List.rev_map SI.Lit.neg
     in
     let pr = A.lemma_lra (Iter.of_list confl) in
@@ -428,9 +431,9 @@ module Make(A : ARG) : S with module A = A = struct
       (* TODO: more detailed proof certificate *)
       SI.propagate si acts lit
         ~reason:(fun() ->
-           let lits = CCList.flat_map (Tag.to_lits si) reason in
+           let lits = CCList.flat_map Tag.to_lits reason in
            let pr = A.lemma_lra Iter.(cons lit (of_list lits)) in
-           CCList.flat_map (Tag.to_lits si) reason, pr)
+           CCList.flat_map Tag.to_lits reason, pr)
     | _ -> ()
 
   let check_simplex_ self si acts : SimpSolver.Subst.t =
@@ -453,9 +456,10 @@ module Make(A : ARG) : S with module A = A = struct
   (* TODO: trivial propagations *)
 
   let add_local_eq (self:state) si acts n1 n2 : unit =
-    Log.debugf 20 (fun k->k "(@[lra.add-local-eq@ %a@ %a@])" N.pp n1 N.pp n2);
-    let t1 = N.term n1 in
-    let t2 = N.term n2 in
+    let nstore = CC.n_store (SI.cc si) in
+    Log.debugf 20 (fun k->k "(@[lra.add-local-eq@ %a@ %a@])" (N.pp nstore) n1 (N.pp nstore) n2);
+    let t1 = N.term nstore n1 in
+    let t2 = N.term nstore n2 in
     let t1, t2 = if T.compare t1 t2 > 0 then t2, t1 else t1, t2 in
 
     let le = LE.(as_linexp_id t1 - as_linexp_id t2) in
@@ -463,7 +467,7 @@ module Make(A : ARG) : S with module A = A = struct
     let le_const = A.Q.neg le_const in
 
     let v = var_encoding_comb ~pre:"le_local_eq" self le_comb in
-    let lit = Tag.CC_eq (n1,n2) in
+    let lit = Tag.CC_eq (SI.cc si,n1,n2) in
     begin
       try
         let c1 = SimpSolver.Constraint.geq v le_const in
@@ -611,9 +615,10 @@ module Make(A : ARG) : S with module A = A = struct
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
     SI.on_cc_is_subterm si (on_subterm st);
+    let nstore = CC.n_store @@ SI.cc si in
     SI.on_cc_post_merge si
       (fun _ _ n1 n2 ->
-         if A.has_ty_real (N.term n1) then (
+         if A.has_ty_real (N.term nstore n1) then (
            Backtrack_stack.push st.local_eqs (n1, n2)
          ));
     st

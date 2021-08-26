@@ -118,28 +118,34 @@ module Make (A: CC_ARG)
 
     let alloc (self:store) (t:term) : t =
       let {
-        n_term; n_sig0; n_parents; n_root; n_next; n_size
+        n_term; n_sig0; n_parents; n_root; n_next; n_size; n_expl;
+        n_as_lit=_; n_bitfields;
       } = self in
       let n = Node0.of_int_unsafe (Vec.size n_term) in
       Vec.push n_term t;
       Vec.push n_sig0 (Opaque n); (* will be updated *)
       Vec.push n_parents Bag.empty;
+      Vec.push n_expl FL_none;
       NVec.push n_root n;
       NVec.push n_next n;
       VecI32.push n_size 1;
+      Vec.iter (fun bv -> Bitvec.ensure_size bv ((n:t:>int)+1)) n_bitfields;
+      assert (term self n == t);
       n
 
     (* dealloc node. It must be the last node allocated. *)
     let dealloc (self:store) (n:t) : unit =
       assert ((n:>int) + 1 = Vec.size self.n_term);
       let {
-        n_term; n_sig0; n_parents; n_root; n_next; n_size
+        n_term; n_sig0; n_parents; n_root; n_next; n_size; n_expl;
+        n_as_lit=_; n_bitfields=_;
       } = self in
       ignore (Vec.pop_exn n_term : term);
       ignore (Vec.pop_exn n_sig0 : signature);
       ignore (Vec.pop_exn n_parents : _ Bag.t);
       ignore (NVec.pop n_root : t);
       ignore (NVec.pop n_next : t);
+      ignore (Vec.pop_exn n_expl : explanation_forest_link);
       ignore (VecI32.pop n_size : int);
       ()
 
@@ -170,7 +176,9 @@ module Make (A: CC_ARG)
     let alloc_bitfield ~descr (self:store) : bitfield =
       Log.debugf 5 (fun k->k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
       let field = Bit_field.of_int_unsafe (Vec.size self.n_bitfields) in
-      Vec.push self.n_bitfields (Bitvec.create());
+      let bv = Bitvec.create() in
+      Bitvec.ensure_size bv (Vec.size self.n_term);
+      Vec.push self.n_bitfields bv;
       field
 
     let create () : store = {
@@ -315,7 +323,7 @@ module Make (A: CC_ARG)
     mutable on_conflict: ev_on_conflict list;
     mutable on_propagate: ev_on_propagate list;
     mutable on_is_subterm : ev_on_is_subterm list;
-    mutable new_merges: bool;
+    mutable new_merges: bool; (* true if >=1 class was modified since last check *)
     field_marked_explain: N.bitfield; (* used to mark traversed nodes when looking for a common ancestor *)
     true_ : node lazy_t;
     false_ : node lazy_t;
@@ -424,7 +432,7 @@ module Make (A: CC_ARG)
     Vec.push cc.pending t
 
   let merge_classes cc t u e : unit =
-    if t != u && not (N.same_class cc.nstore t u) then (
+    if not (N.equal t u) && not (N.same_class cc.nstore t u) then (
       Log.debugf 50
         (fun k->let nstore=cc.nstore in
           k "(@[<hv1>cc.push-combine@ %a ~@ %a@ :expl %a@])"
@@ -573,34 +581,35 @@ module Make (A: CC_ARG)
     with Not_found -> add_new_term_ cc t
 
   (* add [t] to [cc] when not present already *)
-  and add_new_term_ cc (t:term) : node =
-    assert (not @@ mem cc t);
+  and add_new_term_ self (t:term) : node =
+    assert (not @@ mem self t);
     Log.debugf 15 (fun k->k "(@[cc.add-term@ %a@])" Term.pp t);
 
-    let n = N.alloc cc.nstore t in
+    let n = N.alloc self.nstore t in
 
     (* register sub-terms, add [t] to their parent list, and return the
        corresponding initial signature *)
-    let sig0 = compute_sig0 cc n in
+    let sig0 = compute_sig0 self n in
+    N.set_sig0 self.nstore n sig0;
 
     (* remove term when we backtrack *)
-    on_backtrack cc
+    on_backtrack self
       (fun () ->
          Log.debugf 15 (fun k->k "(@[cc.remove-term@ %a@])" Term.pp t);
-         N.dealloc cc.nstore n;
-         T_tbl.remove cc.tbl t);
+         N.dealloc self.nstore n;
+         T_tbl.remove self.tbl t);
 
     (* add term to the table *)
-    T_tbl.add cc.tbl t n;
+    T_tbl.add self.tbl t n;
 
     begin match sig0 with
-      | Opaque _ | Bool _ -> ()
-      | App_ho _ | App_fun _ | If _ | Eq _ | Not _ ->
+      | Opaque _ -> ()
+      | App_ho _ | Bool _ | App_fun _ | If _ | Eq _ | Not _ ->
         (* [n] might be merged with other equiv classes *)
-        push_pending cc n;
+        push_pending self n;
     end;
 
-    List.iter (fun f -> f cc n t) cc.on_new_term;
+    List.iter (fun f -> f self n t) self.on_new_term;
     n
 
   (* compute the initial signature of the given node *)
@@ -608,23 +617,25 @@ module Make (A: CC_ARG)
     (* add sub-term to [cc], and register [n] to its parents.
        Note that we return the exact sub-term, to get proper
        explanations, but we add to the sub-term's root's parent list. *)
+    let nstore = self.nstore in
     let deref_sub (u:term) : node =
       let sub = add_term_rec_ self u in
       (* add [n] to [sub.root]'s parent list *)
       begin
-        let sub_r = N.find self.nstore sub in
-        let old_parents = N.parents self.nstore sub_r in
+        let sub_r = N.find nstore sub in
+        let old_parents = N.parents nstore sub_r in
         if Bag.is_empty old_parents then (
           (* first time it has parents: tell watchers that this is a subterm *)
           List.iter (fun f -> f sub u) self.on_is_subterm;
         );
-        on_backtrack self (fun () -> N.set_parents self.nstore sub_r old_parents);
-        N.upd_parents self.nstore sub_r ~f:(fun p -> Bag.cons n p);
+        on_backtrack self (fun () -> N.set_parents nstore sub_r old_parents);
+        N.upd_parents nstore sub_r ~f:(fun p -> Bag.cons n p);
       end;
       sub
     in
-    begin match A.cc_view (N.term self.nstore n) with
-      | Bool _ | Opaque _ -> Opaque n
+    begin match A.cc_view (N.term nstore n) with
+      | Opaque _ -> Opaque n
+      | Bool b -> Bool b
       | Eq (a,b) ->
         let a = deref_sub a in
         let b = deref_sub b in
@@ -673,11 +684,14 @@ module Make (A: CC_ARG)
     done
 
   and task_pending_ (self:t) (n:node) : unit =
+    Log.debugf 10 (fun k->k"task pending %a" (N.pp self.nstore) n);
     (* check if some parent collided *)
     begin match N.sig0 self.nstore n with
       | Opaque _ -> () (* no-op *)
       | Eq (a,b) ->
         (* if [a=b] is now true, merge [(a=b)] and [true] *)
+        Log.debugf 10 (fun k->k"TASK PENDING EQ %a %a (same? %B)" (N.pp self.nstore) a
+                          (N.pp self.nstore) b (N.same_class self.nstore a b));
         if N.same_class self.nstore a b then (
           let expl = Expl.mk_merge a b in
           Log.debugf 5
@@ -786,7 +800,8 @@ module Make (A: CC_ARG)
         (* for each node in [r_from]'s class, make it point to [r_into] *)
         N.iter_class nstore r_from
           (fun u ->
-             assert (N.root nstore u == r_from);
+             assert (N.equal (N.root nstore u) r_from);
+             Log.debugf 10 (fun k->k"%a now points to %a" (N.pp nstore) u (N.pp nstore) r_into);
              N.set_root nstore u r_into);
         (* capture current state *)
         let r_into_old_next = N.next nstore r_into in
@@ -822,7 +837,7 @@ module Make (A: CC_ARG)
              N.set_parents nstore r_into r_into_old_parents;
              (* NOTE: this must come after the restoration of [next] pointers,
                 otherwise we'd iterate on too big a class *)
-             N.iter_class nstore r_from (fun u -> N.set_root nstore u r_from);
+             N.iter_class_ nstore r_from (fun u -> N.set_root nstore u r_from);
              N.set_size nstore r_into (N.size nstore r_into - N.size nstore r_from);
           );
       end;
