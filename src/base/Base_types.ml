@@ -769,12 +769,6 @@ end = struct
     | Eq (a,b) -> Eq (f a, f b)
     | Ite (a,b,c) -> Ite (f a, f b, f c)
     | LRA l -> LRA (Sidekick_arith_lra.map_view f l)
-
-  module Tbl = CCHashtbl.Make(struct
-      type t = term view
-      let equal = equal
-      let hash = hash
-    end)
 end
 
 (** Term creation and manipulation *)

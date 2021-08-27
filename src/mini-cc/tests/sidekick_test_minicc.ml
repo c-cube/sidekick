@@ -1,4 +1,4 @@
-open Sidekick_base
+open! Sidekick_base
 
 module A = Alcotest
 module CC = Sidekick_mini_cc.Make(struct

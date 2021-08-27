@@ -19,7 +19,7 @@ module Make(T : Sidekick_core.TERM)
 
   let make ~sign t = {lit_sign=sign; lit_term=t}
 
-  let atom tst ?(sign=true) (t:term) : t =
+  let atom ?(sign=true) tst (t:term) : t =
     let t, sign' = T.Term.abs tst t in
     let sign = if not sign' then not sign else sign in
     make ~sign t

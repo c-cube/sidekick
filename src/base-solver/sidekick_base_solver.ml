@@ -5,7 +5,7 @@
     from {!Sidekick_core}, using data structures from
     {!Sidekick_base}. *)
 
-open Sidekick_base
+open! Sidekick_base
 
 (** Argument to the SMT solver *)
 module Solver_arg = struct
@@ -24,8 +24,8 @@ module Solver = Sidekick_smt_solver.Make(Solver_arg)
 (** Theory of datatypes *)
 module Th_data = Sidekick_th_data.Make(struct
     module S = Solver
-    open Base_types
-    open Sidekick_th_data
+    open! Base_types
+    open! Sidekick_th_data
     module Proof = Proof_stub
     module Cstor = Cstor
 
@@ -89,7 +89,8 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   let mk_bool = T.bool
   let view_as_lra t = match T.view t with
     | T.LRA l -> l
-    | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.real()) -> LRA_pred (Eq, a, b)
+    | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.real()) ->
+      LRA_pred (Eq, a, b)
     | _ -> LRA_other t
 
   let ty_lra _st = Ty.real()

@@ -133,7 +133,6 @@ module Make(A : ARG) : S with module A = A = struct
   module LE_ = Linear_expr.Make(A.Q)(SimpVar)
   module LE = LE_.Expr
   module SimpSolver = Simplex2.Make(A.Q)(SimpVar)
-  module LConstr = SimpSolver.Constraint
   module Subst = SimpSolver.Subst
 
   module Comb_map = CCMap.Make(LE_.Comb)

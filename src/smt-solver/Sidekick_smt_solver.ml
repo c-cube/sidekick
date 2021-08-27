@@ -75,7 +75,6 @@ module Make(A : ARG)
   end
 
   module CC = Sidekick_cc.Make(CC_actions)
-  module Expl = CC.Expl
   module N = CC.N
 
   (** Internal solver, given to theories and to Msat *)
@@ -85,7 +84,6 @@ module Make(A : ARG)
     module Lit = Lit
     module CC = CC
     module N = CC.N
-    type formula = Lit.t
     type nonrec proof = proof
     type dproof = proof -> unit
     type term = Term.t
@@ -199,8 +197,6 @@ module Make(A : ARG)
 
     type solver = t
 
-    module Eq_class = CC.N
-    module Expl = CC.Expl
     module Proof = P
 
     let[@inline] cc (t:t) = Lazy.force t.cc
@@ -244,7 +240,7 @@ module Make(A : ARG)
       Stat.incr self.count_axiom;
       A.add_clause ~keep lits proof
 
-    let add_sat_lit self ?default_pol (acts:theory_actions) (lit:Lit.t) : unit =
+    let add_sat_lit _self ?default_pol (acts:theory_actions) (lit:Lit.t) : unit =
       let (module A) = acts in
       A.add_lit ?default_pol lit
 
@@ -337,7 +333,7 @@ module Make(A : ARG)
         (module struct
           let add_lit ?default_pol lit =
             let lit = preprocess_lit lit in
-            A0.add_lit lit
+            A0.add_lit ?default_pol lit
           let add_clause c pr =
             Stat.incr self.count_preprocess_clause;
             let c = CCList.map preprocess_lit c in
@@ -772,8 +768,12 @@ module Make(A : ARG)
       let _lits f = SAT.iter_trail f in
       (* TODO: theory combination *)
       let m = mk_model self _lits in
+      (* TODO: check model *)
+      let _ = check in
+
       do_on_exit ();
       Sat m
+
     | Sat_solver.Unsat (module UNSAT) ->
       let unsat_core () = UNSAT.unsat_assumptions () in
       do_on_exit ();

@@ -1,6 +1,6 @@
 (* This file is free software. See file "license" for more details. *)
 
-open Base_types
+open! Base_types
 
 module Val_map = struct
   module M = CCMap.Make(CCInt)

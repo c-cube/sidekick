@@ -2,9 +2,8 @@
 
 (** {1 Preprocessing AST} *)
 
-open Sidekick_base
+open! Sidekick_base
 module Loc = Smtlib_utils.V_2_6.Loc
-module Fmt = CCFormat
 
 module PA = Smtlib_utils.V_2_6.Ast
 module BT = Sidekick_base
@@ -111,7 +110,7 @@ let string_as_q (s:string) : Q.t option =
   with _ -> None
 
 let t_as_q t = match Term.view t with
-  | T.LRA (LRA_const n) -> Some n
+  | T.LRA (Base_types.LRA_const n) -> Some n
   | _ -> None
 
 (* conversion of terms *)
@@ -141,7 +140,7 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
   | PA.App ("xor", [a;b]) ->
     let a = conv_term ctx a in
     let b = conv_term ctx b in
-    Form.xor ctx.tst a b
+    Form.xor ctx.Ctx.tst a b
   | PA.App (f, args) ->
     let args = List.map (conv_term ctx) args in
     begin match find_id_ ctx f with
@@ -188,7 +187,7 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
   | PA.Is_a (s, u) ->
     let u = conv_term ctx u in
     begin match find_id_ ctx s with
-      | _, Ctx.K_fun {Fun.fun_view=Fun_cstor c; _} ->
+      | _, Ctx.K_fun {Fun.fun_view=Base_types.Fun_cstor c; _} ->
         Term.is_a tst c u
       | _ -> errorf_ctx ctx "expected `%s` to be a constructor" s
     end
@@ -270,35 +269,36 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
   | PA.Arith (op, l) ->
     let l = List.map (conv_term ctx) l in
     let open Base_types in
+    let tst = ctx.Ctx.tst in
     begin match op, l with
-      | PA.Leq, [a;b] -> T.lra ctx.tst (LRA_pred (Leq, a, b))
-      | PA.Lt, [a;b] -> T.lra ctx.tst (LRA_pred (Lt, a, b))
-      | PA.Geq, [a;b] -> T.lra ctx.tst (LRA_pred (Geq, a, b))
-      | PA.Gt, [a;b] -> T.lra ctx.tst (LRA_pred (Gt, a, b))
-      | PA.Add, [a;b] -> T.lra ctx.tst (LRA_op (Plus, a, b))
+      | PA.Leq, [a;b] -> T.lra tst (LRA_pred (Leq, a, b))
+      | PA.Lt, [a;b] -> T.lra tst (LRA_pred (Lt, a, b))
+      | PA.Geq, [a;b] -> T.lra tst (LRA_pred (Geq, a, b))
+      | PA.Gt, [a;b] -> T.lra tst (LRA_pred (Gt, a, b))
+      | PA.Add, [a;b] -> T.lra tst (LRA_op (Plus, a, b))
       | PA.Add, (a::l) ->
-        List.fold_left (fun a b -> T.lra ctx.tst (LRA_op (Plus,a,b))) a l
+        List.fold_left (fun a b -> T.lra tst (LRA_op (Plus,a,b))) a l
       | PA.Minus, [a] ->
         begin match t_as_q a with
-          | Some a -> T.lra ctx.tst (LRA_const (Q.neg a))
+          | Some a -> T.lra tst (LRA_const (Q.neg a))
           | None ->
-            T.lra ctx.tst (LRA_op (Minus, T.lra ctx.tst (LRA_const Q.zero), a))
+            T.lra tst (LRA_op (Minus, T.lra tst (LRA_const Q.zero), a))
         end
-      | PA.Minus, [a;b] -> T.lra ctx.tst (LRA_op (Minus, a, b))
+      | PA.Minus, [a;b] -> T.lra tst (LRA_op (Minus, a, b))
       | PA.Minus, (a::l) ->
-        List.fold_left (fun a b -> T.lra ctx.tst (LRA_op (Minus,a,b))) a l
+        List.fold_left (fun a b -> T.lra tst (LRA_op (Minus,a,b))) a l
       | PA.Mult, [a;b] ->
         begin match t_as_q a, t_as_q b with
-          | Some a, Some b -> T.lra ctx.tst (LRA_const (Q.mul a b))
-          | Some a, _ -> T.lra ctx.tst (LRA_mult (a, b))
-          | _, Some b -> T.lra ctx.tst (LRA_mult (b, a))
+          | Some a, Some b -> T.lra tst (LRA_const (Q.mul a b))
+          | Some a, _ -> T.lra tst (LRA_mult (a, b))
+          | _, Some b -> T.lra tst (LRA_mult (b, a))
           | None, None ->
             errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t
         end
       | PA.Div, [a;b] ->
         begin match t_as_q a, t_as_q b with
-          | Some a, Some b -> T.lra ctx.tst (LRA_const (Q.div a b))
-          | _, Some b -> T.lra ctx.tst (LRA_mult (Q.inv b, a))
+          | Some a, Some b -> T.lra tst (LRA_const (Q.div a b))
+          | _, Some b -> T.lra tst (LRA_mult (Q.inv b, a))
           | _, None ->
             errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t
         end
@@ -440,7 +440,7 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
           cstor_args=lazy (mk_selectors cstor);
           cstor_arity=0;
           cstor_ty_as_data=data;
-          cstor_ty=data.data_as_ty;
+          cstor_ty=data.Base_types.data_as_ty;
         } in
         (* declare cstor *)
         Ctx.add_id_ ctx cstor_name cstor_id (Ctx.K_fun (Fun.cstor cstor));
@@ -475,7 +475,7 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
     (* now force definitions *)
     List.iter
       (fun {Data.data_cstors=lazy m;data_as_ty=lazy _;_} ->
-         ID.Map.iter (fun _ ({Cstor.cstor_args=lazy l;_} as r) -> r.cstor_arity <- List.length l) m;
+         ID.Map.iter (fun _ ({Cstor.cstor_args=lazy l;_} as r) -> r.Base_types.cstor_arity <- List.length l) m;
          ())
       l;
     [Stmt.Stmt_data l]

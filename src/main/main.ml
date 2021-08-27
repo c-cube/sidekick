@@ -111,6 +111,7 @@ let main_smt () : _ result =
     in
     Process.Solver.create ~proof ~theories tst () ()
   in
+  (* FIXME: emit an actual proof *)
   let proof_file = if !proof_file ="" then None else Some !proof_file in
   if !check then (
     (* might have to check conflicts *)
@@ -126,7 +127,7 @@ let main_smt () : _ result =
       E.fold_l
         (fun () ->
            Process.process_stmt
-             ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf ?proof_file
+             ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
              ~time:!time_limit ~memory:!size_limit
              ~pp_model:!p_model
              ~check:!check ~progress:!p_progress

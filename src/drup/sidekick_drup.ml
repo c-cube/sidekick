@@ -228,7 +228,7 @@ module Make() : S = struct
 
     exception Conflict
 
-    let raise_conflict_ self a =
+    let raise_conflict_ _self a =
       Log.debugf 5 (fun k->k"conflict on atom %a" Atom.pp a);
       raise Conflict
 
@@ -245,7 +245,6 @@ module Make() : S = struct
     let pp_trail_ out self =
       Fmt.fprintf out "(@[%a@])" (Fmt.iter Atom.pp) (Atom.Stack.to_iter self.trail)
 
-    exception Found_watch of atom
     exception Is_sat
     exception Is_undecided
 

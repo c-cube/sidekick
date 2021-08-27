@@ -1,8 +1,7 @@
 (** {2 Conversion into {!Term.t}} *)
 
-module BT = Sidekick_base
 module Profile = Sidekick_util.Profile
-open Sidekick_base
+open! Sidekick_base
 module SBS = Sidekick_base_solver
 
 [@@@ocaml.warning "-32"]
@@ -17,7 +16,6 @@ module Solver = SBS.Solver
 module Check_cc = struct
   module Lit = Solver.Solver_internal.Lit
   module SI = Solver.Solver_internal
-  module CC = Solver.Solver_internal.CC
   module MCC = Sidekick_mini_cc.Make(SBS.Solver_arg)
 
   let pp_c out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∨ " Lit.pp) c
@@ -136,7 +134,6 @@ let solve
     ?gc:_
     ?restarts:_
     ?(pp_model=false)
-    ?proof_file
     ?(check=false)
     ?time:_ ?memory:_ ?(progress=false)
     ~assumptions
@@ -199,7 +196,7 @@ let solve
 (* process a single statement *)
 let process_stmt
     ?gc ?restarts ?(pp_cnf=false)
-    ?proof_file ?pp_model ?(check=false)
+    ?pp_model ?(check=false)
     ?time ?memory ?progress
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
@@ -237,7 +234,7 @@ let process_stmt
           l
       in
       solve
-        ?gc ?restarts ~check ?proof_file ?pp_model
+        ?gc ?restarts ~check ?pp_model
         ?time ?memory ?progress
         ~assumptions
         solver;

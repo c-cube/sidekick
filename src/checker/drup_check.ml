@@ -56,7 +56,7 @@ end = struct
 
   let dump oc self : unit =
     let fpf = Printf.fprintf in
-    let pp_c out c = Clause.iter c ~f:(fun a -> fpf oc "%d " (a:atom:>int)); in
+    let pp_c out c = Clause.iter c ~f:(fun a -> fpf out "%d " (a:atom:>int)); in
     Vec.iter
       (function
         | Input c -> fpf oc "i %a0\n" pp_c c;
@@ -82,8 +82,6 @@ module Fwd_check : sig
       indexes in the trace of the steps that failed. *)
   val check : Trace.t -> (unit, error) result
 end = struct
-  module ISet = CCSet.Make(CCInt)
-
   type t = {
     checker: Checker.t;
     errors: VecI32.t;

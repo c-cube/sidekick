@@ -259,7 +259,7 @@ module type LIT = sig
   val signed_term : t -> T.Term.t * bool
   (** Return the atom and the sign *)
 
-  val atom : T.Term.store -> ?sign:bool -> T.Term.t -> t
+  val atom : ?sign:bool -> T.Term.store -> T.Term.t -> t
   (** [atom store t] makes a literal out of a term, possibly normalizing
       its sign in the process.
       @param sign if provided, and [sign=false], negate the resulting lit. *)

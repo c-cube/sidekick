@@ -192,7 +192,7 @@ let solve ?(check=false) ?in_memory_proof (solver:SAT.t) : (unit, string) result
     | SAT.Sat _ ->
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f)@." t2 t3;
-    | SAT.Unsat (module US) ->
+    | SAT.Unsat _ ->
 
       if check then (
         match in_memory_proof with

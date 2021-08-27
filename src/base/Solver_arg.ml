@@ -1,5 +1,5 @@
 
-open Base_types
+open! Base_types
 
 module Term = Term
 module Fun = Fun

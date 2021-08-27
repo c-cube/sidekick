@@ -1,7 +1,5 @@
 (** {1 Process Statements} *)
 
-module ID = Sidekick_base.ID
-module E = CCResult
 module Loc = Smtlib_utils.V_2_6.Loc
 module Parse_ast = Smtlib_utils.V_2_6.Ast
 module Process = Process
