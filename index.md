@@ -14,15 +14,16 @@ Sidekick is composed of a few libraries:
   and a solver implementation based on [mSAT](https://github.com/Gbury/mSAT).
 
   `Sidekick_core` is the most important module to read there.
-- `sidekick-arith` depends on [Zarith](https://github.com/ocaml/Zarith)
-  for arbitrary-precision computations, and provides a LRA theory based
-  on an implementation of the Simplex algorithm.
+- `sidekick-base` provides a concrete implementation of terms, types,
+  literals, etc. as well as an instantiation the SMT solver.
+  It also depends on [Zarith](https://github.com/ocaml/Zarith)
+  for arbitrary-precision computations.
 - `sidekick-bin` is an executable that uses the previous building blocks
-  to implement a concrete SMT solver. It is useful for testing, but
+  to implement a concrete SMT solver executable. It is useful for testing, but
   can also be used as a normal SMT solver on the command line.
 
   It contains examples of how to instantiate the functors of `sidekick`
-  and `sidekick-arith`.
+  and `sidekick-base`.
 
 ## API Documentation
 
