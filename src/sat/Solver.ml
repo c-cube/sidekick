@@ -28,10 +28,8 @@ module Make(Plugin : PLUGIN)
   (* a boolean variable (positive int) *)
   module Var0 : sig
     include Int_id.S
-    module Set : Set.S with type elt = t
   end = struct
     include Int_id.Make()
-    module Set = Util.Int_set
   end
   type var = Var0.t
 
@@ -46,7 +44,6 @@ module Make(Plugin : PLUGIN)
     val abs : t -> t
     val pa : var -> t
     val na : var -> t
-    module Set : CCSet.S with type elt = t
   end = struct
     include Int_id.Make()
     let[@inline] neg i = (i lxor 1)
@@ -57,7 +54,6 @@ module Make(Plugin : PLUGIN)
     let[@inline] abs a = a land (lnot 1)
     let[@inline] var a = Var0.of_int_unsafe (a lsr 1)
     let[@inline] na v = (((v:var:>int) lsl 1) lor 1)
-    module Set = Util.Int_set
   end
   type atom = Atom0.t
 
@@ -213,7 +209,7 @@ module Make(Plugin : PLUGIN)
       let[@inline] pp_sign a = if sign a then "+" else "-"
 
       (* print level+reason of assignment *)
-      let debug_reason self out = function
+      let debug_reason _self out = function
         | n, _ when n < 0 -> Format.fprintf out "%%"
         | n, None -> Format.fprintf out "%d" n
         | n, Some Decision -> Format.fprintf out "@@%d" n
@@ -1890,7 +1886,6 @@ module Make(Plugin : PLUGIN)
     let module M = struct
       type nonrec lit = lit
       type clause = Clause.t
-      type proof = Proof.t
       let unsat_conflict = unsat_conflict
       let unsat_assumptions = unsat_assumptions
     end in

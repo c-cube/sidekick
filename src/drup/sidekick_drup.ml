@@ -128,7 +128,6 @@ module Make() : S = struct
     val pp : t Fmt.printer
     val of_list : store -> atom list -> t
     val of_iter : store -> atom Iter.t -> t
-    module Set : CCSet.S with type elt = t
     module Tbl : CCHashtbl.S with type key = t
   end = struct
     type t = {
@@ -171,7 +170,6 @@ module Make() : S = struct
       let[@inline] equal a b = a.id = b.id
       let[@inline] compare a b = compare a.id b.id
     end
-    module Set = CCSet.Make(As_key)
     module Tbl = CCHashtbl.Make(As_key)
   end
   type clause = Clause.t

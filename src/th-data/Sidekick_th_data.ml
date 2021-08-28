@@ -34,9 +34,6 @@ module type DATA_TY = sig
   val view : t -> (cstor, t) data_ty_view
 
   val cstor_args : cstor -> t Iter.t
-
-  (** A table indexed by types. *)
-  module Tbl : Hashtbl.S with type key = t
 end
 
 (** {2 Cardinality of types} *)
@@ -200,7 +197,6 @@ module Make(A : ARG) : S with module A = A = struct
   module T = A.S.T.Term
   module N = SI.CC.N
   module Ty = A.S.T.Ty
-  module Fun = A.S.T.Fun
   module Expl = SI.CC.Expl
 
   module Card = Compute_card(A)

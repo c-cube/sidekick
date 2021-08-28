@@ -146,8 +146,6 @@ module Make (A: CC_ARG)
     let[@inline] set_field f b t = t.n_bits <- Bits.set f b t.n_bits
   end
 
-  module N_tbl = CCHashtbl.Make(N)
-
   (* non-recursive, inlinable function for [find] *)
   let[@inline] find_ (n:node) : repr =
     let n2 = n.n_root in
