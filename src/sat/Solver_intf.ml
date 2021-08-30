@@ -37,21 +37,6 @@ end
 type 'form sat_state = (module SAT_STATE with type lit = 'form)
 (** The type of values returned when the solver reaches a SAT state. *)
 
-(** Lifetime for clauses added with {!add_clause}.
-    See {!CLAUSE_ALLOCATOR} to see what allocators are
-    (here they are referred to by their index). *)
-type clause_lifetime =
-  | CL_keep
-  | CL_can_gc
-  | CL_use_allocator of {
-      allocator_idx: int;
-    }
-
-let pp_clause_lifetime out = function
-  | CL_keep -> Fmt.string out "keep"
-  | CL_can_gc -> Fmt.string out "can-gc"
-  | CL_use_allocator {allocator_idx=idx} -> Fmt.fprintf out "(custom %d)" idx
-
 module type UNSAT_STATE = sig
   type lit
   type clause
@@ -97,26 +82,6 @@ type ('lit, 'proof) reason =
 type lbool = L_true | L_false | L_undefined
 (** Valuation of an atom *)
 
-(** {2 Clause Allocators}
-
-    A clause allocator holds a set of clauses. Each clause lives in
-    exactly one clause allocator.
-
-    Each allocator is responsible for the lifetime of its clause: some will
-    keep the clauses forever (e.g. for axioms), some will GC the clauses
-    after reaching a maximum size, etc. *)
-module type CLAUSE_ALLOCATOR = sig
-  type t
-
-  type behavior
-  (** Behavior for the clause allocator *)
-
-  val gc_fixed_size : int -> behavior
-  (** GC clauses when the allocator reaches the given size *)
-
-  (* TODO: scoped allocator? different GCs? *)
-end
-
 (** Actions available to the Plugin
 
     The plugin provides callbacks for the SAT solver to use. These callbacks
@@ -125,6 +90,7 @@ end
 module type ACTS = sig
   type lit
   type proof
+  type clause_pool
   type dproof = proof -> unit
 
   val iter_assumptions: (lit -> unit) -> unit
@@ -137,19 +103,17 @@ module type ACTS = sig
   (** Map the given lit to an internal atom, which will be decided by the
       SAT solver. *)
 
-  val add_clause:
-    ?lifetime:clause_lifetime ->
-    lit list ->
-    dproof ->
-    unit
+  val add_clause: ?keep:bool -> lit list -> dproof -> unit
   (** Add a clause to the solver.
-      @param lifetime lifetime to use for the clause.
-
-      - [C_keep] will make the clause unremovable
-      - [C_can_gc] the solver is allowed to GC the clause and propose this
+      @param keep if true, the clause will be kept by the solver.
+        Otherwise the solver is allowed to GC the clause and propose this
         partial model again.
       - [C_use_allocator alloc] puts the clause in the given allocator.
   *)
+
+  val add_clause_in_pool : pool:clause_pool -> lit list -> dproof -> unit
+  (** Like {!add_clause} but uses a custom clause pool for the clause,
+      with its own lifetime. *)
 
   val raise_conflict: lit list -> dproof -> 'b
   (** Raise a conflict, yielding control back to the solver.
@@ -256,6 +220,9 @@ module type S = sig
 
   type clause
 
+  type clause_pool
+  (** Pool of clauses, with its own lifetime management *)
+
   type theory
 
   type proof
@@ -329,6 +296,31 @@ module type S = sig
   val proof : t -> proof
   (** Access the inner proof *)
 
+  (** {2 Clause Pools} *)
+
+  (** Clause pools.
+
+      A clause pool holds/owns a set of clauses, and is responsible for
+      managing their lifetime. *)
+  module Clause_pool : sig
+    type t = clause_pool
+
+    val descr : t -> string
+  end
+
+  val new_clause_pool_gc_fixed_size :
+    descr:string ->
+    size:int ->
+    t -> clause_pool
+  (** Allocate a new clause pool that GC's its clauses when its size
+      goes above [size]. It keeps half of the clauses. *)
+
+  val new_clause_pool_scoped :
+    descr:string ->
+    t -> clause_pool
+  (** Allocate a new clause pool that holds local clauses
+      goes above [size]. It keeps half of the clauses. *)
+
   (** {2 Types} *)
 
   (** Result type for the solver *)
@@ -339,22 +331,6 @@ module type S = sig
   exception UndecidedLit
   (** Exception raised by the evaluating functions when a literal
       has not yet been assigned a value. *)
-
-  module Clause_allocator : CLAUSE_ALLOCATOR
-
-  type clause_allocator = Clause_allocator.t
-
-  val add_clause_allocator :
-    descr:string ->
-    behavior:Clause_allocator.behavior ->
-    t ->
-    clause_allocator
-  (** Make a new clause allocator for this solver.
-      @param descr short description of this allocator and what it contains
-      @param behavior controls the behavior of the allocator, i.e. whether
-      it collects clauses, which clauses are kept, what its maximum size
-      is, etc.
-  *)
 
   (** {2 Base operations} *)
 
@@ -370,6 +346,12 @@ module type S = sig
 
   val add_clause_a : t -> lit array -> dproof -> unit
   (** Lower level addition of clauses *)
+
+  val add_clause_in_pool : t -> pool:clause_pool -> lit list -> unit
+  (** Like {!add_clause} but using a specific clause pool *)
+
+  val add_clause_a_in_pool : t -> pool:clause_pool -> lit array -> unit
+  (** Like {!add_clause_a} but using a specific clause pool *)
 
   val add_input_clause_a : t -> lit array -> unit
   (** Like {!add_clause_a} but with justification of being an input clause *)

@@ -87,7 +87,7 @@ module Make(Plugin : PLUGIN)
       c_activity: Vec_float.t;
       c_recycle_idx: VecI32.t; (* recycle clause numbers that were GC'd *)
       c_attached: Bitvec.t;
-      c_marked: Bitvec.t; (* TODO : remove *)
+      c_marked: Bitvec.t;
       c_removable: Bitvec.t;
       c_dead: Bitvec.t;
     }
@@ -532,15 +532,22 @@ module Make(Plugin : PLUGIN)
        vectors, the comments actually refer to the original non-simplified
        clause. *)
 
-    (* TODO: this should be a veci32 *)
-    clauses_hyps : clause Vec.t;
-    (* clauses added by the user *)
+    clauses_hyps : CVec.t;
+    (* clauses added by the user, never removed *)
 
-    clauses_learnt : clause Vec.t;
-    (* learnt clauses (tautologies true at any time, whatever the user level) *)
+    clauses_learnt : CVec.t;
+    (* learnt clauses (tautologies true at any time, whatever the user level).
+       GC'd regularly. *)
 
-    clauses_to_add : clause Vec.t;
+    clauses_to_add : CVec.t;
     (* Clauses either assumed or pushed by the theory, waiting to be added. *)
+
+    clauses_dead : CVec.t;
+    (* dead clauses, to be removed at next GC.
+       invariant: all satisfy [Clause.dead store c]. *)
+
+    clause_pools : clause_pool Vec.t;
+    (* custom clause pools *)
 
     mutable unsat_at_0: clause option;
     (* conflict at level 0, if any *)
@@ -604,6 +611,18 @@ module Make(Plugin : PLUGIN)
     n_decisions : int Stat.counter;
     n_restarts : int Stat.counter;
   }
+  and clause_pool =
+    | CP_gc of {
+        size: int;
+        clauses: CVec.t;
+        descr: string;
+      }
+    | CP_scoped of {
+        clauses: CVec.t;
+        levels: VecI32.t; (* backtracking levels for clauses *)
+        descr: string;
+      }
+
   type solver = t
 
   (* intial restart limit *)
@@ -621,10 +640,13 @@ module Make(Plugin : PLUGIN)
     unsat_at_0=None;
     next_decisions = [];
 
-    clauses_hyps = Vec.create();
-    clauses_learnt = Vec.create();
+    clauses_hyps = CVec.create();
+    clauses_learnt = CVec.create();
+    clauses_to_add = CVec.create ();
+    clauses_dead = CVec.create();
 
-    clauses_to_add = Vec.create ();
+    clause_pools = Vec.create();
+
     to_clear=Vec.create();
     temp_clause_vec=Vec.create();
     temp_atom_vec=Vec.create();
@@ -667,8 +689,65 @@ module Make(Plugin : PLUGIN)
     self.on_gc <- on_gc;
     self
 
+  module Clause_pool : sig
+    type t = clause_pool
+    val descr : t -> string
+    val add : solver -> t -> clause -> unit
+    val gc : solver -> t -> unit
+    val push_level : solver -> t -> unit
+    val cancel_until : solver -> t -> int -> unit
+    val iter : t -> f:(clause -> unit) -> unit
+  end = struct
+    type t = clause_pool
+
+    let descr = function
+      | CP_gc {descr; _} | CP_scoped {descr; _} -> descr
+
+    let gc (solver:solver) (self:t) : unit =
+      match self with
+      | CP_gc {clauses; size; descr} ->
+        Log.debugf 10 (fun k->k"(@[clause-pool.gc@ %s@])" descr);
+        () (* FIXME *)
+      | CP_scoped _ -> ()
+
+    let push_level (_:solver) (self:t) =
+      match self with
+      | CP_gc _ -> ()
+      | CP_scoped {clauses; levels; descr=_} ->
+        VecI32.push levels (CVec.size clauses)
+
+    let cancel_until (solver:solver) (self:t) (lvl: int) : unit =
+      match self with
+      | CP_gc _ -> ()
+      | CP_scoped {clauses; levels; descr} ->
+        Log.debugf 10 (fun k->k"(@[clause-pool.gc@ %s@])" descr);
+        let old_size = VecI32.get levels lvl in
+        VecI32.shrink levels lvl;
+        while CVec.size clauses > old_size do
+          let c = CVec.pop clauses in
+          Log.debugf 50 (fun k->k"(@[clause-pool.gc.remove@ :in %s@ %a"
+                            descr (Clause.pp solver.store) c);
+          Clause.set_dead solver.store c true;
+          CVec.push solver.clauses_dead c;
+        done
+
+    let add solver (self:t) (c:clause) =
+      match self with
+      | CP_gc { clauses; size; descr=_} ->
+        if CVec.size clauses >= size then (
+          gc solver self;
+        );
+        CVec.push clauses c
+      | CP_scoped {clauses; _} ->
+        CVec.push clauses c
+
+    let iter self ~f = match self with
+      | CP_gc {clauses; _} | CP_scoped {clauses; _} ->
+        CVec.iter clauses ~f
+  end
+
   let[@inline] decision_level st = Vec.size st.var_levels
-  let[@inline] nb_clauses st = Vec.size st.clauses_hyps
+  let[@inline] nb_clauses st = CVec.size st.clauses_hyps
   let stat self = self.stat
 
   (* Do we have a level-0 empty clause? *)
@@ -722,14 +801,21 @@ module Make(Plugin : PLUGIN)
       H.decrease self.order v
     )
 
+  (* iterate on all learnt clauses, pool included *)
+  let iter_clauses_learnt_ (self:t) ~f : unit =
+    CVec.iter self.clauses_learnt ~f;
+    Vec.iter (fun pool -> Clause_pool.iter pool ~f) self.clause_pools;
+    ()
+
   (* increase activity of clause [c] *)
   let clause_bump_activity self (c:clause) : unit =
     let store = self.store in
     Clause.set_activity store c (Clause.activity store c +. self.clause_incr);
     if Clause.activity store c > 1e20 then (
-      Vec.iter
-        (fun c -> Clause.set_activity store c (Clause.activity store c *. 1e-20))
-        self.clauses_learnt;
+      let update_clause c =
+        Clause.set_activity store c (Clause.activity store c *. 1e-20)
+      in
+      iter_clauses_learnt_ self ~f:update_clause;
       self.clause_incr <- self.clause_incr *. 1e-20
     )
 
@@ -899,6 +985,7 @@ module Make(Plugin : PLUGIN)
       Vec.shrink self.trail !head;
       Vec.shrink self.var_levels lvl;
       Plugin.pop_levels self.th n;
+      (* TODO: for scoped clause pools, backtrack them *)
       self.next_decisions <- [];
     );
     ()
@@ -1172,6 +1259,7 @@ module Make(Plugin : PLUGIN)
       cr_is_uip = is_uip;
     }
 
+  (* FIXME: take clause pool *)
   (* add the learnt clause to the clause database, propagate, etc. *)
   let record_learnt_clause (self:t) (confl:clause) (cr:conflict_res): unit =
     let store = self.store in
@@ -1195,7 +1283,7 @@ module Make(Plugin : PLUGIN)
         let fuip = cr.cr_learnt.(0) in
         let lclause = Clause.make_a store ~removable:true cr.cr_learnt in
         if Clause.n_atoms store lclause > 2 then (
-          Vec.push self.clauses_learnt lclause; (* potentially gc'able *)
+          CVec.push self.clauses_learnt lclause; (* potentially gc'able *)
         );
         attach_clause self lclause;
         clause_bump_activity self lclause;
@@ -1299,13 +1387,13 @@ module Make(Plugin : PLUGIN)
         (fun k->k "(@[sat.add-clause@ :ignore-trivial @[%a@]@])" (Clause.debug store) init)
 
   let[@inline never] flush_clauses_ st =
-    while not @@ Vec.is_empty st.clauses_to_add do
-      let c = Vec.pop_exn st.clauses_to_add in
+    while not @@ CVec.is_empty st.clauses_to_add do
+      let c = CVec.pop st.clauses_to_add in
       add_clause_ st c
     done
 
   let[@inline] flush_clauses st =
-    if not @@ Vec.is_empty st.clauses_to_add then flush_clauses_ st
+    if not @@ CVec.is_empty st.clauses_to_add then flush_clauses_ st
 
   type watch_res =
     | Watch_kept
@@ -1371,11 +1459,14 @@ module Make(Plugin : PLUGIN)
       else (
         let c = CVec.get watched i in
         assert (Clause.attached store c);
-        assert (not (Clause.dead store c));
         let j =
-          match propagate_in_clause self a c i with
-          | Watch_kept -> i+1
-          | Watch_removed -> i (* clause at this index changed *)
+          if Clause.dead store c then (
+            i (* remove on the fly *)
+          ) else (
+            match propagate_in_clause self a c i with
+            | Watch_kept -> i+1
+            | Watch_removed -> i (* clause at this index changed *)
+          )
         in
         aux j
       )
@@ -1393,6 +1484,15 @@ module Make(Plugin : PLUGIN)
     Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
     Vec.push self.clauses_to_add c
+
+  let acts_add_clause_in_pool self ~pool (l:lit list) (dp:dproof): unit =
+    let atoms = List.rev_map (make_atom_ self) l in
+    let removable = true in
+    let c = Clause.make_l self.store ~removable atoms in
+    Proof.with_proof self.proof dp;
+    Log.debugf 5 (fun k->k "(@[sat.th.add-clause-in-pool@ %a@ :pool %s@])"
+                     (Clause.debug self.store) c (Clause_pool.descr pool));
+    Clause_pool.add pool c
 
   let acts_add_decision_lit (self:t) (f:lit) (sign:bool) : unit =
     let store = self.store in
@@ -1481,6 +1581,7 @@ module Make(Plugin : PLUGIN)
       let eval_lit= acts_eval_lit st
       let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
+      let add_clause_in_pool = acts_add_clause_in_pool st
       let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
       let add_decision_lit=acts_add_decision_lit st
