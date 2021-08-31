@@ -82,6 +82,14 @@ type ('lit, 'proof) reason =
 type lbool = L_true | L_false | L_undefined
 (** Valuation of an atom *)
 
+module Clause_pool_id : sig
+  type t = private int
+  val _unsafe_of_int : int -> t
+end = struct
+  type t = int
+  let _unsafe_of_int x = x
+end
+
 (** Actions available to the Plugin
 
     The plugin provides callbacks for the SAT solver to use. These callbacks
@@ -90,7 +98,7 @@ type lbool = L_true | L_false | L_undefined
 module type ACTS = sig
   type lit
   type proof
-  type clause_pool
+  type clause_pool_id = Clause_pool_id.t
   type dproof = proof -> unit
 
   val iter_assumptions: (lit -> unit) -> unit
@@ -111,7 +119,7 @@ module type ACTS = sig
       - [C_use_allocator alloc] puts the clause in the given allocator.
   *)
 
-  val add_clause_in_pool : pool:clause_pool -> lit list -> dproof -> unit
+  val add_clause_in_pool : pool:clause_pool_id -> lit list -> dproof -> unit
   (** Like {!add_clause} but uses a custom clause pool for the clause,
       with its own lifetime. *)
 
@@ -220,7 +228,7 @@ module type S = sig
 
   type clause
 
-  type clause_pool
+  type clause_pool_id
   (** Pool of clauses, with its own lifetime management *)
 
   type theory
@@ -301,23 +309,23 @@ module type S = sig
   (** Clause pools.
 
       A clause pool holds/owns a set of clauses, and is responsible for
-      managing their lifetime. *)
-  module Clause_pool : sig
-    type t = clause_pool
+      managing their lifetime.
+      We only expose an id, not a private type. *)
 
-    val descr : t -> string
-  end
+  val clause_pool_descr : t -> clause_pool_id -> string
 
   val new_clause_pool_gc_fixed_size :
     descr:string ->
     size:int ->
-    t -> clause_pool
+    t ->
+    clause_pool_id
   (** Allocate a new clause pool that GC's its clauses when its size
       goes above [size]. It keeps half of the clauses. *)
 
   val new_clause_pool_scoped :
     descr:string ->
-    t -> clause_pool
+    t ->
+    clause_pool_id
   (** Allocate a new clause pool that holds local clauses
       goes above [size]. It keeps half of the clauses. *)
 
@@ -350,10 +358,10 @@ module type S = sig
   val add_input_clause_a : t -> lit array -> unit
   (** Like {!add_clause_a} but with justification of being an input clause *)
 
-  val add_clause_in_pool : t -> pool:clause_pool -> lit list -> dproof -> unit
+  val add_clause_in_pool : t -> pool:clause_pool_id -> lit list -> dproof -> unit
   (** Like {!add_clause} but using a specific clause pool *)
 
-  val add_clause_a_in_pool : t -> pool:clause_pool -> lit array -> dproof -> unit
+  val add_clause_a_in_pool : t -> pool:clause_pool_id -> lit array -> dproof -> unit
   (** Like {!add_clause_a} but using a specific clause pool *)
 
   (* TODO: API to push/pop/clear assumptions from an inner vector *)

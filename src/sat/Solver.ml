@@ -9,6 +9,7 @@ end
 
 module type S = Solver_intf.S
 module type PLUGIN_CDCL_T = Solver_intf.PLUGIN_CDCL_T
+module Clause_pool_id = Solver_intf.Clause_pool_id
 
 let invalid_argf fmt =
   Format.kasprintf (fun msg -> invalid_arg ("sidekick.sat: " ^ msg)) fmt
@@ -19,6 +20,7 @@ module Make(Plugin : PLUGIN)
   type theory = Plugin.t
   type proof = Plugin.proof
   type dproof = proof -> unit
+  type clause_pool_id = Clause_pool_id.t
 
   module Lit = Plugin.Lit
   module Proof = Plugin.Proof
@@ -546,8 +548,11 @@ module Make(Plugin : PLUGIN)
        Use a [Vec] so we can sort it.
        TODO: when we can sort any vec, come back to that. *)
 
-    clauses_to_add : CVec.t;
+    clauses_to_add_learnt : CVec.t;
     (* Clauses either assumed or pushed by the theory, waiting to be added. *)
+
+    clauses_to_add_in_pool : (clause * clause_pool) Vec.t;
+    (* clauses to add into a pool *)
 
     clauses_dead : CVec.t;
     (* dead clauses, to be removed at next GC.
@@ -649,7 +654,8 @@ module Make(Plugin : PLUGIN)
 
     clauses_hyps = CVec.create();
     clauses_learnt = Vec.create();
-    clauses_to_add = CVec.create ();
+    clauses_to_add_learnt = CVec.create ();
+    clauses_to_add_in_pool = Vec.create();
     clauses_dead = CVec.create();
 
     clause_pools = Vec.create();
@@ -756,6 +762,9 @@ module Make(Plugin : PLUGIN)
   let[@inline] decision_level st = VecI32.size st.var_levels
   let[@inline] nb_clauses st = CVec.size st.clauses_hyps
   let stat self = self.stat
+  let clause_pool_descr self (p:clause_pool_id) =
+    let pool = Vec.get self.clause_pools (p:>int) in
+    Clause_pool.descr pool
 
   (* Do we have a level-0 empty clause? *)
   let[@inline] check_unsat_ st =
@@ -1398,13 +1407,23 @@ module Make(Plugin : PLUGIN)
         (fun k->k "(@[sat.add-clause@ :ignore-trivial @[%a@]@])" (Clause.debug store) init)
 
   let[@inline never] flush_clauses_ st =
-    while not @@ CVec.is_empty st.clauses_to_add do
-      let c = CVec.pop st.clauses_to_add in
+    while not @@ CVec.is_empty st.clauses_to_add_learnt do
+      let c = CVec.pop st.clauses_to_add_learnt in
       add_clause_ st c
-    done
+    done;
+    while not @@ Vec.is_empty st.clauses_to_add_in_pool do
+      let c, pool = Vec.pop_exn st.clauses_to_add_in_pool in
+      add_clause_ ~pool st c
+    done;
+    ()
 
-  let[@inline] flush_clauses st =
-    if not @@ CVec.is_empty st.clauses_to_add then flush_clauses_ st
+  let[@inline] has_no_new_clauses (self:t) : bool =
+    CVec.is_empty self.clauses_to_add_learnt && Vec.is_empty self.clauses_to_add_in_pool
+
+  let[@inline] flush_clauses self =
+    if not (has_no_new_clauses self) then (
+      flush_clauses_ self
+    )
 
   type watch_res =
     | Watch_kept
@@ -1494,18 +1513,17 @@ module Make(Plugin : PLUGIN)
     let c = Clause.make_l self.store ~removable atoms in
     Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
-    CVec.push self.clauses_to_add c
+    CVec.push self.clauses_to_add_learnt c
 
   let acts_add_clause_in_pool self ~pool (l:lit list) (dp:dproof): unit =
     let atoms = List.rev_map (make_atom_ self) l in
     let removable = true in
     let c = Clause.make_l self.store ~removable atoms in
+    let pool = Vec.get self.clause_pools (pool:clause_pool_id:>int) in
     Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause-in-pool@ %a@ :pool %s@])"
                      (Clause.debug self.store) c (Clause_pool.descr pool));
-    (* FIXME: a way to use [self.clauses_to_add] but with a
-       pool, to avoid loops *)
-    add_clause_ self ~pool c
+    Vec.push self.clauses_to_add_in_pool (c, pool)
 
   let acts_add_decision_lit (self:t) (f:lit) (sign:bool) : unit =
     let store = self.store in
@@ -1588,7 +1606,7 @@ module Make(Plugin : PLUGIN)
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
-      type nonrec clause_pool = clause_pool
+      type nonrec clause_pool_id = clause_pool_id
       type dproof = proof -> unit
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:false st.th_head
@@ -1607,7 +1625,7 @@ module Make(Plugin : PLUGIN)
     let module M = struct
       type nonrec proof = proof
       type dproof = proof -> unit
-      type nonrec clause_pool = clause_pool
+      type nonrec clause_pool_id = clause_pool_id
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st
@@ -1924,12 +1942,12 @@ module Make(Plugin : PLUGIN)
             n_of_learnts   := !n_of_learnts *. learntsize_inc
           | E_sat ->
             assert (self.elt_head = AVec.size self.trail &&
-                    CVec.is_empty self.clauses_to_add &&
+                    has_no_new_clauses self &&
                     self.next_decisions=[]);
             begin match Plugin.final_check self.th (full_slice self) with
               | () ->
                 if self.elt_head = AVec.size self.trail &&
-                   CVec.is_empty self.clauses_to_add &&
+                   has_no_new_clauses self &&
                    self.next_decisions = []
                 then (
                   raise_notrace E_sat
@@ -1944,7 +1962,7 @@ module Make(Plugin : PLUGIN)
                                  (Clause.debug self.store) c);
                 Stat.incr self.n_conflicts;
                 (match self.on_conflict with Some f -> f self c | None -> ());
-                CVec.push self.clauses_to_add c;
+                CVec.push self.clauses_to_add_learnt c;
                 flush_clauses self;
             end;
         end
@@ -1960,7 +1978,7 @@ module Make(Plugin : PLUGIN)
            (Proof.emit_input_clause (Iter.of_list l));
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
-         CVec.push self.clauses_to_add c)
+         CVec.push self.clauses_to_add_learnt c)
       cnf
 
   let[@inline] theory st = st.th
@@ -2046,10 +2064,12 @@ module Make(Plugin : PLUGIN)
 
   let add_clause_a_in_pool self ~pool c dp : unit =
     let c = Array.map (make_atom_ self) c in
+    let pool = Vec.get self.clause_pools (pool:clause_pool_id:>int) in
     add_clause_atoms_ ~pool ~removable:true self c dp
 
   let add_clause_in_pool self ~pool (c:lit list) dp : unit =
     let c = Util.array_of_list_map (make_atom_ self) c in
+    let pool = Vec.get self.clause_pools (pool:clause_pool_id:>int) in
     add_clause_atoms_ ~pool ~removable:true self c dp
 
   let add_input_clause self (c:lit list) =
@@ -2060,15 +2080,17 @@ module Make(Plugin : PLUGIN)
     let dp = Proof.emit_input_clause (Iter.of_array c) in
     add_clause_a self c dp
 
-  let new_clause_pool_gc_fixed_size ~descr ~size (self:t) : clause_pool =
+  let new_clause_pool_gc_fixed_size ~descr ~size (self:t) : clause_pool_id =
     let p = CP_gc {clauses=Vec.create(); size; descr} in
+    let id = Vec.size self.clause_pools in
     Vec.push self.clause_pools p;
-    p
+    Clause_pool_id._unsafe_of_int id
 
-  let new_clause_pool_scoped ~descr (self:t) : clause_pool =
+  let new_clause_pool_scoped ~descr (self:t) : clause_pool_id =
     let p = CP_scoped {clauses=CVec.create(); levels=VecI32.create(); descr} in
+    let id = Vec.size self.clause_pools in
     Vec.push self.clause_pools p;
-    p
+    Clause_pool_id._unsafe_of_int id
 
   let solve ?(assumptions=[]) (self:t) : res =
     cancel_until self 0;
