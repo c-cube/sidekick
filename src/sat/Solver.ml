@@ -44,6 +44,7 @@ module Make(Plugin : PLUGIN)
     val abs : t -> t
     val pa : var -> t
     val na : var -> t
+    module AVec : Vec_sig.S with type elt := t
   end = struct
     include Int_id.Make()
     let[@inline] neg i = (i lxor 1)
@@ -54,6 +55,7 @@ module Make(Plugin : PLUGIN)
     let[@inline] abs a = a land (lnot 1)
     let[@inline] var a = Var0.of_int_unsafe (a lsr 1)
     let[@inline] na v = (((v:var:>int) lsl 1) lor 1)
+    module AVec = VecI32
   end
   type atom = Atom0.t
 
@@ -73,8 +75,11 @@ module Make(Plugin : PLUGIN)
     | Bcp of clause
     | Bcp_lazy of clause lazy_t
 
-  (** Vector of clauses *)
+  module AVec = Atom0.AVec
+  (** Vector of atoms *)
+
   module CVec = Clause0.CVec
+  (** Vector of clauses *)
 
   (* ### stores ### *)
 
@@ -535,9 +540,11 @@ module Make(Plugin : PLUGIN)
     clauses_hyps : CVec.t;
     (* clauses added by the user, never removed *)
 
-    clauses_learnt : CVec.t;
+    clauses_learnt : clause Vec.t;
     (* learnt clauses (tautologies true at any time, whatever the user level).
-       GC'd regularly. *)
+       GC'd regularly.
+       Use a [Vec] so we can sort it.
+       TODO: when we can sort any vec, come back to that. *)
 
     clauses_to_add : CVec.t;
     (* Clauses either assumed or pushed by the theory, waiting to be added. *)
@@ -558,13 +565,13 @@ module Make(Plugin : PLUGIN)
        if some theory wants atoms to be decided on (for theory combination),
        store them here. *)
 
-    trail : atom Vec.t;
+    trail : AVec.t;
     (* decision stack + propagated elements (atoms or assignments). *)
 
-    var_levels : int Vec.t;
+    var_levels : VecI32.t;
     (* decision levels in [trail]  *)
 
-    mutable assumptions: atom Vec.t;
+    mutable assumptions: AVec.t;
     (* current assumptions *)
 
     mutable th_head : int;
@@ -641,7 +648,7 @@ module Make(Plugin : PLUGIN)
     next_decisions = [];
 
     clauses_hyps = CVec.create();
-    clauses_learnt = CVec.create();
+    clauses_learnt = Vec.create();
     clauses_to_add = CVec.create ();
     clauses_dead = CVec.create();
 
@@ -654,9 +661,9 @@ module Make(Plugin : PLUGIN)
     th_head = 0;
     elt_head = 0;
 
-    trail = Vec.create ();
-    var_levels = Vec.create();
-    assumptions= Vec.create();
+    trail = AVec.create ();
+    var_levels = VecI32.create();
+    assumptions= AVec.create();
 
     order = H.create store;
 
@@ -746,7 +753,7 @@ module Make(Plugin : PLUGIN)
         CVec.iter clauses ~f
   end
 
-  let[@inline] decision_level st = Vec.size st.var_levels
+  let[@inline] decision_level st = VecI32.size st.var_levels
   let[@inline] nb_clauses st = CVec.size st.clauses_hyps
   let stat self = self.stat
 
@@ -803,7 +810,7 @@ module Make(Plugin : PLUGIN)
 
   (* iterate on all learnt clauses, pool included *)
   let iter_clauses_learnt_ (self:t) ~f : unit =
-    CVec.iter self.clauses_learnt ~f;
+    Vec.iter f self.clauses_learnt;
     Vec.iter (fun pool -> Clause_pool.iter pool ~f) self.clause_pools;
     ()
 
@@ -915,9 +922,9 @@ module Make(Plugin : PLUGIN)
      i.e we have indeed reached a propagation fixpoint before making
      a new decision *)
   let new_decision_level st =
-    assert (st.th_head = Vec.size st.trail);
-    assert (st.elt_head = Vec.size st.trail);
-    Vec.push st.var_levels (Vec.size st.trail);
+    assert (st.th_head = AVec.size st.trail);
+    assert (st.elt_head = AVec.size st.trail);
+    VecI32.push st.var_levels (AVec.size st.trail);
     Plugin.push_level st.th;
     ()
 
@@ -950,13 +957,13 @@ module Make(Plugin : PLUGIN)
     ) else (
       Log.debugf 5 (fun k -> k "(@[sat.cancel-until %d@])" lvl);
       (* We set the head of the solver and theory queue to what it was. *)
-      let head = ref (Vec.get self.var_levels lvl) in
+      let head = ref (VecI32.get self.var_levels lvl) in
       self.elt_head <- !head;
       self.th_head <- !head;
       (* Now we need to cleanup the vars that are not valid anymore
          (i.e to the right of elt_head in the queue. *)
-      for c = self.elt_head to Vec.size self.trail - 1 do
-        let a = Vec.get self.trail c in
+      for c = self.elt_head to AVec.size self.trail - 1 do
+        let a = AVec.get self.trail c in
         (* Atom literal is unassigned, we nedd to add it back to
            the heap of potentially assignable literals, unless it has
            a level lower than [lvl], in which case we just move it back. *)
@@ -965,7 +972,7 @@ module Make(Plugin : PLUGIN)
           (* It is a late propagation, which has a level
              lower than where we backtrack, so we just move it to the head
              of the queue, to be propagated again. *)
-          Vec.set self.trail !head a;
+          AVec.set self.trail !head a;
           head := !head + 1
         ) else (
           (* it is a result of bolean propagation, or a semantic propagation
@@ -982,8 +989,8 @@ module Make(Plugin : PLUGIN)
       let n = decision_level self - lvl in
       assert (n>0);
       (* Resize the vectors according to their new size. *)
-      Vec.shrink self.trail !head;
-      Vec.shrink self.var_levels lvl;
+      AVec.shrink self.trail !head;
+      VecI32.shrink self.var_levels lvl;
       Plugin.pop_levels self.th n;
       (* TODO: for scoped clause pools, backtrack them *)
       self.next_decisions <- [];
@@ -1070,10 +1077,10 @@ module Make(Plugin : PLUGIN)
     Atom.set_is_true store a true;
     Var.set_level store (Atom.var a) lvl;
     Var.set_reason store (Atom.var a) (Some reason);
-    Vec.push self.trail a;
+    AVec.push self.trail a;
     Log.debugf 20
       (fun k->k "(@[sat.enqueue[%d]@ %a@])"
-          (Vec.size self.trail) (Atom.debug store) a);
+          (AVec.size self.trail) (Atom.debug store) a);
     ()
 
   (* swap elements of array *)
@@ -1156,7 +1163,7 @@ module Make(Plugin : PLUGIN)
     let continue = ref true in
     let blevel = ref 0 in
     let c = ref (Some c_clause) in (* current clause to analyze/resolve *)
-    let tr_ind = ref (Vec.size self.trail - 1) in (* pointer in trail *)
+    let tr_ind = ref (AVec.size self.trail - 1) in (* pointer in trail *)
 
     (* conflict level *)
     assert (decision_level self > 0);
@@ -1216,7 +1223,7 @@ module Make(Plugin : PLUGIN)
 
       (* look for the next node to expand *)
       while
-        let a = Vec.get self.trail !tr_ind in
+        let a = AVec.get self.trail !tr_ind in
         Log.debugf 30
           (fun k -> k "(@[sat.analyze-conflict.at-trail-elt@ %a@])" (Atom.debug store) a);
         (not (Var.marked store (Atom.var a))) ||
@@ -1224,7 +1231,7 @@ module Make(Plugin : PLUGIN)
       do
         decr tr_ind;
       done;
-      let p = Vec.get self.trail !tr_ind in
+      let p = AVec.get self.trail !tr_ind in
       decr pathC;
       decr tr_ind;
       match !pathC, Atom.reason store p with
@@ -1436,7 +1443,7 @@ module Make(Plugin : PLUGIN)
         (* no watch lit found *)
         if Atom.is_false store first then (
           (* clause is false *)
-          self.elt_head <- Vec.size self.trail;
+          self.elt_head <- AVec.size self.trail;
           raise_notrace (Conflict c)
         ) else (
           Stat.incr self.n_propagations;
@@ -1475,7 +1482,7 @@ module Make(Plugin : PLUGIN)
 
   exception Th_conflict of Clause.t
 
-  let[@inline] slice_get st i = Vec.get st.trail i
+  let[@inline] slice_get st i = AVec.get st.trail i
 
   let acts_add_clause self ?(keep=false) (l:lit list) (dp:dproof): unit =
     let atoms = List.rev_map (make_atom_ self) l in
@@ -1483,7 +1490,7 @@ module Make(Plugin : PLUGIN)
     let c = Clause.make_l self.store ~removable atoms in
     Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
-    Vec.push self.clauses_to_add c
+    CVec.push self.clauses_to_add c
 
   let acts_add_clause_in_pool self ~pool (l:lit list) (dp:dproof): unit =
     let atoms = List.rev_map (make_atom_ self) l in
@@ -1555,8 +1562,8 @@ module Make(Plugin : PLUGIN)
       )
 
   let[@specialise] acts_iter self ~full head f : unit =
-    for i = (if full then 0 else head) to Vec.size self.trail-1 do
-      let a = Vec.get self.trail i in
+    for i = (if full then 0 else head) to AVec.size self.trail-1 do
+      let a = AVec.get self.trail i in
       f (Atom.lit self.store a);
     done
 
@@ -1615,7 +1622,7 @@ module Make(Plugin : PLUGIN)
      need to inform the theory of those assumptions, so it can do its job.
      @return the conflict clause, if the theory detects unsatisfiability *)
   let rec theory_propagate self : clause option =
-    assert (self.elt_head = Vec.size self.trail);
+    assert (self.elt_head = AVec.size self.trail);
     assert (self.th_head <= self.elt_head);
     if self.th_head = self.elt_head then (
       None (* fixpoint/no propagation *)
@@ -1638,13 +1645,13 @@ module Make(Plugin : PLUGIN)
     (* First, treat the stack of lemmas added by the theory, if any *)
     flush_clauses st;
     (* Now, check that the situation is sane *)
-    assert (st.elt_head <= Vec.size st.trail);
-    if st.elt_head = Vec.size st.trail then (
+    assert (st.elt_head <= AVec.size st.trail);
+    if st.elt_head = AVec.size st.trail then (
       theory_propagate st
     ) else (
       match
-        while st.elt_head < Vec.size st.trail do
-          let a = Vec.get st.trail st.elt_head in
+        while st.elt_head < AVec.size st.trail do
+          let a = AVec.get st.trail st.elt_head in
           propagate_atom st a;
           st.elt_head <- st.elt_head + 1;
         done;
@@ -1659,11 +1666,11 @@ module Make(Plugin : PLUGIN)
     Log.debugf 5 (fun k->k "(@[sat.analyze-final@ :lit %a@])" (Atom.debug store) a);
     assert (Atom.is_false store a);
     let core = ref [a] in
-    let idx = ref (Vec.size self.trail - 1) in
+    let idx = ref (AVec.size self.trail - 1) in
     Var.mark store (Atom.var a);
     let seen = ref [Atom.var a] in
     while !idx >= 0 do
-      let a' = Vec.get self.trail !idx in
+      let a' = AVec.get self.trail !idx in
       if Var.marked store (Atom.var a') then (
         match Atom.reason store a' with
         | Some Decision -> core := a' :: !core
@@ -1715,8 +1722,8 @@ module Make(Plugin : PLUGIN)
     (* first, mark clauses used on the trail, we cannot GC them.
        TODO: once we use DRUP, we can avoid marking level-0 explanations
        as they will never participate in resolution. *)
-    Vec.iter
-      (fun a ->
+    AVec.iter
+      ~f:(fun a ->
          match Atom.reason store a with
          | Some (Bcp c) -> Clause.set_marked store c true
          | Some (Bcp_lazy lc) when Lazy.is_val lc ->
@@ -1794,9 +1801,9 @@ module Make(Plugin : PLUGIN)
     | atom :: tl ->
       self.next_decisions <- tl;
       pick_branch_aux self atom
-    | [] when decision_level self < Vec.size self.assumptions ->
+    | [] when decision_level self < AVec.size self.assumptions ->
       (* use an assumption *)
-      let a = Vec.get self.assumptions (decision_level self) in
+      let a = AVec.get self.assumptions (decision_level self) in
       if Atom.is_true self.store a then (
         new_decision_level self; (* pseudo decision level, [a] is already true *)
         pick_branch_lit self
@@ -1838,7 +1845,7 @@ module Make(Plugin : PLUGIN)
         (match st.on_conflict with Some f -> f st confl | None -> ());
 
       | None -> (* No Conflict *)
-        assert (st.elt_head = Vec.size st.trail);
+        assert (st.elt_head = AVec.size st.trail);
         assert (st.elt_head = st.th_head);
         if n_of_conflicts > 0 && !conflictC >= n_of_conflicts then (
           Log.debug 1 "(sat.restarting)";
@@ -1849,7 +1856,7 @@ module Make(Plugin : PLUGIN)
         (* if decision_level() = 0 then simplify (); *)
 
         if n_of_learnts > 0 &&
-           Vec.size st.clauses_learnt - Vec.size st.trail > n_of_learnts then (
+           Vec.size st.clauses_learnt - AVec.size st.trail > n_of_learnts then (
           reduce_clause_db st n_of_learnts;
         );
 
@@ -1874,7 +1881,7 @@ module Make(Plugin : PLUGIN)
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
   let solve_ (self:t) : unit =
-    Log.debugf 5 (fun k->k "(@[sat.solve :assms %d@])" (Vec.size self.assumptions));
+    Log.debugf 5 (fun k->k "(@[sat.solve :assms %d@])" (AVec.size self.assumptions));
     check_unsat_ self;
     try
       flush_clauses self; (* add initial clauses *)
@@ -1888,13 +1895,13 @@ module Make(Plugin : PLUGIN)
             n_of_conflicts := !n_of_conflicts *. restart_inc;
             n_of_learnts   := !n_of_learnts *. learntsize_inc
           | E_sat ->
-            assert (self.elt_head = Vec.size self.trail &&
-                    Vec.is_empty self.clauses_to_add &&
+            assert (self.elt_head = AVec.size self.trail &&
+                    CVec.is_empty self.clauses_to_add &&
                     self.next_decisions=[]);
             begin match Plugin.final_check self.th (full_slice self) with
               | () ->
-                if self.elt_head = Vec.size self.trail &&
-                   Vec.is_empty self.clauses_to_add &&
+                if self.elt_head = AVec.size self.trail &&
+                   CVec.is_empty self.clauses_to_add &&
                    self.next_decisions = []
                 then (
                   raise_notrace E_sat
@@ -1909,7 +1916,7 @@ module Make(Plugin : PLUGIN)
                                  (Clause.debug self.store) c);
                 Stat.incr self.n_conflicts;
                 (match self.on_conflict with Some f -> f self c | None -> ());
-                Vec.push self.clauses_to_add c;
+                CVec.push self.clauses_to_add c;
                 flush_clauses self;
             end;
         end
@@ -1925,7 +1932,7 @@ module Make(Plugin : PLUGIN)
            (Proof.emit_input_clause (Iter.of_list l));
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
-         Vec.push self.clauses_to_add c)
+         CVec.push self.clauses_to_add c)
       cnf
 
   let[@inline] theory st = st.th
@@ -1949,8 +1956,8 @@ module Make(Plugin : PLUGIN)
           "(@[<v>sat.full-state :res %s - Full summary:@,@[<hov 2>Trail:@\n%a@]@,\
            @[<hov 2>Hyps:@\n%a@]@,@[<hov 2>Lemmas:@\n%a@]@,@]@."
           status
-          (Vec.pp ~sep:"" @@ Atom.debug self.store) self.trail
-          (Vec.pp ~sep:"" @@ Clause.debug self.store) self.clauses_hyps
+          (AVec.pp @@ Atom.debug self.store) self.trail
+          (CVec.pp @@ Clause.debug self.store) self.clauses_hyps
           (Vec.pp ~sep:"" @@ Clause.debug self.store) self.clauses_learnt)
 
   let mk_sat (self:t) : Lit.t Solver_intf.sat_state =
@@ -1958,7 +1965,7 @@ module Make(Plugin : PLUGIN)
     let t = self.trail in
     let module M = struct
       type lit = Lit.t
-      let iter_trail f = Vec.iter (fun a -> f (Atom.lit self.store a)) t
+      let iter_trail f = AVec.iter ~f:(fun a -> f (Atom.lit self.store a)) t
       let[@inline] eval f = eval self (make_atom_ self f)
       let[@inline] eval_level f = eval_level self (make_atom_ self f)
     end in
@@ -2019,11 +2026,11 @@ module Make(Plugin : PLUGIN)
 
   let solve ?(assumptions=[]) (self:t) : res =
     cancel_until self 0;
-    Vec.clear self.assumptions;
+    AVec.clear self.assumptions;
     List.iter
       (fun lit ->
          let a = make_atom_ self lit in
-         Vec.push self.assumptions a)
+         AVec.push self.assumptions a)
       assumptions;
     try
       solve_ self;

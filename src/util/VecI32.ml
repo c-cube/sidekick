@@ -93,8 +93,8 @@ let[@inline] iteri ~f self =
 
 let[@inline] to_iter self k = iter ~f:k self
 
-let pp out self =
+let pp ppx out self =
   Format.fprintf out "[@[";
-  iteri self ~f:(fun i x -> if i>0 then Format.fprintf out ",@ "; Format.pp_print_int out x);
+  iteri self ~f:(fun i x -> if i>0 then Format.fprintf out ",@ "; ppx out x);
   Format.fprintf out "@]]"
 

@@ -32,5 +32,5 @@ module type S = sig
 
   val to_iter : t -> elt Iter.t
 
-  val pp : t CCFormat.printer
+  val pp : elt CCFormat.printer -> t CCFormat.printer
 end
