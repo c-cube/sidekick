@@ -27,11 +27,6 @@ let pp_lbool out = function
   | L_false -> Format.fprintf out "false"
   | L_undefined -> Format.fprintf out "undefined"
 
-type 'a clause_lifetime = 'a Solver_intf.clause_lifetime =
-  | CL_keep
-  | CL_can_gc
-  | CL_use_allocator of 'a
-
 exception No_proof = Solver_intf.No_proof
 
 module Solver = Solver

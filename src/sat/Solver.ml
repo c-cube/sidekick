@@ -621,7 +621,7 @@ module Make(Plugin : PLUGIN)
   and clause_pool =
     | CP_gc of {
         size: int;
-        clauses: CVec.t;
+        clauses: clause Vec.t; (* TODO: when we can sort CVec.t, come back *)
         descr: string;
       }
     | CP_scoped of {
@@ -710,9 +710,9 @@ module Make(Plugin : PLUGIN)
     let descr = function
       | CP_gc {descr; _} | CP_scoped {descr; _} -> descr
 
-    let gc (solver:solver) (self:t) : unit =
+    let gc (_solver:solver) (self:t) : unit =
       match self with
-      | CP_gc {clauses; size; descr} ->
+      | CP_gc {clauses=_; size=_; descr} ->
         Log.debugf 10 (fun k->k"(@[clause-pool.gc@ %s@])" descr);
         () (* FIXME *)
       | CP_scoped _ -> ()
@@ -741,16 +741,16 @@ module Make(Plugin : PLUGIN)
     let add solver (self:t) (c:clause) =
       match self with
       | CP_gc { clauses; size; descr=_} ->
-        if CVec.size clauses >= size then (
+        if Vec.size clauses >= size then (
           gc solver self;
         );
-        CVec.push clauses c
+        Vec.push clauses c
       | CP_scoped {clauses; _} ->
         CVec.push clauses c
 
     let iter self ~f = match self with
-      | CP_gc {clauses; _} | CP_scoped {clauses; _} ->
-        CVec.iter clauses ~f
+      | CP_gc {clauses; _} -> Vec.iter f clauses
+      | CP_scoped {clauses; _} -> CVec.iter ~f clauses
   end
 
   let[@inline] decision_level st = VecI32.size st.var_levels
@@ -1266,9 +1266,22 @@ module Make(Plugin : PLUGIN)
       cr_is_uip = is_uip;
     }
 
-  (* FIXME: take clause pool *)
+  (* Get the correct vector to insert a clause in. *)
+  let[@inline] add_clause_to_vec_ ?pool self c =
+    if Clause.removable self.store c && Clause.n_atoms self.store c > 2 then (
+      (* add clause to some pool/set of clauses *)
+      begin match pool with
+        | Some pool ->
+          Clause_pool.add self pool c
+        | None ->
+          Vec.push self.clauses_learnt c
+      end
+    ) else (
+      CVec.push self.clauses_hyps c
+    )
+
   (* add the learnt clause to the clause database, propagate, etc. *)
-  let record_learnt_clause (self:t) (confl:clause) (cr:conflict_res): unit =
+  let record_learnt_clause (self:t) ?pool (confl:clause) (cr:conflict_res): unit =
     let store = self.store in
     begin match cr.cr_learnt with
       | [| |] -> assert false
@@ -1289,9 +1302,8 @@ module Make(Plugin : PLUGIN)
       | _ ->
         let fuip = cr.cr_learnt.(0) in
         let lclause = Clause.make_a store ~removable:true cr.cr_learnt in
-        if Clause.n_atoms store lclause > 2 then (
-          CVec.push self.clauses_learnt lclause; (* potentially gc'able *)
-        );
+
+        add_clause_to_vec_ ?pool self lclause;
         attach_clause self lclause;
         clause_bump_activity self lclause;
         (match self.on_learnt with Some f -> f self lclause | None -> ());
@@ -1322,17 +1334,9 @@ module Make(Plugin : PLUGIN)
     cancel_until self (max cr.cr_backtrack_lvl 0);
     record_learnt_clause self confl cr
 
-  (* Get the correct vector to insert a clause in. *)
-  let[@inline] add_clause_to_vec self c =
-    if Clause.removable self.store c then (
-      Vec.push self.clauses_learnt c
-    ) else (
-      Vec.push self.clauses_hyps c
-    )
-
   (* Add a new clause, simplifying, propagating, and backtracking if
      the clause is false in the current trail *)
-  let add_clause_ (self:t) (init:clause) : unit =
+  let add_clause_ (self:t) ?pool (init:clause) : unit =
     let store = self.store in
     Log.debugf 30 (fun k -> k "(@[sat.add-clause@ @[<hov>%a@]@])" (Clause.debug store) init);
     (* Insertion of new lits is done before simplification. Indeed, else a lit in a
@@ -1368,11 +1372,11 @@ module Make(Plugin : PLUGIN)
         ) else (
           Log.debugf 40
             (fun k->k "(@[sat.add-clause.unit-clause@ :propagating %a@])" (Atom.debug store) a);
-          add_clause_to_vec self clause;
+          add_clause_to_vec_ ?pool self clause;
           enqueue_bool self a ~level:0 (Bcp clause)
         )
       | a::b::_ ->
-        add_clause_to_vec self clause;
+        add_clause_to_vec_ ?pool self clause;
         if Atom.is_false store a then (
           (* Atom need to be sorted in decreasing order of decision level,
              or we might watch the wrong literals. *)
@@ -1499,7 +1503,9 @@ module Make(Plugin : PLUGIN)
     Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause-in-pool@ %a@ :pool %s@])"
                      (Clause.debug self.store) c (Clause_pool.descr pool));
-    Clause_pool.add pool c
+    (* FIXME: a way to use [self.clauses_to_add] but with a
+       pool, to avoid loops *)
+    add_clause_ self ~pool c
 
   let acts_add_decision_lit (self:t) (f:lit) (sign:bool) : unit =
     let store = self.store in
@@ -1582,6 +1588,7 @@ module Make(Plugin : PLUGIN)
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
+      type nonrec clause_pool = clause_pool
       type dproof = proof -> unit
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:false st.th_head
@@ -1600,11 +1607,13 @@ module Make(Plugin : PLUGIN)
     let module M = struct
       type nonrec proof = proof
       type dproof = proof -> unit
+      type nonrec clause_pool = clause_pool
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st
       let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
+      let add_clause_in_pool = acts_add_clause_in_pool st
       let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
       let add_decision_lit=acts_add_decision_lit st
@@ -1691,6 +1700,25 @@ module Make(Plugin : PLUGIN)
                      (Format.pp_print_list (Atom.debug store)) !core);
     !core
 
+  (*
+  module Clause_gc = struct
+    type state = {
+      solver: solver;
+      dirty_atoms: Atom.V
+
+    }
+
+  end
+     *)
+
+  (* FIXME: also handle clause pools.
+
+     - pools should probably have a "needs_gc" flag instead of doing GC
+       themselves
+     - each pool GC's itself by moving clauses into self.clauses_dead
+     - then all dead clauses are detached (+ dirty atoms marked),
+      we clean dirty atoms' watchlists, and finally remove clause.
+  *)
   (* GC: remove some learnt clauses.
      This works even during the proof with a non empty trail. *)
   let reduce_clause_db (self:t) (n_of_learnts: int) : unit =
@@ -1999,22 +2027,30 @@ module Make(Plugin : PLUGIN)
     end in
     (module M)
 
-  let add_clause_atoms_ self (c:atom array) dp : unit =
+  let add_clause_atoms_ self ?pool ~removable (c:atom array) dp : unit =
     try
-      let c = Clause.make_a self.store ~removable:false c in
+      let c = Clause.make_a self.store ~removable c in
       Proof.with_proof self.proof dp;
-      add_clause_ self c
+      add_clause_ ?pool self c
     with
     | E_unsat (US_false c) ->
       self.unsat_at_0 <- Some c
 
   let add_clause_a self c dp : unit =
     let c = Array.map (make_atom_ self) c in
-    add_clause_atoms_ self c dp
+    add_clause_atoms_ ~removable:false self c dp
 
   let add_clause self (c:lit list) dp : unit =
     let c = Util.array_of_list_map (make_atom_ self) c in
-    add_clause_atoms_ self c dp
+    add_clause_atoms_ ~removable:false self c dp
+
+  let add_clause_a_in_pool self ~pool c dp : unit =
+    let c = Array.map (make_atom_ self) c in
+    add_clause_atoms_ ~pool ~removable:true self c dp
+
+  let add_clause_in_pool self ~pool (c:lit list) dp : unit =
+    let c = Util.array_of_list_map (make_atom_ self) c in
+    add_clause_atoms_ ~pool ~removable:true self c dp
 
   let add_input_clause self (c:lit list) =
     let dp = Proof.emit_input_clause (Iter.of_list c) in
@@ -2023,6 +2059,16 @@ module Make(Plugin : PLUGIN)
   let add_input_clause_a self c =
     let dp = Proof.emit_input_clause (Iter.of_array c) in
     add_clause_a self c dp
+
+  let new_clause_pool_gc_fixed_size ~descr ~size (self:t) : clause_pool =
+    let p = CP_gc {clauses=Vec.create(); size; descr} in
+    Vec.push self.clause_pools p;
+    p
+
+  let new_clause_pool_scoped ~descr (self:t) : clause_pool =
+    let p = CP_scoped {clauses=CVec.create(); levels=VecI32.create(); descr} in
+    Vec.push self.clause_pools p;
+    p
 
   let solve ?(assumptions=[]) (self:t) : res =
     cancel_until self 0;

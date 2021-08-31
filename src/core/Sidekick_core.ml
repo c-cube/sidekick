@@ -645,6 +645,7 @@ module type SOLVER_INTERNAL = sig
   type term = T.Term.t
   type term_store = T.Term.store
   type ty_store = T.Ty.store
+  type clause_pool
   type proof
   type dproof = proof -> unit
   (** Delayed proof. This is used to build a proof step on demand. *)

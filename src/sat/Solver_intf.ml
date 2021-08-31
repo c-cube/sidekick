@@ -341,20 +341,20 @@ module type S = sig
   val add_clause : t -> lit list -> dproof -> unit
   (** Lower level addition of clauses *)
 
-  val add_input_clause : t -> lit list -> unit
-  (** Like {!add_clause} but with the justification of being an input clause *)
-
   val add_clause_a : t -> lit array -> dproof -> unit
   (** Lower level addition of clauses *)
 
-  val add_clause_in_pool : t -> pool:clause_pool -> lit list -> unit
-  (** Like {!add_clause} but using a specific clause pool *)
-
-  val add_clause_a_in_pool : t -> pool:clause_pool -> lit array -> unit
-  (** Like {!add_clause_a} but using a specific clause pool *)
+  val add_input_clause : t -> lit list -> unit
+  (** Like {!add_clause} but with the justification of being an input clause *)
 
   val add_input_clause_a : t -> lit array -> unit
   (** Like {!add_clause_a} but with justification of being an input clause *)
+
+  val add_clause_in_pool : t -> pool:clause_pool -> lit list -> dproof -> unit
+  (** Like {!add_clause} but using a specific clause pool *)
+
+  val add_clause_a_in_pool : t -> pool:clause_pool -> lit array -> dproof -> unit
+  (** Like {!add_clause_a} but using a specific clause pool *)
 
   (* TODO: API to push/pop/clear assumptions from an inner vector *)
 
