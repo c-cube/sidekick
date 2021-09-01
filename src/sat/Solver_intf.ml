@@ -322,12 +322,8 @@ module type S = sig
   (** Allocate a new clause pool that GC's its clauses when its size
       goes above [size]. It keeps half of the clauses. *)
 
-  val new_clause_pool_scoped :
-    descr:string ->
-    t ->
-    clause_pool_id
-  (** Allocate a new clause pool that holds local clauses
-      goes above [size]. It keeps half of the clauses. *)
+  (* TODO: scoped clause pool, which removes clauses automatically
+     on backtrack. *)
 
   (** {2 Types} *)
 
