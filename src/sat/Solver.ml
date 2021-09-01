@@ -1745,25 +1745,6 @@ module Make(Plugin : PLUGIN)
                      (Format.pp_print_list (Atom.debug store)) !core);
     !core
 
-  (*
-  module Clause_gc = struct
-    type state = {
-      solver: solver;
-      dirty_atoms: Atom.V
-
-    }
-
-  end
-     *)
-
-  (* FIXME: also handle clause pools.
-
-     - pools should probably have a "needs_gc" flag instead of doing GC
-       themselves
-     - each pool GC's itself by moving clauses into self.clauses_dead
-     - then all dead clauses are detached (+ dirty atoms marked),
-      we clean dirty atoms' watchlists, and finally remove clause.
-  *)
   (* GC: remove some learnt clauses.
      This works even during the proof with a non empty trail. *)
   let reduce_clause_db (self:t) : unit =
@@ -1957,8 +1938,6 @@ module Make(Plugin : PLUGIN)
         if do_gc then (
           reduce_clause_db st;
         );
-
-        (* TODO: do a GC for all clause pools that need it *)
 
         pick_branch_lit st
     done
