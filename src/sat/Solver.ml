@@ -1125,9 +1125,7 @@ module Make(Plugin : PLUGIN)
 
      (* save current state of [to_unmark] *)
      let top = Vec.size to_unmark in
-     Log.debugf 1 (fun k->k"lit.redundant v%d abstract_levels 0x%xd" (v:var:>int) abstract_levels);
      let rec aux v =
-       Log.debugf 1 (fun k->k"lit.redundant.aux v%d" (v:var:>int));
        match Var.reason store v with
        | None -> assert false
        | Some Decision -> raise_notrace Non_redundant
@@ -1151,10 +1149,9 @@ module Make(Plugin : PLUGIN)
            )
          done
      in
-     try aux v; Log.debug 1 "redundant"; true
+     try aux v; true
      with Non_redundant ->
        (* clear new marks, they are not actually redundant *)
-       Log.debug 1 "non redundant";
        for i = top to Vec.size to_unmark-1 do
          Var.unmark store (Vec.get to_unmark i)
        done;
