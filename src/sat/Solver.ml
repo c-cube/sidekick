@@ -884,13 +884,11 @@ module Make(Plugin : PLUGIN)
      - true literals (maybe makes the clause trivial if the lit is proved true at level 0)
      - unassigned literals, yet to be decided
      - false literals (not suitable to watch, those at level 0 can be removed from the clause)
-
-     Clauses that propagated false lits are remembered to reconstruct resolution proofs.
   *)
-  let partition store atoms : atom list * clause list =
-    let rec partition_aux trues unassigned falses history i =
+  let partition store atoms : atom list =
+    let rec partition_aux trues unassigned falses i =
       if i >= Array.length atoms then (
-        trues @ unassigned @ falses, history
+        trues @ unassigned @ falses
       ) else (
         let a = atoms.(i) in
         if Atom.is_true store a then (
@@ -899,13 +897,13 @@ module Make(Plugin : PLUGIN)
             raise_notrace Trivial (* Atom var true at level 0 gives a trivially true clause *)
           else
             (a :: trues) @ unassigned @ falses @
-            (arr_to_list atoms (i + 1)), history
+            (arr_to_list atoms (i + 1))
         ) else if Atom.is_false store a then (
           let l = Atom.level store a in
           if l = 0 then (
             match Atom.reason store a with
-            | Some (Bcp cl | Bcp_lazy (lazy cl)) ->
-              partition_aux trues unassigned falses (cl :: history) (i + 1)
+            | Some (Bcp _ | Bcp_lazy (lazy _)) ->
+              partition_aux trues unassigned falses (i + 1)
             (* Atom var false at level 0 can be eliminated from the clause,
                but we need to kepp in mind that we used another clause to simplify it. *)
             (* TODO: get a proof of the propagation. *)
@@ -913,14 +911,14 @@ module Make(Plugin : PLUGIN)
             (* The var must have a reason, and it cannot be a decision/assumption,
                since its level is 0. *)
           ) else (
-            partition_aux trues unassigned (a::falses) history (i + 1)
+            partition_aux trues unassigned (a::falses) (i + 1)
           )
         ) else (
-          partition_aux trues (a::unassigned) falses history (i + 1)
+          partition_aux trues (a::unassigned) falses (i + 1)
         )
       )
     in
-    partition_aux [] [] [] [] 0
+    partition_aux [] [] [] 0
 
 
   (* Making a decision.
@@ -1028,45 +1026,6 @@ module Make(Plugin : PLUGIN)
     in
     raise (E_unsat us)
 
-  (* TODO: remove when we use DRUP *)
-  (* Simplification of boolean propagation reasons.
-     When doing boolean propagation *at level 0*, it can happen
-     that the clause cl, which propagates a lit, also contains
-     other lits, but has been simplified. in which case, we
-     need to rebuild a clause with correct history, in order to
-     be able to build a correct proof at the end of proof search. *)
-  let simpl_reason (self:t) (r:reason) : reason =
-    match r with
-    | (Bcp cl | Bcp_lazy (lazy cl)) as r ->
-      let l, history = partition self.store (Clause.atoms_a self.store cl) in
-      begin match l with
-        | [_] ->
-          if history = [] then (
-            (* no simplification has been done, so [cl] is actually a clause with only
-               [a], so it is a valid reason for propagating [a]. *)
-            r
-          ) else (
-            (* Clauses in [history] have been used to simplify [cl] into a clause [tmp_cl]
-               with only one lit (which is [a]). So we explicitly create that clause
-               and set it as the cause for the propagation of [a], that way we can
-               rebuild the whole resolution tree when we want to prove [a]. *)
-            let removable = Clause.removable self.store cl in
-            let c' = Clause.make_l self.store ~removable l in
-            Log.debugf 3
-              (fun k -> k "(@[<hv>sat.simplified-reason@ %a@ %a@])"
-                  (Clause.debug self.store) cl (Clause.debug self.store) c');
-            Bcp c'
-          )
-        | _ ->
-          Log.debugf 0
-            (fun k ->
-               k "(@[<v2>sat.simplify-reason.failed@ :at %a@ %a@]"
-                 (Vec.pp ~sep:"" (Atom.debug self.store)) (Vec.of_list l)
-                 (Clause.debug self.store) cl);
-          assert false
-      end
-    | Decision as r -> r
-
   (* Boolean propagation.
      Wrapper function for adding a new propagated lit. *)
   let enqueue_bool (self:t) a ~level:lvl reason : unit =
@@ -1079,10 +1038,6 @@ module Make(Plugin : PLUGIN)
     assert (not (Atom.is_true store a) &&
             Atom.level store a < 0 &&
             Atom.reason store a == None && lvl >= 0);
-    let reason =
-      if lvl > 0 then reason
-      else simpl_reason self reason
-    in
     Atom.set_is_true store a true;
     Var.set_level store (Atom.var a) lvl;
     Var.set_reason store (Atom.var a) (Some reason);
@@ -1144,15 +1099,10 @@ module Make(Plugin : PLUGIN)
     )
 
   (* result of conflict analysis, containing the learnt clause and some
-     additional info.
-
-     invariant: cr_history's order matters, as its head is later used
-     during pop operations to determine the origin of a clause/conflict
-     (boolean conflict i.e hypothesis, or theory lemma) *)
+     additional info. *)
   type conflict_res = {
     cr_backtrack_lvl : int; (* level to backtrack to *)
     cr_learnt: atom array; (* lemma learnt from conflict *)
-    cr_history: clause array; (* justification *)
     cr_is_uip: bool; (* conflict is UIP? *)
   }
 
@@ -1164,8 +1114,6 @@ module Make(Plugin : PLUGIN)
     Vec.clear to_unmark;
     let learnt = self.temp_atom_vec in
     Vec.clear learnt;
-    let history = self.temp_clause_vec in
-    Vec.clear history;
 
     (* loop variables *)
     let pathC  = ref 0 in
@@ -1199,7 +1147,6 @@ module Make(Plugin : PLUGIN)
           if Clause.removable store clause then (
             clause_bump_activity self clause;
           );
-          Vec.push history clause;
           (* visit the current predecessors *)
           let atoms = Clause.atoms_a store clause in
           for j = 0 to Array.length atoms - 1 do
@@ -1209,10 +1156,6 @@ module Make(Plugin : PLUGIN)
                     Atom.level store q >= 0); (* unsure? *)
             if Atom.level store q <= 0 then (
               assert (Atom.is_false store q);
-              match Atom.reason store q with
-              | Some (Bcp cl | Bcp_lazy (lazy cl)) ->
-                Vec.push history cl
-              | Some Decision | None -> assert false
             );
             if not (Var.marked store (Atom.var q)) then (
               Var.mark store (Atom.var q);
@@ -1264,14 +1207,10 @@ module Make(Plugin : PLUGIN)
     Vec.clear learnt;
     Array.sort (fun p q -> compare (Atom.level store q) (Atom.level store p)) cr_learnt;
 
-    let cr_history = Vec.to_array history in
-    Vec.clear history;
-
     (* put_high_level_atoms_first a; *)
     let level, is_uip = backtrack_lvl self cr_learnt in
     { cr_backtrack_lvl = level;
       cr_learnt;
-      cr_history;
       cr_is_uip = is_uip;
     }
 
@@ -1354,17 +1293,12 @@ module Make(Plugin : PLUGIN)
     try
       let c = eliminate_duplicates store init in
       Log.debugf 30 (fun k -> k "(@[sat.dups-removed@ %a@])" (Clause.debug store) c);
-      let atoms, history = partition store (Clause.atoms_a store c) in
+      let atoms = partition store (Clause.atoms_a store c) in
       let clause =
-        if history = [] then (
-          (* just update order of atoms *)
-          let c_atoms = Clause.atoms_a store c in
-          List.iteri (fun i a -> c_atoms.(i) <- a) atoms;
-          c
-        ) else (
-          let removable = Clause.removable store c in
-          Clause.make_l store ~removable atoms
-        )
+        (* just update order of atoms *)
+        let c_atoms = Clause.atoms_a store c in
+        List.iteri (fun i a -> c_atoms.(i) <- a) atoms;
+        c
       in
       assert (Clause.removable store clause = Clause.removable store init);
       Log.debugf 5 (fun k->k "(@[sat.new-clause@ @[<hov>%a@]@])" (Clause.debug store) clause);
