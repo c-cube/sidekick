@@ -155,6 +155,15 @@ module type CC_PROOF = sig
       of uninterpreted functions. *)
 end
 
+(** Opaque identifier for clause pools in the SAT solver *)
+module Clause_pool_id : sig
+  type t = private int
+  val _unsafe_of_int : int -> t
+end = struct
+  type t = int
+  let _unsafe_of_int x = x
+end
+
 (** Signature for SAT-solver proof emission, using DRUP.
 
     We do not store the resolution steps, just the stream of clauses deduced.
@@ -285,6 +294,7 @@ module type CC_ACTIONS = sig
   module Lit : LIT with module T = T
 
   type proof
+  type clause_pool_id = Clause_pool_id.t
   type dproof = proof -> unit
   module P : CC_PROOF with type lit = Lit.t and type t = proof
 
@@ -298,6 +308,9 @@ module type CC_ACTIONS = sig
       the theory of congruence. This does not return (it should raise an
       exception).
       @param pr the proof of [c] being a tautology *)
+
+  val add_clause : ?pool:clause_pool_id -> t -> Lit.t list -> dproof -> unit
+  (** Learn a lemma *)
 
   val propagate : t -> Lit.t -> reason:(unit -> Lit.t list * dproof) -> unit
   (** [propagate acts lit ~reason pr] declares that [reason() => lit]
@@ -645,7 +658,7 @@ module type SOLVER_INTERNAL = sig
   type term = T.Term.t
   type term_store = T.Term.store
   type ty_store = T.Ty.store
-  type clause_pool
+  type clause_pool_id = Clause_pool_id.t
   type proof
   type dproof = proof -> unit
   (** Delayed proof. This is used to build a proof step on demand. *)
@@ -800,6 +813,13 @@ module type SOLVER_INTERNAL = sig
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
   val add_clause_temp : t -> theory_actions -> lit list -> dproof -> unit
+  (** Add local clause to the SAT solver. This clause will be
+      removed when the solver backtracks. *)
+
+  val add_clause_in_pool :
+    pool:clause_pool_id ->
+    t -> theory_actions ->
+    lit list -> dproof -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
