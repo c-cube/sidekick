@@ -63,10 +63,16 @@ module Make(A : ARG)
       module Lit = Lit
       type nonrec proof = proof
       type dproof = proof -> unit
+      type clause_pool_id = Sidekick_core.Clause_pool_id.t
       type t = sat_acts
       let[@inline] raise_conflict (a:t) lits (dp:dproof) =
         let (module A) = a in
         A.raise_conflict lits dp
+      let add_clause ?pool (a:t) lits (dp:dproof) : unit =
+        let (module A) = a in
+        match pool with
+        | None -> A.add_clause ~keep:false lits dp
+        | Some pool -> A.add_clause_in_pool ~pool lits dp
       let[@inline] propagate (a:t) lit ~reason =
         let (module A) = a in
         let reason = Sidekick_sat.Consequence reason in
@@ -90,7 +96,7 @@ module Make(A : ARG)
     type ty = Ty.t
     type lit = Lit.t
     type term_store = Term.store
-    type clause_pool
+    type clause_pool_id = Sidekick_core.Clause_pool_id.t
     type ty_store = Ty.store
 
     type th_states =
@@ -401,6 +407,10 @@ module Make(A : ARG)
     let[@inline] add_clause_temp self acts c (proof:dproof) : unit =
       let c = preprocess_clause_ self acts c in
       add_sat_clause_ self acts ~keep:false c proof
+
+    let[@inline] add_clause_in_pool ~pool self acts c (proof:dproof) : unit =
+      let c = preprocess_clause_ self acts c in
+      add_sat_clause_pool_ self acts ~pool c proof
 
     let[@inline] add_clause_permanent self acts c (proof:dproof) : unit =
       let c = preprocess_clause_ self acts c in

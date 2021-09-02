@@ -82,13 +82,7 @@ type ('lit, 'proof) reason =
 type lbool = L_true | L_false | L_undefined
 (** Valuation of an atom *)
 
-module Clause_pool_id : sig
-  type t = private int
-  val _unsafe_of_int : int -> t
-end = struct
-  type t = int
-  let _unsafe_of_int x = x
-end
+module Clause_pool_id = Sidekick_core.Clause_pool_id
 
 (** Actions available to the Plugin
 
