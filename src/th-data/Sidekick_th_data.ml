@@ -662,7 +662,7 @@ module Make(A : ARG) : S with module A = A = struct
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t
 
-  let create_and_setup (solver:SI.t) : t =
+  let create_and_setup (solver:SI.t) _ : t =
     let self = {
       tst=SI.tst solver;
       cstors=ST_cstors.create_and_setup ~size:32 solver;

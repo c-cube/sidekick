@@ -954,6 +954,18 @@ module type SOLVER = sig
   type dproof = proof -> unit
   (** Delayed proof. This is used to build a proof step on demand. *)
 
+  (** The internal SAT solver *)
+  module Sat_solver : sig
+    type clause_pool_id = Clause_pool_id.t
+    type t
+
+    val new_clause_pool_gc_fixed_size :
+      descr:string ->
+      size:int ->
+      t ->
+      clause_pool_id
+  end
+
   (** {3 A theory}
 
       Theories are abstracted over the concrete implementation of the solver,
@@ -976,7 +988,7 @@ module type SOLVER = sig
     val name : string
     (** Name of the theory (ideally, unique and short) *)
 
-    val create_and_setup : Solver_internal.t -> t
+    val create_and_setup : Solver_internal.t -> Sat_solver.t -> t
     (** Instantiate the theory's state for the given (internal) solver,
         register callbacks, create keys, etc.
 
@@ -1004,7 +1016,7 @@ module type SOLVER = sig
 
   val mk_theory :
     name:string ->
-    create_and_setup:(Solver_internal.t -> 'th) ->
+    create_and_setup:(Solver_internal.t -> Sat_solver.t -> 'th) ->
     ?push_level:('th -> unit) ->
     ?pop_levels:('th -> int -> unit) ->
     unit ->

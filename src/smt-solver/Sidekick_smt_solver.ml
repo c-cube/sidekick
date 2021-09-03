@@ -567,7 +567,7 @@ module Make(A : ARG)
   module type THEORY = sig
     type t
     val name : string
-    val create_and_setup : Solver_internal.t -> t
+    val create_and_setup : Solver_internal.t -> Sat_solver.t -> t
     val push_level : t -> unit
     val pop_levels : t -> int -> unit
   end
@@ -581,7 +581,7 @@ module Make(A : ARG)
     let (module Th) = th in
     Log.debugf 2
       (fun k-> k "(@[smt-solver.add-theory@ :name %S@])" Th.name);
-    let st = Th.create_and_setup self.si in
+    let st = Th.create_and_setup self.si self.solver in
     (* add push/pop to the internal solver *)
     begin
       let open Solver_internal in
