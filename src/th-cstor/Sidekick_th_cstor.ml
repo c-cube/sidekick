@@ -83,7 +83,7 @@ module Make(A : ARG) : S with module A = A = struct
   let push_level = ST.push_level
   let pop_levels = ST.pop_levels
 
-  let create_and_setup (solver:SI.t) : t =
+  let create_and_setup (solver:SI.t) _ : t =
     Log.debug 1 "(setup :th-cstor)";
     let self = ST.create_and_setup ~size:32 solver in
     self

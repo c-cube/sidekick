@@ -601,7 +601,7 @@ module Make(A : ARG) : S with module A = A = struct
       T.Tbl.add self.needs_th_combination t ()
     )
 
-  let create_and_setup si =
+  let create_and_setup si _ =
     Log.debug 2 "(th-lra.setup)";
     let stat = SI.stats si in
     let st = create ~stat (SI.tst si) (SI.ty_st si) in

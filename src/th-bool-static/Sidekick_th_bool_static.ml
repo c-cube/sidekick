@@ -355,7 +355,7 @@ module Make(A : ARG) : S with module A = A = struct
     end;
     ()
 
-  let create_and_setup si =
+  let create_and_setup si _sat =
     Log.debug 2 "(th-bool.setup)";
     let st = create (SI.tst si) (SI.ty_st si) in
     SI.add_simplifier si (simplify st);

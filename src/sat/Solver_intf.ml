@@ -222,7 +222,7 @@ module type S = sig
 
   type clause
 
-  type clause_pool_id
+  type clause_pool_id = Clause_pool_id.t
   (** Pool of clauses, with its own lifetime management *)
 
   type theory
