@@ -1,19 +1,94 @@
-# Goals
 
 ## TODO
 
-- functor for mapping equiv classes to values of some monoid, code to be
+- dyn-trans for CC: add hooks in CC explanation of conflict
+  so the theory can intercept that
+
+- emit proofs for SMT;
+  * remove dproof, emit them directly (maybe have `emit_input` vs `emit_input_sat` so we can avoid duplicating `i` lines)
+
+
+- data oriented congruence closure (all based on VecI32.t)
+  * then add Egg
+
+- new proofs:
+  * simplify : use subproof
+  * preprocess: no subproof
+  * rule for proving `t=u` by CC modulo all previous unit equalities (needed
+    for simp/preprocess)
+  * to prove `if a b b = b`, do `a => if a b b = b`,
+    `¬a => if a b b = b`, and use resolution on these to remove conditions.
+
+- dynamic ackermannization and transitivity (and maybe datatype acyclicity)
+  * clause pool for each type of dynamic inference (dynamic ack, etc.), with
+    its own GC limit.
+  * Probably need removable atoms too, once all clauses containing it are gone,
+    for atoms not added by the user explicitely.
+
+- enable conflict minimization (from branch) in SAT solver
+
+- sidekick-check:
+  * implement deletion
+  * seems like drat-trim is much faster in backward checking mode, see why
+  * implement checking of CC/preprocess
+  * checking of LRA
+  * checking of DT
+
+- refactor:
+  * revamp msat proofs
+    (store proofs in allocator, also encoded as 0-terminated series of ints
+     indicating clause numbers?
+     this way we can GC them just like we GC clauses)
+      ⇒ keep arrays, simpler
+    + means the type of proofs is independent of variables
+    + actually: try to use RUP (side buffer to store a representation of
+      a list of clauses, each "line" is `c_i := l1…ln 0` like dimacs.
+      Add delete lines to get DRUP.)
+      proof reconstruction to get, _if wanted_, proper resolution.
+    + or just store clause premises in a set, use local RUP to reconstruct
+      (assert ¬C and propagate)
+  * fix proof production for minimized conflicts (or come back after proof are better)
+
+- implement Egg paper
+  * use it for existing theories
+
+- stronger preprocessing:
+  * first, split conjunction eagerly
+  * add every toplevel `x=t` where x atomic to a congruence closure;
+    then replace toplevel `assert p` with `assert [p]` where `[p]` is
+    the nested representative of `p` (replace each subterm by its representative).
+    proof is just `x1=t1 … xn=tn |- p=[p]`
+  * using Egg, should be possible to integrate theory preprocessing this way
+
+  * then:
+    - one-point rule for LRA and UF (`x = t /\ F[x]` becomes `x=t /\ F[t]` and
+      we forget `x` in practice)
+    - eliminate LRA equations true at level 0  (why is alt-ergo faster on uart7?)
+    - preprocess LRA for:
+      `./sidekick tests/unsat/pb_real_50_150_30_47.smt2`
+      `./sidekick tests/unsat/clocksynchro_9clocks.main_invar.base.smt2`
+
+- proof production:
+  * [x] produce Quip
+  * [x] have it proofchecked
+  * [x] do not produce stuff like `(cc-imply (refl tseitin0) (= tseitin0 <the term>))`
+  * [x] do not produce stuff like `(hres (init (assert t)) (p1 (refl t)))`
+        (just `assert t` is enough)
+  * [ ] theory lemmas
+
+- [x] functor for mapping equiv classes to values of some monoid, code to be
   used in 99% of the theories
   * [ ] also allow to register to "joins" between distinct classes
     (useful for injectivity or array reduction or selector reduction)
     → in a way this must become a (backtracking) query API for making theories
       easy to write
-  * [ ] use it in th-data
+  * [x] use it in th-data for cstors
+  * [x] use it in th-data for select
+  * [x] use it in th-data for is-a
   * [ ] use it in th-array
   * [ ] use it in th-define-subsort
+  ⇒ **NOTE** this is actually subsumed by Egg
 
-- write theory of datatypes (without acyclicity) with local case splits + injectivity + selectors
-- datatype acyclicity check
 
 - provide a notion of smtlib theory, with `smtlib.ast --> Term.t option`
   and typing rule (extensible parsing+typing)
@@ -24,9 +99,6 @@
   * store lits directly in (boolean) classes
 
 - add terms of input goals pre-emptively to the CC/theories
-
-- use funarith for basic Q arith
-  * as a smtlib theory, too
 
 - add `CC.add_rw_step t u` work, where `t-->u`
   (keep `t` in sig table, but flag is so it's inert and will not
@@ -41,13 +113,9 @@
 
 - abstract domain propagation in CC
 - domain propagation (intervals) for ℚ arith
-- full ℚ theory: shostak + domains + if-sat simplex
 
 ## Main goals
 
-- Add a backend to send proofs to dedukti
-    * First, pure resolution proofs
-    * Then, require theories to output lemma proofs for dedukti (in some format yet to be decided)
 - Allow to plug one's code into boolean propagation
     * react upon propagation (possibly by propagating more, or side-effect)
     * more advanced/specific propagation (2-clauses)?
@@ -60,6 +128,8 @@
 
 ## Done
 
+- write theory of datatypes (without acyclicity) with local case splits + injectivity + selectors
+- datatype acyclicity check
 - make CC work on QF_UF
   * [x] public `add` function should push_pending then call main CC loop
     (internal one is called within the loop so no need)
@@ -68,8 +138,8 @@
 - use `stmlib-utils`
 - parser for cstors  (`declare-cstor`, same as `declare-fun`)
 - refactor:
- 1. have sidekick.env with only the signature that is instance-dependent + notion of theory (as module sig); 
- 2. solver takes this env and SAT solver with compatible lits 
+ 1. have sidekick.env with only the signature that is instance-dependent + notion of theory (as module sig);
+ 2. solver takes this env and SAT solver with compatible lits
  3. move concrete terms, etc. into smtlib lib
  4. update theories
 - fix: have normal theories `on_new_term` work properly (callback in the CC?)
