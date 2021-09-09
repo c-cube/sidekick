@@ -107,6 +107,7 @@ let main_smt () : _ result =
         Process.th_bool;
         Process.th_data;
         Process.th_lra;
+        Process.th_dyn_trans;
       ]
     in
     Process.Solver.create ~proof ~theories tst () ()

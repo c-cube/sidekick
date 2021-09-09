@@ -282,7 +282,9 @@ let process_stmt
 module Th_data = SBS.Th_data
 module Th_bool = SBS.Th_bool
 module Th_lra = SBS.Th_lra
+module Th_dyn_trans = SBS.Th_dyn_trans
 
 let th_bool : Solver.theory = Th_bool.theory
 let th_data : Solver.theory = Th_data.theory
 let th_lra : Solver.theory = Th_lra.theory
+let th_dyn_trans : Solver.theory = Th_dyn_trans.theory
