@@ -12,6 +12,7 @@ module Solver
 val th_bool : Solver.theory
 val th_data : Solver.theory
 val th_lra : Solver.theory
+val th_dyn_trans : Solver.theory
 
 type 'a or_error = ('a, string) CCResult.t
 

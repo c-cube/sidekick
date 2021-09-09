@@ -116,6 +116,11 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   end
 end)
 
+module Th_dyn_trans = Sidekick_th_dyn_trans.Make(struct
+    module Solver = Solver
+    end)
+
 let th_bool : Solver.theory = Th_bool.theory
 let th_data : Solver.theory = Th_data.theory
 let th_lra : Solver.theory = Th_lra.theory
+let th_dyn_trans : Solver.theory = Th_dyn_trans.theory
