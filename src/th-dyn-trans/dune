@@ -1,0 +1,6 @@
+(library
+  (name sidekick_th_dyn_trans)
+  (public_name sidekick.th-dyn-trans)
+  (synopsis "Dynamic transitivity of equality")
+  (flags :standard -open Sidekick_util)
+  (libraries sidekick.core sidekick.cc sidekick.util))
