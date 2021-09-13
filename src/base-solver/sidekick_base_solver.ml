@@ -124,6 +124,7 @@ module Th_dyn_trans = Sidekick_th_dyn_trans.Make(struct
       | Term.Eq(a,b) -> Some (a,b)
       | _ -> None
     let mk_eqn tst t u : term = Term.make tst (Term.Eq (t,u))
+    let proof_trans lits p = Proof_stub.lemma_cc (Iter.of_list lits) p
     end)
 
 let th_bool : Solver.theory = Th_bool.theory

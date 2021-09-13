@@ -7,6 +7,8 @@ module type ARG = sig
   val term_as_eqn : Solver.T.Term.store -> term -> (term*term) option
 
   val mk_eqn : Solver.T.Term.store -> term -> term -> term
+
+  val proof_trans : Solver.Lit.t list -> Solver.P.t -> unit
 end
 
 module type S = sig
@@ -30,7 +32,10 @@ module Make(A: ARG)
     | None -> false
 
   module Instantiation = struct
+    (** A deduction [l1 \/ l2 \/ concl],
+        where [l1] is [t =/ u], [l2] is [u /= v], and [concl] is [t = v] *)
     type t = {l1: Lit.t; l2: Lit.t; concl: Lit.t}
+
     let equal a b =
       Lit.equal a.l1 b.l1 &&
       Lit.equal a.l2 b.l2 &&
@@ -39,8 +44,8 @@ module Make(A: ARG)
     let hash a = CCHash.(combine3 (Lit.hash a.l1) (Lit.hash a.l2) (Lit.hash a.concl))
 
     let make (tst:Term.store) l1 l2 concl : t =
-      assert (Lit.sign l1 && is_eqn_ tst (Lit.term l1));
-      assert (Lit.sign l2 && is_eqn_ tst (Lit.term l2));
+      assert (not (Lit.sign l1) && is_eqn_ tst (Lit.term l1));
+      assert (not (Lit.sign l2) && is_eqn_ tst (Lit.term l2));
       assert (Lit.sign concl && is_eqn_ tst (Lit.term concl));
       let l1, l2 =
         if Term.compare (Lit.term l1) (Lit.term l2) < 0
@@ -85,9 +90,7 @@ module Make(A: ARG)
             if not (Term.equal u u') then (
               (* see if [t=u, t=u' => u=u'] has not been instantiated yet *)
               let concl = Lit.atom self.tstore (A.mk_eqn self.tstore u u') in
-              let inst =
-                Instantiation.make self.tstore
-                  (Lit.neg lit) (Lit.neg lit') concl in
+              let inst = Instantiation.make self.tstore lit lit' concl in
               if not (Inst_tbl.mem self.done_inst inst) then (
                 Vec.push candidates (t,u,u',lit,lit',concl)
               )
@@ -123,9 +126,11 @@ module Make(A: ARG)
       |> Iter.iter
         (fun (_,_,_,l1,l2,concl) ->
            let c = [l1; l2; concl] in
+           (* remember we did that instantiation *)
+           Inst_tbl.replace self.done_inst (Instantiation.make self.tstore l1 l2 concl) ();
            Stat.incr self.stat_inst;
            Log.debugf 10 (fun k->k "add dyn-trans %a" (Fmt.Dump.list Lit.pp) c);
-           let emit_proof p = () in (* TODO *)
+           let emit_proof = A.proof_trans c in
            CC.add_clause ~pool:self.cpool cc c emit_proof)
     end;
 
