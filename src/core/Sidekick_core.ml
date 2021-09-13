@@ -368,6 +368,7 @@ module type CC_S = sig
     and type proof = proof
   type term_store = T.Term.store
   type term = T.Term.t
+  type clause_pool_id = Clause_pool_id.t
   type fun_ = T.Fun.t
   type lit = Lit.t
   type actions = Actions.t
@@ -621,6 +622,9 @@ module type CC_S = sig
 
   val merge_t : t -> term -> term -> Expl.t -> unit
   (** Shortcut for adding + merging *)
+
+  val add_clause : ?pool:clause_pool_id -> t -> Lit.t list -> dproof -> unit
+  (** Learn a lemma *)
 
   val check : t -> actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.

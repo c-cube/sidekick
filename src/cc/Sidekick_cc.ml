@@ -26,6 +26,7 @@ module Make (A: CC_ARG)
   type term_store = T.Term.store
   type lit = Lit.t
   type fun_ = T.Fun.t
+  type clause_pool_id = Clause_pool_id.t
   type proof = A.proof
   type dproof = proof -> unit
   type actions = Actions.t
@@ -264,6 +265,7 @@ module Make (A: CC_ARG)
     field_marked_explain: Bits.field; (* used to mark traversed nodes when looking for a common ancestor *)
     true_ : node lazy_t;
     false_ : node lazy_t;
+    clauses_to_add: (Lit.t list * clause_pool_id option * dproof) Vec.t;
     stat: Stat.t;
     count_conflict: int Stat.counter;
     count_props: int Stat.counter;
@@ -894,6 +896,7 @@ module Make (A: CC_ARG)
       pending=Vec.create();
       combine=Vec.create();
       undo=Backtrack_stack.create();
+      clauses_to_add=Vec.create();
       true_;
       false_;
       stat;
@@ -916,10 +919,25 @@ module Make (A: CC_ARG)
     let n = T_tbl.find cc.tbl t in
     find_ n
 
+  let add_clauses self acts : unit =
+    if not (Vec.is_empty self.clauses_to_add) then (
+      Vec.iter
+        (fun (lits,pool,dp) ->
+          A.Actions.add_clause acts ?pool lits dp)
+        self.clauses_to_add;
+      Vec.clear self.clauses_to_add;
+    )
+
   let[@inline] check cc acts : unit =
     Log.debug 5 "(cc.check)";
     cc.new_merges <- false;
-    update_tasks cc acts
+    add_clauses cc acts;
+    update_tasks cc acts;
+    add_clauses cc acts;
+    ()
+
+  let[@inline] add_clause ?pool self lits dp : unit =
+    Vec.push self.clauses_to_add (lits,pool,dp)
 
   let new_merges cc = cc.new_merges
 
