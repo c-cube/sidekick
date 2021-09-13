@@ -84,6 +84,8 @@ val sort : 'a t -> ('a -> 'a -> int) -> unit
 val iter : ('a -> unit) -> 'a t -> unit
 (** Iterate on elements *)
 
+val to_iter : 'a t -> 'a Iter.t
+
 val iteri : (int -> 'a -> unit) -> 'a t -> unit
 (** Iterate on elements with their index *)
 

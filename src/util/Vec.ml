@@ -129,6 +129,8 @@ let[@inline] iteri f t =
 
 let[@inline] to_seq a k = iter k a
 
+let to_iter v k = iter k v
+
 let exists p t = Iter.exists p @@ to_seq t
 let for_all p t = Iter.for_all p @@ to_seq t
 let fold f acc a = Iter.fold f acc @@ to_seq a
