@@ -133,9 +133,6 @@ module Make(A: ARG)
            let emit_proof = A.proof_trans c in
            CC.add_clause ~pool:self.cpool cc c emit_proof)
     end;
-
-    (* TODO: find some potential dyn-trans axioms; add them to self.sat
-       if they're not in done_inst *)
     ()
 
   let on_conflict (self:t) (cc:CC.t) ~th lits : unit =
