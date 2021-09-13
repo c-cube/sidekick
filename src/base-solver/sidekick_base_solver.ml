@@ -118,6 +118,12 @@ end)
 
 module Th_dyn_trans = Sidekick_th_dyn_trans.Make(struct
     module Solver = Solver
+    type term = Solver.T.Term.t
+    let term_as_eqn _tst t =
+      match Term.view t with
+      | Term.Eq(a,b) -> Some (a,b)
+      | _ -> None
+    let mk_eqn tst t u : term = Term.make tst (Term.Eq (t,u))
     end)
 
 let th_bool : Solver.theory = Th_bool.theory
