@@ -535,7 +535,7 @@ module Make(Plugin : PLUGIN)
   (** A clause pool *)
   module type CLAUSE_POOL = sig
     val add : clause -> unit
-    val descr : unit -> string
+    val descr : string
     val gc : (module GC_ARG) -> unit
     val iter : f:(clause -> unit) -> unit
     val needs_gc : unit -> bool
@@ -547,15 +547,19 @@ module Make(Plugin : PLUGIN)
 
   (* a pool with garbage collection determined by [P] *)
   module Make_gc_cp(P:sig
-      val descr : unit -> string
+      val descr : string
       val max_size : int ref
+      val stat : Stat.t
     end)() : CLAUSE_POOL = struct
     let clauses_ : clause Vec.t = Vec.create()
     (* Use a [Vec] so we can sort it.
-       TODO: when we can sort any vec, come back to that. *)
+       TODO: when we can sort any vec, come back to that to use [CVec.t]. *)
+
+    let n_alloc : int Stat.counter = Stat.mk_int P.stat (P.descr ^ ".clauses_alloc")
+    let n_clauses_gc : int Stat.counter = Stat.mk_int P.stat (P.descr ^ ".clauses_gc")
 
     let descr = P.descr
-    let add c = Vec.push clauses_ c
+    let add c = Stat.incr n_alloc; Vec.push clauses_ c
     let iter ~f = Vec.iter f clauses_
     let push_level () = ()
     let pop_levels _ = ()
@@ -576,6 +580,7 @@ module Make(Plugin : PLUGIN)
         if G.must_keep_clause c then (
           CVec.push to_be_pushed_back c; (* must keep it, it's on the trail *)
         ) else (
+          Stat.incr n_clauses_gc;
           G.flag_clause_for_gc c;
         )
       done;
@@ -584,13 +589,14 @@ module Make(Plugin : PLUGIN)
       ()
   end
 
-  let make_gc_clause_pool_ ~descr ~max_size () : clause_pool =
+  let make_gc_clause_pool_ ~stat ~descr ~max_size () : clause_pool =
     (module Make_gc_cp(struct
+         let stat=stat
          let descr=descr
          let max_size=max_size
        end)())
 
-  let[@inline] cp_descr_ (module P:CLAUSE_POOL) : string = P.descr()
+  let[@inline] cp_descr_ (module P:CLAUSE_POOL) : string = P.descr
   let[@inline] cp_size_ (module P:CLAUSE_POOL) : int = P.size()
   let[@inline] cp_needs_gc_ (module P:CLAUSE_POOL) : bool = P.needs_gc()
   let[@inline] cp_add_ (module P:CLAUSE_POOL) c : unit = P.add c
@@ -698,6 +704,7 @@ module Make(Plugin : PLUGIN)
     n_propagations : int Stat.counter;
     n_decisions : int Stat.counter;
     n_restarts : int Stat.counter;
+    n_gc_clause : int Stat.counter;
   }
 
   type solver = t
@@ -716,8 +723,8 @@ module Make(Plugin : PLUGIN)
     max_clauses_learnt;
     clauses_hyps = CVec.create();
     clauses_learnt =
-      make_gc_clause_pool_
-        ~descr:(fun () -> "cp.learnt-clauses")
+      make_gc_clause_pool_ ~stat
+        ~descr:"cp.learnt-clauses"
         ~max_size:max_clauses_learnt ();
     clauses_to_add_learnt = CVec.create ();
     clauses_to_add_in_pool = Vec.create();
@@ -748,6 +755,7 @@ module Make(Plugin : PLUGIN)
     n_decisions = Stat.mk_int stat "sat.n-decisions";
     n_propagations = Stat.mk_int stat "sat.n-propagations";
     n_restarts = Stat.mk_int stat "sat.n-restarts";
+    n_gc_clause = Stat.mk_int stat "sat.n-gc-clause";
 
     on_conflict = None;
     on_decision= None;
@@ -1714,6 +1722,7 @@ module Make(Plugin : PLUGIN)
     let flag_clause_for_gc c : unit =
       assert (Clause.removable store c);
       Log.debugf 10 (fun k->k"(@[sat.gc.will-collect@ %a@])" (Clause.debug store) c);
+      Stat.incr self.n_gc_clause;
       CVec.push to_be_gc c;
       Clause.set_dead store c true;
       let atoms = Clause.atoms_a store c in
@@ -1737,7 +1746,7 @@ module Make(Plugin : PLUGIN)
     (* GC a pool, if it needs it *)
     let gc_pool (module P:CLAUSE_POOL) : unit =
       if P.needs_gc () then (
-        Log.debugf 5 (fun k->k"(@[sat.gc.pool@ :descr %s@])" (P.descr()));
+        Log.debugf 5 (fun k->k"(@[sat.gc.pool@ :descr %s@])" P.descr);
         P.gc gc_arg
       )
     in
@@ -2029,11 +2038,7 @@ module Make(Plugin : PLUGIN)
     add_clause_a self c dp
 
   let new_clause_pool_gc_fixed_size ~descr ~size (self:t) : clause_pool_id =
-    let p =
-      make_gc_clause_pool_
-        ~descr:(fun () -> descr)
-        ~max_size:(ref size)
-        () in
+    let p = make_gc_clause_pool_ ~stat:self.stat ~descr ~max_size:(ref size) () in
     let id = Vec.size self.clause_pools in
     Vec.push self.clause_pools p;
     Clause_pool_id._unsafe_of_int id
