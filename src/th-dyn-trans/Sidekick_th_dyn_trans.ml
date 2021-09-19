@@ -65,6 +65,17 @@ module Make(A: ARG)
     stat_inst: int Stat.counter;
   }
 
+  (* CONFIG *)
+
+  let cpool_size = (try int_of_string (Sys.getenv "CPOOL_SIZE") with _ -> 100)
+
+  (* only do dyn-trans if conflict has more than this many lits *)
+  let min_confl_len = (try int_of_string (Sys.getenv "MIN_CONFL_LEN") with _ -> 6)
+
+  let max_batch_size = (try int_of_string (Sys.getenv "MAX_BATCH_SIZE") with _ -> 2)
+
+  (* RULES *)
+
   (* TODO: some rate limiting system (a counter that goes up when cc conflict,
      goes down by 5 when a new axiom is instantiated, cannot go below 0?) *)
 
@@ -86,14 +97,17 @@ module Make(A: ARG)
       let on_eqn t u lit =
         assert (not (Lit.sign lit));
         begin match Term.Tbl.get tbl t with
-          | Some (u',lit') ->
-            if not (Term.equal u u') then (
-              (* see if [t=u, t=u' => u=u'] has not been instantiated yet *)
-              let concl = Lit.atom self.tstore (A.mk_eqn self.tstore u u') in
-              let inst = Instantiation.make self.tstore lit lit' concl in
-              if not (Inst_tbl.mem self.done_inst inst) then (
-                Vec.push candidates (t,u,u',lit,lit',concl)
-              )
+          | Some (v,lit') ->
+            if not (Term.equal u v) then (
+              (* see if [u=v] is new for the CC *)
+              if not (CC.has_lit_for_eqn cc u v) then (
+                (* see if [t=u, t=u' => u=u'] has not been instantiated yet *)
+                let concl = Lit.atom self.tstore (A.mk_eqn self.tstore u v) in
+                let inst = Instantiation.make self.tstore lit lit' concl in
+                if true || not (Inst_tbl.mem self.done_inst inst) then (
+                  Vec.push candidates (t,u,v,lit,lit',concl)
+                )
+               )
             )
           | None -> Term.Tbl.add tbl t (u,lit);
         end
@@ -122,7 +136,7 @@ module Make(A: ARG)
 
     begin
       Vec.to_iter candidates
-      |> Iter.take 2 (* at most 2 for now *)
+      |> Iter.take max_batch_size
       |> Iter.iter
         (fun (_,_,_,l1,l2,concl) ->
            let c = [l1; l2; concl] in
@@ -136,7 +150,7 @@ module Make(A: ARG)
     ()
 
   let on_conflict (self:t) (cc:CC.t) ~th lits : unit =
-    if not th then (
+    if not th && List.length lits >= min_confl_len then (
       inst_from_conflict self cc lits
     )
 
@@ -148,7 +162,7 @@ module Make(A: ARG)
       sat;
       done_inst=Inst_tbl.create 32;
       cpool=SAT.new_clause_pool_gc_fixed_size
-          ~descr:"dyn-trans clauses" ~size:200 sat;
+          ~descr:"cp.dyn-trans" ~size:cpool_size sat;
       stat_cc_confl=Stat.mk_int (SI.stats si) "dyn-trans-confl";
       stat_inst=Stat.mk_int (SI.stats si) "dyn-trans-inst";
     } in
