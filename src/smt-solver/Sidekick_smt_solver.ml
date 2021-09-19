@@ -20,6 +20,8 @@ module type ARG = sig
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 
+  val mk_eqn : T.Term.store -> T.Term.t -> T.Term.t -> T.Term.t
+
   val is_valid_literal : T.Term.t -> bool
   (** Is this a valid boolean literal? (e.g. is it a closed term, not inside
       a quantifier) *)
@@ -56,6 +58,7 @@ module Make(A : ARG)
     module Lit = Lit
     type nonrec proof = proof
     let cc_view = A.cc_view
+    let mk_eqn = A.mk_eqn
 
     module Actions = struct
       module T = T

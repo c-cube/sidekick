@@ -306,7 +306,8 @@ module Make (A: CC_ARG)
 
   (* check if [t] is in the congruence closure.
      Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
-  let[@inline] mem (cc:t) (t:term): bool = T_tbl.mem cc.tbl t
+  let[@inline] mem_term (cc:t) (t:term): bool = T_tbl.mem cc.tbl t
+  let[@inline] find_n_of_term cc t : N.t option = T_tbl.get cc.tbl t
 
   (* print full state *)
   let pp_full out (cc:t) : unit =
@@ -501,7 +502,7 @@ module Make (A: CC_ARG)
 
   (* add [t] to [cc] when not present already *)
   and add_new_term_ cc (t:term) : node =
-    assert (not @@ mem cc t);
+    assert (not @@ mem_term cc t);
     Log.debugf 15 (fun k->k "(@[cc.add-term@ %a@])" Term.pp t);
     let n = N.make t in
     (* register sub-terms, add [t] to their parent list, and return the
@@ -564,7 +565,7 @@ module Make (A: CC_ARG)
 
   let[@inline] add_term cc t : node = add_term_rec_ cc t
 
-  let mem_term = mem
+  let mem_term = mem_term
 
   let set_as_lit cc (n:node) (lit:lit) : unit =
     match n.n_as_lit with
@@ -573,6 +574,14 @@ module Make (A: CC_ARG)
       Log.debugf 15 (fun k->k "(@[cc.set-as-lit@ %a@ %a@])" N.pp n Lit.pp lit);
       on_backtrack cc (fun () -> n.n_as_lit <- None);
       n.n_as_lit <- Some lit
+
+  let[@inline] find_lit _self (n:node) : _ option = n.n_as_lit
+  let[@inline] has_lit self n = CCOpt.is_some (find_lit self n)
+
+  let has_lit_for_eqn self t u =
+    match find_n_of_term self (A.mk_eqn self.tst t u) with
+    | None -> false
+    | Some n -> has_lit self n
 
   (* is [n] true or false? *)
   let n_is_bool_value (self:t) n : bool =
