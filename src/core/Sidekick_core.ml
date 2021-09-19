@@ -578,6 +578,13 @@ module type CC_S = sig
   val set_as_lit : t -> N.t -> lit -> unit
   (** map the given node to a literal. *)
 
+  val find_lit : t -> N.t -> lit option
+
+  val has_lit : t -> N.t -> bool
+
+  val has_lit_for_eqn : t -> term -> term -> bool
+  (** Is there a literal for [t = u]? *)
+
   val find_t : t -> term -> repr
   (** Current representative of the term.
       @raise Not_found if the term is not already {!add}-ed. *)
