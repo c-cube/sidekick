@@ -336,6 +336,8 @@ module type CC_ARG = sig
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
+
+  val mk_eqn : T.Term.store -> T.Term.t -> T.Term.t -> T.Term.t
 end
 
 (** Main congruence closure signature.
