@@ -84,9 +84,11 @@ module Sidekick_base_solver :
     module Th_data : sig ... end
     module Th_bool : sig ... end
     module Th_lra : sig ... end
+    module Th_dyn_trans : sig ... end
     val th_bool : Solver.theory
     val th_data : Solver.theory
     val th_lra : Solver.theory
+    val th_dyn_trans : Solver.theory
   end
 ```
 
