@@ -59,6 +59,7 @@ module Make(A: ARG)
     tstore: Term.store;
     cc: CC.t;
     sat: SAT.t;
+    activity: float Term.Tbl.t;
     cpool: SAT.clause_pool_id;
     done_inst: unit Inst_tbl.t;
     stat_cc_confl: int Stat.counter;
@@ -67,12 +68,18 @@ module Make(A: ARG)
 
   (* CONFIG *)
 
-  let cpool_size = (try int_of_string (Sys.getenv "CPOOL_SIZE") with _ -> 100)
+  let cpool_size = (try int_of_string (Sys.getenv "CPOOL_SIZE") with _ -> 400)
 
   (* only do dyn-trans if conflict has more than this many lits *)
-  let min_confl_len = (try int_of_string (Sys.getenv "MIN_CONFL_LEN") with _ -> 6)
+  let min_confl_len = (try int_of_string (Sys.getenv "MIN_CONFL_LEN") with _ -> 4)
 
   let max_batch_size = (try int_of_string (Sys.getenv "MAX_BATCH_SIZE") with _ -> 2)
+
+  let activity_bump = (try float_of_string (Sys.getenv "ACTIVITY_BUMP") with _ -> 1.1)
+
+  let min_activity = (try float_of_string (Sys.getenv "MIN_ACTIVITY") with _ -> 1e12)
+  let max_activity = min_activity *. (activity_bump ** 15.)
+  let activity_decay = activity_bump ** (-13.)
 
   (* RULES *)
 
@@ -120,6 +127,12 @@ module Make(A: ARG)
            match A.term_as_eqn self.tstore (Lit.term lit) with
            | Some (t,u) when not (Term.equal t u) -> Some (t,u,lit)
            | _ -> None)
+      |> Iter.filter
+        (fun (t,u,_) ->
+           let act_t = Term.Tbl.get_or self.activity t ~default:1. in
+           let act_u = Term.Tbl.get_or self.activity u ~default:1. in
+           let keep = act_t >= min_activity || act_u >= min_activity in
+           keep)
       |> Iter.iter
         (fun (t,u,lit) ->
            on_eqn t u lit;
@@ -149,7 +162,31 @@ module Make(A: ARG)
     end;
     ()
 
+  (* bump activity of all terms involved in CC conflict *)
+  let update_activity_from_cc_confl (self:t) (lits:Lit.t list) : unit =
+    let update_term t : unit =
+      let f = Term.Tbl.get_or ~default:1. self.activity t in
+      let f = f *. activity_bump in
+      Term.Tbl.replace self.activity t f;
+      (* decay all *)
+      if f > max_activity then (
+        Term.Tbl.iter
+          (fun t f -> Term.Tbl.replace self.activity t (max 1. (f *. activity_decay)))
+          self.activity;
+      );
+    in
+    let update_lit lit =
+      let t = Lit.term lit in
+      match A.term_as_eqn self.tstore t with
+      | None -> ()
+      | Some (t,u) ->
+        update_term t;
+        update_term u
+    in
+    List.iter update_lit lits
+
   let on_conflict (self:t) (cc:CC.t) ~th lits : unit =
+    update_activity_from_cc_confl self lits;
     if not th && List.length lits >= min_confl_len then (
       inst_from_conflict self cc lits
     )
@@ -160,6 +197,7 @@ module Make(A: ARG)
       tstore=SI.tst si;
       cc=SI.cc si;
       sat;
+      activity=Term.Tbl.create 16;
       done_inst=Inst_tbl.create 32;
       cpool=SAT.new_clause_pool_gc_fixed_size
           ~descr:"cp.dyn-trans" ~size:cpool_size sat;
