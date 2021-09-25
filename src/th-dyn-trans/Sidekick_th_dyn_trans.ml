@@ -1,8 +1,35 @@
 
+type config = {
+  (** Size of pool of clauses *)
+  cpool_size: int;
+
+  (** only do dyn-trans if conflict has more than this many lits *)
+  min_confl_len : int;
+
+  (** Max number of conflicts produced at once *)
+  max_batch_size : int;
+
+  (** Bump activity of terms involved in transitivity steps in CC conflicts *)
+  activity_bump : float;
+
+  (** Min activity of one side of an equation so it can participate in
+      a dyn-trans inference *)
+  min_activity : float;
+}
+
+let default_config : config = {
+  cpool_size = (try int_of_string (Sys.getenv "CPOOL_SIZE") with _ -> 400);
+  min_confl_len = (try int_of_string (Sys.getenv "MIN_CONFL_LEN") with _ -> 4);
+  max_batch_size = (try int_of_string (Sys.getenv "MAX_BATCH_SIZE") with _ -> 2);
+  activity_bump = (try float_of_string (Sys.getenv "ACTIVITY_BUMP") with _ -> 1.1);
+  min_activity = (try float_of_string (Sys.getenv "MIN_ACTIVITY") with _ -> 1e12);
+}
 
 module type ARG = sig
   module Solver : Sidekick_core.SOLVER
   type term = Solver.T.Term.t
+
+  val config : config
 
   val term_as_eqn : Solver.T.Term.store -> term -> (term*term) option
 
@@ -68,16 +95,11 @@ module Make(A: ARG)
 
   (* CONFIG *)
 
-  let cpool_size = (try int_of_string (Sys.getenv "CPOOL_SIZE") with _ -> 400)
-
-  (* only do dyn-trans if conflict has more than this many lits *)
-  let min_confl_len = (try int_of_string (Sys.getenv "MIN_CONFL_LEN") with _ -> 4)
-
-  let max_batch_size = (try int_of_string (Sys.getenv "MAX_BATCH_SIZE") with _ -> 2)
-
-  let activity_bump = (try float_of_string (Sys.getenv "ACTIVITY_BUMP") with _ -> 1.1)
-
-  let min_activity = (try float_of_string (Sys.getenv "MIN_ACTIVITY") with _ -> 1e12)
+  let cpool_size = A.config.cpool_size
+  let min_confl_len = A.config.min_confl_len
+  let max_batch_size = A.config.max_batch_size
+  let activity_bump = A.config.activity_bump
+  let min_activity = A.config.min_activity
   let max_activity = min_activity *. (activity_bump ** 15.)
   let activity_decay = activity_bump ** (-13.)
 
