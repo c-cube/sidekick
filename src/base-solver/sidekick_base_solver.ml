@@ -120,6 +120,7 @@ end)
 module Th_dyn_trans = Sidekick_th_dyn_trans.Make(struct
     module Solver = Solver
     type term = Solver.T.Term.t
+    let config = Sidekick_th_dyn_trans.default_config
     let term_as_eqn _tst t =
       match Term.view t with
       | Term.Eq(a,b) -> Some (a,b)
