@@ -108,6 +108,8 @@ module Make(Plugin : PLUGIN)
       v_reason: reason option Vec.t; (* reason for assignment *)
       v_seen: Bitvec.t; (* generic temporary marker *)
       v_default_polarity: Bitvec.t; (* default polarity in decisions *)
+      v_persistent: Bitvec.t; (* must be kept even if present in 0 clauses? *)
+      v_recycle_idx: VecI32.t; (* recycle variables that were gc'd *)
       mutable v_count : int;
 
       (* atoms *)
@@ -118,6 +120,7 @@ module Make(Plugin : PLUGIN)
       a_watched: Clause0.CVec.t Vec.t;
 
       stat_n_atoms: int Stat.counter;
+      stat_gc_atoms: int Stat.counter;
 
       (* clauses *)
       c_store: cstore;
@@ -131,6 +134,7 @@ module Make(Plugin : PLUGIN)
         | `Big -> 4096
       in
       let stat_n_atoms = Stat.mk_int stat "sat.n-atoms" in
+      let stat_gc_atoms = Stat.mk_int stat "sat.atoms.gc" in
       { v_of_lit = Lit_tbl.create size_map;
         v_level = Vec.create();
         v_heap_idx = Vec.create();
@@ -138,12 +142,15 @@ module Make(Plugin : PLUGIN)
         v_reason = Vec.create();
         v_seen = Bitvec.create();
         v_default_polarity = Bitvec.create();
+        v_persistent = Bitvec.create();
+        v_recycle_idx=VecI32.create ~cap:0 ();
         v_count = 0;
         a_is_true=Bitvec.create();
         a_form=Vec.create();
         a_watched=Vec.create();
         a_seen=Bitvec.create();
         stat_n_atoms;
+        stat_gc_atoms;
         c_store={
           c_lits=Vec.create();
           c_activity=Vec_float.create();
@@ -177,6 +184,11 @@ module Make(Plugin : PLUGIN)
       let[@inline] default_pol self v = Bitvec.get self.v_default_polarity (v:var:>int)
       let[@inline] heap_idx self v = Vec.get self.v_heap_idx (v:var:>int)
       let[@inline] set_heap_idx self v i = Vec.set self.v_heap_idx (v:var:>int) i
+      let[@inline] set_persistent self v b = Bitvec.set self.v_persistent (v:var:>int) b
+      let[@inline] persistent self v = Bitvec.get self.v_persistent (v:var:>int)
+
+      let[@inline] iter_all (self:store) ~f : unit =
+        for i=0 to self.v_count-1 do f (of_int_unsafe i) done
     end
 
     module Atom = struct
@@ -426,32 +438,52 @@ module Make(Plugin : PLUGIN)
     (* allocate new variable *)
     let alloc_var_uncached_ ?default_pol:(pol=true) self (form:lit) : var =
       let {v_count; v_of_lit; v_level; v_heap_idx; v_weight;
-           v_reason; v_seen; v_default_polarity; stat_n_atoms;
-           a_is_true; a_seen; a_watched; a_form; c_store=_;
+           v_reason; v_seen; v_default_polarity; v_persistent;
+           stat_n_atoms; a_is_true; a_seen; a_watched; a_form;
+           c_store=_; stat_gc_atoms=_; v_recycle_idx;
           } = self in
 
-      let v_idx = v_count in
+      (* allocate index, possibly by reusing a dead one *)
+      let v_idx, is_new =
+        if VecI32.is_empty v_recycle_idx then (
+          let n = v_count in
+          self.v_count <- 1 + v_count;
+          n, true
+        ) else (
+          VecI32.pop v_recycle_idx, false
+        )
+      in
       let v = Var.of_int_unsafe v_idx in
 
       Stat.incr stat_n_atoms;
 
-      self.v_count <- 1 + v_idx;
       Lit_tbl.add v_of_lit form v;
-      Vec.push v_level (-1);
-      Vec.push v_heap_idx (-1);
-      Vec.push v_reason None;
-      Vec_float.push v_weight 0.;
-      Bitvec.ensure_size v_seen v_idx;
-      Bitvec.ensure_size v_default_polarity v_idx;
-      Bitvec.set v_default_polarity v_idx pol;
+      (* allocate new fields *)
+      if is_new then (
+        Vec.push v_level (-1);
+        Vec.push v_heap_idx (-1);
+        Vec.push v_reason None;
+        Vec_float.push v_weight 0.;
+        Bitvec.ensure_size v_seen v_idx;
+        Bitvec.ensure_size v_default_polarity v_idx;
+        Bitvec.ensure_size v_persistent v_idx;
 
-      assert (Vec.size a_form = 2 * (v:var:>int));
-      Bitvec.ensure_size a_is_true (2*(v:var:>int));
-      Bitvec.ensure_size a_seen (2*(v:var:>int));
-      Vec.push a_form form;
-      Vec.push a_watched (CVec.create ~cap:0 ());
-      Vec.push a_form (Lit.neg form);
-      Vec.push a_watched (CVec.create ~cap:0 ());
+        assert (Vec.size a_form = 2 * (v:var:>int));
+        Bitvec.ensure_size a_is_true (2*(v:var:>int));
+        Bitvec.ensure_size a_seen (2*(v:var:>int));
+        Vec.push a_form form;
+        Vec.push a_watched (CVec.create ~cap:0 ());
+        Vec.push a_form (Lit.neg form);
+        Vec.push a_watched (CVec.create ~cap:0 ());
+      ) else (
+        Var.set_level self v (-1);
+        Var.set_heap_idx self v (-1);
+        Var.set_reason self v None;
+        Var.unmark self v;
+        Vec.set a_form (Atom.pa v:>int) form;
+        Vec.set a_form (Atom.na v:>int) (Lit.neg form);
+      );
+      Bitvec.set v_default_polarity v_idx pol;
       assert (Vec.get a_form (Atom.of_var v:atom:>int) == form);
 
       v
@@ -469,6 +501,24 @@ module Make(Plugin : PLUGIN)
       Atom.unmark self (Atom.pa v);
       Atom.unmark self (Atom.na v);
       ()
+
+    (* delete variable and its atoms *)
+    let remove_var (self:t) (v:var) : unit =
+      let lit = Atom.lit self (Atom.pa v) in
+      Lit_tbl.remove self.v_of_lit lit;
+      Var.set_level self v (-1);
+      Var.set_heap_idx self v (-1);
+      Var.set_reason self v None;
+      Var.set_weight self v 0.;
+      Var.mark self v; (* mark so that GC will not GC this again *)
+      List.iter
+        (fun a ->
+          CVec.clear (Atom.watched self a);
+          Atom.set_is_true self a false;
+          Atom.unmark self a;
+        )
+        [Atom.pa v; Atom.na v];
+      VecI32.push self.v_recycle_idx (v:var:>int) (* recycle slot *)
 
     let atom_of_var_ v same_sign : atom =
       if same_sign then Atom.pa v else Atom.na v
@@ -1666,6 +1716,49 @@ module Make(Plugin : PLUGIN)
                      (Format.pp_print_list (Atom.debug store)) !core);
     !core
 
+  (* remove unused variables that are also not persistent *)
+  let reduce_var_db (self:t) : unit =
+    Log.debugf 3 (fun k->k "(@[sat.gc-atoms@])");
+
+    let alive_atoms = self.temp_atom_vec in
+    assert (AVec.is_empty alive_atoms);
+
+    (* mark atoms to keep *)
+    let mark_atom_alive (a:atom) =
+      let v = Atom.var a in
+      if not (Var.persistent self.store v) &&
+         not (Var.marked self.store v) then (
+        Var.mark self.store v;
+        AVec.push alive_atoms (Atom.pa v); (* always store positive atom *)
+      )
+    in
+
+    let add_atoms_of_clause (c:clause) =
+      Clause.iter self.store c ~f:mark_atom_alive;
+    in
+
+    iter_clauses_learnt_ self ~f:add_atoms_of_clause;
+    CVec.iter self.clauses_hyps ~f:add_atoms_of_clause;
+    CVec.iter self.clauses_to_add_learnt ~f:add_atoms_of_clause;
+    Vec.iter (fun (c,_cp) -> add_atoms_of_clause c) self.clauses_to_add_in_pool;
+    AVec.iter self.trail ~f:mark_atom_alive;
+
+    (* now collect dead variables *)
+    Var.iter_all self.store
+      ~f:(fun v ->
+          if not (Var.persistent self.store v) &&
+             not (Var.marked self.store v) then (
+            (* dead var *)
+            Store.remove_var self.store v;
+            Stat.incr self.store.stat_gc_atoms;
+            Format.eprintf "REMOVE ATOM %a@." (Atom.debug self.store) (Atom.pa v);
+          ));
+
+    (* cleanup *)
+    AVec.iter alive_atoms ~f:(fun a -> Var.unmark self.store (Atom.var a));
+    AVec.clear alive_atoms;
+    ()
+
   (* GC: remove some learnt clauses.
      This works even during the proof with a non empty trail. *)
   let reduce_clause_db (self:t) : unit =
@@ -1772,6 +1865,7 @@ module Make(Plugin : PLUGIN)
     iter_clauses_on_trail ~f:(fun c -> Clause.set_marked store c false);
 
     Log.debugf 3 (fun k->k "(@[sat.gc.done :collected %d@])" n_collected);
+    reduce_var_db self; (* now collect redundant variables *)
     ()
 
   (* Decide on a new literal, and enqueue it into the trail *)
@@ -1940,7 +2034,8 @@ module Make(Plugin : PLUGIN)
   let[@inline] proof st = st.proof
 
   let[@inline] add_lit self ?default_pol lit =
-    ignore (make_atom_ self lit ?default_pol : atom)
+    let a = make_atom_ self lit ?default_pol in
+    Var.set_persistent self.store (Atom.var a) true
   let[@inline] set_default_pol (self:t) (lit:lit) (pol:bool) : unit =
     let a = make_atom_ self lit ~default_pol:pol in
     Var.set_default_pol self.store (Atom.var a) pol
