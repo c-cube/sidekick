@@ -1,20 +1,20 @@
 
 type config = {
-  (** Size of pool of clauses *)
   cpool_size: int;
+  (** Size of pool of clauses *)
 
-  (** only do dyn-trans if conflict has more than this many lits *)
   min_confl_len : int;
+  (** only do dyn-trans if conflict has more than this many lits *)
 
-  (** Max number of conflicts produced at once *)
   max_batch_size : int;
+  (** Max number of conflicts produced at once *)
 
-  (** Bump activity of terms involved in transitivity steps in CC conflicts *)
   activity_bump : float;
+  (** Bump activity of terms involved in transitivity steps in CC conflicts *)
 
+  min_activity : float;
   (** Min activity of one side of an equation so it can participate in
       a dyn-trans inference *)
-  min_activity : float;
 }
 
 let default_config : config = {
