@@ -78,11 +78,11 @@ let[@inline] iteri ~f self =
     f i self.data.{i}
   done
 
-let[@inline] to_iter self k = iter ~f:k self
-
-let pp ppx out self =
-  Format.fprintf out "[@[";
-  iteri self
-    ~f:(fun i x -> if i>0 then Format.fprintf out ",@ "; ppx out x);
-  Format.fprintf out "@]]"
-
+include Vec_sig.Make_extensions(struct
+    type nonrec elt = float
+    type nonrec t = t
+    let get = get
+    let size = size
+    let iter = iter
+    let iteri = iteri
+  end)
