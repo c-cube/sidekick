@@ -749,7 +749,7 @@ module Make(Plugin : PLUGIN)
     n_decisions = Stat.mk_int stat "sat.n-decisions";
     n_propagations = Stat.mk_int stat "sat.n-propagations";
     n_restarts = Stat.mk_int stat "sat.n-restarts";
-    n_minimized_away = Stat.mk_int stat "sat.n-confl-minimized-away";
+    n_minimized_away = Stat.mk_int stat "sat.n-confl-lits-minimized-away";
 
     on_conflict = None;
     on_decision= None;
