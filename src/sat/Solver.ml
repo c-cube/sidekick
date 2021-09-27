@@ -1169,18 +1169,18 @@ module Make(Plugin : PLUGIN)
    (* minimize conflict by removing atoms whose propagation history
       is ultimately self-subsuming with [lits] *)
    let minimize_conflict (self:t) (_c_level:int)
-       (learnt: atom Vec.t) : unit =
+       (learnt: AVec.t) : unit =
      let store = self.store in
 
      (* abstraction of the levels involved in the conflict at all,
         as logical "or" of each literal's approximate level *)
      let abstract_levels =
-       Vec.fold (fun lvl a -> lvl lor abstract_level_ self (Atom.var a)) 0 learnt
+       AVec.fold_left (fun lvl a -> lvl lor abstract_level_ self (Atom.var a)) 0 learnt
      in
 
      let j = ref 1 in
-     for i=1 to Vec.size learnt - 1 do
-       let a = Vec.get learnt i in
+     for i=1 to AVec.size learnt - 1 do
+       let a = AVec.get learnt i in
        let keep =
          begin match Atom.reason store a with
            | Some Decision -> true (* always keep decisions *)
@@ -1190,13 +1190,13 @@ module Make(Plugin : PLUGIN)
          end
        in
        if keep then (
-         Vec.set learnt !j a;
+         AVec.set learnt !j a;
          incr j
        ) else (
          Stat.incr self.n_minimized_away;
        )
      done;
-     Vec.shrink learnt !j;
+     AVec.shrink learnt !j;
      ()
 
   (* result of conflict analysis, containing the learnt clause and some

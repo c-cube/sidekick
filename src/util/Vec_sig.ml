@@ -44,6 +44,8 @@ module type EXTENSIONS = sig
 
   val to_array : t -> elt array
 
+  val fold_left : ('a -> elt -> 'a) -> 'a -> t -> 'a
+
   val pp : elt CCFormat.printer -> t CCFormat.printer
 end
 
@@ -68,6 +70,11 @@ module Make_extensions(B: BASE_RO)
       iteri self ~f:(Array.set a);
       a
     )
+
+  let fold_left f acc self =
+    let r = ref acc in
+    iter self ~f:(fun x -> r := f !r x);
+    !r
 
   let pp ppx out self =
     Format.fprintf out "[@[";
