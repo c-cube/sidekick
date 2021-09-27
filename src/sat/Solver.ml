@@ -101,13 +101,13 @@ module Make(Plugin : PLUGIN)
 
     type t = {
       (* variables *)
-      v_of_lit: var Lit_tbl.t;
-      v_level: int Vec.t;
-      v_heap_idx: int Vec.t;
-      v_weight: Vec_float.t;
-      v_reason: reason option Vec.t;
-      v_seen: Bitvec.t;
-      v_default_polarity: Bitvec.t;
+      v_of_lit: var Lit_tbl.t; (* lit -> var *)
+      v_level: int Vec.t; (* decision/assignment level, or -1 *)
+      v_heap_idx: int Vec.t; (* index in priority heap *)
+      v_weight: Vec_float.t; (* heuristic activity *)
+      v_reason: reason option Vec.t; (* reason for assignment *)
+      v_seen: Bitvec.t; (* generic temporary marker *)
+      v_default_polarity: Bitvec.t; (* default polarity in decisions *)
       mutable v_count : int;
 
       (* atoms *)
@@ -685,7 +685,7 @@ module Make(Plugin : PLUGIN)
 
     (* temporaries *)
 
-    temp_atom_vec : atom Vec.t;
+    temp_atom_vec : AVec.t;
     temp_clause_vec : CVec.t;
 
     mutable var_incr : float;
@@ -735,7 +735,7 @@ module Make(Plugin : PLUGIN)
 
     to_clear=Vec.create();
     temp_clause_vec=CVec.create();
-    temp_atom_vec=Vec.create();
+    temp_atom_vec=AVec.create();
 
     th_head = 0;
     elt_head = 0;
@@ -1214,7 +1214,7 @@ module Make(Plugin : PLUGIN)
     let to_unmark = self.to_clear in (* for cleanup *)
     Vec.clear to_unmark;
     let learnt = self.temp_atom_vec in
-    Vec.clear learnt;
+    AVec.clear learnt;
 
     (* loop variables *)
     let pathC  = ref 0 in
@@ -1266,7 +1266,7 @@ module Make(Plugin : PLUGIN)
                 if Atom.level store q >= conflict_level then (
                   incr pathC;
                 ) else (
-                  Vec.push learnt q;
+                  AVec.push learnt q;
                   blevel := max !blevel (Atom.level store q)
                 )
               )
@@ -1290,7 +1290,7 @@ module Make(Plugin : PLUGIN)
       match !pathC, Atom.reason store p with
       | 0, _ ->
         continue := false;
-        Vec.push learnt (Atom.neg p)
+        AVec.push learnt (Atom.neg p)
       | n, Some (Bcp cl | Bcp_lazy (lazy cl)) ->
         assert (n > 0);
         assert (Atom.level store p >= conflict_level);
@@ -1308,8 +1308,8 @@ module Make(Plugin : PLUGIN)
     (* put high-level literals first, so that:
        - they make adequate watch lits
        - the first literal is the UIP, if any *)
-    let cr_learnt = Vec.to_array learnt in
-    Vec.clear learnt;
+    let cr_learnt = AVec.to_array learnt in
+    AVec.clear learnt;
     Array.sort (fun p q -> compare (Atom.level store q) (Atom.level store p)) cr_learnt;
 
     (* put_high_level_atoms_first a; *)
@@ -1758,7 +1758,7 @@ module Make(Plugin : PLUGIN)
   let reduce_clause_db (self:t) : unit =
     let store = self.store in
 
-    Log.debugf 3 (fun k->k "(@[sat.gc.start :max-learnt %d@])"
+    Log.debugf 3 (fun k->k "(@[sat.gc-clauses.start :max-learnt %d@])"
                      !(self.max_clauses_learnt));
 
     let to_be_gc = self.temp_clause_vec in (* clauses to collect *)
@@ -1767,14 +1767,14 @@ module Make(Plugin : PLUGIN)
     (* atoms whose watches will need to be rebuilt to filter out
        dead clauses *)
     let dirty_atoms = self.temp_atom_vec in
-    assert (Vec.is_empty dirty_atoms);
+    assert (AVec.is_empty dirty_atoms);
 
     (* [a] is watching at least one removed clause, we'll need to
        trim its watchlist *)
     let[@inline] mark_dirty_atom a =
       if not (Atom.marked store a) then (
         Atom.mark store a;
-        Vec.push dirty_atoms a;
+        AVec.push dirty_atoms a;
       )
     in
 
@@ -1782,13 +1782,12 @@ module Make(Plugin : PLUGIN)
        which we must therefore keep for now as they might participate in
        conflict resolution *)
     let iter_clauses_on_trail ~f : unit =
-      AVec.iter
+      AVec.iter self.trail
         ~f:(fun a ->
            match Atom.reason store a with
            | Some (Bcp c) -> f c
            | Some (Bcp_lazy lc) when Lazy.is_val lc -> f (Lazy.force lc)
-           | _ -> ())
-        self.trail;
+           | _ -> ());
     in
 
     iter_clauses_on_trail ~f:(fun c -> Clause.set_marked store c true);
@@ -1844,14 +1843,13 @@ module Make(Plugin : PLUGIN)
     let n_collected = CVec.size to_be_gc in
 
     (* update watchlist of dirty atoms *)
-    Vec.iter
-      (fun a ->
+    AVec.iter dirty_atoms
+      ~f:(fun a ->
          assert (Atom.marked store a);
          Atom.unmark store a;
          let w = Atom.watched store a in
-         CVec.filter_in_place (fun c -> not (Clause.dead store c)) w)
-      dirty_atoms;
-    Vec.clear dirty_atoms;
+         CVec.filter_in_place (fun c -> not (Clause.dead store c)) w);
+    AVec.clear dirty_atoms;
 
     (* actually remove the clauses now that they are detached *)
     CVec.iter ~f:(Clause.dealloc store) to_be_gc;
