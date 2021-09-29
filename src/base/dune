@@ -4,5 +4,12 @@
  (synopsis "Base term definitions for the standalone SMT solver and library")
  (libraries containers sidekick.core sidekick.util sidekick.lit
             sidekick.arith-lra sidekick.th-bool-static
-            sidekick.zarith zarith)
+            sidekick.zarith
+            bare_encoding zarith)
  (flags :standard -w -32 -open Sidekick_util))
+
+(rule
+  (targets proof_ser.ml)
+  (deps proof_ser.bare)
+  (action (run bare-codegen %{deps} -o %{targets})))
+
