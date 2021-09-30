@@ -19,11 +19,13 @@ module Make(Plugin : PLUGIN)
   type lit = Plugin.lit
   type theory = Plugin.t
   type proof = Plugin.proof
-  type dproof = proof -> unit
+  type step_id = Plugin.step_id
+  type pstep = proof -> step_id
   type clause_pool_id = Clause_pool_id.t
 
   module Lit = Plugin.Lit
   module Proof = Plugin.Proof
+  module Step_vec = Proof.Step_vec
 
   (* ### types ### *)
 
@@ -93,6 +95,7 @@ module Make(Plugin : PLUGIN)
       c_lits: atom array Vec.t; (* storage for clause content *)
       c_activity: Vec_float.t;
       c_recycle_idx: VecI32.t; (* recycle clause numbers that were GC'd *)
+      c_proof: Step_vec.t; (* clause -> step for its proof *)
       c_attached: Bitvec.t;
       c_marked: Bitvec.t;
       c_removable: Bitvec.t;
@@ -148,6 +151,7 @@ module Make(Plugin : PLUGIN)
           c_lits=Vec.create();
           c_activity=Vec_float.create();
           c_recycle_idx=VecI32.create ~cap:0 ();
+          c_proof=Step_vec.create ~cap:0 ();
           c_dead=Bitvec.create();
           c_attached=Bitvec.create();
           c_removable=Bitvec.create();
@@ -249,9 +253,9 @@ module Make(Plugin : PLUGIN)
 
       (** Make a clause with the given atoms *)
 
-      val make_a : store -> removable:bool -> atom array -> t
-      val make_l : store -> removable:bool -> atom list -> t
-      val make_vec : store -> removable:bool -> atom Vec.t -> t
+      val make_a : store -> removable:bool -> atom array -> step_id -> t
+      val make_l : store -> removable:bool -> atom list -> step_id -> t
+      val make_vec : store -> removable:bool -> atom Vec.t -> step_id -> t
 
       val n_atoms : store -> t -> int
 
@@ -266,6 +270,9 @@ module Make(Plugin : PLUGIN)
       val set_dead : store -> t -> bool -> unit
       val dealloc : store -> t -> unit
       (** Delete the clause *)
+
+      val set_proof_step : store -> t -> step_id -> unit
+      val proof_step : store -> t -> step_id
 
       val activity : store -> t -> float
       val set_activity : store -> t -> float -> unit
@@ -289,10 +296,10 @@ module Make(Plugin : PLUGIN)
 
       (* TODO: store watch lists inside clauses *)
 
-      let make_a (store:store) ~removable (atoms:atom array) : t =
+      let make_a (store:store) ~removable (atoms:atom array) step_id : t =
         let {
           c_recycle_idx; c_lits; c_activity;
-          c_attached; c_dead; c_removable; c_marked;
+          c_attached; c_dead; c_removable; c_marked; c_proof;
         } = store.c_store in
         (* allocate new ID *)
         let cid =
@@ -306,6 +313,7 @@ module Make(Plugin : PLUGIN)
           let new_len = cid + 1 in
           Vec.ensure_size c_lits [||] new_len;
           Vec_float.ensure_size c_activity new_len;
+          Step_vec.ensure_size c_proof new_len;
           Bitvec.ensure_size c_attached new_len;
           Bitvec.ensure_size c_dead new_len;
           Bitvec.ensure_size c_removable new_len;
@@ -315,15 +323,16 @@ module Make(Plugin : PLUGIN)
         end;
 
         Vec.set c_lits cid atoms;
+        Step_vec.set c_proof cid step_id;
 
         let c = of_int_unsafe cid in
         c
 
-      let make_l store ~removable atoms : t =
-        make_a store ~removable (Array.of_list atoms)
+      let make_l store ~removable atoms step : t =
+        make_a store ~removable (Array.of_list atoms) step
 
-      let make_vec store ~removable atoms : t =
-        make_a store ~removable (Vec.to_array atoms)
+      let make_vec store ~removable atoms step : t =
+        make_a store ~removable (Vec.to_array atoms) step
 
       let[@inline] n_atoms (store:store) (c:t) : int =
         Array.length (Vec.get store.c_store.c_lits (c:t:>int))
@@ -358,10 +367,12 @@ module Make(Plugin : PLUGIN)
       let[@inline] set_dead store c b = Bitvec.set store.c_store.c_dead (c:t:>int) b
       let[@inline] removable store c = Bitvec.get store.c_store.c_removable (c:t:>int)
       let[@inline] set_removable store c b = Bitvec.set store.c_store.c_removable (c:t:>int) b
+      let[@inline] set_proof_step store c p = Step_vec.set store.c_store.c_proof (c:t:>int) p
+      let[@inline] proof_step store c = Step_vec.get store.c_store.c_proof (c:t:>int)
 
       let dealloc store c : unit =
         assert (dead store c);
-        let {c_lits; c_recycle_idx; c_activity;
+        let {c_lits; c_recycle_idx; c_activity; c_proof=_;
              c_dead; c_removable; c_attached; c_marked; } = store.c_store in
 
         (* clear data *)
@@ -383,14 +394,14 @@ module Make(Plugin : PLUGIN)
       let[@inline] activity store c = Vec_float.get store.c_store.c_activity (c:t:>int)
       let[@inline] set_activity store c f = Vec_float.set store.c_store.c_activity (c:t:>int) f
 
-      let[@inline] make_removable store l =
-        make_l store ~removable:true l
+      let[@inline] make_removable store l step : t =
+        make_l store ~removable:true l step
 
-      let[@inline] make_removable_a store a =
-        make_a store ~removable:true a
+      let[@inline] make_removable_a store a step =
+        make_a store ~removable:true a step
 
-      let[@inline] make_permanent store l =
-        let c = make_l store ~removable:false l in
+      let[@inline] make_permanent store l step : t =
+        let c = make_l store ~removable:false l step in
         assert (not (removable store c)); (* permanent by default *)
         c
 
@@ -681,6 +692,7 @@ module Make(Plugin : PLUGIN)
 
     temp_atom_vec : AVec.t;
     temp_clause_vec : CVec.t;
+    temp_step_vec : Step_vec.t;
 
     mutable var_incr : float;
     (* increment for variables' activity *)
@@ -729,6 +741,7 @@ module Make(Plugin : PLUGIN)
     to_clear=Vec.create();
     temp_clause_vec=CVec.create();
     temp_atom_vec=AVec.create();
+    temp_step_vec=Step_vec.create();
 
     th_head = 0;
     elt_head = 0;
@@ -783,6 +796,7 @@ module Make(Plugin : PLUGIN)
   let clause_pool_descr self (p:clause_pool_id) =
     let pool = Vec.get self.clause_pools (p:>int) in
     cp_descr_ pool
+
 
   (* Do we have a level-0 empty clause? *)
   let[@inline] check_unsat_ st =
@@ -889,6 +903,7 @@ module Make(Plugin : PLUGIN)
     ) else (
       let removable = Clause.removable store clause in
       Clause.make_l store ~removable !res
+        (Clause.proof_step store clause)
     )
 
   (* TODO: do it in place in a vec? *)
@@ -1023,6 +1038,33 @@ module Make(Plugin : PLUGIN)
     | US_false c ->
       Format.fprintf out "(@[unsat-cause@ :false %a@])" (Clause.debug self.store) c
 
+  let prove_unsat self (us:clause) : clause =
+    if Proof.enabled self.proof && Clause.n_atoms self.store us > 0 then (
+      (* reduce [c] to an empty clause, all its literals should be false at level 0 *)
+      Log.debugf 1 (fun k -> k "(@[sat.prove-unsat@ :from %a@])" (Clause.debug self.store) us);
+
+      (* accumulate proofs of all level-0 lits *)
+      let pvec = self.temp_step_vec in
+      assert (Step_vec.is_empty pvec);
+      Clause.iter self.store us
+        ~f:(fun a ->
+            assert (Atom.is_false self.store a && Atom.level self.store a=0);
+            begin match Atom.reason self.store a with
+              | Some (Bcp c | Bcp_lazy (lazy c)) ->
+                let p = Clause.proof_step self.store c in
+                Step_vec.push pvec p
+              | _ -> assert false
+            end);
+
+      let p_empty =
+        Proof.emit_redundant_clause Iter.empty ~hyps:(Step_vec.to_iter pvec) self.proof
+      in
+      Step_vec.clear pvec;
+      let c_empty = Clause.make_l self.store [] ~removable:false p_empty in
+
+      c_empty
+    ) else us
+
   (* Unsatisfiability is signaled through an exception, since it can happen
      in multiple places (adding new clauses, or solving for instance). *)
   let report_unsat self (us:unsat_cause) : _ =
@@ -1031,10 +1073,10 @@ module Make(Plugin : PLUGIN)
       | US_false c ->
         self.unsat_at_0 <- Some c;
         (match self.on_learnt with Some f -> f self c | None -> ());
-        Proof.with_proof self.proof
-          (Proof.emit_redundant_clause (Clause.lits_iter self.store c));
+        let p = Clause.proof_step self.store c in
+        Proof.with_proof self.proof (Proof.emit_unsat p);
         US_false c
-      | _ -> us
+      | US_local _ -> us
     in
     raise (E_unsat us)
 
@@ -1119,9 +1161,10 @@ module Make(Plugin : PLUGIN)
 
    (* can we remove [a] by self-subsuming resolutions with other lits
       of the learnt clause? *)
-   let lit_redundant (self:t) (abstract_levels:int) (v:var) : bool =
+   let lit_redundant (self:t) (abstract_levels:int) (steps:Step_vec.t) (v:var) : bool =
      let store = self.store in
      let to_unmark = self.to_clear in
+     let steps_size_init = Step_vec.size steps in
 
      (* save current state of [to_unmark] *)
      let top = Vec.size to_unmark in
@@ -1132,6 +1175,10 @@ module Make(Plugin : PLUGIN)
        | Some (Bcp c | Bcp_lazy (lazy c)) ->
          let c_atoms = Clause.atoms_a store c in
          assert (Var.equal v (Atom.var c_atoms.(0)));
+         if Proof.enabled self.proof then (
+           Step_vec.push steps (Clause.proof_step self.store c);
+         );
+
          (* check that all the other lits of [c] are marked or redundant *)
          for i = 1 to Array.length c_atoms - 1 do
            let v2 = Atom.var c_atoms.(i) in
@@ -1156,12 +1203,13 @@ module Make(Plugin : PLUGIN)
          Var.unmark store (Vec.get to_unmark i)
        done;
        Vec.shrink to_unmark top;
+       Step_vec.shrink steps steps_size_init; (* restore proof *)
        false
 
    (* minimize conflict by removing atoms whose propagation history
       is ultimately self-subsuming with [lits] *)
    let minimize_conflict (self:t) (_c_level:int)
-       (learnt: AVec.t) : unit =
+       (learnt: AVec.t) (steps: Step_vec.t) : unit =
      let store = self.store in
 
      (* abstraction of the levels involved in the conflict at all,
@@ -1177,7 +1225,7 @@ module Make(Plugin : PLUGIN)
          begin match Atom.reason store a with
            | Some Decision -> true (* always keep decisions *)
            | Some (Bcp _ | Bcp_lazy _) ->
-             not (lit_redundant self abstract_levels (Atom.var a))
+             not (lit_redundant self abstract_levels steps (Atom.var a))
            | None -> assert false
          end
        in
@@ -1197,6 +1245,7 @@ module Make(Plugin : PLUGIN)
     cr_backtrack_lvl : int; (* level to backtrack to *)
     cr_learnt: atom array; (* lemma learnt from conflict *)
     cr_is_uip: bool; (* conflict is UIP? *)
+    cr_steps: Step_vec.t;
   }
 
   (* conflict analysis, starting with top of trail and conflict clause *)
@@ -1207,6 +1256,8 @@ module Make(Plugin : PLUGIN)
     Vec.clear to_unmark;
     let learnt = self.temp_atom_vec in
     AVec.clear learnt;
+
+    let steps = self.temp_step_vec in (* for proof *)
 
     (* loop variables *)
     let pathC  = ref 0 in
@@ -1237,9 +1288,14 @@ module Make(Plugin : PLUGIN)
         | Some clause ->
           Log.debugf 30
             (fun k->k"(@[sat.analyze-conflict.resolve@ %a@])" (Clause.debug store) clause);
+
           if Clause.removable store clause then (
             clause_bump_activity self clause;
           );
+          if Proof.enabled self.proof then (
+            Step_vec.push steps (Clause.proof_step self.store clause);
+          );
+
           (* visit the current predecessors *)
           let atoms = Clause.atoms_a store clause in
           for j = 0 to Array.length atoms - 1 do
@@ -1249,6 +1305,11 @@ module Make(Plugin : PLUGIN)
                     Atom.level store q >= 0); (* unsure? *)
             if Atom.level store q <= 0 then (
               assert (Atom.is_false store q);
+              begin match Atom.reason store q with
+                | Some (Bcp cl | Bcp_lazy (lazy cl)) when Proof.enabled self.proof ->
+                  Step_vec.push steps (Clause.proof_step self.store cl);
+                | _ -> ()
+              end
             );
             if not (Var.marked store (Atom.var q)) then (
               Var.mark store (Atom.var q);
@@ -1291,7 +1352,10 @@ module Make(Plugin : PLUGIN)
     done;
 
     (* minimize conflict, to get a more general lemma *)
-    minimize_conflict self conflict_level learnt;
+    minimize_conflict self conflict_level learnt steps;
+
+    let cr_steps = Step_vec.copy steps in
+    Step_vec.clear self.temp_step_vec;
 
     (* cleanup marks *)
     Vec.iter (Store.clear_var store) to_unmark;
@@ -1309,7 +1373,21 @@ module Make(Plugin : PLUGIN)
     { cr_backtrack_lvl = level;
       cr_learnt;
       cr_is_uip = is_uip;
+      cr_steps;
     }
+
+  (* FIXME
+  let prove_unsat_ (self:t) (conflict:conflict_res) : step_id =
+    if Array.length conflict.atoms = 0 then (
+      conflict
+    ) else (
+      Log.debugf 1 (fun k -> k "(@[sat.prove-unsat@ :from %a@])" Clause.debug conflict);
+      let l = Array.fold_left (fun acc a -> set_atom_proof a :: acc) [] conflict.atoms in
+      let res = Clause.make_permanent [] (History (conflict :: l)) in
+      Log.debugf 1 (fun k -> k "(@[sat.proof-found@ %a@])" Clause.debug res);
+      res
+    )
+     *)
 
   (* Get the correct vector to insert a clause in. *)
   let[@inline] add_clause_to_vec_ ~pool self c =
@@ -1331,24 +1409,33 @@ module Make(Plugin : PLUGIN)
           (* incompatible at level 0 *)
           report_unsat self (US_false confl)
         ) else (
-          let uclause =
-            Clause.make_a store ~removable:true cr.cr_learnt in
+          let p =
+            Proof.with_proof self.proof @@
+            Proof.emit_redundant_clause
+              (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
+              ~hyps:(Step_vec.to_iter cr.cr_steps)
+          in
+          let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
+
           (match self.on_learnt with Some f -> f self uclause | None -> ());
-          Proof.with_proof self.proof
-            (Proof.emit_redundant_clause (Clause.lits_iter self.store uclause));
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool self fuip ~level:0 (Bcp uclause)
         )
+
       | _ ->
         let fuip = cr.cr_learnt.(0) in
-        let lclause = Clause.make_a store ~removable:true cr.cr_learnt in
+        let p =
+          Proof.with_proof self.proof @@
+          Proof.emit_redundant_clause
+            (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
+            ~hyps:(Step_vec.to_iter cr.cr_steps)
+        in
+        let lclause = Clause.make_a store ~removable:true cr.cr_learnt p in
 
         add_clause_to_vec_ ~pool self lclause;
         attach_clause self lclause;
         clause_bump_activity self lclause;
         (match self.on_learnt with Some f -> f self lclause | None -> ());
-        Proof.with_proof self.proof
-          (Proof.emit_redundant_clause (Clause.lits_iter self.store lclause));
         assert (cr.cr_is_uip);
         enqueue_bool self fuip ~level:cr.cr_backtrack_lvl (Bcp lclause)
     end;
@@ -1533,20 +1620,22 @@ module Make(Plugin : PLUGIN)
 
   let[@inline] slice_get st i = AVec.get st.trail i
 
-  let acts_add_clause self ?(keep=false) (l:lit list) (dp:dproof): unit =
+  let acts_add_clause self ?(keep=false) (l:lit list) (pstep:pstep): unit =
     let atoms = List.rev_map (make_atom_ self) l in
     let removable = not keep in
-    let c = Clause.make_l self.store ~removable atoms in
-    Proof.with_proof self.proof dp;
+    let c =
+      let p = Proof.with_proof self.proof pstep in
+      Clause.make_l self.store ~removable atoms p in
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
     CVec.push self.clauses_to_add_learnt c
 
-  let acts_add_clause_in_pool self ~pool (l:lit list) (dp:dproof): unit =
+  let acts_add_clause_in_pool self ~pool (l:lit list) (pstep:pstep): unit =
     let atoms = List.rev_map (make_atom_ self) l in
     let removable = true in
-    let c = Clause.make_l self.store ~removable atoms in
+    let c =
+      let p = Proof.with_proof self.proof pstep in
+      Clause.make_l self.store ~removable atoms p in
     let pool = Vec.get self.clause_pools (pool:clause_pool_id:>int) in
-    Proof.with_proof self.proof dp;
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause-in-pool@ %a@ :pool %s@])"
                      (Clause.debug self.store) c
                      (cp_descr_ pool));
@@ -1561,11 +1650,12 @@ module Make(Plugin : PLUGIN)
       self.next_decisions <- a :: self.next_decisions
     )
 
-  let acts_raise self (l:lit list) (dp:dproof) : 'a =
+  let acts_raise self (l:lit list) (pstep:pstep) : 'a =
     let atoms = List.rev_map (make_atom_ self) l in
     (* conflicts can be removed *)
-    let c = Clause.make_l self.store ~removable:true atoms in
-    Proof.with_proof self.proof dp;
+    let c =
+      let p = Proof.with_proof self.proof pstep in
+      Clause.make_l self.store ~removable:true atoms p in
     Log.debugf 5 (fun k->k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])"
                      (Clause.debug self.store) c);
     raise_notrace (Th_conflict c)
@@ -1586,16 +1676,17 @@ module Make(Plugin : PLUGIN)
       let p = make_atom_ self f in
       if Atom.is_true store p then ()
       else if Atom.is_false store p then (
-        let lits, dp = mk_expl() in
+        let lits, pstep = mk_expl() in
         let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
         check_consequence_lits_false_ self l;
-        let c = Clause.make_l store ~removable:true (p :: l) in
-        Proof.with_proof self.proof dp;
+        let c =
+          let proof = Proof.with_proof self.proof pstep in
+          Clause.make_l store ~removable:true (p :: l) proof in
         raise_notrace (Th_conflict c)
       ) else (
         insert_var_order self (Atom.var p);
         let c = lazy (
-          let lits, dp = mk_expl () in
+          let lits, pstep = mk_expl () in
           let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
           (* note: we can check that invariant here in the [lazy] block,
              as conflict analysis will run in an environment where
@@ -1604,8 +1695,8 @@ module Make(Plugin : PLUGIN)
              (otherwise the propagated lit would have been backtracked and
              discarded already.) *)
           check_consequence_lits_false_ self l;
-          Proof.with_proof self.proof dp;
-          Clause.make_l store ~removable:true (p :: l)
+          let proof = Proof.with_proof self.proof pstep in
+          Clause.make_l store ~removable:true (p :: l) proof
         ) in
         let level = decision_level self in
         Stat.incr self.n_propagations;
@@ -1633,8 +1724,9 @@ module Make(Plugin : PLUGIN)
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
+      type nonrec step_id = step_id
+      type pstep = proof -> step_id
       type nonrec clause_pool_id = clause_pool_id
-      type dproof = proof -> unit
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:false st.th_head
       let eval_lit= acts_eval_lit st
@@ -1651,7 +1743,8 @@ module Make(Plugin : PLUGIN)
   let[@inline] full_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
-      type dproof = proof -> unit
+      type nonrec step_id = step_id
+      type pstep = proof -> step_id
       type nonrec clause_pool_id = clause_pool_id
       type nonrec lit = lit
       let iter_assumptions=acts_iter st ~full:true st.th_head
@@ -1809,7 +1902,7 @@ module Make(Plugin : PLUGIN)
        | Some f -> let lits = Clause.lits_a store c in f self lits
        | None -> ());
       Proof.with_proof self.proof
-        (Proof.del_clause (Clause.lits_iter store c));
+        (Proof.del_clause (Clause.proof_step store c));
     in
 
     let gc_arg =
@@ -2005,9 +2098,10 @@ module Make(Plugin : PLUGIN)
     List.iter
       (fun l ->
          let atoms = Util.array_of_list_map (make_atom_ self) l in
-         let c = Clause.make_a self.store ~removable:false atoms in
-         Proof.with_proof self.proof
-           (Proof.emit_input_clause (Iter.of_list l));
+         let proof =
+           Proof.with_proof self.proof (Proof.emit_input_clause (Iter.of_list l))
+         in
+         let c = Clause.make_a self.store ~removable:false atoms proof in
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
          CVec.push self.clauses_to_add_learnt c)
@@ -2026,7 +2120,7 @@ module Make(Plugin : PLUGIN)
   (* Result type *)
   type res =
     | Sat of Lit.t Solver_intf.sat_state
-    | Unsat of (lit,clause) Solver_intf.unsat_state
+    | Unsat of (lit,clause,step_id) Solver_intf.unsat_state
 
   let pp_all self lvl status =
     Log.debugf lvl
@@ -2066,22 +2160,29 @@ module Make(Plugin : PLUGIN)
         let c = lazy (
           let core = List.rev core in (* increasing trail order *)
           assert (Atom.equal first @@ List.hd core);
-          Clause.make_l self.store ~removable:false []
+          let proof =
+            let lits = Iter.of_list core |> Iter.map (Atom.lit self.store) in
+            Proof.with_proof self.proof (Proof.emit_unsat_core lits) in
+          Clause.make_l self.store ~removable:false [] proof
         ) in
         fun () -> Lazy.force c
     in
     let module M = struct
       type nonrec lit = lit
+      type nonrec proof = step_id
       type clause = Clause.t
       let unsat_conflict = unsat_conflict
       let unsat_assumptions = unsat_assumptions
+      let unsat_proof () =
+        let c = unsat_conflict() in
+        Clause.proof_step self.store c
     end in
     (module M)
 
-  let add_clause_atoms_ self ~pool ~removable (c:atom array) dp : unit =
+  let add_clause_atoms_ self ~pool ~removable (c:atom array) step : unit =
     try
-      let c = Clause.make_a self.store ~removable c in
-      Proof.with_proof self.proof dp;
+      let proof = Proof.with_proof self.proof step in
+      let c = Clause.make_a self.store ~removable c proof in
       add_clause_ ~pool self c
     with
     | E_unsat (US_false c) ->
@@ -2135,8 +2236,10 @@ module Make(Plugin : PLUGIN)
       solve_ self;
       Sat (mk_sat self)
     with E_unsat us ->
+      (* FIXME
       (* emit empty clause *)
       Proof.with_proof self.proof (Proof.emit_redundant_clause Iter.empty);
+         *)
       Unsat (mk_unsat self us)
 
   let true_at_level0 (self:t) (lit:lit) : bool =
@@ -2167,6 +2270,7 @@ module Make_pure_sat(Plugin : Solver_intf.PLUGIN_SAT) =
   Make(struct
     type lit = Plugin.lit
     type proof = Plugin.proof
+    type step_id = Plugin.step_id
     module Lit = Plugin.Lit
     module Proof = Plugin.Proof
     type t = unit
