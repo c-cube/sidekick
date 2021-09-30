@@ -147,86 +147,101 @@ end
 
 (** Proofs for the congruence closure *)
 module type CC_PROOF = sig
+  type step_id
   type t
   type lit
 
-  val lemma_cc : lit Iter.t -> t -> unit
+  val lemma_cc : lit Iter.t -> t -> step_id
   (** [lemma_cc proof lits] asserts that [lits] form a tautology for the theory
       of uninterpreted functions. *)
 end
 
-(** Signature for SAT-solver proof emission, using DRUP.
-
-    We do not store the resolution steps, just the stream of clauses deduced.
-    See {!Sidekick_drup} for checking these proofs. *)
+(** Signature for SAT-solver proof emission. *)
 module type SAT_PROOF = sig
   type t
   (** The stored proof (possibly nil, possibly on disk, possibly in memory) *)
 
+  type step_id
+  (** identifier for a proof step *)
+
+  module Step_vec : Vec_sig.S with type elt = step_id
+  (** A vector of steps *)
+
   type lit
   (** A boolean literal for the proof trace *)
 
-  type dproof = t -> unit
-  (** A delayed proof, used to produce proofs on demand from theories. *)
+  type pstep = t -> step_id
+  (** A proof step constructor, used to obtain proofs from theories *)
 
-  val with_proof : t -> (t -> unit) -> unit
+  val enabled : t -> bool
+  (** Returns true if proof production is enabled *)
+
+  val with_proof : t -> (t -> 'a) -> 'a
   (** If proof is enabled, call [f] on it to emit steps.
-      if proof is disabled, the callback won't even be called. *)
+      if proof is disabled, the callback won't even be called, and
+      a dummy step is returned. *)
 
-  val emit_input_clause : lit Iter.t -> t -> unit
+  val emit_input_clause : lit Iter.t -> pstep
   (** Emit an input clause. *)
 
-  val emit_redundant_clause : lit Iter.t -> t -> unit
-  (** Emit a clause deduced by the SAT solver, redundant wrt axioms.
-      The clause must be RUP wrt previous clauses. *)
+  val emit_redundant_clause : lit Iter.t -> hyps:step_id Iter.t -> pstep
+  (** Emit a clause deduced by the SAT solver, redundant wrt previous clauses.
+      The clause must be RUP wrt [hyps]. *)
 
-  val del_clause : lit Iter.t -> t -> unit
+  val emit_unsat_core : lit Iter.t -> pstep
+  (** Produce a proof of the empty clause given this subset of the assumptions.
+      FIXME: probably needs the list of step_id that disprove the lits? *)
+
+  val emit_unsat : step_id -> t -> unit
+  (** Signal "unsat" result at the given step *)
+
+  val del_clause : step_id -> t -> unit
   (** Forget a clause. Only useful for performance considerations. *)
-  (* TODO: replace with something index-based? *)
 end
 
-(** Proofs of unsatisfiability.
-
-    We use DRUP(T)-style traces where we simply emit clauses as we go,
-    annotating enough for the checker to reconstruct them.
-    This allows for low overhead proof production. *)
+(** Proofs of unsatisfiability. *)
 module type PROOF = sig
   type t
   (** The abstract representation of a proof. A proof always proves
       a clause to be {b valid} (true in every possible interpretation
       of the problem's assertions, and the theories) *)
 
+  type step_id
+  (** Identifier for a proof step (like a unique ID for a clause previously
+      added/proved) *)
+
   type term
   type lit
+  type step = t -> step_id
 
   include CC_PROOF
     with type t := t
      and type lit := lit
+     and type step_id := step_id
 
   include SAT_PROOF
     with type t := t
      and type lit := lit
+     and type step_id := step_id
 
-  val begin_subproof : t -> unit
-  (** Begins a subproof. The result of this will only be the
-      clause with which {!end_subproof} is called; all other intermediate
-      steps will be discarded. *)
+  val define_term : term -> term -> step
+  (** [define_term cst u proof] defines the new constant [cst] as being equal
+      to [u].
+      The result is a proof of the clause [cst = u] *)
 
-  val end_subproof : t -> unit
-  (** [end_subproof p] ends the current active subproof, the last result
-      of which is kept. *)
+  val lemma_true : term -> step
+  (** [lemma_true (true) p] asserts the clause [(true)] *)
 
-  val define_term : term -> term -> t -> unit
-  (** [define_term p cst u] defines the new constant [cst] as being equal
-      to [u]. *)
-
-  val lemma_true : term -> t -> unit
-  (** [lemma_true p (true)] asserts the clause [(true)] *)
-
-  val lemma_preprocess : term -> term -> t -> unit
-  (** [lemma_preprocess p t u] asserts that [t = u] is a tautology
+  val lemma_preprocess : term -> term -> using:step_id Iter.t -> step
+  (** [lemma_preprocess t u ~using p] asserts that [t = u] is a tautology
       and that [t] has been preprocessed into [u].
-      From now on, [t] and [u] will be used interchangeably. *)
+
+      The theorem [/\_{eqn in using} eqn |- t=u] is proved using congruence
+      closure, and then resolved against the clauses [using] to obtain
+      a unit equality.
+
+      From now on, [t] and [u] will be used interchangeably.
+      @return a step ID for the clause [(t=u)]. *)
 end
 
 (** Literals
@@ -285,7 +300,8 @@ module type CC_ACTIONS = sig
   module Lit : LIT with module T = T
 
   type proof
-  type dproof = proof -> unit
+  type step_id
+  type pstep = proof -> step_id
   module P : CC_PROOF with type lit = Lit.t and type t = proof
 
   type t
@@ -293,13 +309,13 @@ module type CC_ACTIONS = sig
       to perform the actions below. How it performs the actions
       is not specified and is solver-specific. *)
 
-  val raise_conflict : t -> Lit.t list -> dproof -> 'a
+  val raise_conflict : t -> Lit.t list -> pstep -> 'a
   (** [raise_conflict acts c pr] declares that [c] is a tautology of
       the theory of congruence. This does not return (it should raise an
       exception).
       @param pr the proof of [c] being a tautology *)
 
-  val propagate : t -> Lit.t -> reason:(unit -> Lit.t list * dproof) -> unit
+  val propagate : t -> Lit.t -> reason:(unit -> Lit.t list * pstep) -> unit
   (** [propagate acts lit ~reason pr] declares that [reason() => lit]
       is a tautology.
 
@@ -315,11 +331,16 @@ module type CC_ARG = sig
   module T : TERM
   module Lit : LIT with module T = T
   type proof
-  module P : CC_PROOF with type lit = Lit.t and type t = proof
+  type step_id
+  module P : CC_PROOF
+    with type lit = Lit.t
+     and type t = proof
+     and type step_id = step_id
   module Actions : CC_ACTIONS
     with module T=T
      and module Lit = Lit
      and type proof = proof
+     and type step_id = step_id
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
@@ -347,12 +368,17 @@ module type CC_S = sig
   module T : TERM
   module Lit : LIT with module T = T
   type proof
-  type dproof = proof -> unit
-  module P : CC_PROOF with type lit = Lit.t and type t = proof
+  type step_id
+  type pstep = proof -> step_id
+  module P : CC_PROOF
+    with type lit = Lit.t
+     and type t = proof
+     and type step_id = step_id
   module Actions : CC_ACTIONS
     with module T = T
     and module Lit = Lit
     and type proof = proof
+    and type step_id = step_id
   type term_store = T.Term.store
   type term = T.Term.t
   type fun_ = T.Fun.t
@@ -493,7 +519,7 @@ module type CC_S = sig
       participating in the conflict are purely syntactic theories
       like injectivity of constructors. *)
 
-  type ev_on_propagate = t -> lit -> (unit -> lit list * dproof) -> unit
+  type ev_on_propagate = t -> lit -> (unit -> lit list * pstep) -> unit
   (** [ev_on_propagate cc lit reason] is called whenever [reason() => lit]
       is a propagated lemma. See {!CC_ACTIONS.propagate}. *)
 
@@ -647,7 +673,8 @@ module type SOLVER_INTERNAL = sig
   type ty_store = T.Ty.store
   type clause_pool
   type proof
-  type dproof = proof -> unit
+  type step_id
+  type pstep = proof -> step_id
   (** Delayed proof. This is used to build a proof step on demand. *)
 
   (** {3 Proofs} *)
@@ -749,7 +776,7 @@ module type SOLVER_INTERNAL = sig
     val mk_lit : ?sign:bool -> term -> lit
     (** creates a new literal for a boolean term. *)
 
-    val add_clause : lit list -> dproof -> unit
+    val add_clause : lit list -> pstep -> unit
     (** pushes a new clause into the SAT solver. *)
 
     val add_lit : ?default_pol:bool -> lit -> unit
@@ -782,7 +809,7 @@ module type SOLVER_INTERNAL = sig
 
   (** {3 hooks for the theory} *)
 
-  val raise_conflict : t -> theory_actions -> lit list -> dproof -> 'a
+  val raise_conflict : t -> theory_actions -> lit list -> pstep -> 'a
   (** Give a conflict clause to the solver *)
 
   val push_decision : t -> theory_actions -> lit -> unit
@@ -791,19 +818,19 @@ module type SOLVER_INTERNAL = sig
       If the SAT solver backtracks, this (potential) decision is removed
       and forgotten. *)
 
-  val propagate: t -> theory_actions -> lit -> reason:(unit -> lit list * dproof) -> unit
+  val propagate: t -> theory_actions -> lit -> reason:(unit -> lit list * pstep) -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val propagate_l: t -> theory_actions -> lit -> lit list -> dproof -> unit
+  val propagate_l: t -> theory_actions -> lit -> lit list -> pstep -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val add_clause_temp : t -> theory_actions -> lit list -> dproof -> unit
+  val add_clause_temp : t -> theory_actions -> lit list -> pstep -> unit
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
-  val add_clause_permanent : t -> theory_actions -> lit list -> dproof -> unit
+  val add_clause_permanent : t -> theory_actions -> lit list -> pstep -> unit
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
@@ -867,7 +894,7 @@ module type SOLVER_INTERNAL = sig
   val on_cc_conflict : t -> (CC.t -> th:bool -> lit list -> unit) -> unit
   (** Callback called on every CC conflict *)
 
-  val on_cc_propagate : t -> (CC.t -> lit -> (unit -> lit list * dproof) -> unit) -> unit
+  val on_cc_propagate : t -> (CC.t -> lit -> (unit -> lit list * pstep) -> unit) -> unit
   (** Callback called on every CC propagation *)
 
   val on_partial_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
@@ -914,7 +941,12 @@ module type SOLVER = sig
   module T : TERM
   module Lit : LIT with module T = T
   type proof
-  module P : PROOF with type lit = Lit.t and type t = proof and type term = T.Term.t
+  type step_id
+  module P : PROOF
+    with type lit = Lit.t
+     and type t = proof
+     and type step_id = step_id
+     and type term = T.Term.t
 
   module Solver_internal
     : SOLVER_INTERNAL
@@ -931,8 +963,8 @@ module type SOLVER = sig
   type term = T.Term.t
   type ty = T.Ty.t
   type lit = Lit.t
-  type dproof = proof -> unit
-  (** Delayed proof. This is used to build a proof step on demand. *)
+  type pstep = proof -> step_id
+  (** Proof step. *)
 
   (** {3 A theory}
 
@@ -1067,11 +1099,11 @@ module type SOLVER = sig
 
       The proof of [|- lit = lit'] is directly added to the solver's proof. *)
 
-  val add_clause : t -> lit IArray.t -> dproof -> unit
+  val add_clause : t -> lit IArray.t -> pstep -> unit
   (** [add_clause solver cs] adds a boolean clause to the solver.
       Subsequent calls to {!solve} will need to satisfy this clause. *)
 
-  val add_clause_l : t -> lit list -> dproof -> unit
+  val add_clause_l : t -> lit list -> pstep -> unit
   (** Add a clause to the solver, given as a list. *)
 
   val assert_terms : t -> term list -> unit
