@@ -5,8 +5,6 @@
 
 include Vec_sig.S with type elt := int
 
-val ensure_size : t -> int -> unit
-
 val push_i32 : t -> int32 -> unit
 
 val get_i32 : t -> int -> int32

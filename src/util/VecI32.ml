@@ -18,6 +18,15 @@ let[@inline] shrink self n = if n < self.sz then self.sz <- n
 let[@inline] size self = self.sz
 let[@inline] is_empty self = self.sz = 0
 
+let copy self =
+  if size self=0 then create ~cap:0 ()
+  else (
+    (* copy bigarray *)
+    let data = mk_arr_ (size self) in
+    A.blit self.data data;
+    {sz=self.sz; data}
+  )
+
 let[@inline] fast_remove t i =
   assert (i>= 0 && i < t.sz);
   A.unsafe_set t.data i @@ A.unsafe_get t.data (t.sz - 1);
