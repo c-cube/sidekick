@@ -7,4 +7,5 @@ module Make (A: CC_ARG)
   : S with module T = A.T
        and module Lit = A.Lit
        and type proof = A.proof
+       and type step_id = A.step_id
        and module Actions = A.Actions
