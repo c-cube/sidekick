@@ -16,7 +16,7 @@ module Make (A: CC_ARG)
   : S with module T = A.T
        and module Lit = A.Lit
        and type proof = A.proof
-       and type step_id = A.step_id
+       and type proof_step = A.proof_step
        and module Actions = A.Actions
 = struct
   module T = A.T
@@ -28,8 +28,8 @@ module Make (A: CC_ARG)
   type lit = Lit.t
   type fun_ = T.Fun.t
   type proof = A.proof
-  type step_id = A.step_id
-  type pstep = proof -> step_id
+  type proof_step = A.proof_step
+  type proof_rule = proof -> proof_step
   type actions = Actions.t
 
   module Term = T.Term

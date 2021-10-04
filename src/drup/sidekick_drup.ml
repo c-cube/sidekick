@@ -1,7 +1,7 @@
 
 (** DRUP trace checker.
 
-    This module provides a checker for DRUP traces, including step-by-step
+    This module provides a checker for DRUP traces, including proof_rule-by-proof_rule
     checking for traces that interleave DRUP steps with other kinds of steps.
 *)
 

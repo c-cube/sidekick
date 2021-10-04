@@ -36,20 +36,20 @@ module type ARG = sig
       Only enable if some theories are susceptible to
       create boolean formulas during the proof search. *)
 
-  val lemma_bool_tauto : S.Lit.t Iter.t -> S.P.t -> unit
+  val lemma_bool_tauto : S.Lit.t Iter.t -> S.P.proof_rule
   (** Boolean tautology lemma (clause) *)
 
-  val lemma_bool_c : string -> term list -> S.P.t -> unit
+  val lemma_bool_c : string -> term list -> S.P.proof_rule
   (** Basic boolean logic lemma for a clause [|- c].
       [proof_bool_c b name cs] is the rule designated by [name]. *)
 
-  val lemma_bool_equiv : term -> term -> S.P.t -> unit
+  val lemma_bool_equiv : term -> term -> S.P.proof_rule
   (** Boolean tautology lemma (equivalence) *)
 
-  val lemma_ite_true : a:term -> ite:term -> S.P.t -> unit
+  val lemma_ite_true : a:term -> ite:term -> S.P.proof_rule
   (** lemma [a => ite a b c = b] *)
 
-  val lemma_ite_false : a:term -> ite:term -> S.P.t -> unit
+  val lemma_ite_false : a:term -> ite:term -> S.P.proof_rule
   (** lemma [¬a => ite a b c = c] *)
 
   (** Fresh symbol generator.
@@ -116,21 +116,24 @@ module Make(A : ARG) : S with module A = A = struct
   let is_true t = match T.as_bool t with Some true -> true | _ -> false
   let is_false t = match T.as_bool t with Some false -> true | _ -> false
 
-  let simplify (self:state) (simp:SI.Simplify.t) (t:T.t) : T.t option =
+  let simplify (self:state) (simp:SI.Simplify.t) (t:T.t) : (T.t * SI.proof_step Iter.t) option =
     let tst = self.tst in
-    let ret u =
-      if not (T.equal t u) then (
-        SI.Simplify.with_proof simp (fun p ->
-          A.lemma_bool_equiv t u p;
-          A.S.P.lemma_preprocess t u p;
-        );
-      );
-      Some u
+    let steps = ref [] in
+    let add_step_ s = steps := s :: !steps in
+
+    let[@inline] ret u =
+      Some (u, Iter.of_list !steps)
     in
+    (* proof is [t <=> u] *)
+    let ret_bequiv t1 u =
+      add_step_ @@ SI.Simplify.with_proof simp (A.lemma_bool_equiv t1 u);
+      ret u
+    in
+
     match A.view_as_bool t with
     | B_bool _ -> None
-    | B_not u when is_true u -> ret (T.bool tst false)
-    | B_not u when is_false u -> ret (T.bool tst true)
+    | B_not u when is_true u -> ret_bequiv t (T.bool tst false)
+    | B_not u when is_false u -> ret_bequiv t (T.bool tst true)
     | B_not _ -> None
     | B_opaque_bool _ -> None
     | B_and a ->
@@ -148,28 +151,29 @@ module Make(A : ARG) : S with module A = A = struct
     | B_ite (a,b,c) ->
       (* directly simplify [a] so that maybe we never will simplify one
          of the branches *)
-      let a = SI.Simplify.normalize_t simp a in
+      let a, prf_a = SI.Simplify.normalize_t simp a in
+      Iter.iter add_step_ prf_a;
       begin match A.view_as_bool a with
         | B_bool true ->
-          SI.Simplify.with_proof simp (A.lemma_ite_true ~a ~ite:t);
-          Some b
+          add_step_ @@ SI.Simplify.with_proof simp (A.lemma_ite_true ~a ~ite:t);
+          ret b
         | B_bool false ->
-          SI.Simplify.with_proof simp (A.lemma_ite_false ~a ~ite:t);
-          Some c
+          add_step_ @@ SI.Simplify.with_proof simp (A.lemma_ite_false ~a ~ite:t);
+          ret c
         | _ ->
           None
       end
-    | B_equiv (a,b) when is_true a -> ret b
-    | B_equiv (a,b) when is_false a -> ret (not_ tst b)
-    | B_equiv (a,b) when is_true b -> ret a
-    | B_equiv (a,b) when is_false b -> ret (not_ tst a)
-    | B_xor (a,b) when is_false a -> ret b
-    | B_xor (a,b) when is_true a -> ret (not_ tst b)
-    | B_xor (a,b) when is_false b -> ret a
-    | B_xor (a,b) when is_true b -> ret (not_ tst a)
+    | B_equiv (a,b) when is_true a -> ret_bequiv t b
+    | B_equiv (a,b) when is_false a -> ret_bequiv t (not_ tst b)
+    | B_equiv (a,b) when is_true b -> ret_bequiv t a
+    | B_equiv (a,b) when is_false b -> ret_bequiv t (not_ tst a)
+    | B_xor (a,b) when is_false a -> ret_bequiv t b
+    | B_xor (a,b) when is_true a -> ret_bequiv t (not_ tst b)
+    | B_xor (a,b) when is_false b -> ret_bequiv t a
+    | B_xor (a,b) when is_true b -> ret_bequiv t (not_ tst a)
     | B_equiv _ | B_xor _ -> None
-    | B_eq (a,b) when T.equal a b -> ret (T.bool tst true)
-    | B_neq (a,b) when T.equal a b -> ret (T.bool tst true)
+    | B_eq (a,b) when T.equal a b -> ret_bequiv t (T.bool tst true)
+    | B_neq (a,b) when T.equal a b -> ret_bequiv t (T.bool tst true)
     | B_eq _ | B_neq _ -> None
     | B_atom _ -> None
 
@@ -186,28 +190,35 @@ module Make(A : ARG) : S with module A = A = struct
     proxy, mk_lit proxy
 
   (* preprocess "ite" away *)
-  let preproc_ite self si (module PA:SI.PREPROCESS_ACTS) (t:T.t) : T.t option =
+  let preproc_ite self si (module PA:SI.PREPROCESS_ACTS) (t:T.t) : (T.t * SI.proof_step Iter.t) option =
+    let steps = ref [] in
+    let add_step_ s = steps := s :: !steps in
+
+    let ret t = Some (t, Iter.of_list !steps) in
+
     match A.view_as_bool t with
     | B_ite (a,b,c) ->
-      let a = SI.simp_t si a in
-      begin match A.view_as_bool a with
+      let a', pr_a = SI.simp_t si a in
+      CCOpt.iter add_step_ pr_a;
+      begin match A.view_as_bool a' with
         | B_bool true ->
           (* [a=true |- ite a b c=b], [|- a=true] ==> [|- t=b] *)
-          SI.with_proof si (A.lemma_ite_true ~a ~ite:t);
-          Some b
+          add_step_ @@ SI.with_proof si (A.lemma_ite_true ~a:a' ~ite:t);
+          ret b
         | B_bool false ->
           (* [a=false |- ite a b c=c], [|- a=false] ==> [|- t=c] *)
-          SI.with_proof si (A.lemma_ite_false ~a ~ite:t);
-          Some c
+          add_step_ @@ SI.with_proof si (A.lemma_ite_false ~a:a' ~ite:t);
+          ret c
         | _ ->
           let t_ite = fresh_term self ~for_t:t ~pre:"ite" (T.ty b) in
           SI.define_const si ~const:t_ite ~rhs:t;
-          SI.with_proof si (SI.P.define_term t_ite t);
-          let lit_a = PA.mk_lit a in
+          let pr = SI.with_proof si (SI.P.define_term t_ite t) in
+          let lit_a = PA.mk_lit a' in
+          (* TODO: use unit paramod on each clause with side t=t_ite and on a=a' *)
           PA.add_clause [Lit.neg lit_a; PA.mk_lit (eq self.tst t_ite b)]
-            (fun p -> A.lemma_ite_true ~a ~ite:t p);
+            (fun p -> SI.P.proof_p1 pr_a (A.lemma_ite_true ~a:a' ~ite:t p) p);
           PA.add_clause [lit_a; PA.mk_lit (eq self.tst t_ite c)]
-            (fun p -> A.lemma_ite_false p ~a ~ite:t);
+            (fun p -> A.lemma_ite_false p ~a:a' ~ite:t);
           Some t_ite
       end
     | _ -> None

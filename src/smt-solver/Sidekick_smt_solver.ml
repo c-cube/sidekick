@@ -13,9 +13,11 @@ module type ARG = sig
   module T : TERM
   module Lit : LIT with module T = T
   type proof
+  type proof_step
   module P : PROOF
     with type term = T.Term.t
      and type t = proof
+     and type proof_step = proof_step
      and type lit = Lit.t
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
@@ -32,6 +34,7 @@ module Make(A : ARG)
   : S
     with module T = A.T
      and type proof = A.proof
+     and type proof_step = A.proof_step
      and module Lit = A.Lit
      and module P = A.P
 = struct
@@ -43,7 +46,8 @@ module Make(A : ARG)
   type term = Term.t
   type ty = Ty.t
   type proof = A.proof
-  type dproof = proof -> unit
+  type proof_step = A.proof_step
+  type proof_rule = proof -> proof_step
   type lit = Lit.t
 
   (* actions from the sat solver *)
@@ -85,7 +89,8 @@ module Make(A : ARG)
     module CC = CC
     module N = CC.N
     type nonrec proof = proof
-    type dproof = proof -> unit
+    type nonrec proof_step = proof_step
+    type proof_rule = proof -> proof_step
     type term = Term.t
     type ty = Ty.t
     type lit = Lit.t
@@ -160,7 +165,7 @@ module Make(A : ARG)
 
     module type PREPROCESS_ACTS = sig
       val mk_lit : ?sign:bool -> term -> lit
-      val add_clause : lit list -> dproof -> unit
+      val add_clause : lit list -> proof_rule -> unit
       val add_lit : ?default_pol:bool -> lit -> unit
     end
     type preprocess_actions = (module PREPROCESS_ACTS)
@@ -236,12 +241,12 @@ module Make(A : ARG)
     let[@inline] propagate_l self acts p cs proof : unit =
       propagate self acts p ~reason:(fun()->cs,proof)
 
-    let add_sat_clause_ self (acts:theory_actions) ~keep lits (proof:dproof) : unit =
+    let add_sat_clause_ self (acts:theory_actions) ~keep lits (proof:proof_rule) : unit =
       let (module A) = acts in
       Stat.incr self.count_axiom;
       A.add_clause ~keep lits proof
 
-    let add_sat_clause_pool_ self (acts:theory_actions) ~pool lits (proof:dproof) : unit =
+    let add_sat_clause_pool_ self (acts:theory_actions) ~pool lits (proof:proof_rule) : unit =
       let (module A) = acts in
       Stat.incr self.count_axiom;
       A.add_clause_in_pool ~pool lits proof
@@ -371,7 +376,7 @@ module Make(A : ARG)
       Lit.atom self.tst ~sign u
 
     (* add a clause using [acts] *)
-    let add_clause_ self acts lits (proof:dproof) : unit =
+    let add_clause_ self acts lits (proof:proof_rule) : unit =
       add_sat_clause_ self acts ~keep:true lits proof
 
     let[@inline] add_lit _self (acts:theory_actions) ?default_pol lit : unit =
@@ -398,11 +403,11 @@ module Make(A : ARG)
     let[@inline] preprocess_term self (pacts:preprocess_actions) (t:term) : term =
       preprocess_term_ self pacts t
 
-    let[@inline] add_clause_temp self acts c (proof:dproof) : unit =
+    let[@inline] add_clause_temp self acts c (proof:proof_rule) : unit =
       let c = preprocess_clause_ self acts c in
       add_sat_clause_ self acts ~keep:false c proof
 
-    let[@inline] add_clause_permanent self acts c (proof:dproof) : unit =
+    let[@inline] add_clause_permanent self acts c (proof:proof_rule) : unit =
       let c = preprocess_clause_ self acts c in
       add_sat_clause_ self acts ~keep:true c proof
 
@@ -687,7 +692,7 @@ module Make(A : ARG)
   let pp_stats out (self:t) : unit =
     Stat.pp_all out (Stat.all @@ stats self)
 
-  let add_clause (self:t) (c:lit IArray.t) (proof:dproof) : unit =
+  let add_clause (self:t) (c:lit IArray.t) (proof:proof_rule) : unit =
     Stat.incr self.count_clause;
     Log.debugf 50 (fun k->
         k "(@[solver.add-clause@ %a@])"

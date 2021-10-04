@@ -98,7 +98,7 @@ module Step = struct
     let rec aux n vars acc =
       if n<=0 then return (List.rev acc)
       else (
-        let* vars, step =
+        let* vars, proof_rule =
           frequency @@ List.flatten [
             (* add a bound *)
             (match vars with
@@ -138,7 +138,7 @@ module Step = struct
             ) else []);
           ]
         in
-        aux (n-1) vars (step::acc)
+        aux (n-1) vars (proof_rule::acc)
       )
     in
     aux n [] []
@@ -162,7 +162,7 @@ end
 
 let on_propagate _ ~reason:_ = ()
 
-(* add a single step to the simplexe *)
+(* add a single proof_rule to the simplexe *)
 let add_step simplex (s:Step.t) : unit =
   begin match s with
     | Step.S_new_var v -> Spl.add_var simplex v
@@ -242,7 +242,7 @@ let prop_sound ?(inv=false) pb =
              let v_x = get_val x in
              if Q.(v_x < n) then failwith (spf "val=%s, n=%s"(q_dbg v_x)(q_dbg n))
          with e ->
-           QC.Test.fail_reportf "step failed: %a@.exn:@.%s@."
+           QC.Test.fail_reportf "proof_rule failed: %a@.exn:@.%s@."
              Step.pp_ s (Printexc.to_string e)
         );
         if inv then Spl._check_invariants simplex;

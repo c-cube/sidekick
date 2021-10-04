@@ -59,7 +59,7 @@ type t =
   | Composite of {
       (* some named (atomic) assumptions *)
       assumptions: (string * lit) list;
-      steps: composite_step array; (* last step is the proof *)
+      steps: composite_step array; (* last proof_rule is the proof *)
     }
 
 and bool_c_name = string
@@ -75,7 +75,7 @@ and composite_step =
 
   (* TODO: be able to name clauses, to be expanded at parsing.
      note that this is not the same as [S_step_c] which defines an
-     explicit step with a conclusion and proofs that can be exploited
+     explicit proof_rule with a conclusion and proofs that can be exploited
      separately.
 
      We could introduce that in Compress.rename…
@@ -192,7 +192,7 @@ module Compress = struct
   type 'a shared_status =
     | First (* first occurrence of t *)
     | Shared (* multiple occurrences observed *)
-    | Pre_named of 'a (* another step names it *)
+    | Pre_named of 'a (* another proof_rule names it *)
     | Named of 'a (* already named it *)
 
   (* is [t] too small to be shared? *)
@@ -301,15 +301,15 @@ module Compress = struct
               | _ -> ())
       in
 
-      (* introduce naming in [step], then push it into {!new_steps} *)
-      let process_step_ step =
-        traverse_step_ step ~f_t:traverse_t;
-        (* see if we print the step or skip it *)
-        begin match step with
+      (* introduce naming in [proof_rule], then push it into {!new_steps} *)
+      let process_step_ proof_rule =
+        traverse_step_ proof_rule ~f_t:traverse_t;
+        (* see if we print the proof_rule or skip it *)
+        begin match proof_rule with
           | S_define_t (t,_) when T.Tbl.mem skip_name_t t -> ()
           | S_define_t_name (s,_) when Hashtbl.mem skip_name_s s -> ()
           | _ ->
-            Vec.push new_steps step;
+            Vec.push new_steps proof_rule;
         end
       in
 
@@ -426,10 +426,10 @@ module Quip = struct
         l[a"steps";l(List.map pp_ass assumptions);
           iter_toplist (pp_composite_step sharing) (Iter.of_array steps)]
 
-    and pp_composite_step sharing step : printer =
+    and pp_composite_step sharing proof_rule : printer =
       let pp_t = pp_t sharing in
       let pp_cl = pp_cl ~pp_t in
-      match step with
+      match proof_rule with
       | S_step_c {name;res;proof} ->
         l[a"stepc";a name;pp_cl res;pp_rec sharing proof]
       | S_define_t (c,rhs) ->

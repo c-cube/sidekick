@@ -137,7 +137,7 @@ end = struct
           let ok = check_op self i op in
           if ok then (
             Log.debugf 50
-              (fun k->k"(@[check.step.ok@ :idx %d@ :op %a@])" i Trace.pp_op op);
+              (fun k->k"(@[check.proof_rule.ok@ :idx %d@ :op %a@])" i Trace.pp_op op);
 
             (* check if op adds the empty clause *)
             begin match op with
@@ -147,7 +147,7 @@ end = struct
             end;
           ) else (
             Log.debugf 10
-              (fun k->k"(@[check.step.fail@ :idx %d@ :op %a@])" i Trace.pp_op op);
+              (fun k->k"(@[check.proof_rule.fail@ :idx %d@ :op %a@])" i Trace.pp_op op);
             VecI32.push self.errors i
           ));
 

@@ -138,7 +138,7 @@ end
 
 (* TODO(optim): page 14, paragraph 2: we could detect which variables occur in no
    atom after preprocessing; then these variables can be "inlined" (removed
-   by Gaussian elimination) as a preprocessing step, and this removes one column
+   by Gaussian elimination) as a preprocessing proof_rule, and this removes one column
    and maybe one row if it was basic. *)
 
 module Make(Q : RATIONAL)(Var: VAR)
