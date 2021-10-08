@@ -29,7 +29,6 @@ module Make (A: CC_ARG)
   type fun_ = T.Fun.t
   type proof = A.proof
   type proof_step = A.proof_step
-  type proof_rule = proof -> proof_step
   type actions = Actions.t
 
   module Term = T.Term
@@ -281,7 +280,7 @@ module Make (A: CC_ARG)
   and ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   and ev_on_new_term = t -> N.t -> term -> unit
   and ev_on_conflict = t -> th:bool -> lit list -> unit
-  and ev_on_propagate = t -> lit -> (unit -> lit list * (proof -> unit)) -> unit
+  and ev_on_propagate = t -> lit -> (unit -> lit list * proof_step) -> unit
   and ev_on_is_subterm = N.t -> term -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
@@ -374,7 +373,7 @@ module Make (A: CC_ARG)
         n.n_expl <- FL_none;
     end
 
-  let raise_conflict_ (cc:t) ~th (acts:actions) (e:lit list) p : _ =
+  let raise_conflict_ (cc:t) ~th (acts:actions) (e:lit list) (p:proof_step) : _ =
     Profile.instant "cc.conflict";
     (* clear tasks queue *)
     Vec.clear cc.pending;
@@ -658,10 +657,11 @@ module Make (A: CC_ARG)
         let lits = explain_decompose_expl cc ~th [] e_ab in
         let lits = explain_equal_rec_ cc ~th lits a ra in
         let lits = explain_equal_rec_ cc ~th lits b rb in
-        let emit_proof p =
+        let pr =
           let p_lits = Iter.of_list lits |> Iter.map Lit.neg in
-          P.lemma_cc p_lits p in
-        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) emit_proof
+          P.lemma_cc p_lits @@ Actions.proof acts
+        in
+        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) pr
       );
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, but always
@@ -776,12 +776,12 @@ module Make (A: CC_ARG)
              let e = lazy (
                let lazy (th, acc) = half_expl in
                let lits = explain_equal_rec_ cc ~th acc u1 t1 in
-               let emit_proof p =
+               let pr =
                  (* make a tautology, not a true guard *)
                  let p_lits = Iter.cons lit (Iter.of_list lits |> Iter.map Lit.neg) in
-                 P.lemma_cc p_lits p
+                 P.lemma_cc p_lits @@ Actions.proof acts
                in
-               lits, emit_proof
+               lits, pr
              ) in
              fun () -> Lazy.force e
            in
@@ -848,11 +848,11 @@ module Make (A: CC_ARG)
     let th = ref true in
     let lits = explain_decompose_expl cc ~th [] expl in
     let lits = List.rev_map Lit.neg lits in
-    let emit_proof p =
+    let pr =
       let p_lits = Iter.of_list lits in
-      P.lemma_cc p_lits p
+      P.lemma_cc p_lits @@ Actions.proof acts
     in
-    raise_conflict_ cc ~th:!th acts lits emit_proof
+    raise_conflict_ cc ~th:!th acts lits pr
 
   let merge cc n1 n2 expl =
     Log.debugf 5

@@ -20,7 +20,6 @@ module Make(Plugin : PLUGIN)
   type theory = Plugin.t
   type proof = Plugin.proof
   type proof_step = Plugin.proof_step
-  type proof_rule = proof -> proof_step
   type clause_pool_id = Clause_pool_id.t
 
   module Lit = Plugin.Lit
@@ -1074,7 +1073,7 @@ module Make(Plugin : PLUGIN)
         self.unsat_at_0 <- Some c;
         (match self.on_learnt with Some f -> f self c | None -> ());
         let p = Clause.proof_step self.store c in
-        Proof.with_proof self.proof (Proof.emit_unsat p);
+        Proof.emit_unsat p self.proof;
         US_false c
       | US_local _ -> us
     in
@@ -1410,10 +1409,10 @@ module Make(Plugin : PLUGIN)
           report_unsat self (US_false confl)
         ) else (
           let p =
-            Proof.with_proof self.proof @@
             Proof.emit_redundant_clause
               (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
               ~hyps:(Step_vec.to_iter cr.cr_steps)
+              self.proof
           in
           let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
 
@@ -1425,10 +1424,9 @@ module Make(Plugin : PLUGIN)
       | _ ->
         let fuip = cr.cr_learnt.(0) in
         let p =
-          Proof.with_proof self.proof @@
           Proof.emit_redundant_clause
             (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
-            ~hyps:(Step_vec.to_iter cr.cr_steps)
+            ~hyps:(Step_vec.to_iter cr.cr_steps) self.proof
         in
         let lclause = Clause.make_a store ~removable:true cr.cr_learnt p in
 
@@ -1620,21 +1618,17 @@ module Make(Plugin : PLUGIN)
 
   let[@inline] slice_get st i = AVec.get st.trail i
 
-  let acts_add_clause self ?(keep=false) (l:lit list) (proof_rule:proof_rule): unit =
+  let acts_add_clause self ?(keep=false) (l:lit list) (p:proof_step): unit =
     let atoms = List.rev_map (make_atom_ self) l in
     let removable = not keep in
-    let c =
-      let p = Proof.with_proof self.proof proof_rule in
-      Clause.make_l self.store ~removable atoms p in
+    let c = Clause.make_l self.store ~removable atoms p in
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
     CVec.push self.clauses_to_add_learnt c
 
-  let acts_add_clause_in_pool self ~pool (l:lit list) (proof_rule:proof_rule): unit =
+  let acts_add_clause_in_pool self ~pool (l:lit list) (p:proof_step): unit =
     let atoms = List.rev_map (make_atom_ self) l in
     let removable = true in
-    let c =
-      let p = Proof.with_proof self.proof proof_rule in
-      Clause.make_l self.store ~removable atoms p in
+    let c = Clause.make_l self.store ~removable atoms p in
     let pool = Vec.get self.clause_pools (pool:clause_pool_id:>int) in
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause-in-pool@ %a@ :pool %s@])"
                      (Clause.debug self.store) c
@@ -1650,12 +1644,10 @@ module Make(Plugin : PLUGIN)
       self.next_decisions <- a :: self.next_decisions
     )
 
-  let acts_raise self (l:lit list) (proof_rule:proof_rule) : 'a =
+  let acts_raise self (l:lit list) (p:proof_step) : 'a =
     let atoms = List.rev_map (make_atom_ self) l in
     (* conflicts can be removed *)
-    let c =
-      let p = Proof.with_proof self.proof proof_rule in
-      Clause.make_l self.store ~removable:true atoms p in
+    let c = Clause.make_l self.store ~removable:true atoms p in
     Log.debugf 5 (fun k->k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])"
                      (Clause.debug self.store) c);
     raise_notrace (Th_conflict c)
@@ -1669,24 +1661,22 @@ module Make(Plugin : PLUGIN)
         (Atom.debug store) (Atom.neg a)
     | exception Not_found -> ()
 
-  let acts_propagate (self:t) f expl =
+  let acts_propagate (self:t) f (expl:(_,proof_step) Solver_intf.reason) =
     let store = self.store in
     match expl with
     | Solver_intf.Consequence mk_expl ->
       let p = make_atom_ self f in
       if Atom.is_true store p then ()
       else if Atom.is_false store p then (
-        let lits, proof_rule = mk_expl() in
+        let lits, proof = mk_expl() in
         let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
         check_consequence_lits_false_ self l;
-        let c =
-          let proof = Proof.with_proof self.proof proof_rule in
-          Clause.make_l store ~removable:true (p :: l) proof in
+        let c = Clause.make_l store ~removable:true (p :: l) proof in
         raise_notrace (Th_conflict c)
       ) else (
         insert_var_order self (Atom.var p);
         let c = lazy (
-          let lits, proof_rule = mk_expl () in
+          let lits, proof = mk_expl () in
           let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
           (* note: we can check that invariant here in the [lazy] block,
              as conflict analysis will run in an environment where
@@ -1695,7 +1685,6 @@ module Make(Plugin : PLUGIN)
              (otherwise the propagated lit would have been backtracked and
              discarded already.) *)
           check_consequence_lits_false_ self l;
-          let proof = Proof.with_proof self.proof proof_rule in
           Clause.make_l store ~removable:true (p :: l) proof
         ) in
         let level = decision_level self in
@@ -1725,9 +1714,9 @@ module Make(Plugin : PLUGIN)
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
-      type proof_rule = proof -> proof_step
       type nonrec clause_pool_id = clause_pool_id
       type nonrec lit = lit
+      let proof = st.proof
       let iter_assumptions=acts_iter st ~full:false st.th_head
       let eval_lit= acts_eval_lit st
       let add_lit=acts_add_lit st
@@ -1744,9 +1733,9 @@ module Make(Plugin : PLUGIN)
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
-      type proof_rule = proof -> proof_step
       type nonrec clause_pool_id = clause_pool_id
       type nonrec lit = lit
+      let proof = st.proof
       let iter_assumptions=acts_iter st ~full:true st.th_head
       let eval_lit= acts_eval_lit st
       let add_lit=acts_add_lit st
@@ -1901,8 +1890,7 @@ module Make(Plugin : PLUGIN)
       (match self.on_gc with
        | Some f -> let lits = Clause.lits_a store c in f self lits
        | None -> ());
-      Proof.with_proof self.proof
-        (Proof.del_clause (Clause.proof_step store c));
+      Proof.del_clause (Clause.proof_step store c) self.proof;
     in
 
     let gc_arg =
@@ -2098,9 +2086,7 @@ module Make(Plugin : PLUGIN)
     List.iter
       (fun l ->
          let atoms = Util.array_of_list_map (make_atom_ self) l in
-         let proof =
-           Proof.with_proof self.proof (Proof.emit_input_clause (Iter.of_list l))
-         in
+         let proof = Proof.emit_input_clause (Iter.of_list l) self.proof in
          let c = Clause.make_a self.store ~removable:false atoms proof in
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
@@ -2162,7 +2148,7 @@ module Make(Plugin : PLUGIN)
           assert (Atom.equal first @@ List.hd core);
           let proof =
             let lits = Iter.of_list core |> Iter.map (Atom.lit self.store) in
-            Proof.with_proof self.proof (Proof.emit_unsat_core lits) in
+            Proof.emit_unsat_core lits self.proof in
           Clause.make_l self.store ~removable:false [] proof
         ) in
         fun () -> Lazy.force c
@@ -2179,27 +2165,26 @@ module Make(Plugin : PLUGIN)
     end in
     (module M)
 
-  let add_clause_atoms_ self ~pool ~removable (c:atom array) proof_rule : unit =
+  let add_clause_atoms_ self ~pool ~removable (c:atom array) (pr:proof_step) : unit =
     try
-      let proof = Proof.with_proof self.proof proof_rule in
-      let c = Clause.make_a self.store ~removable c proof in
+      let c = Clause.make_a self.store ~removable c pr in
       add_clause_ ~pool self c
     with
     | E_unsat (US_false c) ->
       self.unsat_at_0 <- Some c
 
-  let add_clause_a self c dp : unit =
+  let add_clause_a self c pr : unit =
     let c = Array.map (make_atom_ self) c in
-    add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c dp
+    add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c pr
 
-  let add_clause self (c:lit list) dp : unit =
+  let add_clause self (c:lit list) (pr:proof_step) : unit =
     let c = Util.array_of_list_map (make_atom_ self) c in
-    add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c dp
+    add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c pr
 
-  let add_clause_a_in_pool self ~pool c dp : unit =
+  let add_clause_a_in_pool self ~pool c (pr:proof_step) : unit =
     let c = Array.map (make_atom_ self) c in
     let pool = Vec.get self.clause_pools (pool:clause_pool_id:>int) in
-    add_clause_atoms_ ~pool ~removable:true self c dp
+    add_clause_atoms_ ~pool ~removable:true self c pr
 
   let add_clause_in_pool self ~pool (c:lit list) dp : unit =
     let c = Util.array_of_list_map (make_atom_ self) c in
@@ -2207,12 +2192,12 @@ module Make(Plugin : PLUGIN)
     add_clause_atoms_ ~pool ~removable:true self c dp
 
   let add_input_clause self (c:lit list) =
-    let dp = Proof.emit_input_clause (Iter.of_list c) in
-    add_clause self c dp
+    let pr = Proof.emit_input_clause (Iter.of_list c) self.proof in
+    add_clause self c pr
 
   let add_input_clause_a self c =
-    let dp = Proof.emit_input_clause (Iter.of_array c) in
-    add_clause_a self c dp
+    let pr = Proof.emit_input_clause (Iter.of_array c) self.proof in
+    add_clause_a self c pr
 
   let new_clause_pool_gc_fixed_size ~descr ~size (self:t) : clause_pool_id =
     let p =

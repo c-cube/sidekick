@@ -104,7 +104,8 @@ module type ACTS = sig
   type proof
   type proof_step
   type clause_pool_id = Clause_pool_id.t
-  type proof_rule = proof -> proof_step
+
+  val proof : proof
 
   val iter_assumptions: (lit -> unit) -> unit
   (** Traverse the new assumptions on the boolean trail. *)
@@ -116,7 +117,7 @@ module type ACTS = sig
   (** Map the given lit to an internal atom, which will be decided by the
       SAT solver. *)
 
-  val add_clause: ?keep:bool -> lit list -> proof_rule -> unit
+  val add_clause: ?keep:bool -> lit list -> proof_step -> unit
   (** Add a clause to the solver.
       @param keep if true, the clause will be kept by the solver.
         Otherwise the solver is allowed to GC the clause and propose this
@@ -124,16 +125,16 @@ module type ACTS = sig
       - [C_use_allocator alloc] puts the clause in the given allocator.
   *)
 
-  val add_clause_in_pool : pool:clause_pool_id -> lit list -> proof_rule -> unit
+  val add_clause_in_pool : pool:clause_pool_id -> lit list -> proof_step -> unit
   (** Like {!add_clause} but uses a custom clause pool for the clause,
       with its own lifetime. *)
 
-  val raise_conflict: lit list -> proof_rule -> 'b
+  val raise_conflict: lit list -> proof_step -> 'b
   (** Raise a conflict, yielding control back to the solver.
       The list of atoms must be a valid theory lemma that is false in the
       current trail. *)
 
-  val propagate: lit -> (lit, proof_rule) reason -> unit
+  val propagate: lit -> (lit, proof_step) reason -> unit
   (** Propagate a lit, i.e. the theory can evaluate the lit to be true
       (see the definition of {!type:eval_res} *)
 
@@ -143,9 +144,10 @@ module type ACTS = sig
       Useful for theory combination. This will be undone on backtracking. *)
 end
 
-type ('lit, 'proof) acts =
+type ('lit, 'proof, 'proof_step) acts =
   (module ACTS with type lit = 'lit
-                and type proof = 'proof)
+                and type proof = 'proof
+                and type proof_step = 'proof_step)
 (** The type for a slice of assertions to assume/propagate in the theory. *)
 
 exception No_proof
@@ -203,12 +205,12 @@ module type PLUGIN_CDCL_T = sig
   val pop_levels : t -> int -> unit
   (** Pop [n] levels of the theory *)
 
-  val partial_check : t -> (lit, proof) acts -> unit
+  val partial_check : t -> (lit, proof, proof_step) acts -> unit
   (** Assume the lits in the slice, possibly using the [slice]
       to push new lits to be propagated or to raising a conflict or to add
       new lemmas. *)
 
-  val final_check : t -> (lit, proof) acts -> unit
+  val final_check : t -> (lit, proof, proof_step) acts -> unit
   (** Called at the end of the search in case a model has been found.
       If no new clause is pushed, then proof search ends and "sat" is returned;
       if lemmas are added, search is resumed;
@@ -250,8 +252,6 @@ module type S = sig
   (** A representation of a full proof *)
 
   type proof_step
-
-  type proof_rule = proof -> proof_step
 
   type solver
   (** The main solver type. *)
@@ -357,10 +357,10 @@ module type S = sig
   (** Add the list of clauses to the current set of assumptions.
       Modifies the sat solver state in place. *)
 
-  val add_clause : t -> lit list -> proof_rule -> unit
+  val add_clause : t -> lit list -> proof_step -> unit
   (** Lower level addition of clauses *)
 
-  val add_clause_a : t -> lit array -> proof_rule -> unit
+  val add_clause_a : t -> lit array -> proof_step -> unit
   (** Lower level addition of clauses *)
 
   val add_input_clause : t -> lit list -> unit
@@ -369,10 +369,10 @@ module type S = sig
   val add_input_clause_a : t -> lit array -> unit
   (** Like {!add_clause_a} but with justification of being an input clause *)
 
-  val add_clause_in_pool : t -> pool:clause_pool_id -> lit list -> proof_rule -> unit
+  val add_clause_in_pool : t -> pool:clause_pool_id -> lit list -> proof_step -> unit
   (** Like {!add_clause} but using a specific clause pool *)
 
-  val add_clause_a_in_pool : t -> pool:clause_pool_id -> lit array -> proof_rule -> unit
+  val add_clause_a_in_pool : t -> pool:clause_pool_id -> lit array -> proof_step -> unit
   (** Like {!add_clause_a} but using a specific clause pool *)
 
   (* TODO: API to push/pop/clear assumptions from an inner vector *)

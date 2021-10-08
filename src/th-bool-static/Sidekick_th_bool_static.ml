@@ -189,6 +189,14 @@ module Make(A : ARG) : S with module A = A = struct
     let proxy = fresh_term ~for_t ~pre self (Ty.bool self.ty_st) in
     proxy, mk_lit proxy
 
+  let p1_opt s1 s2 p : SI.proof_step =
+    let s2 = s2 p in
+    CCOpt.map_or ~default:s2 (fun s1 -> SI.P.proof_p1 s1 s2 p) s1
+
+  let p1_map s1 s2 p =
+    let s2 = s2 p in
+    SI.P.proof_p1 s1 s2 p
+
   (* preprocess "ite" away *)
   let preproc_ite self si (module PA:SI.PREPROCESS_ACTS) (t:T.t) : (T.t * SI.proof_step Iter.t) option =
     let steps = ref [] in
@@ -212,14 +220,14 @@ module Make(A : ARG) : S with module A = A = struct
         | _ ->
           let t_ite = fresh_term self ~for_t:t ~pre:"ite" (T.ty b) in
           SI.define_const si ~const:t_ite ~rhs:t;
-          let pr = SI.with_proof si (SI.P.define_term t_ite t) in
+          let pr_def = SI.with_proof si (SI.P.define_term t_ite t) in
           let lit_a = PA.mk_lit a' in
           (* TODO: use unit paramod on each clause with side t=t_ite and on a=a' *)
           PA.add_clause [Lit.neg lit_a; PA.mk_lit (eq self.tst t_ite b)]
-            (fun p -> SI.P.proof_p1 pr_a (A.lemma_ite_true ~a:a' ~ite:t p) p);
+            (p1_map pr_def @@ p1_opt pr_a (A.lemma_ite_true ~a:a' ~ite:t));
           PA.add_clause [lit_a; PA.mk_lit (eq self.tst t_ite c)]
-            (fun p -> A.lemma_ite_false p ~a:a' ~ite:t);
-          Some t_ite
+            (p1_map pr_def @@ p1_opt pr_a (A.lemma_ite_false ~a:a' ~ite:t));
+          ret t_ite
       end
     | _ -> None
 
@@ -237,7 +245,7 @@ module Make(A : ARG) : S with module A = A = struct
       let t_proxy, proxy = fresh_lit ~for_t ~mk_lit:PA.mk_lit ~pre:"equiv_" self in
 
       SI.define_const si ~const:t_proxy ~rhs:for_t;
-      SI.with_proof si (SI.P.define_term t_proxy for_t);
+      let pr_def = SI.with_proof si (SI.P.define_term t_proxy for_t) in
 
       let add_clause c pr =
         PA.add_clause c pr
