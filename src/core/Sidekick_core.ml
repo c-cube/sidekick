@@ -786,6 +786,9 @@ module type SOLVER_INTERNAL = sig
   module type PREPROCESS_ACTS = sig
     val proof : proof
 
+    val mk_lit_nopreproc : ?sign:bool -> term -> lit
+    (** [mk_lit t] creates a new literal for a boolean term [t]. *)
+
     val mk_lit : ?sign:bool -> term -> lit * proof_step option
     (** [mk_lit t] creates a new literal for a boolean term [t].
         Also returns an optional proof of preprocessing, which if present

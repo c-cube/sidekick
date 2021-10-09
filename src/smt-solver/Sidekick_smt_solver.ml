@@ -187,6 +187,7 @@ module Make(A : ARG)
 
     module type PREPROCESS_ACTS = sig
       val proof : proof
+      val mk_lit_nopreproc : ?sign:bool -> term -> lit
       val mk_lit : ?sign:bool -> term -> lit * proof_step option
       val add_clause : lit list -> proof_step -> unit
       val add_lit : ?default_pol:bool -> lit -> unit
@@ -282,7 +283,7 @@ module Make(A : ARG)
        this calls all the preprocessing hooks on subterms, ensuring
        a fixpoint. *)
     let preprocess_term_ (self:t) (module A0:PREPROCESS_ACTS) (t:term) : term * proof_step option =
-      let mk_lit_nopreproc t = Lit.atom self.tst t in (* no further simplification *)
+      let mk_lit_nopreproc ?sign t = Lit.atom ?sign self.tst t in (* no further simplification *)
 
       (* compute and cache normal form [u] of [t].
 
@@ -384,10 +385,13 @@ module Make(A : ARG)
       and pacts = lazy (
         (module struct
           let proof = A0.proof
+
           let add_lit ?default_pol lit =
             (* just drop the proof *)
+            (* TODO: add a clause instead [lit => preprocess(lit)]? *)
             let lit = preprocess_lit ~steps:(ref []) lit in
             A0.add_lit ?default_pol lit
+
           let add_clause c pr_c =
             Stat.incr self.count_preprocess_clause;
             let steps = ref [] in
@@ -397,6 +401,8 @@ module Make(A : ARG)
               else A.P.lemma_rw_clause pr_c ~lit_rw:(Iter.of_list !steps) proof
             in
             A0.add_clause c' pr_c'
+
+          let mk_lit_nopreproc = mk_lit_nopreproc
 
           let mk_lit = mk_lit
         end : PREPROCESS_ACTS)
@@ -441,6 +447,7 @@ module Make(A : ARG)
     let preprocess_acts_of_acts (self:t) (acts:theory_actions) : preprocess_actions =
       (module struct
         let proof = self.proof
+        let mk_lit_nopreproc ?sign t = Lit.atom self.tst ?sign t
         let mk_lit ?sign t = Lit.atom self.tst ?sign t, None
         let add_clause = add_clause_ self acts
         let add_lit = add_lit self acts
@@ -693,6 +700,7 @@ module Make(A : ARG)
       (self:t) : (module Solver_internal.PREPROCESS_ACTS) =
     (module struct
       let proof = self.proof
+      let mk_lit_nopreproc ?sign t = Lit.atom ?sign self.si.tst t
       let mk_lit ?sign t = Lit.atom ?sign self.si.tst t, None
       let add_lit ?default_pol lit =
         Sat_solver.add_lit self.solver ?default_pol lit
