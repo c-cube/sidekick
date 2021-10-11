@@ -46,11 +46,11 @@ module type ARG = sig
   val lemma_bool_equiv : term -> term -> S.P.proof_rule
   (** Boolean tautology lemma (equivalence) *)
 
-  val lemma_ite_true : a:term -> ite:term -> S.P.proof_rule
-  (** lemma [a => ite a b c = b] *)
+  val lemma_ite_true : ite:term -> S.P.proof_rule
+  (** lemma [a ==> ite a b c = b] *)
 
-  val lemma_ite_false : a:term -> ite:term -> S.P.proof_rule
-  (** lemma [¬a => ite a b c = c] *)
+  val lemma_ite_false : ite:term -> S.P.proof_rule
+  (** lemma [¬a ==> ite a b c = c] *)
 
   (** Fresh symbol generator.
 
@@ -118,6 +118,8 @@ module Make(A : ARG) : S with module A = A = struct
 
   let simplify (self:state) (simp:SI.Simplify.t) (t:T.t) : (T.t * SI.proof_step Iter.t) option =
     let tst = self.tst in
+
+    let proof = SI.Simplify.proof simp in
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
 
@@ -155,11 +157,15 @@ module Make(A : ARG) : S with module A = A = struct
       CCOpt.iter add_step_ prf_a;
       begin match A.view_as_bool a with
         | B_bool true ->
-          add_step_ @@ A.lemma_ite_true ~a ~ite:t @@ SI.Simplify.proof simp;
+          add_step_ @@ SI.P.lemma_rw_clause ~using:(Iter.of_opt prf_a)
+            (A.lemma_ite_true ~ite:t proof) proof;
           ret b
+
         | B_bool false ->
-          add_step_ @@ A.lemma_ite_false ~a ~ite:t @@ SI.Simplify.proof simp;
+          add_step_ @@ SI.P.lemma_rw_clause ~using:(Iter.of_opt prf_a)
+            (A.lemma_ite_false ~ite:t proof) proof;
           ret c
+
         | _ ->
           None
       end
@@ -195,7 +201,8 @@ module Make(A : ARG) : S with module A = A = struct
   let pr_p1 p s1 s2 = SI.P.proof_p1 s1 s2 p
 
   (* preprocess "ite" away *)
-  let preproc_ite self si (module PA:SI.PREPROCESS_ACTS) (t:T.t) : (T.t * SI.proof_step Iter.t) option =
+  let preproc_ite self si (module PA:SI.PREPROCESS_ACTS)
+      (t:T.t) : (T.t * SI.proof_step Iter.t) option =
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
 
@@ -207,25 +214,27 @@ module Make(A : ARG) : S with module A = A = struct
       CCOpt.iter add_step_ pr_a;
       begin match A.view_as_bool a' with
         | B_bool true ->
-          (* [a=true |- ite a b c=b], [|- a=true] ==> [|- t=b] *)
-          add_step_ @@ A.lemma_ite_true ~a:a' ~ite:t PA.proof;
+          (* [a |- ite a b c=b],  [a=true] implies [ite a b c=b] *)
+          add_step_ @@ SI.P.lemma_rw_clause ~using:(Iter.of_opt pr_a)
+            (A.lemma_ite_true ~ite:t PA.proof) PA.proof;
           ret b
+
         | B_bool false ->
-          (* [a=false |- ite a b c=c], [|- a=false] ==> [|- t=c] *)
-          add_step_ @@ A.lemma_ite_false ~a:a' ~ite:t PA.proof;
+          (* [¬a |- ite a b c=c],  [a=false] implies [ite a b c=c] *)
+          add_step_ @@ SI.P.lemma_rw_clause ~using:(Iter.of_opt pr_a)
+            (A.lemma_ite_false ~ite:t PA.proof) PA.proof;
           ret c
+
         | _ ->
           let t_ite = fresh_term self ~for_t:t ~pre:"ite" (T.ty b) in
-          SI.define_const si ~const:t_ite ~rhs:t;
           let pr_def = SI.P.define_term t_ite t PA.proof in
           let lit_a = PA.mk_lit_nopreproc a' in
-          (* TODO: use unit paramod on each clause with side t=t_ite and on a=a' *)
           PA.add_clause [Lit.neg lit_a; PA.mk_lit_nopreproc (eq self.tst t_ite b)]
-            (pr_p1 PA.proof pr_def @@ pr_p1_opt PA.proof pr_a @@
-             A.lemma_ite_true ~a:a' ~ite:t PA.proof);
+            (SI.P.lemma_rw_clause ~using:Iter.(append (return pr_def) (of_opt pr_a))
+               (A.lemma_ite_true ~ite:t PA.proof) PA.proof);
           PA.add_clause [lit_a; PA.mk_lit_nopreproc (eq self.tst t_ite c)]
-            (pr_p1 PA.proof pr_def @@ pr_p1_opt PA.proof pr_a @@
-             A.lemma_ite_false ~a:a' ~ite:t PA.proof);
+            (SI.P.lemma_rw_clause ~using:Iter.(append (return pr_def) (of_opt pr_a))
+               (A.lemma_ite_false ~ite:t PA.proof) PA.proof);
           ret t_ite
       end
     | _ -> None
@@ -238,13 +247,12 @@ module Make(A : ARG) : S with module A = A = struct
     let[@inline] add_step s = steps := s :: !steps in
 
     (* handle boolean equality *)
-    let equiv_ si ~is_xor ~for_t t_a t_b : Lit.t =
+    let equiv_ _si ~is_xor ~for_t t_a t_b : Lit.t =
       let a = PA.mk_lit_nopreproc t_a in
       let b = PA.mk_lit_nopreproc t_b in
       let a = if is_xor then Lit.neg a else a in (* [a xor b] is [(¬a) = b] *)
       let t_proxy, proxy = fresh_lit ~for_t ~mk_lit:PA.mk_lit_nopreproc ~pre:"equiv_" self in
 
-      SI.define_const si ~const:t_proxy ~rhs:for_t;
       let pr_def = SI.P.define_term t_proxy for_t PA.proof in
       add_step pr_def;
 
@@ -284,7 +292,6 @@ module Make(A : ARG) : S with module A = A = struct
         let t_subs = Iter.to_list l in
         let subs = List.map PA.mk_lit_nopreproc t_subs in
         let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit:PA.mk_lit_nopreproc ~pre:"and_" self in
-        SI.define_const si ~const:t_proxy ~rhs:t;
         let pr_def = SI.P.define_term t_proxy t PA.proof in
         add_step pr_def;
 
@@ -303,7 +310,6 @@ module Make(A : ARG) : S with module A = A = struct
         let t_subs = Iter.to_list l in
         let subs = List.map PA.mk_lit_nopreproc t_subs in
         let t_proxy, proxy = fresh_lit ~for_t:t ~mk_lit:PA.mk_lit_nopreproc ~pre:"or_" self in
-        SI.define_const si ~const:t_proxy ~rhs:t;
         let pr_def = SI.P.define_term t_proxy t PA.proof in
         add_step pr_def;
 
@@ -328,7 +334,6 @@ module Make(A : ARG) : S with module A = A = struct
         (* now the or-encoding *)
         let t_proxy, proxy =
           fresh_lit ~for_t:t ~mk_lit:PA.mk_lit_nopreproc ~pre:"implies_" self in
-        SI.define_const si ~const:t_proxy ~rhs:t;
         let pr_def = SI.P.define_term t_proxy t PA.proof in
         add_step pr_def;
 
@@ -377,11 +382,15 @@ module Make(A : ARG) : S with module A = A = struct
       all_terms
         (fun t -> match cnf_of t with
            | None -> ()
-           | Some u ->
+           | Some (u, pr_t_u) ->
              Log.debugf 5
                (fun k->k "(@[th-bool-static.final-check.cnf@ %a@ :yields %a@])"
                    T.pp t T.pp u);
-             SI.CC.merge_t cc_ t u (SI.CC.Expl.mk_list []);
+
+             (* produce a single step proof of [|- t=u] *)
+             let proof = SI.proof si in
+             let pr = SI.P.lemma_preprocess t u ~using:pr_t_u proof in
+             SI.CC.merge_t cc_ t u (SI.CC.Expl.mk_theory pr []);
              ());
     end;
     ()

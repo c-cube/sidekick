@@ -96,7 +96,7 @@ module Make (A: CC_ARG)
     | E_merge_t of term * term
     | E_congruence of node * node (* caused by normal congruence *)
     | E_and of explanation * explanation
-    | E_theory of explanation
+    | E_theory of proof_step * explanation list
 
   type repr = node
 
@@ -167,7 +167,7 @@ module Make (A: CC_ARG)
       | E_congruence (n1,n2) -> Fmt.fprintf out "(@[congruence@ %a@ %a@])" N.pp n1 N.pp n2
       | E_merge (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" N.pp a N.pp b
       | E_merge_t (a,b) -> Fmt.fprintf out "(@[<hv>merge@ @[:n1 %a@]@ @[:n2 %a@]@])" Term.pp a Term.pp b
-      | E_theory e -> Fmt.fprintf out "(@[th@ %a@])" pp e
+      | E_theory (_p,es) -> Fmt.fprintf out "(@[th@ %a@])" (Util.pp_list pp) es
       | E_and (a,b) ->
         Format.fprintf out "(@[<hv1>and@ %a@ %a@])" pp a pp b
 
@@ -176,7 +176,7 @@ module Make (A: CC_ARG)
     let[@inline] mk_merge a b : t = if N.equal a b then mk_reduction else E_merge (a,b)
     let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_reduction else E_merge_t (a,b)
     let[@inline] mk_lit l : t = E_lit l
-    let mk_theory e = E_theory e
+    let[@inline] mk_theory p es = E_theory (p,es)
 
     let rec mk_list l =
       match l with
@@ -242,6 +242,7 @@ module Make (A: CC_ARG)
   type t = {
     tst: term_store;
     tbl: node T_tbl.t;
+    proof: proof;
     (* internalization [term -> node] *)
     signatures_tbl : node Sig_tbl.t;
     (* map a signature to the corresponding node in some equivalence class.
@@ -288,6 +289,7 @@ module Make (A: CC_ARG)
   let[@inline] n_false cc = Lazy.force cc.false_
   let n_bool cc b = if b then n_true cc else n_false cc
   let[@inline] term_store cc = cc.tst
+  let[@inline] proof cc = cc.proof
   let allocate_bitfield ~descr cc =
     Log.debugf 5 (fun k->k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
     Bits.mk_field cc.bitgen
@@ -456,8 +458,16 @@ module Make (A: CC_ARG)
           assert false
       end
     | E_lit lit -> lit :: acc
-    | E_theory e' ->
-      th := true; explain_decompose_expl cc ~th acc e'
+    | E_theory (_pr, sub_l) ->
+      (* FIXME: use pr as a subproof. We need to accumulate subproofs too, because
+         there is some amount of resolution done inside the congruence closure
+         itself to resolve Horn clauses produced by theories.
+
+         maybe we need to store [t=u] where [pr] is the proof of [Gamma |- t=u],
+         add [t=u] to the explanation, and use a subproof to resolve
+         it away using [pr] and add [Gamma] to the mix *)
+      th := true;
+      List.fold_left (explain_decompose_expl cc ~th) acc sub_l
     | E_merge (a,b) -> explain_equal_rec_ cc ~th acc a b
     | E_merge_t (a,b) ->
       (* find nodes for [a] and [b] on the fly *)
@@ -878,12 +888,12 @@ module Make (A: CC_ARG)
       ?(on_pre_merge=[]) ?(on_post_merge=[]) ?(on_new_term=[])
       ?(on_conflict=[]) ?(on_propagate=[]) ?(on_is_subterm=[])
       ?(size=`Big)
-      (tst:term_store) : t =
+      (tst:term_store) (proof:proof) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
     let bitgen = Bits.mk_gen () in
     let field_marked_explain = Bits.mk_field bitgen in
     let rec cc = {
-      tst;
+      tst; proof;
       tbl = T_tbl.create size;
       signatures_tbl = Sig_tbl.create size;
       bitgen;

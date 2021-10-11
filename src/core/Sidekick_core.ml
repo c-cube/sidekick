@@ -230,6 +230,10 @@ module type PROOF = sig
       and [p2] proves [C \/ t], is the rule that produces [C \/ u],
       i.e unit paramodulation. *)
 
+  val with_defs : proof_step -> proof_step Iter.t -> proof_rule
+  (** [with_defs pr defs] specifies that [pr] is valid only in
+      a context where the definitions [defs] are present. *)
+
   val lemma_true : term -> proof_rule
   (** [lemma_true (true) p] asserts the clause [(true)] *)
 
@@ -244,9 +248,9 @@ module type PROOF = sig
       From now on, [t] and [u] will be used interchangeably.
       @return a proof_rule ID for the clause [(t=u)]. *)
 
-  val lemma_rw_clause : proof_step -> lit_rw:proof_step Iter.t -> proof_rule
-  (** [lemma_rw_clause prc ~lit_rw], where [prc] is the proof of [|- c],
-      uses the equations [|- p_i = q_i] from [lit_rw]
+  val lemma_rw_clause : proof_step -> using:proof_step Iter.t -> proof_rule
+  (** [lemma_rw_clause prc ~using], where [prc] is the proof of [|- c],
+      uses the equations [|- p_i = q_i] from [using]
       to rewrite some literals of [c] into [c']. This is used to preprocess
       literals of a clause (using {!lemma_preprocess} individually). *)
 end
@@ -476,7 +480,14 @@ module type CC_S = sig
     val mk_merge_t : term -> term -> t
     val mk_lit : lit -> t
     val mk_list : t list -> t
-    val mk_theory : t -> t (* TODO: indicate what theory, or even provide a lemma *)
+    val mk_theory : proof_step -> t list -> t
+    (* FIXME: this should probably take [t, u, proof(Gamma |- t=u), expls],
+       where [expls] is a list of explanation of the equations in [Gamma].
+
+       For example for the lemma [a=b] deduced by injectivity from [Some a=Some b]
+       in the theory of datatypes,
+       the arguments would be [a, b, proof(Some a=Some b |- a=b), e0]
+       where [e0] is an explanation of [Some a=Some b] *)
   end
 
   type node = N.t
@@ -490,6 +501,8 @@ module type CC_S = sig
   (** {3 Accessors} *)
 
   val term_store : t -> term_store
+
+  val proof : t -> proof
 
   val find : t -> node -> repr
   (** Current representative *)
@@ -547,6 +560,7 @@ module type CC_S = sig
     ?on_is_subterm:ev_on_is_subterm list ->
     ?size:[`Small | `Big] ->
     term_store ->
+    proof ->
     t
   (** Create a new congruence closure.
 
@@ -709,13 +723,6 @@ module type SOLVER_INTERNAL = sig
 
   type lit = Lit.t
 
-  (** {3 Proof helpers} *)
-
-  val define_const : t -> const:term -> rhs:term -> unit
-  (** [define_const si ~const ~rhs] adds the definition [const := rhs]
-      to the (future) proof. [const] should be a fresh constant that
-      occurs nowhere else, and [rhs] a term defined without [const]. *)
-
   (** {3 Congruence Closure} *)
 
   (** Congruence closure instance *)
@@ -723,6 +730,7 @@ module type SOLVER_INTERNAL = sig
     with module T = T
      and module Lit = Lit
      and type proof = proof
+     and type proof_step = proof_step
      and type P.t = proof
      and type P.lit = lit
      and type Actions.t = theory_actions

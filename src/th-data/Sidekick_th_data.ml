@@ -71,9 +71,17 @@ module type ARG = sig
   val ty_is_finite : S.T.Ty.t -> bool
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
 
-  val lemma_isa_split : S.Lit.t Iter.t -> S.proof -> unit
-  val lemma_isa_disj : S.Lit.t Iter.t -> S.proof -> unit
-  val lemma_cstor_inj : S.Lit.t Iter.t -> S.proof -> unit
+  val lemma_isa_cstor : S.T.Term.t -> S.P.proof_rule
+  (** [lemma_isa_cstor (is-c (c …))]
+      or [lemma_isa_cstor (is-c (d …))] returns a unit clause *)
+
+  val lemma_select_cstor : S.T.Term.t -> S.P.proof_rule
+  (** [lemma_select_cstor (sel-c-i (c t1…tn))]
+      returns a proof of [(sel-c-i (c t1…tn)) = ti] *)
+
+  val lemma_isa_split : S.T.Term.t -> S.Lit.t Iter.t -> S.P.proof_rule
+  val lemma_isa_disj : S.T.Term.t -> S.T.Term.t -> S.P.proof_rule
+  val lemma_cstor_inj : Cstor.t -> S.T.Term.t -> S.T.Term.t -> int -> S.P.proof_rule
 end
 
 (** Helper to compute the cardinality of types *)
@@ -231,26 +239,36 @@ module Make(A : ARG) : S with module A = A = struct
       Log.debugf 5
         (fun k->k "(@[%s.merge@ (@[:c1 %a@ %a@])@ (@[:c2 %a@ %a@])@])"
             name N.pp n1 pp c1 N.pp n2 pp c2);
-      (* build full explanation of why the constructor terms are equal *)
-      (* TODO: have a sort of lemma (injectivity) here to justify this in the proof *)
-      let expl =
-        Expl.mk_theory @@ Expl.mk_list [
+
+      let mk_expl pr =
+        Expl.mk_theory pr @@ [
           e_n1_n2;
           Expl.mk_merge n1 c1.c_n;
           Expl.mk_merge n2 c2.c_n;
         ]
       in
+
       if A.Cstor.equal c1.c_cstor c2.c_cstor then (
         (* same function: injectivity *)
-        (* FIXME proof *)
+
+        let expl_merge i =
+          mk_expl @@
+          A.lemma_cstor_inj c1.c_cstor (N.term c1.c_n) (N.term c2.c_n) i (SI.CC.proof cc)
+        in
+
         assert (IArray.length c1.c_args = IArray.length c2.c_args);
-        IArray.iter2
-          (fun u1 u2 -> SI.CC.merge cc u1 u2 expl)
+        IArray.iteri2
+          (fun i u1 u2 -> SI.CC.merge cc u1 u2 (expl_merge i))
           c1.c_args c2.c_args;
         Ok c1
       ) else (
         (* different function: disjointness *)
-        (* FIXME proof *)
+
+        let expl =
+          mk_expl @@
+          A.lemma_isa_disj (N.term c1.c_n) (N.term c2.c_n) (SI.CC.proof cc)
+        in
+
         Error expl
       )
   end
@@ -379,8 +397,10 @@ module Make(A : ARG) : S with module A = A = struct
           Log.debugf 5
             (fun k->k "(@[%s.on-new-term.is-a.reduce@ :t %a@ :to %B@ :n %a@ :sub-cstor %a@])"
                 name T.pp t is_true N.pp n Monoid_cstor.pp cstor);
+          (* FIXME: needs [nu = cstor.c_n] as hyp? *)
+          let pr = A.lemma_isa_cstor (N.term cstor.c_n) (SI.CC.proof cc) in
           SI.CC.merge cc n (SI.CC.n_bool cc is_true)
-            Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
+            Expl.(mk_theory pr [mk_merge n_u cstor.c_n])
       end
     | T_select (c_t, i, u) ->
       let n_u = SI.CC.add_term cc u in
@@ -392,7 +412,10 @@ module Make(A : ARG) : S with module A = A = struct
                 name N.pp n i A.Cstor.pp c_t);
           assert (i < IArray.length cstor.c_args);
           let u_i = IArray.get cstor.c_args i in
-          SI.CC.merge cc n u_i Expl.(mk_theory @@ mk_merge n_u cstor.c_n)
+          (* FIXME: needs [nu = cstor.c_n] as hyp? *)
+          let pr = A.lemma_select_cstor (N.term cstor.c_n) (SI.CC.proof cc) in
+          SI.CC.merge cc n u_i
+            Expl.(mk_theory pr [mk_merge n_u cstor.c_n])
         | Some _ -> ()
         | None ->
           N_tbl.add self.to_decide repr_u (); (* needs to be decided *)
