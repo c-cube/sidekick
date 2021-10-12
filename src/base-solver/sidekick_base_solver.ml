@@ -16,6 +16,7 @@ module Solver_arg = struct
   let is_valid_literal _ = true
   module P = Proof_stub
   type proof = P.t
+  type proof_step = P.proof_step
 end
 
 (** SMT solver, obtained from {!Sidekick_smt_solver} *)

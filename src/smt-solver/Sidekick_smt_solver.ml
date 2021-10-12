@@ -587,7 +587,7 @@ module Make(A : ARG)
         ty_st;
         cc = lazy (
           (* lazily tie the knot *)
-          CC.create ~size:`Big self.tst;
+          CC.create ~size:`Big self.tst self.proof;
         );
         proof;
         th_states=Ths_nil;
