@@ -252,7 +252,7 @@ let process_stmt
       );
       let lit = Solver.mk_lit_t solver t in
       Solver.add_clause solver (IArray.singleton lit)
-        (Solver.P.emit_input_clause (Iter.singleton lit));
+        (Solver.P.emit_input_clause (Iter.singleton lit) (Solver.proof solver));
       E.return()
 
     | Statement.Stmt_assert_clause c_ts ->
@@ -263,14 +263,14 @@ let process_stmt
       let c = CCList.map (fun t -> Solver.mk_lit_t solver t) c_ts in
 
       (* proof of assert-input + preprocessing *)
-      let emit_proof p =
+      let pr =
         let module P = Solver.P in
+        let proof = Solver.proof solver in
         let tst = Solver.tst solver in
-        P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) p;
-        P.emit_redundant_clause (Iter.of_list c) p;
+        P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) proof
       in
 
-      Solver.add_clause solver (IArray.of_list c) emit_proof;
+      Solver.add_clause solver (IArray.of_list c) pr;
       E.return()
 
     | Statement.Stmt_data _ ->

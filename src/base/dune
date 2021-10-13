@@ -3,7 +3,7 @@
  (public_name sidekick-base)
  (synopsis "Base term definitions for the standalone SMT solver and library")
  (libraries containers sidekick.core sidekick.util sidekick.lit
-            sidekick.arith-lra sidekick.th-bool-static
+            sidekick.arith-lra sidekick.th-bool-static sidekick.th-data
             sidekick.zarith
             bare_encoding zarith)
  (flags :standard -w -32 -open Sidekick_util))

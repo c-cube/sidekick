@@ -3,20 +3,27 @@
 
 open Base_types
 
+
 include Sidekick_core.PROOF
-  with type lit = Lit.t
+  with type t = private unit
+   and type proof_step = private unit
+   and type lit = Lit.t
    and type term = Term.t
+
+type proof_rule = t -> proof_step
 
 val create : unit -> t
 
-val lemma_bool_tauto : Lit.t Iter.t -> t -> unit
-val lemma_bool_c : string -> term list -> t -> unit
-val lemma_bool_equiv : term -> term -> t -> unit
-val lemma_ite_true : a:term -> ite:term -> t -> unit
-val lemma_ite_false : a:term -> ite:term -> t -> unit
+val lemma_lra : Lit.t Iter.t -> proof_rule
 
-val lemma_lra : Lit.t Iter.t -> t -> unit
+include Sidekick_th_data.PROOF
+  with type proof := t
+   and type proof_step := proof_step
+   and type lit := Lit.t
+   and type term := Term.t
 
-val lemma_isa_split : Lit.t Iter.t -> t -> unit
-val lemma_isa_disj : Lit.t Iter.t -> t -> unit
-val lemma_cstor_inj : Lit.t Iter.t -> t -> unit
+include Sidekick_th_bool_static.PROOF
+  with type proof := t
+   and type proof_step := proof_step
+   and type lit := Lit.t
+   and type term := Term.t

@@ -21,6 +21,45 @@ type ('c, 'ty) data_ty_view =
     }
   | Ty_other
 
+module type PROOF = sig
+  type term
+  type lit
+  type proof_step
+  type proof
+
+  val lemma_isa_cstor : cstor_t:term -> term -> proof -> proof_step
+  (** [lemma_isa_cstor (d …) (is-c t)] returns the clause
+      [(c …) = t |- is-c t] or [(d …) = t |- ¬ (is-c t)] *)
+
+  val lemma_select_cstor : cstor_t:term -> term -> proof -> proof_step
+  (** [lemma_select_cstor (c t1…tn) (sel-c-i t)]
+      returns a proof of [t = c t1…tn |- (sel-c-i t) = ti] *)
+
+  val lemma_isa_split : term -> lit Iter.t -> proof -> proof_step
+  (** [lemma_isa_split t lits] is the proof of
+      [is-c1 t \/ is-c2 t \/ … \/ is-c_n t] *)
+
+  val lemma_isa_sel : term -> proof -> proof_step
+  (** [lemma_isa_sel (is-c t)] is the proof of
+      [is-c t |- t = c (sel-c-1 t)…(sel-c-n t)] *)
+
+  val lemma_isa_disj : lit -> lit -> proof -> proof_step
+  (** [lemma_isa_disj (is-c t) (is-d t)] is the proof
+      of [¬ (is-c t) \/ ¬ (is-c t)] *)
+
+  val lemma_cstor_inj : term -> term -> int -> proof -> proof_step
+  (** [lemma_cstor_inj (c t1…tn) (c u1…un) i] is the proof of
+      [c t1…tn = c u1…un |- ti = ui] *)
+
+  val lemma_cstor_distinct : term -> term -> proof -> proof_step
+  (** [lemma_isa_distinct (c …) (d …)] is the proof
+      of the unit clause [|- (c …) ≠ (d …)] *)
+
+  val lemma_acyclicity : (term * term) Iter.t -> proof -> proof_step
+  (** [lemma_acyclicity pairs] is a proof of [t1=u1, …, tn=un |- false]
+      by acyclicity. *)
+end
+
 module type ARG = sig
   module S : Sidekick_core.SOLVER
 
@@ -66,35 +105,9 @@ module type ARG = sig
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
   (** Modify the "finite" field (see {!ty_is_finite}) *)
 
-  val lemma_isa_cstor : cstor_t:S.T.Term.t -> S.T.Term.t -> S.P.proof_rule
-  (** [lemma_isa_cstor (d …) (is-c t)] returns the clause
-      [(c …) = t |- is-c t] or [(d …) = t |- ¬ (is-c t)] *)
-
-  val lemma_select_cstor : cstor_t:S.T.Term.t -> S.T.Term.t -> S.P.proof_rule
-  (** [lemma_select_cstor (c t1…tn) (sel-c-i t)]
-      returns a proof of [t = c t1…tn |- (sel-c-i t) = ti] *)
-
-  val lemma_isa_split : S.T.Term.t -> S.Lit.t Iter.t -> S.P.proof_rule
-  (** [lemma_isa_split t lits] is the proof of
-      [is-c1 t \/ is-c2 t \/ … \/ is-c_n t] *)
-
-  val lemma_isa_sel : S.T.Term.t -> S.P.proof_rule
-  (** [lemma_isa_sel (is-c t)] is the proof of
-      [is-c t |- t = c (sel-c-1 t)…(sel-c-n t)] *)
-
-  val lemma_isa_disj : S.Lit.t -> S.Lit.t -> S.P.proof_rule
-  (** [lemma_isa_disj (is-c t) (is-d t)] is the proof
-      of [¬ (is-c t) \/ ¬ (is-c t)] *)
-
-  val lemma_cstor_inj : S.T.Term.t -> S.T.Term.t -> int -> S.P.proof_rule
-  (** [lemma_cstor_inj (c t1…tn) (c u1…un) i] is the proof of
-      [c t1…tn = c u1…un |- ti = ui] *)
-
-  val lemma_cstor_distinct : S.T.Term.t -> S.T.Term.t -> S.P.proof_rule
-  (** [lemma_isa_distinct (c …) (d …)] is the proof
-      of the unit clause [|- (c …) ≠ (d …)] *)
-
-  val lemma_acyclicity : (S.T.Term.t * S.T.Term.t) Iter.t -> S.P.proof_rule
-  (** [lemma_acyclicity pairs] is a proof of [t1=u1, …, tn=un |- false]
-      by acyclicity. *)
+  include PROOF
+    with type proof := S.P.t
+     and type proof_step := S.P.proof_step
+     and type term := S.T.Term.t
+     and type lit := S.Lit.t
 end

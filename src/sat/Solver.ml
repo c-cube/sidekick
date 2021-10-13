@@ -1890,7 +1890,8 @@ module Make(Plugin : PLUGIN)
       (match self.on_gc with
        | Some f -> let lits = Clause.lits_a store c in f self lits
        | None -> ());
-      Proof.del_clause (Clause.proof_step store c) self.proof;
+      Proof.del_clause
+        (Clause.proof_step store c) (Clause.lits_iter store c) self.proof;
     in
 
     let gc_arg =

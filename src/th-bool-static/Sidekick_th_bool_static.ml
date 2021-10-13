@@ -18,6 +18,29 @@ type ('a, 'args) bool_view =
   | B_opaque_bool of 'a (* do not enter *)
   | B_atom of 'a
 
+module type PROOF = sig
+  type proof
+  type proof_step
+  type term
+  type lit
+
+  val lemma_bool_tauto : lit Iter.t -> proof -> proof_step
+  (** Boolean tautology lemma (clause) *)
+
+  val lemma_bool_c : string -> term list -> proof -> proof_step
+  (** Basic boolean logic lemma for a clause [|- c].
+      [proof_bool_c b name cs] is the rule designated by [name]. *)
+
+  val lemma_bool_equiv : term -> term -> proof -> proof_step
+  (** Boolean tautology lemma (equivalence) *)
+
+  val lemma_ite_true : ite:term -> proof -> proof_step
+  (** lemma [a ==> ite a b c = b] *)
+
+  val lemma_ite_false : ite:term -> proof -> proof_step
+  (** lemma [¬a ==> ite a b c = c] *)
+end
+
 (** Argument to the theory *)
 module type ARG = sig
   module S : Sidekick_core.SOLVER
@@ -36,21 +59,11 @@ module type ARG = sig
       Only enable if some theories are susceptible to
       create boolean formulas during the proof search. *)
 
-  val lemma_bool_tauto : S.Lit.t Iter.t -> S.P.proof_rule
-  (** Boolean tautology lemma (clause) *)
-
-  val lemma_bool_c : string -> term list -> S.P.proof_rule
-  (** Basic boolean logic lemma for a clause [|- c].
-      [proof_bool_c b name cs] is the rule designated by [name]. *)
-
-  val lemma_bool_equiv : term -> term -> S.P.proof_rule
-  (** Boolean tautology lemma (equivalence) *)
-
-  val lemma_ite_true : ite:term -> S.P.proof_rule
-  (** lemma [a ==> ite a b c = b] *)
-
-  val lemma_ite_false : ite:term -> S.P.proof_rule
-  (** lemma [¬a ==> ite a b c = c] *)
+  include PROOF
+    with type proof := S.P.t
+     and type proof_step := S.P.proof_step
+     and type lit := S.Lit.t
+     and type term := S.T.Term.t
 
   (** Fresh symbol generator.
 

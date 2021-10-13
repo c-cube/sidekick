@@ -48,12 +48,13 @@ end = struct
         oc: out_channel;
         close: (unit -> unit);
       }
+  type proof_step = unit
+  type proof_rule = t -> proof_step
+  module Step_vec = Vec_unit
 
-  type dproof = t -> unit
-
-  let[@inline] with_proof pr f = match pr with
-    | Dummy -> ()
-    | Inner _ | Out _ -> f pr
+  let[@inline] enabled pr = match pr with
+    | Dummy -> false
+    | Inner _ | Out _ -> true
 
   let[@inline] emit_lits_buf_ buf lits =
     lits (fun i -> bpf buf "%d " i)
@@ -68,20 +69,23 @@ end = struct
     | Out {oc;_} ->
       fpf oc "i "; emit_lits_out_ oc lits; fpf oc "0\n"
 
-  let emit_redundant_clause lits self =
+  let emit_redundant_clause lits ~hyps:_ self =
     match self with
     | Dummy -> ()
     | Inner buf ->
       bpf buf "r "; emit_lits_buf_ buf lits; bpf buf "0\n"
     | Out {oc;_} -> fpf oc "r "; emit_lits_out_ oc lits; fpf oc "0\n"
 
-  let del_clause lits self =
+  let del_clause () lits self =
     match self with
     | Dummy -> ()
     | Inner buf ->
       bpf buf "d "; emit_lits_buf_ buf lits; bpf buf "0\n"
     | Out {oc; _}->
       fpf oc "d "; emit_lits_out_ oc lits; fpf oc "0\n"
+
+  let emit_unsat _ _ = ()
+  let emit_unsat_core _ _ = ()
 
   (* lifetime *)
 
@@ -130,6 +134,7 @@ module Arg = struct
   type lit = Lit.t
   module Proof = Proof
   type proof = Proof.t
+  type proof_step = Proof.proof_step
 end
 
 module SAT = Sidekick_sat.Make_pure_sat(Arg)

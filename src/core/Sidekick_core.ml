@@ -190,7 +190,7 @@ module type SAT_PROOF = sig
   val emit_unsat : proof_step -> t -> unit
   (** Signal "unsat" result at the given proof *)
 
-  val del_clause : proof_step -> t -> unit
+  val del_clause : proof_step -> lit Iter.t -> t -> unit
   (** Forget a clause. Only useful for performance considerations. *)
 end
 
@@ -1083,6 +1083,7 @@ module type SOLVER = sig
   val stats : t -> Stat.t
   val tst : t -> T.Term.store
   val ty_st : t -> T.Ty.store
+  val proof : t -> proof
 
   val create :
     ?stat:Stat.t ->

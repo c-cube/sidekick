@@ -688,6 +688,7 @@ module Make(A : ARG)
   let[@inline] stats self = self.stat
   let[@inline] tst self = Solver_internal.tst self.si
   let[@inline] ty_st self = Solver_internal.ty_st self.si
+  let[@inline] proof self = self.si.proof
 
   let preprocess_acts_of_solver_
       (self:t) : (module Solver_internal.PREPROCESS_ACTS) =
