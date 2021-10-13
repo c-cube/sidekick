@@ -17,7 +17,7 @@ depends: [
   "ocaml" { >= "4.04" }
   "sidekick" { = version }
   "zarith" { >= "1.8" } # constraint for infix ops
-  "bare_encoding"
+  "bare_encoding" {dev}
   "alcotest" {with-test}
   "qcheck" {with-test & >= "0.16" }
   "odoc" {with-doc}

@@ -5,11 +5,12 @@
  (libraries containers sidekick.core sidekick.util sidekick.lit
             sidekick.arith-lra sidekick.th-bool-static sidekick.th-data
             sidekick.zarith
-            bare_encoding zarith)
+            zarith)
  (flags :standard -w -32 -open Sidekick_util))
 
 (rule
   (targets proof_ser.ml)
   (deps proof_ser.bare)
-  (action (run bare-codegen %{deps} -o %{targets})))
+  (mode promote) ; not required in releases
+  (action (run bare-codegen --standalone %{deps} -o %{targets})))
 

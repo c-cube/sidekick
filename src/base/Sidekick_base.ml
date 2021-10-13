@@ -35,5 +35,7 @@ module Solver_arg = Solver_arg
 module Lit = Lit
 module Proof_stub = Proof_stub
 
+module Proof_ser = Proof_ser
+
 (* re-export *)
 module IArray = IArray
