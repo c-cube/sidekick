@@ -26,6 +26,6 @@ jobs:
     - run: opam pin -n .
     - run: opam depext -yt sidekick sidekick-base sidekick-bin
     - run: opam install -t . --deps-only
-    - run: opam exec -- dune build
-    - run: opam exec -- dune runtest
+    - run: opam exec -- dune build --ignore-promoted-rules
+    - run: opam exec -- dune runtest --ignore-promoted-rules
       if: ${{ matrix.os == 'ubuntu-latest'}}
