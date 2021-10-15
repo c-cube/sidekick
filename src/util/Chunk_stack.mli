@@ -35,14 +35,23 @@ module Writer : sig
   val into_buf : Buf.t -> t
 
   val into_channel: out_channel -> t
+
+  val add_buf : t -> Buf.t -> unit
+
+  val add_bytes : t -> bytes -> int -> int -> unit
+
+  val add_string : t -> string -> unit
 end
 
 module Reader : sig
   type t
 
-  val next : t -> Buf.t -> bool
-  (** Read next chunk into buf.
+  val next : t -> (bytes -> int -> int -> unit) -> bool
+  (** Read next chunk, call the function with a slice of bytes.
       Returns [true] if a chunk was read, [false] if no more chunks are there.  *)
+
+  val next_string : t -> string option
+  (** Read next chunk as a string *)
 
   val empty : t
 

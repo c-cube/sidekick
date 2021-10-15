@@ -28,5 +28,6 @@ module Bag = Bag
 module Stat = Stat
 module Hash = Hash
 module Profile = Profile
+module Chunk_stack = Chunk_stack
 
 module Intf = Sidekick_sigs
