@@ -46,9 +46,8 @@ end
 module Reader : sig
   type t
 
-  val next : t -> (bytes -> int -> int -> unit) -> bool
-  (** Read next chunk, call the function with a slice of bytes.
-      Returns [true] if a chunk was read, [false] if no more chunks are there.  *)
+  val next : t -> yield:(bytes -> int -> int -> 'a) -> finish:(unit -> 'a) -> 'a
+  (** Read next chunk, call [yield] with a slice of bytes, otherwise call [finish()]. *)
 
   val next_string : t -> string option
   (** Read next chunk as a string *)
@@ -57,9 +56,12 @@ module Reader : sig
 
   val from_buf : Buf.t -> t
 
+  val from_channel_backward : in_channel -> t
+  (** Read channel from the end, assuming that is possible. *)
+
+  val with_file_backward : string -> (t -> 'a) -> 'a
   (** [read_file_backward filename f] calls [f] with an iterator
       over chunks of the file, read from the end.
 
       Each chunk is assumed to be followed by its length as an int32 LE. *)
-  val with_file_backward : string -> (t -> 'a) -> 'a
 end

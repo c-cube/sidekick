@@ -75,10 +75,8 @@ module Reader = struct
     read: 'a. yield:(bytes -> int -> int -> 'a) -> finish:(unit -> 'a) -> 'a;
   } [@@unboxed]
 
-  let[@inline] next (self:t) f : bool =
-    self.read
-      ~yield:(fun b i len -> f b i len; true)
-      ~finish:(fun () -> false)
+  let[@inline] next (self:t) ~yield ~finish =
+    self.read ~yield ~finish
 
   let next_string (self:t) : string option =
     self.read
@@ -108,14 +106,11 @@ module Reader = struct
     in
     { read; }
 
-  let with_file_backward (filename:string) f =
-    CCIO.with_in ~flags:[Open_binary; Open_rdonly] filename @@ fun ic ->
-
+  let from_channel_backward ic =
     let len = in_channel_length ic in
     seek_in ic len;
 
-    let blen = Bytes.create 4 in (* to read length *)
-    let buf = Buf.create() in (* local buffer *)
+    let buf = Buf.create ~cap:32 () in (* local buffer *)
 
     let read ~yield ~finish =
       let pos = pos_in ic in
@@ -124,21 +119,27 @@ module Reader = struct
         assert (pos>=4);
         seek_in ic (pos - 4);
 
-        really_input ic blen 0 4;
-        let chunk_len = Int32.to_int (Bytes.get_int32_le blen 0) in
+        really_input ic buf.Buf.b 0 4;
+        let chunk_len = Int32.to_int (Bytes.get_int32_le buf.Buf.b 0) in
 
         (* now read chunk *)
         Buf.ensure_size_ buf chunk_len;
         seek_in ic (pos - 4 - chunk_len);
         really_input ic buf.Buf.b 0 chunk_len;
         buf.Buf.len <- chunk_len;
+        seek_in ic (pos - 4 - chunk_len);
 
         yield buf.Buf.b 0 buf.Buf.len
       ) else (
         finish()
       )
     in
-    f {read}
+    {read}
+
+  let with_file_backward (filename:string) f =
+    CCIO.with_in ~flags:[Open_binary; Open_rdonly] filename @@ fun ic ->
+    let r = from_channel_backward ic in
+    f r
 end
 
 (*$T
