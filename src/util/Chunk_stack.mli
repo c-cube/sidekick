@@ -56,7 +56,7 @@ module Reader : sig
 
   val from_buf : Buf.t -> t
 
-  val from_channel_backward : in_channel -> t
+  val from_channel_backward : ?close_at_end:bool -> in_channel -> t
   (** Read channel from the end, assuming that is possible. *)
 
   val with_file_backward : string -> (t -> 'a) -> 'a

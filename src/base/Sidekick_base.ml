@@ -33,9 +33,11 @@ module Form = Form
 
 module Solver_arg = Solver_arg
 module Lit = Lit
-module Proof_stub = Proof_stub
 
+module Proof_dummy = Proof_dummy
 module Proof_ser = Proof_ser
+module Proof = Proof
+module Proof_quip = Proof_quip
 
 (* re-export *)
 module IArray = IArray

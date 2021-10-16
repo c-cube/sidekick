@@ -239,31 +239,19 @@ let of_string dec s = of_bytes dec (Bytes.unsafe_of_string s)
 
 end
 
-module ProofID = struct
-  type t = int64
+module ID = struct
+  type t = int32
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
-    Bare.Decode.int dec
+    Bare.Decode.i32 dec
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
-    Bare.Encode.int enc self
+    Bare.Encode.i32 enc self
   
 end
 
 module Lit = struct
-  type t = int64
-  
-  (** @raise Bare.Decode.Error in case of error. *)
-  let decode (dec: Bare.Decode.t) : t =
-    Bare.Decode.int dec
-  
-  let encode (enc: Bare.Encode.t) (self: t) : unit =
-    Bare.Encode.int enc self
-  
-end
-
-module ExprID = struct
   type t = int64
   
   (** @raise Bare.Decode.Error in case of error. *)
@@ -300,7 +288,7 @@ end
 module Step_rup = struct
   type t = {
     res: Clause.t;
-    steps: ProofID.t array;
+    steps: ID.t array;
   }
   
   (** @raise Bare.Decode.Error in case of error. *)
@@ -309,7 +297,7 @@ module Step_rup = struct
     let steps =
       (let len = Bare.Decode.uint dec in
        if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
-       Array.init (Int64.to_int len) (fun _ -> ProofID.decode dec)) in
+       Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
     {res; steps; }
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
@@ -317,7 +305,7 @@ module Step_rup = struct
       Clause.encode enc self.res;
       (let arr = self.steps in
        Bare.Encode.uint enc (Int64.of_int (Array.length arr));
-       Array.iter (fun xi -> ProofID.encode enc xi) arr);
+       Array.iter (fun xi -> ID.encode enc xi) arr);
     end
   
 end
@@ -325,21 +313,21 @@ end
 module Step_bridge_lit_expr = struct
   type t = {
     lit: Lit.t;
-    expr: ExprID.t;
+    expr: ID.t;
   }
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
-    let lit = Lit.decode dec in let expr = ExprID.decode dec in {lit; expr; }
+    let lit = Lit.decode dec in let expr = ID.decode dec in {lit; expr; }
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
-    begin Lit.encode enc self.lit; ExprID.encode enc self.expr; end
+    begin Lit.encode enc self.lit; ID.encode enc self.expr; end
   
 end
 
 module Step_cc = struct
   type t = {
-    eqns: ExprID.t array;
+    eqns: ID.t array;
   }
   
   (** @raise Bare.Decode.Error in case of error. *)
@@ -347,37 +335,42 @@ module Step_cc = struct
     let eqns =
       (let len = Bare.Decode.uint dec in
        if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
-       Array.init (Int64.to_int len) (fun _ -> ExprID.decode dec)) in
+       Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
     {eqns; }
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
     begin
       (let arr = self.eqns in
        Bare.Encode.uint enc (Int64.of_int (Array.length arr));
-       Array.iter (fun xi -> ExprID.encode enc xi) arr);
+       Array.iter (fun xi -> ID.encode enc xi) arr);
     end
   
 end
 
 module Step_preprocess = struct
   type t = {
-    t: ExprID.t;
-    u: ExprID.t;
-    using: ProofID.t;
+    t: ID.t;
+    u: ID.t;
+    using: ID.t array;
   }
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
-    let t = ExprID.decode dec in
-    let u = ExprID.decode dec in
-    let using = ProofID.decode dec in
+    let t = ID.decode dec in
+    let u = ID.decode dec in
+    let using =
+      (let len = Bare.Decode.uint dec in
+       if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
+       Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
     {t; u; using; }
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
     begin
-      ExprID.encode enc self.t;
-      ExprID.encode enc self.u;
-      ProofID.encode enc self.using;
+      ID.encode enc self.t;
+      ID.encode enc self.u;
+      (let arr = self.using in
+       Bare.Encode.uint enc (Int64.of_int (Array.length arr));
+       Array.iter (fun xi -> ID.encode enc xi) arr);
     end
   
 end
@@ -387,6 +380,7 @@ module Step_view = struct
     | Step_rup of Step_rup.t
     | Step_bridge_lit_expr of Step_bridge_lit_expr.t
     | Step_cc of Step_cc.t
+    | Step_preprocess of Step_preprocess.t
     
   
   (** @raise Bare.Decode.Error in case of error. *)
@@ -396,6 +390,7 @@ module Step_view = struct
     | 0L -> Step_rup (Step_rup.decode dec)
     | 1L -> Step_bridge_lit_expr (Step_bridge_lit_expr.decode dec)
     | 2L -> Step_cc (Step_cc.decode dec)
+    | 3L -> Step_preprocess (Step_preprocess.decode dec)
     | _ -> raise (Bare.Decode.Error(Printf.sprintf "unknown union tag Step_view.t: %Ld" tag))
     
   
@@ -410,24 +405,25 @@ module Step_view = struct
     | Step_cc x ->
       Bare.Encode.uint enc 2L;
       Step_cc.encode enc x
+    | Step_preprocess x ->
+      Bare.Encode.uint enc 3L;
+      Step_preprocess.encode enc x
     
     
 end
 
 module Step = struct
   type t = {
-    id: ProofID.t;
+    id: ID.t;
     view: Step_view.t;
   }
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
-    let id = ProofID.decode dec in
-    let view = Step_view.decode dec in
-    {id; view; }
+    let id = ID.decode dec in let view = Step_view.decode dec in {id; view; }
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
-    begin ProofID.encode enc self.id; Step_view.encode enc self.view; end
+    begin ID.encode enc self.id; Step_view.encode enc self.view; end
   
 end
 

@@ -106,7 +106,7 @@ module Reader = struct
     in
     { read; }
 
-  let from_channel_backward ic =
+  let from_channel_backward ?(close_at_end=false) ic =
     let len = in_channel_length ic in
     seek_in ic len;
 
@@ -131,6 +131,7 @@ module Reader = struct
 
         yield buf.Buf.b 0 buf.Buf.len
       ) else (
+        if close_at_end then close_in_noerr ic;
         finish()
       )
     in
@@ -138,7 +139,7 @@ module Reader = struct
 
   let with_file_backward (filename:string) f =
     CCIO.with_in ~flags:[Open_binary; Open_rdonly] filename @@ fun ic ->
-    let r = from_channel_backward ic in
+    let r = from_channel_backward ~close_at_end:false ic in
     f r
 end
 

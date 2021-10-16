@@ -1,7 +1,6 @@
 
-type ProofID int
+type ID i32
 type Lit int
-type ExprID int
 
 type Clause {
   lits: []Lit
@@ -10,36 +9,37 @@ type Clause {
 # clause, RUP with previous steps
 type Step_rup {
   res: Clause
-  steps: []ProofID
+  steps: []ID
 }
 
 # lit <-> expr
 type Step_bridge_lit_expr {
   lit: Lit
-  expr: ExprID
+  expr: ID
 }
 
 # prove congruence closure lemma `\/_{e\in eqns} e`
 type Step_cc {
-  eqns: []ExprID
+  eqns: []ID
 }
 
 # prove t=u using some previous steps and unit equations,
 # and add clause (t=u) with given ID
 type Step_preprocess {
-  t: ExprID
-  u: ExprID
-  using: ProofID
+  t: ID
+  u: ID
+  using: []ID
 }
 
 type Step_view
   ( Step_rup
   | Step_bridge_lit_expr
   | Step_cc
+  | Step_preprocess
   )
 
 type Step {
-  id: ProofID
+  id: ID
   view: Step_view
 }
 

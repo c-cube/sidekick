@@ -1,5 +1,4 @@
 
-(*
 open Base_types
 
 module T = Term
@@ -197,13 +196,12 @@ module Compress = struct
 
   (* is [t] too small to be shared? *)
   let rec is_small_ t =
-    let open Term_cell in
     match T.view t with
-    | Bool _ -> true
-    | App_fun (_, a) -> IArray.is_empty a (* only constants are small *)
-    | Not u -> is_small_ u
-    | Eq (_, _) | Ite (_, _, _) -> false
-    | LRA _ -> false
+    | T.Bool _ -> true
+    | T.App_fun (_, a) -> IArray.is_empty a (* only constants are small *)
+    | T.Not u -> is_small_ u
+    | T.Eq (_, _) | T.Ite (_, _, _) -> false
+    | T.LRA _ -> false
 
   type name = N_s of string | N_t of T.t
   type sharing_info = {
@@ -533,4 +531,6 @@ let pp_debug ~sharing out p =
   in
   let module M = Quip.Make(Out) in
   M.pp_debug ~sharing p out
-   *)
+
+
+let of_proof _ : t = assert false
