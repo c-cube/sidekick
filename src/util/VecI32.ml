@@ -23,7 +23,7 @@ let copy self =
   else (
     (* copy bigarray *)
     let data = mk_arr_ (size self) in
-    A.blit self.data data;
+    A.blit (A.sub self.data 0 (size self)) data;
     {sz=self.sz; data}
   )
 
