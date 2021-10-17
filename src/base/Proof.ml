@@ -32,6 +32,7 @@ module Config = struct
   let enable b self = {self with enabled=b}
   let store_in_memory self = {self with storage=In_memory}
   let store_on_disk_at file self = {self with storage=On_disk_at file}
+  let no_store self = {self with storage=No_store}
 end
 
 (* where we store steps *)

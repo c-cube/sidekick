@@ -1144,7 +1144,11 @@ module type SOLVER = sig
   type res =
     | Sat of Model.t (** Satisfiable *)
     | Unsat of {
-        unsat_core: unit -> lit Iter.t; (** subset of assumptions responsible for unsat *)
+        unsat_core: unit -> lit Iter.t;
+        (** Unsat core (subset of assumptions), or empty *)
+
+        unsat_proof_step : unit -> proof_step option;
+        (** Proof step for the empty clause *)
       } (** Unsatisfiable *)
     | Unknown of Unknown.t
     (** Unknown, obtained after a timeout, memory limit, etc. *)

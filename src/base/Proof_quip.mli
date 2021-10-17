@@ -17,4 +17,6 @@ type t
 
 val pp_debug : sharing:bool -> t Fmt.printer
 
-val of_proof : Proof.t -> t
+val of_proof : Proof.t -> Proof.proof_step -> t
+
+val output : out_channel -> t -> unit

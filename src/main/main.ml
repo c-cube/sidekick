@@ -30,6 +30,7 @@ let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
 let proof_file = ref ""
+let proof_store_memory = ref false
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -69,6 +70,7 @@ let argspec = Arg.align [
     "--stat", Arg.Set p_stat, " print statistics";
     "--proof", Arg.Set p_proof, " print proof";
     "--no-proof", Arg.Clear p_proof, " do not print proof";
+    "--proof-in-memory", Arg.Set proof_store_memory, " store temporary proof in memory";
     "-o", Arg.Set_string proof_file, " file into which to output a proof";
     "--model", Arg.Set p_model, " print model";
     "--no-model", Arg.Clear p_model, " do not print model";
@@ -96,10 +98,36 @@ let check_limits () =
 let main_smt () : _ result =
   let module Proof = Sidekick_smtlib.Proof in
   let tst = Term.create ~size:4_096 () in
-  (* FIXME: use this to enable/disable actual proof
-    let store_proof = !check || !p_proof || !proof_file <> "" in
-     *)
-  let proof = Proof.create() in
+
+  let enable_proof_ = !check || !p_proof || !proof_file <> "" in
+  Log.debugf 1 (fun k->k"(@[proof-enable@ %B@])" enable_proof_);
+
+  (* call [k] with the name of a temporary proof file, and cleanup if necessary *)
+  let run_with_tmp_file k =
+    if enable_proof_ then (
+      CCIO.File.with_temp
+        ~temp_dir:"." ~prefix:".sidekick-proof" ~suffix:".dat" k
+    ) else (
+      k "/dev/null"
+    )
+  in
+
+  run_with_tmp_file @@ fun temp_proof_file ->
+  Log.debugf 1 (fun k->k"(@[temp-proof-file@ %S@])" temp_proof_file);
+
+  let config =
+    if enable_proof_ then (
+      Proof.Config.default
+      |> Proof.Config.enable true
+      |> Proof.Config.store_on_disk_at temp_proof_file
+    ) else (
+      Proof.Config.empty
+    )
+  in
+
+  (* main proof object *)
+  let proof = Proof.create ~config () in
+
   let solver =
     let theories =
       (* TODO: probes, to load only required theories *)
@@ -111,6 +139,7 @@ let main_smt () : _ result =
     in
     Process.Solver.create ~proof ~theories tst () ()
   in
+
   (* FIXME: emit an actual proof *)
   let proof_file = if !proof_file ="" then None else Some !proof_file in
   if !check then (
@@ -129,7 +158,7 @@ let main_smt () : _ result =
            Process.process_stmt
              ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
              ~time:!time_limit ~memory:!size_limit
-             ~pp_model:!p_model
+             ~pp_model:!p_model ?proof_file
              ~check:!check ~progress:!p_progress
              solver)
         () input

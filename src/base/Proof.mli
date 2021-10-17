@@ -23,6 +23,8 @@ module Config : sig
 
   val store_on_disk_at : string -> t -> t
   (** [store_on_disk_at file] stores temporary proof in file [file] *)
+
+  val no_store : t -> t
 end
 
 (** {2 Main Proof API} *)

@@ -752,6 +752,10 @@ module Make(A : ARG)
     | Sat of Model.t
     | Unsat of {
         unsat_core: unit -> lit Iter.t;
+        (** Unsat core (subset of assumptions), or empty *)
+
+        unsat_proof_step: unit -> proof_step option;
+        (** Proof step for the empty clause *)
       }
     | Unknown of Unknown.t
     (** Result of solving for the current set of clauses *)
@@ -858,8 +862,9 @@ module Make(A : ARG)
 
     | Sat_solver.Unsat (module UNSAT) ->
       let unsat_core () = UNSAT.unsat_assumptions () in
+      let unsat_proof_step () = Some (UNSAT.unsat_proof()) in
       do_on_exit ();
-      Unsat {unsat_core}
+      Unsat {unsat_core; unsat_proof_step}
 
   let mk_theory (type st)
       ~name ~create_and_setup
