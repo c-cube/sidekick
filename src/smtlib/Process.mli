@@ -7,7 +7,7 @@ module Solver
                             and type T.Term.store = Term.store
                             and type T.Ty.t = Ty.t
                             and type T.Ty.store = Ty.store
-                            and type proof = Proof_stub.t
+                            and type proof = Proof_dummy.t
 
 val th_bool : Solver.theory
 val th_data : Solver.theory

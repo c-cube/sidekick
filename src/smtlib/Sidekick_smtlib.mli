@@ -10,7 +10,7 @@ module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
 module Process = Process
 module Solver = Process.Solver
-module Proof = Sidekick_base.Proof_stub (* FIXME: actual DRUP(T) proof *)
+module Proof = Sidekick_base.Proof_dummy (* FIXME: actual DRUP(T) proof *)
 
 val parse : Term.store -> string -> Stmt.t list or_error
 

@@ -58,7 +58,7 @@ module Make(Plugin : PLUGIN)
     let[@inline] abs a = a land (lnot 1)
     let[@inline] var a = Var0.of_int_unsafe (a lsr 1)
     let[@inline] na v = (((v:var:>int) lsl 1) lor 1)
-    module AVec = VecI32
+    module AVec = VecSmallInt
   end
   type atom = Atom0.t
 
@@ -69,7 +69,7 @@ module Make(Plugin : PLUGIN)
   end = struct
     include Int_id.Make()
     module Tbl = Util.Int_tbl
-    module CVec = VecI32
+    module CVec = VecSmallInt
   end
   type clause = Clause0.t
 
@@ -93,7 +93,7 @@ module Make(Plugin : PLUGIN)
     type cstore = {
       c_lits: atom array Vec.t; (* storage for clause content *)
       c_activity: Vec_float.t;
-      c_recycle_idx: VecI32.t; (* recycle clause numbers that were GC'd *)
+      c_recycle_idx: VecSmallInt.t; (* recycle clause numbers that were GC'd *)
       c_proof: Step_vec.t; (* clause -> proof_rule for its proof *)
       c_attached: Bitvec.t;
       c_marked: Bitvec.t;
@@ -149,7 +149,7 @@ module Make(Plugin : PLUGIN)
         c_store={
           c_lits=Vec.create();
           c_activity=Vec_float.create();
-          c_recycle_idx=VecI32.create ~cap:0 ();
+          c_recycle_idx=VecSmallInt.create ~cap:0 ();
           c_proof=Step_vec.create ~cap:0 ();
           c_dead=Bitvec.create();
           c_attached=Bitvec.create();
@@ -302,9 +302,9 @@ module Make(Plugin : PLUGIN)
         } = store.c_store in
         (* allocate new ID *)
         let cid =
-          if VecI32.is_empty c_recycle_idx then (
+          if VecSmallInt.is_empty c_recycle_idx then (
             Vec.size c_lits
-          ) else VecI32.pop c_recycle_idx
+          ) else VecSmallInt.pop c_recycle_idx
         in
 
         (* allocate space *)
@@ -383,7 +383,7 @@ module Make(Plugin : PLUGIN)
         Vec.set c_lits cid [||];
         Vec_float.set c_activity cid 0.;
 
-        VecI32.push c_recycle_idx cid; (* recycle idx *)
+        VecSmallInt.push c_recycle_idx cid; (* recycle idx *)
         ()
 
       let copy_flags store c1 c2 : unit =
@@ -659,7 +659,7 @@ module Make(Plugin : PLUGIN)
     trail : AVec.t;
     (* decision stack + propagated elements (atoms or assignments). *)
 
-    var_levels : VecI32.t;
+    var_levels : VecSmallInt.t;
     (* decision levels in [trail]  *)
 
     mutable assumptions: AVec.t;
@@ -746,7 +746,7 @@ module Make(Plugin : PLUGIN)
     elt_head = 0;
 
     trail = AVec.create ();
-    var_levels = VecI32.create();
+    var_levels = VecSmallInt.create();
     assumptions= AVec.create();
 
     order = H.create store;
@@ -789,7 +789,7 @@ module Make(Plugin : PLUGIN)
     Vec.iter iter_pool self.clause_pools;
     ()
 
-  let[@inline] decision_level st = VecI32.size st.var_levels
+  let[@inline] decision_level st = VecSmallInt.size st.var_levels
   let[@inline] nb_clauses st = CVec.size st.clauses_hyps
   let stat self = self.stat
   let clause_pool_descr self (p:clause_pool_id) =
@@ -957,7 +957,7 @@ module Make(Plugin : PLUGIN)
   let new_decision_level st =
     assert (st.th_head = AVec.size st.trail);
     assert (st.elt_head = AVec.size st.trail);
-    VecI32.push st.var_levels (AVec.size st.trail);
+    VecSmallInt.push st.var_levels (AVec.size st.trail);
     Plugin.push_level st.th;
     ()
 
@@ -990,7 +990,7 @@ module Make(Plugin : PLUGIN)
     ) else (
       Log.debugf 5 (fun k -> k "(@[sat.cancel-until %d@])" lvl);
       (* We set the head of the solver and theory queue to what it was. *)
-      let head = ref (VecI32.get self.var_levels lvl) in
+      let head = ref (VecSmallInt.get self.var_levels lvl) in
       self.elt_head <- !head;
       self.th_head <- !head;
       (* Now we need to cleanup the vars that are not valid anymore
@@ -1023,7 +1023,7 @@ module Make(Plugin : PLUGIN)
       assert (n>0);
       (* Resize the vectors according to their new size. *)
       AVec.shrink self.trail !head;
-      VecI32.shrink self.var_levels lvl;
+      VecSmallInt.shrink self.var_levels lvl;
       Plugin.pop_levels self.th n;
       (* TODO: for scoped clause pools, backtrack them *)
       self.next_decisions <- [];

@@ -66,8 +66,6 @@ type proof_rule = t -> proof_step
 module Step_vec = struct
   type elt=proof_step
   include VecI32
-  let get = get_i32
-  let set = set_i32
 end
 
 let disable (self:t) : unit =
@@ -134,18 +132,18 @@ let[@inline] enabled (self:t) = self.enabled
 
 let begin_subproof _ = dummy_step
 let end_subproof _ = dummy_step
-let del_clause _ _ (_pr:t) = dummy_step
 let emit_redundant_clause _ ~hyps:_ _ = dummy_step
 let emit_input_clause _ _ = dummy_step
 let define_term _ _ _ = dummy_step
-let emit_unsat _ _ = dummy_step
 let proof_p1 _ _ (_pr:t) = dummy_step
-let emit_unsat_core _ (_pr:t) = dummy_step
 let lemma_preprocess _ _ ~using:_ (_pr:t) = dummy_step
 let lemma_true _ _ = dummy_step
 let lemma_cc _ _ = dummy_step
 let lemma_rw_clause _ ~using:_ (_pr:t) = dummy_step
 let with_defs _ _ (_pr:t) = dummy_step
+let del_clause _ _ (_pr:t) = ()
+let emit_unsat_core _ (_pr:t) = dummy_step
+let emit_unsat _ _ = ()
 
 let lemma_lra _ _ = dummy_step
 
