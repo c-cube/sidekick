@@ -14,8 +14,6 @@ let create () : t = ()
 let with_proof _ _ = ()
 
 let enabled (_pr:t) = false
-let begin_subproof _ = ()
-let end_subproof _ = ()
 let del_clause _ _ (_pr:t) = ()
 let emit_redundant_clause _ ~hyps:_ _ = ()
 let emit_input_clause _ _ = ()

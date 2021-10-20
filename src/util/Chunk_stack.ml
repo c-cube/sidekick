@@ -8,6 +8,8 @@ module Buf = struct
   let create ?(cap=16) () : t =
     { len=0; b=Bytes.create cap; }
 
+  let[@inline] size self = self.len
+
   let resize_ self new_len : unit =
     let size = min (new_len + new_len / 4 + 5) Sys.max_string_length in
     if new_len > size then failwith "max buf size exceeded";
@@ -27,6 +29,10 @@ module Buf = struct
     Bytes.blit b off self.b self.len len;
     self.len <- self.len + len
 
+  let add_buffer (self:t) (buf:Buffer.t) =
+    ensure_size_ self (size self + Buffer.length buf);
+    Buffer.blit buf 0 self.b self.len (Buffer.length buf)
+
   let[@inline] add_buf (self:t) (other:t) =
     add_bytes self other.b 0 other.len
 
@@ -38,11 +44,15 @@ end
 module Writer = struct
   type t = {
     write: bytes -> int -> int -> unit;
+    write_buf: Buffer.t -> unit;
   }
 
   let nop_ _ = ()
 
-  let dummy : t = { write=fun _ _ _ -> (); }
+  let dummy : t = {
+    write=(fun _ _ _ -> ());
+    write_buf=(fun _ -> ());
+  }
 
   let into_buf (into:Buf.t) : t =
     let blen = Bytes.create 4 in
@@ -52,7 +62,12 @@ module Writer = struct
       Bytes.set_int32_le blen 0 (Int32.of_int len);
       Buf.add_bytes into blen 0 4;
     in
-    { write; }
+    let write_buf buf =
+      Buf.add_buffer into buf;
+      Bytes.set_int32_le blen 0 (Int32.of_int (Buffer.length buf));
+      Buf.add_bytes into blen 0 4;
+    in
+    { write; write_buf }
 
   let into_channel (oc:out_channel) : t =
     let blen = Bytes.create 4 in
@@ -61,13 +76,19 @@ module Writer = struct
       (* add len *)
       Bytes.set_int32_le blen 0 (Int32.of_int len);
       output oc blen 0 4
+    and write_buf buf =
+      Buffer.output_buffer oc buf;
+      (* add len *)
+      Bytes.set_int32_le blen 0 (Int32.of_int (Buffer.length buf));
+      output oc blen 0 4
     in
-    { write; }
+    { write; write_buf; }
 
   let[@inline] add_buf self buf = self.write buf.Buf.b 0 buf.Buf.len
   let[@inline] add_bytes self b i len = self.write b i len
   let[@inline] add_string self s =
     add_bytes self (Bytes.unsafe_of_string s) 0 (String.length s)
+  let[@inline] add_buffer self (buf:Buffer.t) = self.write_buf buf
 end
 
 module Reader = struct

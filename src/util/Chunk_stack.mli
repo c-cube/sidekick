@@ -41,6 +41,8 @@ module Writer : sig
   val add_bytes : t -> bytes -> int -> int -> unit
 
   val add_string : t -> string -> unit
+
+  val add_buffer : t -> Buffer.t -> unit
 end
 
 module Reader : sig

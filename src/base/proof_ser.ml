@@ -252,14 +252,14 @@ module ID = struct
 end
 
 module Lit = struct
-  type t = int64
+  type t = ID.t
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
-    Bare.Decode.int dec
+    ID.decode dec
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
-    Bare.Encode.int enc self
+    ID.encode enc self
   
 end
 
@@ -282,6 +282,20 @@ module Clause = struct
        Bare.Encode.uint enc (Int64.of_int (Array.length arr));
        Array.iter (fun xi -> Lit.encode enc xi) arr);
     end
+  
+end
+
+module Step_input = struct
+  type t = {
+    c: Clause.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let c = Clause.decode dec in {c; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin Clause.encode enc self.c; end
   
 end
 
@@ -375,39 +389,179 @@ module Step_preprocess = struct
   
 end
 
+module Fun_decl = struct
+  type t = {
+    f: string;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let f = Bare.Decode.string dec in {f; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin Bare.Encode.string enc self.f; end
+  
+end
+
+module Expr_bool = struct
+  type t = {
+    b: bool;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let b = Bare.Decode.bool dec in {b; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin Bare.Encode.bool enc self.b; end
+  
+end
+
+module Expr_if = struct
+  type t = {
+    cond: ID.t;
+    then_: ID.t;
+    else_: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let cond = ID.decode dec in
+    let then_ = ID.decode dec in
+    let else_ = ID.decode dec in
+    {cond; then_; else_; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin
+      ID.encode enc self.cond;
+      ID.encode enc self.then_;
+      ID.encode enc self.else_;
+    end
+  
+end
+
+module Expr_not = struct
+  type t = {
+    f: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let f = ID.decode dec in {f; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin ID.encode enc self.f; end
+  
+end
+
+module Expr_eq = struct
+  type t = {
+    lhs: ID.t;
+    rhs: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let lhs = ID.decode dec in let rhs = ID.decode dec in {lhs; rhs; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin ID.encode enc self.lhs; ID.encode enc self.rhs; end
+  
+end
+
+module Expr_app = struct
+  type t = {
+    f: ID.t;
+    args: ID.t array;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let f = ID.decode dec in
+    let args =
+      (let len = Bare.Decode.uint dec in
+       if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
+       Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
+    {f; args; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin
+      ID.encode enc self.f;
+      (let arr = self.args in
+       Bare.Encode.uint enc (Int64.of_int (Array.length arr));
+       Array.iter (fun xi -> ID.encode enc xi) arr);
+    end
+  
+end
+
 module Step_view = struct
   type t =
+    | Step_input of Step_input.t
     | Step_rup of Step_rup.t
     | Step_bridge_lit_expr of Step_bridge_lit_expr.t
     | Step_cc of Step_cc.t
     | Step_preprocess of Step_preprocess.t
+    | Fun_decl of Fun_decl.t
+    | Expr_bool of Expr_bool.t
+    | Expr_if of Expr_if.t
+    | Expr_not of Expr_not.t
+    | Expr_eq of Expr_eq.t
+    | Expr_app of Expr_app.t
     
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
     let tag = Bare.Decode.uint dec in
     match tag with
-    | 0L -> Step_rup (Step_rup.decode dec)
-    | 1L -> Step_bridge_lit_expr (Step_bridge_lit_expr.decode dec)
-    | 2L -> Step_cc (Step_cc.decode dec)
-    | 3L -> Step_preprocess (Step_preprocess.decode dec)
+    | 0L -> Step_input (Step_input.decode dec)
+    | 1L -> Step_rup (Step_rup.decode dec)
+    | 2L -> Step_bridge_lit_expr (Step_bridge_lit_expr.decode dec)
+    | 3L -> Step_cc (Step_cc.decode dec)
+    | 4L -> Step_preprocess (Step_preprocess.decode dec)
+    | 5L -> Fun_decl (Fun_decl.decode dec)
+    | 6L -> Expr_bool (Expr_bool.decode dec)
+    | 7L -> Expr_if (Expr_if.decode dec)
+    | 8L -> Expr_not (Expr_not.decode dec)
+    | 9L -> Expr_eq (Expr_eq.decode dec)
+    | 10L -> Expr_app (Expr_app.decode dec)
     | _ -> raise (Bare.Decode.Error(Printf.sprintf "unknown union tag Step_view.t: %Ld" tag))
     
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
     match self with
-    | Step_rup x ->
+    | Step_input x ->
       Bare.Encode.uint enc 0L;
+      Step_input.encode enc x
+    | Step_rup x ->
+      Bare.Encode.uint enc 1L;
       Step_rup.encode enc x
     | Step_bridge_lit_expr x ->
-      Bare.Encode.uint enc 1L;
+      Bare.Encode.uint enc 2L;
       Step_bridge_lit_expr.encode enc x
     | Step_cc x ->
-      Bare.Encode.uint enc 2L;
+      Bare.Encode.uint enc 3L;
       Step_cc.encode enc x
     | Step_preprocess x ->
-      Bare.Encode.uint enc 3L;
+      Bare.Encode.uint enc 4L;
       Step_preprocess.encode enc x
+    | Fun_decl x ->
+      Bare.Encode.uint enc 5L;
+      Fun_decl.encode enc x
+    | Expr_bool x ->
+      Bare.Encode.uint enc 6L;
+      Expr_bool.encode enc x
+    | Expr_if x ->
+      Bare.Encode.uint enc 7L;
+      Expr_if.encode enc x
+    | Expr_not x ->
+      Bare.Encode.uint enc 8L;
+      Expr_not.encode enc x
+    | Expr_eq x ->
+      Bare.Encode.uint enc 9L;
+      Expr_eq.encode enc x
+    | Expr_app x ->
+      Bare.Encode.uint enc 10L;
+      Expr_app.encode enc x
     
     
 end

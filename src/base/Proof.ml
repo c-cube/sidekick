@@ -51,6 +51,7 @@ end
 (* a step is just a unique integer ID.
    The actual step is stored in the chunk_stack. *)
 type proof_step = Proof_ser.ID.t
+type term_id = Proof_ser.ID.t
 
 type lit = Lit.t
 type term = Term.t
@@ -58,9 +59,13 @@ type term = Term.t
 type t = {
   mutable enabled : bool;
   config: Config.t;
+  buf: Buffer.t;
   mutable storage: Storage.t;
   mutable dispose: unit -> unit;
-  mutable steps: CS.Writer.t;
+  mutable steps_writer: CS.Writer.t;
+  mutable next_id: int;
+  map_term: term_id Term.Tbl.t; (* term -> proof ID *)
+  map_fun: term_id Fun.Tbl.t;
 }
 type proof_rule = t -> proof_step
 
@@ -73,14 +78,14 @@ let disable (self:t) : unit =
   self.enabled <- false;
   self.storage <- Storage.No_store;
   self.dispose();
-  self.steps <- CS.Writer.dummy;
+  self.steps_writer <- CS.Writer.dummy;
   ()
 
 let nop_ _ = ()
 
 let create ?(config=Config.default) () : t =
   (* acquire resources for logging *)
-  let storage, steps, dispose =
+  let storage, steps_writer, dispose =
     match config.Config.storage with
     | Config.No_store ->
       Storage.No_store, CS.Writer.dummy, nop_
@@ -99,7 +104,12 @@ let create ?(config=Config.default) () : t =
   in
   { enabled=config.Config.enabled;
     config;
-    steps; storage; dispose; }
+    next_id=1;
+    buf=Buffer.create 1_024;
+    map_term=Term.Tbl.create 32;
+    map_fun=Fun.Tbl.create 32;
+    steps_writer; storage; dispose;
+  }
 
 let iter_chunks_ (r:CS.Reader.t) k =
   let rec loop () =
@@ -127,14 +137,77 @@ let iter_steps_backward (self:t) : Proof_ser.Step.t Iter.t =
         iter_chunks_ iter yield
     end
 
-let dummy_step : proof_step = -1l
+let dummy_step : proof_step = Int32.min_int
 
 let[@inline] enabled (self:t) = self.enabled
 
-let begin_subproof _ = dummy_step
-let end_subproof _ = dummy_step
+(* allocate a unique ID to refer to an event in the trace *)
+let[@inline] alloc_id (self:t) : Proof_ser.ID.t =
+  let n = self.next_id in
+  self.next_id <- 1 + self.next_id;
+  Int32.of_int n
+
+(* emit a proof step *)
+let emit_step_ (self:t) (step:Proof_ser.Step.t) : unit =
+  if enabled self then (
+    Buffer.clear self.buf;
+    Proof_ser.Step.encode self.buf step;
+    Chunk_stack.Writer.add_buffer self.steps_writer self.buf;
+  )
+
+let emit_fun_ (self:t) (f:Fun.t) : term_id =
+  try Fun.Tbl.find self.map_fun f
+  with Not_found ->
+    let id = alloc_id self in
+    Fun.Tbl.add self.map_fun f id;
+    let f_name = ID.to_string (Fun.id f) in
+    emit_step_ self
+      Proof_ser.({ Step.id; view=Fun_decl {Fun_decl.f=f_name}});
+    id
+
+let rec emit_term_ (self:t) (t:Term.t) : term_id =
+  try Term.Tbl.find self.map_term t
+  with Not_found ->
+    let view = match Term_cell.map (emit_term_ self) @@ Term.view t with
+      | Term_cell.Bool b ->
+        Proof_ser.Step_view.Expr_bool {Proof_ser.Expr_bool.b}
+
+      | Term_cell.Ite (a,b,c) ->
+        Proof_ser.Step_view.Expr_if {Proof_ser.Expr_if.cond=a; then_=b; else_=c}
+
+      | Term_cell.Not a ->
+        Proof_ser.Step_view.Expr_not {Proof_ser.Expr_not.f=a}
+
+      | Term_cell.App_fun (f, arr) ->
+        let f = emit_fun_ self f in
+        Proof_ser.Step_view.Expr_app {Proof_ser.Expr_app.f; args=(arr:_ IArray.t:> _ array)}
+
+      | Term_cell.Eq (a, b) ->
+        Proof_ser.Step_view.Expr_eq {Proof_ser.Expr_eq.lhs=a; rhs=b}
+
+      | LRA _ -> assert false (* TODO *)
+    in
+
+    let id = alloc_id self in
+    emit_step_ self Proof_ser.({id; view});
+    id
+
+let emit_lit_ (self:t) (lit:Lit.t) : term_id =
+  let sign = Lit.sign lit in
+  let t = emit_term_ self (Lit.term lit) in
+  if sign then t else Int32.neg t
+
 let emit_redundant_clause _ ~hyps:_ _ = dummy_step
-let emit_input_clause _ _ = dummy_step
+let emit_input_clause (lits:Lit.t Iter.t) (self:t) =
+  if enabled self then (
+    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+    let id = alloc_id self in
+    emit_step_ self (
+      Proof_ser.({Step.id; view=Step_view.Step_input {Step_input.c={Clause.lits}}})
+    );
+    id
+  ) else dummy_step
+
 let define_term _ _ _ = dummy_step
 let proof_p1 _ _ (_pr:t) = dummy_step
 let lemma_preprocess _ _ ~using:_ (_pr:t) = dummy_step
