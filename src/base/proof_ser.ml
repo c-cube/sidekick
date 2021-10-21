@@ -302,22 +302,22 @@ end
 module Step_rup = struct
   type t = {
     res: Clause.t;
-    steps: ID.t array;
+    hyps: ID.t array;
   }
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
     let res = Clause.decode dec in
-    let steps =
+    let hyps =
       (let len = Bare.Decode.uint dec in
        if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
        Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
-    {res; steps; }
+    {res; hyps; }
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
     begin
       Clause.encode enc self.res;
-      (let arr = self.steps in
+      (let arr = self.hyps in
        Bare.Encode.uint enc (Int64.of_int (Array.length arr));
        Array.iter (fun xi -> ID.encode enc xi) arr);
     end

@@ -13,7 +13,7 @@ type Step_input {
 # clause, RUP with previous steps
 type Step_rup {
   res: Clause
-  steps: []ID
+  hyps: []ID
 }
 
 # TODO: remove?

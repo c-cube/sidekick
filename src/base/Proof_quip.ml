@@ -533,6 +533,6 @@ let pp_debug ~sharing out p =
   M.pp_debug ~sharing p out
 
 
-let of_proof _ _ : t = assert false
+let of_proof _ _ : t = Sorry
 
 let output = Quip.output

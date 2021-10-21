@@ -105,8 +105,12 @@ let main_smt () : _ result =
   (* call [k] with the name of a temporary proof file, and cleanup if necessary *)
   let run_with_tmp_file k =
     if enable_proof_ then (
+      let file = ".sidekick-trace.dat" in
+      k file
+      (*  TODO
       CCIO.File.with_temp
         ~temp_dir:"." ~prefix:".sidekick-proof" ~suffix:".dat" k
+          *)
     ) else (
       k "/dev/null"
     )

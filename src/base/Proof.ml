@@ -197,7 +197,18 @@ let emit_lit_ (self:t) (lit:Lit.t) : term_id =
   let t = emit_term_ self (Lit.term lit) in
   if sign then t else Int32.neg t
 
-let emit_redundant_clause _ ~hyps:_ _ = dummy_step
+let emit_redundant_clause lits ~hyps (self:t) =
+  if enabled self then (
+    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+    let clause = Proof_ser.{Clause.lits} in
+    let hyps = Iter.to_array hyps in
+    let id = alloc_id self in
+    emit_step_ self (
+      Proof_ser.({Step.id; view=Step_view.Step_rup {res=clause; hyps}})
+    );
+    id
+  ) else dummy_step
+
 let emit_input_clause (lits:Lit.t Iter.t) (self:t) =
   if enabled self then (
     let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in

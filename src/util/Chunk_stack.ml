@@ -71,16 +71,21 @@ module Writer = struct
 
   let into_channel (oc:out_channel) : t =
     let blen = Bytes.create 4 in
+
+    (* add len after chunk *)
+    let[@inline] emit_len_ len =
+      Bytes.set_int32_le blen 0 (Int32.of_int len);
+      output oc blen 0 4;
+      flush oc
+    in
+
     let write b i len =
       output oc b i len;
-      (* add len *)
-      Bytes.set_int32_le blen 0 (Int32.of_int len);
-      output oc blen 0 4
+      emit_len_ len
+
     and write_buf buf =
       Buffer.output_buffer oc buf;
-      (* add len *)
-      Bytes.set_int32_le blen 0 (Int32.of_int (Buffer.length buf));
-      output oc blen 0 4
+      emit_len_ (Buffer.length buf);
     in
     { write; write_buf; }
 
