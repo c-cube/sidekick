@@ -189,7 +189,7 @@ let rec emit_term_ (self:t) (t:Term.t) : term_id =
     in
 
     let id = alloc_id self in
-    emit_step_ self Proof_ser.({id; view});
+    emit_step_ self {id; view};
     id
 
 let emit_lit_ (self:t) (lit:Lit.t) : term_id =
