@@ -191,6 +191,7 @@ let rec emit_term_ (self:t) (t:Term.t) : term_id =
     in
 
     let id = alloc_id self in
+    Term.Tbl.add self.map_term t id;
     emit_step_ self {id; view};
     id
 
