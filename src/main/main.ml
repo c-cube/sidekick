@@ -31,6 +31,7 @@ let p_gc_stat = ref false
 let p_progress = ref false
 let proof_file = ref ""
 let proof_store_memory = ref false
+let proof_store_file = ref ""
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -71,6 +72,7 @@ let argspec = Arg.align [
     "--proof", Arg.Set p_proof, " print proof";
     "--no-proof", Arg.Clear p_proof, " do not print proof";
     "--proof-in-memory", Arg.Set proof_store_memory, " store temporary proof in memory";
+    "--proof-trace-file", Arg.Set_string proof_store_file, " store temporary proof in given file (no cleanup)";
     "-o", Arg.Set_string proof_file, " file into which to output a proof";
     "--model", Arg.Set p_model, " print model";
     "--no-model", Arg.Clear p_model, " do not print model";
@@ -104,13 +106,15 @@ let main_smt () : _ result =
 
   (* call [k] with the name of a temporary proof file, and cleanup if necessary *)
   let run_with_tmp_file k =
+    (* TODO: use memory writer if [!proof_store_memory] *)
     if enable_proof_ then (
-      let file = ".sidekick-trace.dat" in
-      k file
-      (*  TODO
-      CCIO.File.with_temp
-        ~temp_dir:"." ~prefix:".sidekick-proof" ~suffix:".dat" k
-          *)
+      if !proof_store_file <> "" then (
+        let file = !proof_store_file in
+        k file
+      ) else (
+        CCIO.File.with_temp
+          ~temp_dir:"." ~prefix:".sidekick-proof" ~suffix:".dat" k
+      )
     ) else (
       k "/dev/null"
     )
