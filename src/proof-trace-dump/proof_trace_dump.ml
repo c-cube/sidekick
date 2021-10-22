@@ -2,10 +2,13 @@
 module CS = Chunk_stack
 module Proof_ser = Sidekick_base_proof_trace.Proof_ser
 
-let parse_file (file:string) : unit =
-  Log.debugf 2 (fun k->k"parsing file %S" file);
+let file = ref ""
+let quiet = ref false
 
-  CS.Reader.with_file_backward file @@ fun reader ->
+let parse_file () : unit =
+  Log.debugf 2 (fun k->k"parsing file %S" !file);
+
+  CS.Reader.with_file_backward !file @@ fun reader ->
 
   let n = ref 0 in
   let rec display_steps () =
@@ -15,7 +18,9 @@ let parse_file (file:string) : unit =
           let decode = {Proof_ser.Bare.Decode.bs=b; off=i} in
           let step = Proof_ser.Step.decode decode in
           incr n;
-          Format.printf "@[<2>%a@]@." Proof_ser.Step.pp step;
+          if not !quiet then (
+            Format.printf "@[<2>%a@]@." Proof_ser.Step.pp step;
+          );
           display_steps();
         );
   in
@@ -24,12 +29,12 @@ let parse_file (file:string) : unit =
   ()
 
 let () =
-  let file = ref "" in
   let opts = [
     "--bt", Arg.Unit (fun () -> Printexc.record_backtrace true), " enable stack traces";
     "-d", Arg.Int Log.set_debug, "<lvl> sets the debug verbose level";
+    "-q", Arg.Set quiet, " quiet: do not print steps";
   ] |> Arg.align in
   Arg.parse opts (fun f -> file := f) "proof-trace-dump <file>";
   if !file = "" then failwith "please provide a file";
 
-  parse_file !file
+  parse_file ()

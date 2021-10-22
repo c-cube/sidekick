@@ -111,6 +111,8 @@ let create ?(config=Config.default) () : t =
     steps_writer; storage; dispose;
   }
 
+let empty = create ~config:Config.empty ()
+
 let iter_chunks_ (r:CS.Reader.t) k =
   let rec loop () =
     CS.Reader.next r

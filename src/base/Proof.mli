@@ -64,6 +64,9 @@ val create : ?config:Config.t -> unit -> t
 (** Create new proof.
     @param config modifies the proof behavior *)
 
+val empty : t
+(** Empty proof, stores nothing *)
+
 val disable : t -> unit
 (** Disable proof, even if the config would enable it *)
 
