@@ -3,6 +3,7 @@ open Base_types
 
 (* we store steps as binary chunks *)
 module CS = Chunk_stack
+module PS = Proof_ser
 
 module Config = struct
   type storage =
@@ -33,19 +34,6 @@ module Config = struct
   let store_in_memory self = {self with storage=In_memory}
   let store_on_disk_at file self = {self with storage=On_disk_at file}
   let no_store self = {self with storage=No_store}
-end
-
-(* where we store steps *)
-module Storage = struct
-  type t =
-    | No_store
-    | In_memory of CS.Buf.t
-    | On_disk of string * out_channel
-
-  let pp out = function
-    | No_store -> Fmt.string out "no-store"
-    | In_memory _ -> Fmt.string out "in-memory"
-    | On_disk (file,_) -> Fmt.fprintf out "(on-file %S)" file
 end
 
 (* a step is just a unique integer ID.
@@ -113,31 +101,8 @@ let create ?(config=Config.default) () : t =
 
 let empty = create ~config:Config.empty ()
 
-let iter_chunks_ (r:CS.Reader.t) k =
-  let rec loop () =
-    CS.Reader.next r
-      ~finish:nop_
-      ~yield:(fun b i _len ->
-          let step =
-            Proof_ser.Bare.of_bytes_exn Proof_ser.Step.decode b ~off:i in
-          k step;
-          loop ()
-        )
-  in
-  loop ()
-
-let iter_steps_backward (self:t) : Proof_ser.Step.t Iter.t =
-  fun yield ->
-    begin match self.storage with
-      | Storage.No_store -> ()
-      | Storage.In_memory buf ->
-        let r = CS.Reader.from_buf buf in
-        iter_chunks_ r yield
-      | Storage.On_disk (file, _oc) ->
-        let ic = open_in file in
-        let iter = CS.Reader.from_channel_backward ~close_at_end:true ic in
-        iter_chunks_ iter yield
-    end
+let iter_steps_backward (self:t) =
+  Storage.iter_steps_backward self.storage
 
 let dummy_step : proof_step = Int32.min_int
 
@@ -172,20 +137,20 @@ let rec emit_term_ (self:t) (t:Term.t) : term_id =
   with Not_found ->
     let view = match Term_cell.map (emit_term_ self) @@ Term.view t with
       | Term_cell.Bool b ->
-        Proof_ser.Step_view.Expr_bool {Proof_ser.Expr_bool.b}
+        PS.Step_view.Expr_bool {PS.Expr_bool.b}
 
       | Term_cell.Ite (a,b,c) ->
-        Proof_ser.Step_view.Expr_if {Proof_ser.Expr_if.cond=a; then_=b; else_=c}
+        PS.Step_view.Expr_if {PS.Expr_if.cond=a; then_=b; else_=c}
 
       | Term_cell.Not a ->
-        Proof_ser.Step_view.Expr_not {Proof_ser.Expr_not.f=a}
+        PS.Step_view.Expr_not {PS.Expr_not.f=a}
 
       | Term_cell.App_fun (f, arr) ->
         let f = emit_fun_ self f in
-        Proof_ser.Step_view.Expr_app {Proof_ser.Expr_app.f; args=(arr:_ IArray.t:> _ array)}
+        PS.Step_view.Expr_app {PS.Expr_app.f; args=(arr:_ IArray.t:> _ array)}
 
       | Term_cell.Eq (a, b) ->
-        Proof_ser.Step_view.Expr_eq {Proof_ser.Expr_eq.lhs=a; rhs=b}
+        PS.Step_view.Expr_eq {PS.Expr_eq.lhs=a; rhs=b}
 
       | LRA _ -> assert false (* TODO *)
     in
@@ -200,32 +165,44 @@ let emit_lit_ (self:t) (lit:Lit.t) : term_id =
   let t = emit_term_ self (Lit.term lit) in
   if sign then t else Int32.neg t
 
-let emit_redundant_clause lits ~hyps (self:t) =
+let emit_ (self:t) f : proof_step =
   if enabled self then (
-    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
-    let clause = Proof_ser.{Clause.lits} in
-    let hyps = Iter.to_array hyps in
+    let view = f () in
     let id = alloc_id self in
-    emit_step_ self (
-      Proof_ser.({Step.id; view=Step_view.Step_rup {res=clause; hyps}})
-    );
+    emit_step_ self {PS.Step.id; view};
     id
   ) else dummy_step
+
+let[@inline] emit_redundant_clause lits ~hyps (self:t) =
+  emit_ self @@ fun() ->
+  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+  let clause = Proof_ser.{Clause.lits} in
+  let hyps = Iter.to_array hyps in
+  PS.Step_view.Step_rup {res=clause; hyps}
 
 let emit_input_clause (lits:Lit.t Iter.t) (self:t) =
-  if enabled self then (
-    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
-    let id = alloc_id self in
-    emit_step_ self (
-      Proof_ser.({Step.id; view=Step_view.Step_input {Step_input.c={Clause.lits}}})
-    );
-    id
-  ) else dummy_step
+  emit_ self @@ fun () ->
+  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+  PS.(Step_view.Step_input {Step_input.c={Clause.lits}})
 
-let define_term _ _ _ = dummy_step
+let define_term t u (self:t) =
+  emit_ self @@ fun () ->
+  let t = emit_term_ self t and u = emit_term_ self u in
+  PS.(Step_view.Expr_def {Expr_def.c=t; rhs=u})
+
 let proof_p1 _ _ (_pr:t) = dummy_step
-let lemma_preprocess _ _ ~using:_ (_pr:t) = dummy_step
-let lemma_true _ _ = dummy_step
+
+let lemma_preprocess t u ~using (self:t) =
+  emit_ self @@ fun () ->
+  let t = emit_term_ self t and u = emit_term_ self u in
+  let using = using |> Iter.to_array in
+  PS.(Step_view.Step_preprocess {Step_preprocess.t; u; using})
+
+let lemma_true t (self:t) =
+  emit_ self @@ fun () ->
+  let t = emit_term_ self t in
+  PS.(Step_view.Step_true {Step_true.true_=t})
+
 let lemma_cc _ _ = dummy_step
 let lemma_rw_clause _ ~using:_ (_pr:t) = dummy_step
 let with_defs _ _ (_pr:t) = dummy_step

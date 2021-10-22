@@ -36,8 +36,18 @@ type Step_preprocess {
   using: []ID
 }
 
+type Step_true {
+  true_: ID
+}
+
 type Fun_decl {
   f: string
+}
+
+# define c := rhs
+type Expr_def {
+  c: ID
+  rhs: ID
 }
 
 type Expr_bool {
@@ -70,7 +80,9 @@ type Step_view
   | Step_bridge_lit_expr
   | Step_cc
   | Step_preprocess
+  | Step_true
   | Fun_decl
+  | Expr_def
   | Expr_bool
   | Expr_if
   | Expr_not

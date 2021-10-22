@@ -6,3 +6,6 @@
     proof later. *)
 
 module Proof_ser = Proof_ser
+module Storage = Storage
+
+let iter_steps_backward = Storage.iter_steps_backward

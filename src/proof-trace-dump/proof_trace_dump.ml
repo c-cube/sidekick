@@ -1,6 +1,7 @@
 
 module CS = Chunk_stack
-module Proof_ser = Sidekick_base_proof_trace.Proof_ser
+module Pr_trace = Sidekick_base_proof_trace
+module Proof_ser = Pr_trace.Proof_ser
 
 let file = ref ""
 let quiet = ref false
@@ -9,6 +10,10 @@ let parse_file () : unit =
   Log.debugf 2 (fun k->k"parsing file %S" !file);
 
   CS.Reader.with_file_backward !file @@ fun reader ->
+
+  (* TODO: use the storage module function
+  Pr_trace.iter_steps_backward (Pr_trace.Storage.
+     *)
 
   let n = ref 0 in
   let rec display_steps () =

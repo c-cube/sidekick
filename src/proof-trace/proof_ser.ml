@@ -480,6 +480,28 @@ module Step_preprocess = struct
 
 end
 
+module Step_true = struct
+  type t = {
+    true_: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let true_ = ID.decode dec in {true_; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin ID.encode enc self.true_; end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{@[ ";
+       Format.fprintf out "true_=%a;@ " ID.pp x.true_;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
 module Fun_decl = struct
   type t = {
     f: string;
@@ -497,6 +519,30 @@ module Fun_decl = struct
      begin
        Format.fprintf out "{@[ ";
        Format.fprintf out "f=%a;@ " Bare.Pp.string x.f;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
+module Expr_def = struct
+  type t = {
+    c: ID.t;
+    rhs: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let c = ID.decode dec in let rhs = ID.decode dec in {c; rhs; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin ID.encode enc self.c; ID.encode enc self.rhs; end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{@[ ";
+       Format.fprintf out "c=%a;@ " ID.pp x.c;
+       Format.fprintf out "rhs=%a;@ " ID.pp x.rhs;
        Format.fprintf out "@]}";
      end) out self
 
@@ -644,7 +690,9 @@ module Step_view = struct
     | Step_bridge_lit_expr of Step_bridge_lit_expr.t
     | Step_cc of Step_cc.t
     | Step_preprocess of Step_preprocess.t
+    | Step_true of Step_true.t
     | Fun_decl of Fun_decl.t
+    | Expr_def of Expr_def.t
     | Expr_bool of Expr_bool.t
     | Expr_if of Expr_if.t
     | Expr_not of Expr_not.t
@@ -661,12 +709,14 @@ module Step_view = struct
     | 2L -> Step_bridge_lit_expr (Step_bridge_lit_expr.decode dec)
     | 3L -> Step_cc (Step_cc.decode dec)
     | 4L -> Step_preprocess (Step_preprocess.decode dec)
-    | 5L -> Fun_decl (Fun_decl.decode dec)
-    | 6L -> Expr_bool (Expr_bool.decode dec)
-    | 7L -> Expr_if (Expr_if.decode dec)
-    | 8L -> Expr_not (Expr_not.decode dec)
-    | 9L -> Expr_eq (Expr_eq.decode dec)
-    | 10L -> Expr_app (Expr_app.decode dec)
+    | 5L -> Step_true (Step_true.decode dec)
+    | 6L -> Fun_decl (Fun_decl.decode dec)
+    | 7L -> Expr_def (Expr_def.decode dec)
+    | 8L -> Expr_bool (Expr_bool.decode dec)
+    | 9L -> Expr_if (Expr_if.decode dec)
+    | 10L -> Expr_not (Expr_not.decode dec)
+    | 11L -> Expr_eq (Expr_eq.decode dec)
+    | 12L -> Expr_app (Expr_app.decode dec)
     | _ -> raise (Bare.Decode.Error(Printf.sprintf "unknown union tag Step_view.t: %Ld" tag))
     
   
@@ -687,23 +737,29 @@ module Step_view = struct
     | Step_preprocess x ->
       Bare.Encode.uint enc 4L;
       Step_preprocess.encode enc x
-    | Fun_decl x ->
+    | Step_true x ->
       Bare.Encode.uint enc 5L;
-      Fun_decl.encode enc x
-    | Expr_bool x ->
+      Step_true.encode enc x
+    | Fun_decl x ->
       Bare.Encode.uint enc 6L;
+      Fun_decl.encode enc x
+    | Expr_def x ->
+      Bare.Encode.uint enc 7L;
+      Expr_def.encode enc x
+    | Expr_bool x ->
+      Bare.Encode.uint enc 8L;
       Expr_bool.encode enc x
     | Expr_if x ->
-      Bare.Encode.uint enc 7L;
+      Bare.Encode.uint enc 9L;
       Expr_if.encode enc x
     | Expr_not x ->
-      Bare.Encode.uint enc 8L;
+      Bare.Encode.uint enc 10L;
       Expr_not.encode enc x
     | Expr_eq x ->
-      Bare.Encode.uint enc 9L;
+      Bare.Encode.uint enc 11L;
       Expr_eq.encode enc x
     | Expr_app x ->
-      Bare.Encode.uint enc 10L;
+      Bare.Encode.uint enc 12L;
       Expr_app.encode enc x
     
     
@@ -719,8 +775,12 @@ module Step_view = struct
         Format.fprintf out "(@[Step_cc@ %a@])" Step_cc.pp x
       | Step_preprocess x ->
         Format.fprintf out "(@[Step_preprocess@ %a@])" Step_preprocess.pp x
+      | Step_true x ->
+        Format.fprintf out "(@[Step_true@ %a@])" Step_true.pp x
       | Fun_decl x ->
         Format.fprintf out "(@[Fun_decl@ %a@])" Fun_decl.pp x
+      | Expr_def x ->
+        Format.fprintf out "(@[Expr_def@ %a@])" Expr_def.pp x
       | Expr_bool x ->
         Format.fprintf out "(@[Expr_bool@ %a@])" Expr_bool.pp x
       | Expr_if x ->
