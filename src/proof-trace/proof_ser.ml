@@ -325,7 +325,7 @@ module Clause = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "lits=%a;@ " (Bare.Pp.array Lit.pp) x.lits;
        Format.fprintf out "@]}";
      end) out self
@@ -347,7 +347,7 @@ module Step_input = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "c=%a;@ " Clause.pp x.c;
        Format.fprintf out "@]}";
      end) out self
@@ -380,7 +380,7 @@ module Step_rup = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "res=%a;@ " Clause.pp x.res;
        Format.fprintf out "hyps=%a;@ " (Bare.Pp.array ID.pp) x.hyps;
        Format.fprintf out "@]}";
@@ -404,7 +404,7 @@ module Step_bridge_lit_expr = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "lit=%a;@ " Lit.pp x.lit;
        Format.fprintf out "expr=%a;@ " ID.pp x.expr;
        Format.fprintf out "@]}";
@@ -435,7 +435,7 @@ module Step_cc = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "eqns=%a;@ " (Bare.Pp.array ID.pp) x.eqns;
        Format.fprintf out "@]}";
      end) out self
@@ -471,10 +471,154 @@ module Step_preprocess = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "t=%a;@ " ID.pp x.t;
        Format.fprintf out "u=%a;@ " ID.pp x.u;
        Format.fprintf out "using=%a;@ " (Bare.Pp.array ID.pp) x.using;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
+module Step_clause_rw = struct
+  type t = {
+    c: ID.t;
+    using: ID.t array;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let c = ID.decode dec in
+    let using =
+      (let len = Bare.Decode.uint dec in
+       if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
+       Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
+    {c; using; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin
+      ID.encode enc self.c;
+      (let arr = self.using in
+       Bare.Encode.uint enc (Int64.of_int (Array.length arr));
+       Array.iter (fun xi -> ID.encode enc xi) arr);
+    end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{ @[";
+       Format.fprintf out "c=%a;@ " ID.pp x.c;
+       Format.fprintf out "using=%a;@ " (Bare.Pp.array ID.pp) x.using;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
+module Step_unsat = struct
+  type t = {
+    c: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let c = ID.decode dec in {c; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin ID.encode enc self.c; end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{ @[";
+       Format.fprintf out "c=%a;@ " ID.pp x.c;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
+module Step_proof_p1 = struct
+  type t = {
+    rw_with: ID.t;
+    c: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let rw_with = ID.decode dec in let c = ID.decode dec in {rw_with; c; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin ID.encode enc self.rw_with; ID.encode enc self.c; end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{ @[";
+       Format.fprintf out "rw_with=%a;@ " ID.pp x.rw_with;
+       Format.fprintf out "c=%a;@ " ID.pp x.c;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
+module Step_bool_tauto = struct
+  type t = {
+    lits: Lit.t array;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let lits =
+      (let len = Bare.Decode.uint dec in
+       if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
+       Array.init (Int64.to_int len) (fun _ -> Lit.decode dec)) in
+    {lits; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin
+      (let arr = self.lits in
+       Bare.Encode.uint enc (Int64.of_int (Array.length arr));
+       Array.iter (fun xi -> Lit.encode enc xi) arr);
+    end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{ @[";
+       Format.fprintf out "lits=%a;@ " (Bare.Pp.array Lit.pp) x.lits;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
+module Step_bool_c = struct
+  type t = {
+    rule: string;
+    exprs: ID.t array;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let rule = Bare.Decode.string dec in
+    let exprs =
+      (let len = Bare.Decode.uint dec in
+       if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
+       Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
+    {rule; exprs; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin
+      Bare.Encode.string enc self.rule;
+      (let arr = self.exprs in
+       Bare.Encode.uint enc (Int64.of_int (Array.length arr));
+       Array.iter (fun xi -> ID.encode enc xi) arr);
+    end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{ @[";
+       Format.fprintf out "rule=%a;@ " Bare.Pp.string x.rule;
+       Format.fprintf out "exprs=%a;@ " (Bare.Pp.array ID.pp) x.exprs;
        Format.fprintf out "@]}";
      end) out self
 
@@ -495,7 +639,7 @@ module Step_true = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "true_=%a;@ " ID.pp x.true_;
        Format.fprintf out "@]}";
      end) out self
@@ -517,7 +661,7 @@ module Fun_decl = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "f=%a;@ " Bare.Pp.string x.f;
        Format.fprintf out "@]}";
      end) out self
@@ -540,7 +684,7 @@ module Expr_def = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "c=%a;@ " ID.pp x.c;
        Format.fprintf out "rhs=%a;@ " ID.pp x.rhs;
        Format.fprintf out "@]}";
@@ -563,7 +707,7 @@ module Expr_bool = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "b=%a;@ " Bare.Pp.bool x.b;
        Format.fprintf out "@]}";
      end) out self
@@ -594,7 +738,7 @@ module Expr_if = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "cond=%a;@ " ID.pp x.cond;
        Format.fprintf out "then_=%a;@ " ID.pp x.then_;
        Format.fprintf out "else_=%a;@ " ID.pp x.else_;
@@ -618,7 +762,7 @@ module Expr_not = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "f=%a;@ " ID.pp x.f;
        Format.fprintf out "@]}";
      end) out self
@@ -641,7 +785,7 @@ module Expr_eq = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "lhs=%a;@ " ID.pp x.lhs;
        Format.fprintf out "rhs=%a;@ " ID.pp x.rhs;
        Format.fprintf out "@]}";
@@ -675,7 +819,7 @@ module Expr_app = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "f=%a;@ " ID.pp x.f;
        Format.fprintf out "args=%a;@ " (Bare.Pp.array ID.pp) x.args;
        Format.fprintf out "@]}";
@@ -686,10 +830,15 @@ end
 module Step_view = struct
   type t =
     | Step_input of Step_input.t
+    | Step_unsat of Step_unsat.t
     | Step_rup of Step_rup.t
     | Step_bridge_lit_expr of Step_bridge_lit_expr.t
     | Step_cc of Step_cc.t
     | Step_preprocess of Step_preprocess.t
+    | Step_clause_rw of Step_clause_rw.t
+    | Step_bool_tauto of Step_bool_tauto.t
+    | Step_bool_c of Step_bool_c.t
+    | Step_proof_p1 of Step_proof_p1.t
     | Step_true of Step_true.t
     | Fun_decl of Fun_decl.t
     | Expr_def of Expr_def.t
@@ -705,18 +854,23 @@ module Step_view = struct
     let tag = Bare.Decode.uint dec in
     match tag with
     | 0L -> Step_input (Step_input.decode dec)
-    | 1L -> Step_rup (Step_rup.decode dec)
-    | 2L -> Step_bridge_lit_expr (Step_bridge_lit_expr.decode dec)
-    | 3L -> Step_cc (Step_cc.decode dec)
-    | 4L -> Step_preprocess (Step_preprocess.decode dec)
-    | 5L -> Step_true (Step_true.decode dec)
-    | 6L -> Fun_decl (Fun_decl.decode dec)
-    | 7L -> Expr_def (Expr_def.decode dec)
-    | 8L -> Expr_bool (Expr_bool.decode dec)
-    | 9L -> Expr_if (Expr_if.decode dec)
-    | 10L -> Expr_not (Expr_not.decode dec)
-    | 11L -> Expr_eq (Expr_eq.decode dec)
-    | 12L -> Expr_app (Expr_app.decode dec)
+    | 1L -> Step_unsat (Step_unsat.decode dec)
+    | 2L -> Step_rup (Step_rup.decode dec)
+    | 3L -> Step_bridge_lit_expr (Step_bridge_lit_expr.decode dec)
+    | 4L -> Step_cc (Step_cc.decode dec)
+    | 5L -> Step_preprocess (Step_preprocess.decode dec)
+    | 6L -> Step_clause_rw (Step_clause_rw.decode dec)
+    | 7L -> Step_bool_tauto (Step_bool_tauto.decode dec)
+    | 8L -> Step_bool_c (Step_bool_c.decode dec)
+    | 9L -> Step_proof_p1 (Step_proof_p1.decode dec)
+    | 10L -> Step_true (Step_true.decode dec)
+    | 11L -> Fun_decl (Fun_decl.decode dec)
+    | 12L -> Expr_def (Expr_def.decode dec)
+    | 13L -> Expr_bool (Expr_bool.decode dec)
+    | 14L -> Expr_if (Expr_if.decode dec)
+    | 15L -> Expr_not (Expr_not.decode dec)
+    | 16L -> Expr_eq (Expr_eq.decode dec)
+    | 17L -> Expr_app (Expr_app.decode dec)
     | _ -> raise (Bare.Decode.Error(Printf.sprintf "unknown union tag Step_view.t: %Ld" tag))
     
   
@@ -725,41 +879,56 @@ module Step_view = struct
     | Step_input x ->
       Bare.Encode.uint enc 0L;
       Step_input.encode enc x
-    | Step_rup x ->
+    | Step_unsat x ->
       Bare.Encode.uint enc 1L;
+      Step_unsat.encode enc x
+    | Step_rup x ->
+      Bare.Encode.uint enc 2L;
       Step_rup.encode enc x
     | Step_bridge_lit_expr x ->
-      Bare.Encode.uint enc 2L;
+      Bare.Encode.uint enc 3L;
       Step_bridge_lit_expr.encode enc x
     | Step_cc x ->
-      Bare.Encode.uint enc 3L;
+      Bare.Encode.uint enc 4L;
       Step_cc.encode enc x
     | Step_preprocess x ->
-      Bare.Encode.uint enc 4L;
-      Step_preprocess.encode enc x
-    | Step_true x ->
       Bare.Encode.uint enc 5L;
+      Step_preprocess.encode enc x
+    | Step_clause_rw x ->
+      Bare.Encode.uint enc 6L;
+      Step_clause_rw.encode enc x
+    | Step_bool_tauto x ->
+      Bare.Encode.uint enc 7L;
+      Step_bool_tauto.encode enc x
+    | Step_bool_c x ->
+      Bare.Encode.uint enc 8L;
+      Step_bool_c.encode enc x
+    | Step_proof_p1 x ->
+      Bare.Encode.uint enc 9L;
+      Step_proof_p1.encode enc x
+    | Step_true x ->
+      Bare.Encode.uint enc 10L;
       Step_true.encode enc x
     | Fun_decl x ->
-      Bare.Encode.uint enc 6L;
+      Bare.Encode.uint enc 11L;
       Fun_decl.encode enc x
     | Expr_def x ->
-      Bare.Encode.uint enc 7L;
+      Bare.Encode.uint enc 12L;
       Expr_def.encode enc x
     | Expr_bool x ->
-      Bare.Encode.uint enc 8L;
+      Bare.Encode.uint enc 13L;
       Expr_bool.encode enc x
     | Expr_if x ->
-      Bare.Encode.uint enc 9L;
+      Bare.Encode.uint enc 14L;
       Expr_if.encode enc x
     | Expr_not x ->
-      Bare.Encode.uint enc 10L;
+      Bare.Encode.uint enc 15L;
       Expr_not.encode enc x
     | Expr_eq x ->
-      Bare.Encode.uint enc 11L;
+      Bare.Encode.uint enc 16L;
       Expr_eq.encode enc x
     | Expr_app x ->
-      Bare.Encode.uint enc 12L;
+      Bare.Encode.uint enc 17L;
       Expr_app.encode enc x
     
     
@@ -767,6 +936,8 @@ module Step_view = struct
       match self with
       | Step_input x ->
         Format.fprintf out "(@[Step_input@ %a@])" Step_input.pp x
+      | Step_unsat x ->
+        Format.fprintf out "(@[Step_unsat@ %a@])" Step_unsat.pp x
       | Step_rup x ->
         Format.fprintf out "(@[Step_rup@ %a@])" Step_rup.pp x
       | Step_bridge_lit_expr x ->
@@ -775,6 +946,14 @@ module Step_view = struct
         Format.fprintf out "(@[Step_cc@ %a@])" Step_cc.pp x
       | Step_preprocess x ->
         Format.fprintf out "(@[Step_preprocess@ %a@])" Step_preprocess.pp x
+      | Step_clause_rw x ->
+        Format.fprintf out "(@[Step_clause_rw@ %a@])" Step_clause_rw.pp x
+      | Step_bool_tauto x ->
+        Format.fprintf out "(@[Step_bool_tauto@ %a@])" Step_bool_tauto.pp x
+      | Step_bool_c x ->
+        Format.fprintf out "(@[Step_bool_c@ %a@])" Step_bool_c.pp x
+      | Step_proof_p1 x ->
+        Format.fprintf out "(@[Step_proof_p1@ %a@])" Step_proof_p1.pp x
       | Step_true x ->
         Format.fprintf out "(@[Step_true@ %a@])" Step_true.pp x
       | Fun_decl x ->
@@ -811,7 +990,7 @@ module Step = struct
   let pp out (self:t) : unit =
     (fun out x ->
      begin
-       Format.fprintf out "{@[ ";
+       Format.fprintf out "{ @[";
        Format.fprintf out "id=%a;@ " ID.pp x.id;
        Format.fprintf out "view=%a;@ " Step_view.pp x.view;
        Format.fprintf out "@]}";

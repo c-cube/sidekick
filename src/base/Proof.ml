@@ -128,6 +128,7 @@ let emit_fun_ (self:t) (f:Fun.t) : term_id =
     let id = alloc_id self in
     Fun.Tbl.add self.map_fun f id;
     let f_name = ID.to_string (Fun.id f) in
+    Format.printf "encode fun with name %S@." f_name;
     emit_step_ self
       Proof_ser.({ Step.id; view=Fun_decl {Fun_decl.f=f_name}});
     id
@@ -173,6 +174,12 @@ let emit_ (self:t) f : proof_step =
     id
   ) else dummy_step
 
+let emit_no_return_ (self:t) f : unit =
+  if enabled self then (
+    let view = f () in
+    emit_step_ self {PS.Step.id=(-1l); view}
+  )
+
 let[@inline] emit_redundant_clause lits ~hyps (self:t) =
   emit_ self @@ fun() ->
   let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
@@ -190,7 +197,9 @@ let define_term t u (self:t) =
   let t = emit_term_ self t and u = emit_term_ self u in
   PS.(Step_view.Expr_def {Expr_def.c=t; rhs=u})
 
-let proof_p1 _ _ (_pr:t) = dummy_step
+let proof_p1 rw_with c (self:t) =
+  emit_ self @@ fun() ->
+  PS.(Step_view.Step_proof_p1 {Step_proof_p1.c; rw_with})
 
 let lemma_preprocess t u ~using (self:t) =
   emit_ self @@ fun () ->
@@ -203,18 +212,40 @@ let lemma_true t (self:t) =
   let t = emit_term_ self t in
   PS.(Step_view.Step_true {Step_true.true_=t})
 
-let lemma_cc _ _ = dummy_step
-let lemma_rw_clause _ ~using:_ (_pr:t) = dummy_step
+let lemma_cc lits (self:t) =
+  emit_ self @@ fun () ->
+  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+  PS.(Step_view.Step_cc {Step_cc.eqns=lits})
+
+let lemma_rw_clause c ~using (self:t) =
+  emit_ self @@ fun() ->
+  let using = Iter.to_array using in
+  PS.(Step_view.Step_clause_rw {Step_clause_rw.c; using})
+
 let with_defs _ _ (_pr:t) = dummy_step
+
 let del_clause _ _ (_pr:t) = ()
-let emit_unsat_core _ (_pr:t) = dummy_step
-let emit_unsat _ _ = ()
+
+let emit_unsat_core _ (_pr:t) = dummy_step (* TODO *)
+
+let emit_unsat c (self:t) : unit =
+  emit_no_return_ self @@ fun() ->
+  PS.(Step_view.Step_unsat {Step_unsat.c})
 
 let lemma_lra _ _ = dummy_step
 
-let lemma_bool_tauto _ _ = dummy_step
-let lemma_bool_c _ _ _ = dummy_step
+let lemma_bool_tauto lits (self:t) =
+  emit_ self @@ fun() ->
+  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+  PS.(Step_view.Step_bool_tauto {Step_bool_tauto.lits})
+
+let lemma_bool_c rule (ts:Term.t list) (self:t) =
+  emit_ self @@ fun() ->
+  let exprs = ts |> Util.array_of_list_map (emit_term_ self) in
+  PS.(Step_view.Step_bool_c {Step_bool_c.exprs; rule})
+
 let lemma_bool_equiv _ _ _ = dummy_step
+
 let lemma_ite_true ~ite:_ _ = dummy_step
 let lemma_ite_false ~ite:_ _ = dummy_step
 

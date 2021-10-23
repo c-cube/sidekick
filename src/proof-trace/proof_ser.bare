@@ -36,6 +36,30 @@ type Step_preprocess {
   using: []ID
 }
 
+type Step_clause_rw {
+  c: ID
+  using: []ID
+}
+
+type Step_unsat {
+  c: ID
+}
+
+# rewrite `c` with the unit clause `rw_with` of the form `t=u`  *)
+type Step_proof_p1 {
+  rw_with: ID
+  c: ID
+}
+
+type Step_bool_tauto {
+  lits: []Lit
+}
+
+type Step_bool_c {
+  rule: string
+  exprs: []ID
+}
+
 type Step_true {
   true_: ID
 }
@@ -76,10 +100,15 @@ type Expr_app {
 
 type Step_view
   ( Step_input
+  | Step_unsat
   | Step_rup
   | Step_bridge_lit_expr
   | Step_cc
   | Step_preprocess
+  | Step_clause_rw
+  | Step_bool_tauto
+  | Step_bool_c
+  | Step_proof_p1
   | Step_true
   | Fun_decl
   | Expr_def
