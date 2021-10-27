@@ -1,22 +1,13 @@
+(** Export to Quip from {!module:Proof}.
 
-(** Proofs of unsatisfiability exported in Quip
-
-    Proofs are used in sidekick when the problem is found {b unsatisfiable}.
-    A proof collects inferences made by the solver into a list of steps,
-    each with its own kind of justification (e.g. "by congruence"),
-    and outputs it in some kind of format.
-
-    Currently we target {{: https://c-cube.github.io/quip-book/ } Quip}
-    as an {b experimental} proof backend.
-*)
-
-open Base_types
+    We use {!Sidekick_quip} but do not export anything from it. *)
 
 type t
-(** The state holding the whole proof. *)
 
-val pp_debug : sharing:bool -> t Fmt.printer
+val of_proof : Proof.t -> unsat:Proof.proof_step -> t
 
-val of_proof : Proof.t -> Proof.proof_step -> t
+type out_format = Sidekick_quip.out_format =
+  | Sexp
+  | CSexp
 
-val output : out_channel -> t -> unit
+val output : ?fmt:out_format -> out_channel -> t -> unit

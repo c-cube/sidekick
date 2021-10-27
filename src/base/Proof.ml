@@ -128,7 +128,6 @@ let emit_fun_ (self:t) (f:Fun.t) : term_id =
     let id = alloc_id self in
     Fun.Tbl.add self.map_fun f id;
     let f_name = ID.to_string (Fun.id f) in
-    Format.printf "encode fun with name %S@." f_name;
     emit_step_ self
       Proof_ser.({ Step.id; view=Fun_decl {Fun_decl.f=f_name}});
     id
@@ -222,17 +221,18 @@ let lemma_rw_clause c ~using (self:t) =
   let using = Iter.to_array using in
   PS.(Step_view.Step_clause_rw {Step_clause_rw.c; using})
 
+(* TODO *)
 let with_defs _ _ (_pr:t) = dummy_step
 
+(* not useful *)
 let del_clause _ _ (_pr:t) = ()
 
-let emit_unsat_core _ (_pr:t) = dummy_step (* TODO *)
+(* TODO *)
+let emit_unsat_core _ (_pr:t) = dummy_step
 
 let emit_unsat c (self:t) : unit =
   emit_no_return_ self @@ fun() ->
   PS.(Step_view.Step_unsat {Step_unsat.c})
-
-let lemma_lra _ _ = dummy_step
 
 let lemma_bool_tauto lits (self:t) =
   emit_ self @@ fun() ->
@@ -243,6 +243,10 @@ let lemma_bool_c rule (ts:Term.t list) (self:t) =
   emit_ self @@ fun() ->
   let exprs = ts |> Util.array_of_list_map (emit_term_ self) in
   PS.(Step_view.Step_bool_c {Step_bool_c.exprs; rule})
+
+(* TODO *)
+
+let lemma_lra _ _ = dummy_step
 
 let lemma_bool_equiv _ _ _ = dummy_step
 
@@ -257,3 +261,7 @@ let lemma_isa_disj _ _ (_pr:t) = dummy_step
 let lemma_cstor_inj _ _ _ (_pr:t) = dummy_step
 let lemma_cstor_distinct _ _ (_pr:t) = dummy_step
 let lemma_acyclicity _ (_pr:t) = dummy_step
+
+module Unsafe_ = struct
+  let[@inline] id_of_proof_step_ (p:proof_step) : proof_step = p
+end

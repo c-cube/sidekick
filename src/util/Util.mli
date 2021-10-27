@@ -21,6 +21,9 @@ val array_of_list_map : ('a -> 'b) -> 'a list -> 'b array
 
 val array_to_list_map : ('a -> 'b) -> 'a array -> 'b list
 
+val lazy_map : ('a -> 'b) -> 'a lazy_t -> 'b lazy_t
+val lazy_map2 : ('a -> 'b -> 'c) -> 'a lazy_t -> 'b lazy_t -> 'c lazy_t
+
 val setup_gc : unit -> unit
 (** Change parameters of the GC *)
 

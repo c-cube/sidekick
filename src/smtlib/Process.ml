@@ -180,11 +180,11 @@ let solve
         | Some file ->
           begin match unsat_proof_step() with
             | None -> ()
-            | Some step ->
+            | Some unsat_step ->
               let proof = Solver.proof s in
               let proof_quip =
                 Profile.with_ "proof.to-quip" @@ fun () ->
-                Proof_quip.of_proof proof step
+                Proof_quip.of_proof proof ~unsat:unsat_step
               in
               Profile.with_ "proof.write-file"
                 (fun () ->

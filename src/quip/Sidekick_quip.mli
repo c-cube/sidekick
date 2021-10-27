@@ -5,9 +5,21 @@
     as an {b experimental} proof backend.
 *)
 
-type t
+module Proof = Proof
+
+type t = Proof.t
 (** The state holding the whole proof. *)
 
-val pp_debug : t Fmt.printer
+(** What format to use to serialize the proof? *)
+type out_format =
+  | Sexp
+    (** S-expressions *)
 
-val output : out_channel -> t -> unit
+  | CSexp
+    (** Canonical S-expressions *)
+
+val pp_out_format : out_format Fmt.printer
+
+val output : ?fmt:out_format -> out_channel -> t -> unit
+
+val pp_debug : t Fmt.printer

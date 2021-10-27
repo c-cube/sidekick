@@ -78,3 +78,7 @@ val iter_steps_backward : t -> Proof_ser.Step.t Iter.t
     This will yield nothing if the proof was disabled or used
     a dummy backend. *)
 
+
+module Unsafe_ : sig
+  val id_of_proof_step_ : proof_step -> Proof_ser.ID.t
+end
