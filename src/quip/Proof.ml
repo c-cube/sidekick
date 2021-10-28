@@ -51,6 +51,7 @@ module T = struct
 
   let true_ : t = Bool true
   let false_ : t = Bool false
+  let bool b = Bool b
   let not_ = function Not x -> x | x -> Not x
   let eq a b : t = Eq (a,b)
   let ref id : t = Ref id
@@ -115,6 +116,12 @@ type t =
   | Hres of t * hres_step list
   | Res of term * t * t
   | Res1 of t * t
+  | Rup of clause * t list
+  | Clause_rw of {
+      res: clause;
+      c0: t;
+      using: t list; (** the rewriting equations/atoms *)
+    }
   | DT_isa_split of ty * term list
   | DT_isa_disj of ty * term * term
   | DT_cstor_inj of Cstor.t * int * term list * term list (* [c t…=c u… |- t_i=u_i] *)
@@ -178,6 +185,8 @@ let cc_imply2 h1 h2 t u : t = CC_lemma_imply ([h1; h2], t, u)
 let assertion t = Assertion t
 let assertion_c c = Assertion_c (Iter.to_rev_list c)
 let assertion_c_l c = Assertion_c c
+let rup c hyps : t = Rup (c,hyps)
+let clause_rw c0 ~res ~using : t = Clause_rw{res;c0;using}
 let composite_a ?(assms=[]) steps : t =
   Composite {assumptions=assms; steps}
 let composite_l ?(assms=[]) steps : t =

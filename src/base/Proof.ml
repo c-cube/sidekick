@@ -216,10 +216,12 @@ let lemma_cc lits (self:t) =
   let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
   PS.(Step_view.Step_cc {Step_cc.eqns=lits})
 
-let lemma_rw_clause c ~using (self:t) =
+let lemma_rw_clause c ~res ~using (self:t) =
   emit_ self @@ fun() ->
+  let lits = Iter.map (emit_lit_ self) res |> Iter.to_array in
+  let res = Proof_ser.{Clause.lits} in
   let using = Iter.to_array using in
-  PS.(Step_view.Step_clause_rw {Step_clause_rw.c; using})
+  PS.(Step_view.Step_clause_rw {Step_clause_rw.c; res; using})
 
 (* TODO *)
 let with_defs _ _ (_pr:t) = dummy_step

@@ -38,6 +38,7 @@ type Step_preprocess {
 
 type Step_clause_rw {
   c: ID
+  res: Clause
   using: []ID
 }
 

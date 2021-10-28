@@ -248,10 +248,10 @@ module type PROOF = sig
       From now on, [t] and [u] will be used interchangeably.
       @return a proof_rule ID for the clause [(t=u)]. *)
 
-  val lemma_rw_clause : proof_step -> using:proof_step Iter.t -> proof_rule
-  (** [lemma_rw_clause prc ~using], where [prc] is the proof of [|- c],
+  val lemma_rw_clause : proof_step -> res:lit Iter.t -> using:proof_step Iter.t -> proof_rule
+  (** [lemma_rw_clause prc ~res ~using], where [prc] is the proof of [|- c],
       uses the equations [|- p_i = q_i] from [using]
-      to rewrite some literals of [c] into [c']. This is used to preprocess
+      to rewrite some literals of [c] into [res]. This is used to preprocess
       literals of a clause (using {!lemma_preprocess} individually). *)
 end
 

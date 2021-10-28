@@ -2168,12 +2168,13 @@ module Make(Plugin : PLUGIN)
     in
     let unsat_conflict = match us with
       | US_false c0 ->
-        Log.debugf 1 (fun k->k"unsat conflict clause %a" (Clause.debug store) c0);
+        Log.debugf 10 (fun k->k"unsat conflict clause %a" (Clause.debug store) c0);
         let c = resolve_with_lvl0 self c0 in
-        Log.debugf 1 (fun k->k"proper conflict clause %a" (Clause.debug store) c);
+        Log.debugf 10 (fun k->k"proper conflict clause %a" (Clause.debug store) c);
         (fun() -> c)
       | US_local {core=[]; _} -> assert false
       | US_local {first; core} ->
+        (* TODO: do we need to filter out literals? *)
         let c = lazy (
           let core = List.rev core in (* increasing trail order *)
           assert (Atom.equal first @@ List.hd core);

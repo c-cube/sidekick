@@ -239,7 +239,7 @@ module Make(A : ARG) : S with module A = A = struct
     let pr = A.lemma_lra (Iter.of_list lits) PA.proof in
     let pr = match using with
       | None -> pr
-      | Some using -> SI.P.lemma_rw_clause pr ~using PA.proof in
+      | Some using -> SI.P.lemma_rw_clause pr ~res:(Iter.of_list lits) ~using PA.proof in
     PA.add_clause lits pr
 
   (* preprocess linear expressions away *)

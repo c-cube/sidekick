@@ -394,7 +394,9 @@ module Make(A : ARG)
             let steps = ref [] in
             let c' = CCList.map (preprocess_lit ~steps) c in
             let pr_c' =
-              A.P.lemma_rw_clause pr_c ~using:(Iter.of_list !steps) proof
+              A.P.lemma_rw_clause pr_c
+                ~res:(Iter.of_list c')
+                ~using:(Iter.of_list !steps) proof
             in
             A0.add_clause c' pr_c'
 
@@ -455,7 +457,8 @@ module Make(A : ARG)
       let pacts = preprocess_acts_of_acts self acts in
       let c = CCList.map (preprocess_lit_ ~steps self pacts) c in
       let pr =
-        P.lemma_rw_clause proof ~using:(Iter.of_list !steps) self.proof
+        P.lemma_rw_clause proof
+          ~res:(Iter.of_list c) ~using:(Iter.of_list !steps) self.proof
       in
       c, pr
 
@@ -783,7 +786,8 @@ module Make(A : ARG)
     (* TODO: if c != c0 then P.emit_redundant_clause c
        because we jsut preprocessed it away? *)
     let pr = P.emit_input_clause (Iter.of_list c) self.proof in
-    let pr = P.lemma_rw_clause pr ~using:(Iter.of_list !steps) self.proof in
+    let pr = P.lemma_rw_clause pr
+        ~res:(Iter.of_list c) ~using:(Iter.of_list !steps) self.proof in
     add_clause_l self c pr
 
   let assert_term self t = assert_terms self [t]

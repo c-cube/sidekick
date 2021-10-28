@@ -483,21 +483,24 @@ end
 module Step_clause_rw = struct
   type t = {
     c: ID.t;
+    res: Clause.t;
     using: ID.t array;
   }
   
   (** @raise Bare.Decode.Error in case of error. *)
   let decode (dec: Bare.Decode.t) : t =
     let c = ID.decode dec in
+    let res = Clause.decode dec in
     let using =
       (let len = Bare.Decode.uint dec in
        if len>Int64.of_int Sys.max_array_length then raise (Bare.Decode.Error"array too big");
        Array.init (Int64.to_int len) (fun _ -> ID.decode dec)) in
-    {c; using; }
+    {c; res; using; }
   
   let encode (enc: Bare.Encode.t) (self: t) : unit =
     begin
       ID.encode enc self.c;
+      Clause.encode enc self.res;
       (let arr = self.using in
        Bare.Encode.uint enc (Int64.of_int (Array.length arr));
        Array.iter (fun xi -> ID.encode enc xi) arr);
@@ -508,6 +511,7 @@ module Step_clause_rw = struct
      begin
        Format.fprintf out "{ @[";
        Format.fprintf out "c=%a;@ " ID.pp x.c;
+       Format.fprintf out "res=%a;@ " Clause.pp x.res;
        Format.fprintf out "using=%a;@ " (Bare.Pp.array ID.pp) x.using;
        Format.fprintf out "@]}";
      end) out self

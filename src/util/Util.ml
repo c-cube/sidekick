@@ -53,3 +53,4 @@ module Int_set = CCSet.Make(CCInt)
 module Int_map = CCMap.Make(CCInt)
 module Int_tbl = CCHashtbl.Make(CCInt)
 
+module Str_tbl = CCHashtbl.Make(CCString)

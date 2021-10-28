@@ -52,6 +52,9 @@ end = struct
   (* store reconstructed terms *)
   module L_terms = Make_lazy_tbl(struct type t = P.term end)()
 
+  (* id -> function symbol *)
+  let funs: P.Fun.t Util.Int_tbl.t = Util.Int_tbl.create 32
+
   (* list of toplevel steps, in the final proof order *)
   let top_steps_ : P.composite_step lazy_t list ref = ref []
   let add_top_step s = top_steps_ := s :: !top_steps_
@@ -66,12 +69,22 @@ end = struct
       P.Lit.mk sign t
     )
 
-  let conv_clause (c:PS.Clause.t) : P.clause lazy_t =
+  let conv_lits (lits:PS.Lit.t array) : P.Lit.t list lazy_t =
     let lits =
-      c.lits
+      lits
       |> Util.array_to_list_map conv_lit
     in
     lazy (List.map Lazy.force lits)
+
+  let conv_clause (c:PS.Clause.t) : P.clause lazy_t = conv_lits c.lits
+
+  let name_clause (id: PS.ID.t) : string = Printf.sprintf "c%ld" id
+
+  (* TODO: see if we can allow `(stepc c5 (cl …) (… (@ c5) …))`.
+     Namely, the alias `c5 := (cl …)` could be available within its own proof
+     so we don't have to print it twice, which is useful for rules like `ccl`
+     where it's typically `(stepc c5 (cl …) (ccl (cl …)))` for twice the space.
+     *)
 
   (* process a step of the trace *)
   let process_step_ (step: PS.Step.t) : unit =
@@ -85,7 +98,7 @@ end = struct
       begin match step.view with
         | PS.Step_view.Step_input i ->
           let c = conv_clause i.PS.Step_input.c in
-          let name = Printf.sprintf "c%d" id in
+          let name = name_clause lid in
           let step = lazy (
             let lazy c = c in
             P.S_step_c {name; res=c; proof=P.assertion_c_l c}
@@ -94,23 +107,90 @@ end = struct
           (* refer to the step by name now *)
           L_proofs.add lid (lazy (P.ref_by_name name));
 
-        | PS.Step_view.Step_unsat us -> () (* TODO *)
-        | PS.Step_view.Step_rup rup -> () (* TODO *)
+        | PS.Step_view.Step_unsat { c=uclause } ->
+          let c = [] in
+          let name = "unsat" in
+          add_needed_step uclause;
+          let name_c = name_clause uclause in
+          add_top_step (lazy (P.S_step_c{name; res=c; proof=P.ref_by_name name_c}));
+
+        | PS.Step_view.Step_cc { eqns } ->
+          let c = conv_lits eqns in
+          let name = name_clause lid in
+          let step = lazy (
+            let lazy c = c in
+            P.S_step_c {name; res=c; proof=P.cc_lemma c}
+          ) in
+          add_top_step  step;
+          L_proofs.add lid (lazy (P.ref_by_name name))
+
+        | PS.Step_view.Fun_decl { f } ->
+          Util.Int_tbl.add funs id f;
+
+        | PS.Step_view.Expr_eq { lhs; rhs } ->
+          add_needed_step lhs;
+          add_needed_step rhs;
+          let t = lazy (
+            let lhs = L_terms.find lhs
+            and rhs = L_terms.find rhs in
+            P.T.eq lhs rhs
+          ) in
+          L_terms.add lid t
+
+        | PS.Step_view.Expr_bool {b} ->
+          let t = Lazy.from_val (P.T.bool b) in
+          L_terms.add lid t
+
+        | PS.Step_view.Expr_app { f; args } ->
+          add_needed_step f;
+          Array.iter add_needed_step args;
+          let t = lazy (
+            let f =
+              try Util.Int_tbl.find funs (Int32.to_int f)
+              with Not_found -> Error.errorf "unknown function '%ld'" f
+            in
+            let args = Array.map L_terms.find args in
+            P.T.app_fun f args
+          ) in
+          L_terms.add lid t
+
+        | PS.Step_view.Expr_def _ -> () (* TODO *)
+        | PS.Step_view.Expr_if _ -> () (* TODO *)
+        | PS.Step_view.Expr_not _ -> () (* TODO *)
+
+        | PS.Step_view.Step_rup { res; hyps } ->
+          let res = conv_clause res in
+          Array.iter add_needed_step hyps;
+          let name = name_clause lid in
+          let step = lazy (
+            let lazy res = res in
+            let hyps = Util.array_to_list_map L_proofs.find hyps in
+            P.S_step_c {name; res; proof=P.rup res hyps}
+          ) in
+          add_top_step step;
+          L_proofs.add lid (lazy (P.ref_by_name name));
+
+        | PS.Step_view.Step_clause_rw { c; res; using } ->
+          let res = conv_clause res in
+          add_needed_step c;
+          Array.iter add_needed_step using;
+          let name = name_clause lid in
+
+          let step = lazy (
+            let lazy res = res in
+            let c = L_proofs.find c in
+            let using = Util.array_to_list_map L_proofs.find using in
+            P.S_step_c {name; res; proof=P.Clause_rw {res; c0=c; using}}
+          ) in
+          add_top_step step;
+          L_proofs.add lid (lazy (P.ref_by_name name))
+
         | PS.Step_view.Step_bridge_lit_expr _ -> assert false
-        | PS.Step_view.Step_cc cc -> () (* TODO *)
         | PS.Step_view.Step_preprocess _ -> () (* TODO *)
-        | PS.Step_view.Step_clause_rw _ -> () (* TODO *)
         | PS.Step_view.Step_bool_tauto _ -> () (* TODO *)
         | PS.Step_view.Step_bool_c _ -> () (* TODO *)
         | PS.Step_view.Step_proof_p1 _ -> () (* TODO *)
         | PS.Step_view.Step_true _ -> () (* TODO *)
-        | PS.Step_view.Fun_decl _ -> () (* TODO *)
-        | PS.Step_view.Expr_def _ -> () (* TODO *)
-        | PS.Step_view.Expr_bool _ -> () (* TODO *)
-        | PS.Step_view.Expr_if _ -> () (* TODO *)
-        | PS.Step_view.Expr_not _ -> () (* TODO *)
-        | PS.Step_view.Expr_eq _ -> () (* TODO *)
-        | PS.Step_view.Expr_app _ -> () (* TODO *)
 
       end
     )

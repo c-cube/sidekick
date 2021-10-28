@@ -24,7 +24,7 @@ let emit_unsat_core _ (_pr:t) = ()
 let lemma_preprocess _ _ ~using:_ (_pr:t) = ()
 let lemma_true _ _ = ()
 let lemma_cc _ _ = ()
-let lemma_rw_clause _ ~using:_ (_pr:t) = ()
+let lemma_rw_clause _ ~res:_ ~using:_ (_pr:t) = ()
 let with_defs _ _ (_pr:t) = ()
 
 let lemma_lra _ _ = ()
