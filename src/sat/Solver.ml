@@ -2131,17 +2131,47 @@ module Make(Plugin : PLUGIN)
     end in
     (module M)
 
+  (* make a clause that contains no level-0 false literals, by resolving
+     against them. This clause can be used in a refutation proof.
+     Note that the clause might still contain some {b assumptions}. *)
+  let resolve_with_lvl0 (self:t) (c:clause) : clause =
+    let lvl0 = ref [] in
+    let res = ref [] in
+    Clause.iter self.store c
+      ~f:(fun a ->
+          assert (Atom.is_false self.store a);
+          match Atom.reason self.store a with
+          | None -> assert false
+          | Some Decision -> res := a :: !res (* keep assumption *)
+          | Some (Bcp c2 | Bcp_lazy (lazy c2)) ->
+            lvl0 := Clause.proof_step self.store c2 :: !lvl0);
+
+    if !lvl0 = [] then (
+      c (* no resolution happened *)
+    ) else (
+      let proof =
+        let lits = Iter.of_list !res |> Iter.map (Atom.lit self.store) in
+        let hyps = Iter.of_list (Clause.proof_step self.store c :: !lvl0) in
+        Proof.emit_redundant_clause lits ~hyps self.proof
+      in
+      Clause.make_l self.store ~removable:false !res proof
+    )
+
   let mk_unsat (self:t) (us: unsat_cause) : _ Solver_intf.unsat_state =
     pp_all self 99 "UNSAT";
+    let store = store self in
     let unsat_assumptions () = match us with
       | US_local {first=_; core} ->
-        let store = store self in
         let lits = Iter.of_list core |> Iter.map (Atom.lit store) in
         lits
       | _ -> Iter.empty
     in
     let unsat_conflict = match us with
-      | US_false c -> fun() -> c
+      | US_false c0 ->
+        Log.debugf 1 (fun k->k"unsat conflict clause %a" (Clause.debug store) c0);
+        let c = resolve_with_lvl0 self c0 in
+        Log.debugf 1 (fun k->k"proper conflict clause %a" (Clause.debug store) c);
+        (fun() -> c)
       | US_local {core=[]; _} -> assert false
       | US_local {first; core} ->
         let c = lazy (
