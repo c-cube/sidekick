@@ -87,6 +87,7 @@ module Make_printer(Out : OUT) = struct
     | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map pp_hres_step steps)]
     | Res (t,p1,p2) -> l[a"r";pp_t t;pp_rec p1;pp_rec p2]
     | Res1 (p1,p2) -> l[a"r1";pp_rec p1;pp_rec p2]
+    | Paramod1 (p1,p2) -> l[a"p1";pp_rec p1;pp_rec p2]
     | Rup (c, hyps) ->
       l[a"rup";pp_cl c;l(List.map pp_rec hyps)]
     | Clause_rw{res; c0; using} ->

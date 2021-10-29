@@ -116,6 +116,7 @@ type t =
   | Hres of t * hres_step list
   | Res of term * t * t
   | Res1 of t * t
+  | Paramod1 of t * t
   | Rup of clause * t list
   | Clause_rw of {
       res: clause;
@@ -214,6 +215,7 @@ let hres_l p l : t =
 let hres_iter c i : t = hres_l c (Iter.to_list i)
 let res ~pivot p1 p2 : t = Res (pivot,p1,p2)
 let res1 p1 p2 : t = Res1 (p1,p2)
+let paramod1 p1 p2 : t = Paramod1(p1,p2)
 
 let lra_l c : t = LRA c
 let lra c = LRA (Iter.to_rev_list c)

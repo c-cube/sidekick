@@ -31,6 +31,7 @@ end
 module Conv(X : CONV_ARG) : sig
   val reconstruct : unit -> t
 end = struct
+  let (!!) = Lazy.force
 
   (* Steps we need to decode.
      Invariant: the IDs of these steps must be lower than the current processed
@@ -79,6 +80,7 @@ end = struct
   let conv_clause (c:PS.Clause.t) : P.clause lazy_t = conv_lits c.lits
 
   let name_clause (id: PS.ID.t) : string = Printf.sprintf "c%ld" id
+  let name_term (id: PS.ID.t) : string = Printf.sprintf "t%ld" id
 
   (* TODO: see if we can allow `(stepc c5 (cl …) (… (@ c5) …))`.
      Namely, the alias `c5 := (cl …)` could be available within its own proof
@@ -91,7 +93,7 @@ end = struct
     let lid = step.id in
     let id = Int32.to_int lid in
     if Util.Int_tbl.mem needed_steps_ id then (
-      Log.debugf 1 (fun k->k"(@[proof-quip.process-needed-step@ %a@])" PS.Step.pp step);
+      Log.debugf 20 (fun k->k"(@[proof-quip.process-needed-step@ %a@])" PS.Step.pp step);
       Util.Int_tbl.remove needed_steps_ id;
 
       (* now process the step *)
@@ -100,8 +102,7 @@ end = struct
           let c = conv_clause i.PS.Step_input.c in
           let name = name_clause lid in
           let step = lazy (
-            let lazy c = c in
-            P.S_step_c {name; res=c; proof=P.assertion_c_l c}
+            P.S_step_c {name; res= !!c; proof=P.assertion_c_l !!c}
           ) in
           add_top_step step;
           (* refer to the step by name now *)
@@ -118,8 +119,7 @@ end = struct
           let c = conv_lits eqns in
           let name = name_clause lid in
           let step = lazy (
-            let lazy c = c in
-            P.S_step_c {name; res=c; proof=P.cc_lemma c}
+            P.S_step_c {name; res= !!c; proof=P.cc_lemma !!c}
           ) in
           add_top_step  step;
           L_proofs.add lid (lazy (P.ref_by_name name))
@@ -152,20 +152,46 @@ end = struct
             let args = Array.map L_terms.find args in
             P.T.app_fun f args
           ) in
+
+          if Array.length args > 0 then (
+            (* introduce a name *)
+            let name = name_term lid in
+            let step = lazy (P.S_define_t_name (name, !!t)) in
+            add_top_step step;
+            L_terms.add lid (lazy (P.T.ref id))
+          ) else (
+            L_terms.add lid t
+          )
+
+        | PS.Step_view.Expr_def { c; rhs } ->
+          add_needed_step c;
+          add_needed_step rhs;
+          let name = name_clause lid in
+          let step = lazy (
+            let c = L_terms.find c in
+            let rhs = L_terms.find rhs in
+            P.S_define_t (c, rhs)
+          ) in
+          add_top_step step;
+          L_proofs.add lid (lazy (P.ref_by_name name));
+
+        | PS.Step_view.Expr_not { f } ->
+          add_needed_step f;
+          let t = lazy (
+            let f = L_terms.find f in
+            P.T.not_ f
+          ) in
           L_terms.add lid t
 
-        | PS.Step_view.Expr_def _ -> () (* TODO *)
         | PS.Step_view.Expr_if _ -> () (* TODO *)
-        | PS.Step_view.Expr_not _ -> () (* TODO *)
 
         | PS.Step_view.Step_rup { res; hyps } ->
           let res = conv_clause res in
           Array.iter add_needed_step hyps;
           let name = name_clause lid in
           let step = lazy (
-            let lazy res = res in
             let hyps = Util.array_to_list_map L_proofs.find hyps in
-            P.S_step_c {name; res; proof=P.rup res hyps}
+            P.S_step_c {name; res= !!res; proof=P.rup !!res hyps}
           ) in
           add_top_step step;
           L_proofs.add lid (lazy (P.ref_by_name name));
@@ -177,19 +203,50 @@ end = struct
           let name = name_clause lid in
 
           let step = lazy (
-            let lazy res = res in
             let c = L_proofs.find c in
             let using = Util.array_to_list_map L_proofs.find using in
+            let res = !! res in
             P.S_step_c {name; res; proof=P.Clause_rw {res; c0=c; using}}
           ) in
           add_top_step step;
           L_proofs.add lid (lazy (P.ref_by_name name))
 
+        | PS.Step_view.Step_proof_p1 { rw_with; c } ->
+          add_needed_step c;
+          add_needed_step rw_with;
+          let p = lazy (
+            let rw_with = L_proofs.find rw_with in
+            let c = L_proofs.find c in
+            P.paramod1 rw_with c
+          ) in
+          L_proofs.add lid p;
+
+        | PS.Step_view.Step_bool_c { rule; exprs } ->
+          Array.iter add_needed_step exprs;
+          let p = lazy (
+            let exprs = Util.array_to_list_map L_terms.find exprs in
+            P.bool_c rule exprs
+          ) in
+          L_proofs.add lid p;
+
+        | PS.Step_view.Step_preprocess { t; u; using } ->
+          let name = name_clause lid in
+          add_needed_step t;
+          add_needed_step u;
+          Array.iter add_needed_step using;
+
+          let step = lazy (
+            let t = L_terms.find t
+            and u = L_terms.find u in
+            let using = Util.array_to_list_map L_proofs.find using in
+            let res = [P.Lit.eq t u] in
+            P.S_step_c {res; name; proof=P.cc_imply_l using t u}
+          ) in
+          add_top_step step;
+          L_proofs.add lid (lazy (P.ref_by_name name));
+
         | PS.Step_view.Step_bridge_lit_expr _ -> assert false
-        | PS.Step_view.Step_preprocess _ -> () (* TODO *)
         | PS.Step_view.Step_bool_tauto _ -> () (* TODO *)
-        | PS.Step_view.Step_bool_c _ -> () (* TODO *)
-        | PS.Step_view.Step_proof_p1 _ -> () (* TODO *)
         | PS.Step_view.Step_true _ -> () (* TODO *)
 
       end
