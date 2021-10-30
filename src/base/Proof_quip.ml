@@ -158,7 +158,7 @@ end = struct
             let name = name_term lid in
             let step = lazy (P.S_define_t_name (name, !!t)) in
             add_top_step step;
-            L_terms.add lid (lazy (P.T.ref id))
+            L_terms.add lid (lazy (P.T.ref name))
           ) else (
             L_terms.add lid t
           )

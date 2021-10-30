@@ -28,7 +28,7 @@ module Make_printer(Out : OUT) = struct
     | T.App_fun (c, [||]) -> a c
     | T.App_fun (c, args) ->
       l(a c :: Util.array_to_list_map pp_t args)
-    | T.Ref i -> l[a"@"; a(string_of_int i)]
+    | T.Ref name -> l[a"@"; a name]
     | T.App_ho(f,a) -> l[pp_t f;pp_t a]
     | T.Eq (t,u) -> l[a"=";pp_t t;pp_t u]
     | T.Not u -> l[a"not";pp_t u]
@@ -54,7 +54,7 @@ module Make_printer(Out : OUT) = struct
       a c
     | Ty.App (c,args) ->
       l(a c::Util.array_to_list_map pp_ty args)
-    | Ty.Ref i -> l[a "@"; a (string_of_int i)]
+    | Ty.Ref name -> l[a "@"; a name]
     | Ty.Arrow (args,b) ->
       l (a "->" :: Util.array_to_list_map pp_ty args @ [pp_ty b])
 
@@ -83,7 +83,6 @@ module Make_printer(Out : OUT) = struct
     | Nn p -> l[a"nn";pp_rec p]
     | Assertion t -> l[a"assert";pp_t t]
     | Assertion_c c -> l[a"assert-c";pp_cl c]
-    | Drup_res c -> l[a"drup";pp_cl c]
     | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map pp_hres_step steps)]
     | Res (t,p1,p2) -> l[a"r";pp_t t;pp_rec p1;pp_rec p2]
     | Res1 (p1,p2) -> l[a"r1";pp_rec p1;pp_rec p2]

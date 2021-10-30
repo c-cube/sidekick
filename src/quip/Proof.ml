@@ -8,7 +8,7 @@ module Ty = struct
     | Bool
     | Arrow of t array * t
     | App of string * t array
-    | Ref of id
+    | Ref of string
 
   let equal : t -> t -> bool = (=)
   let hash : t -> int = CCHash.poly
@@ -22,7 +22,7 @@ module Ty = struct
     | App (c, [||]) -> Fmt.string out c
     | App (c, args) ->
       Fmt.fprintf out "(@[%s@ %a@])" c (Util.pp_array pp) args
-    | Ref id -> Fmt.fprintf out "@@%d" id
+    | Ref name -> Fmt.fprintf out "(@@ %s)" name
 end
 
 module Fun = struct
@@ -43,7 +43,7 @@ module T = struct
     | Ite of t * t * t
     | Not of t
     | Eq of t * t
-    | Ref of id
+    | Ref of string
   let[@inline] view (self:t) : t = self
 
   let equal : t -> t -> bool = (=)
@@ -54,7 +54,7 @@ module T = struct
   let bool b = Bool b
   let not_ = function Not x -> x | x -> Not x
   let eq a b : t = Eq (a,b)
-  let ref id : t = Ref id
+  let ref name : t = Ref name
   let app_fun f args : t = App_fun (f, args)
   let const c = app_fun c [||]
   let app_ho a b : t = App_ho (a,b)
@@ -69,7 +69,7 @@ module T = struct
     | App_ho (f,a) -> Fmt.fprintf out "(@[%a@ %a@])" pp f pp a
     | Not a -> Fmt.fprintf out "(@[not@ %a@])" pp a
     | Eq (a,b) -> Fmt.fprintf out "(@[=@ %a@ %a@])" pp a pp b
-    | Ref id -> Fmt.fprintf out "@@%d" id
+    | Ref name -> Fmt.fprintf out "(@@ %s)" name
 end
 
 type term = T.t
@@ -112,7 +112,6 @@ type t =
   | CC_lemma of clause
   | Assertion of term
   | Assertion_c of clause
-  | Drup_res of clause
   | Hres of t * hres_step list
   | Res of term * t * t
   | Res1 of t * t
@@ -208,7 +207,6 @@ let bool_eq a b : t = Bool_eq (a,b)
 let bool_c name c : t = Bool_c (name, c)
 let nn c : t = Nn c
 
-let drup_res c : t = Drup_res c
 let hres_l p l : t =
   let l = List.filter (function (P1 (Refl _)) -> false | _ -> true) l in
   if l=[] then p else Hres (p,l)
