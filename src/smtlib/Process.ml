@@ -129,6 +129,15 @@ let mk_progress (_s:Solver.t) : _ -> unit =
       flush stdout
     )
 
+let with_file_out (file:string) (f:out_channel -> 'a): 'a =
+  if Filename.extension file = ".gz" then (
+    let p =
+      Unix.open_process_out
+        (Printf.sprintf "gzip -c - > \"%s\"" (String.escaped file))
+    in
+    CCFun.finally1 ~h:(fun () -> Unix.close_process_out p) f p
+  ) else CCIO.with_out file f
+
 (* call the solver to check-sat *)
 let solve
     ?gc:_
@@ -186,11 +195,10 @@ let solve
                 Profile.with_ "proof.to-quip" @@ fun () ->
                 Proof_quip.of_proof proof ~unsat:unsat_step
               in
-              Profile.with_ "proof.write-file"
-                (fun () ->
-                   CCIO.with_out file @@ fun oc ->
-                   Proof_quip.output oc proof_quip;
-                   flush oc);
+              Profile.with_ "proof.write-file" @@ fun () ->
+              with_file_out file @@ fun oc ->
+              Proof_quip.output oc proof_quip;
+              flush oc
           end
         | _ -> ()
       end;
