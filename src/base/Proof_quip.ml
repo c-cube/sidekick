@@ -130,12 +130,15 @@ end = struct
         | PS.Step_view.Expr_eq { lhs; rhs } ->
           add_needed_step lhs;
           add_needed_step rhs;
-          let t = lazy (
+          let name = name_term lid in
+          let step = lazy (
             let lhs = L_terms.find lhs
             and rhs = L_terms.find rhs in
-            P.T.eq lhs rhs
+            let t = P.T.eq lhs rhs in
+            P.S_define_t_name (name, t)
           ) in
-          L_terms.add lid t
+          add_top_step step;
+          L_terms.add lid (lazy (P.T.ref name))
 
         | PS.Step_view.Expr_bool {b} ->
           let t = Lazy.from_val (P.T.bool b) in
