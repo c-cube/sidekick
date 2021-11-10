@@ -170,12 +170,21 @@ end = struct
           add_needed_step c;
           add_needed_step rhs;
           let name = name_clause lid in
-          let step = lazy (
+          (* add [name := (|- c=rhs) by refl c].
+             Make sure we do it first, order in final proof will be reversed. *)
+          let step_refl = lazy (
+            let c = L_terms.find c in
+            let rhs = L_terms.find rhs in
+            P.S_step_c {name; res=[P.Lit.eq c rhs]; proof=P.refl c}
+          ) in
+          add_top_step step_refl;
+          (* define [c:=rhs] *)
+          let step_def = lazy (
             let c = L_terms.find c in
             let rhs = L_terms.find rhs in
             P.S_define_t (c, rhs)
           ) in
-          add_top_step step;
+          add_top_step step_def;
           L_proofs.add lid (lazy (P.ref_by_name name));
 
         | PS.Step_view.Expr_not { f } ->
