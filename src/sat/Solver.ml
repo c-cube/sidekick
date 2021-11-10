@@ -2137,14 +2137,32 @@ module Make(Plugin : PLUGIN)
   let resolve_with_lvl0 (self:t) (c:clause) : clause =
     let lvl0 = ref [] in
     let res = ref [] in
-    Clause.iter self.store c
-      ~f:(fun a ->
-          assert (Atom.is_false self.store a);
-          match Atom.reason self.store a with
-          | None -> assert false
-          | Some Decision -> res := a :: !res (* keep assumption *)
-          | Some (Bcp c2 | Bcp_lazy (lazy c2)) ->
-            lvl0 := Clause.proof_step self.store c2 :: !lvl0);
+    let to_unmark = self.temp_atom_vec in
+    assert (AVec.is_empty to_unmark);
+
+    (* resolve against the root cause of [a] being false *)
+    let rec resolve_with_a (a:atom) : unit =
+      assert (Atom.is_false self.store a);
+      if not (Var.marked self.store (Atom.var a)) then (
+        AVec.push to_unmark a;
+        Var.mark self.store (Atom.var a);
+
+        match Atom.reason self.store a with
+        | None -> assert false
+        | Some Decision -> res := a :: !res (* keep assumption *)
+        | Some (Bcp c2 | Bcp_lazy (lazy c2)) ->
+          lvl0 := Clause.proof_step self.store c2 :: !lvl0;
+          (* recursively explain other literals of [c2] *)
+          Clause.iter self.store c2
+            ~f:(fun a2 ->
+                let na2 = Atom.neg a2 in
+                if not (Atom.equal a na2) then resolve_with_a a2)
+      )
+    in
+
+    Clause.iter self.store c ~f:resolve_with_a;
+    AVec.iter to_unmark ~f:(fun a -> Var.unmark self.store (Atom.var a));
+    AVec.clear to_unmark;
 
     if !lvl0 = [] then (
       c (* no resolution happened *)
