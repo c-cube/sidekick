@@ -910,41 +910,52 @@ module Make(Plugin : PLUGIN)
      - true literals (maybe makes the clause trivial if the lit is proved true at level 0)
      - unassigned literals, yet to be decided
      - false literals (not suitable to watch, those at level 0 can be removed from the clause)
+
+     and order them as such in the result.
+     Also, removes literals that are false at level0, and returns a proof for
+     their removal.
   *)
-  let partition store atoms : atom list =
-    let rec partition_aux trues unassigned falses i =
+  let partition_atoms_ store atoms : atom list * proof_step list =
+    let proofs = ref [] in
+    let add_proof p = proofs := p :: !proofs in
+
+    let rec loop trues unassigned falses i =
       if i >= Array.length atoms then (
         trues @ unassigned @ falses
       ) else (
         let a = atoms.(i) in
         if Atom.is_true store a then (
-          let l = Atom.level store a in
-          if l = 0 then
-            raise_notrace Trivial (* Atom var true at level 0 gives a trivially true clause *)
+          let lvl = Atom.level store a in
+          if lvl = 0 then
+            (* Atom true at level 0 gives a trivially true clause *)
+            raise_notrace Trivial
           else
             (a :: trues) @ unassigned @ falses @
             (arr_to_list atoms (i + 1))
         ) else if Atom.is_false store a then (
-          let l = Atom.level store a in
-          if l = 0 then (
+          let lvl = Atom.level store a in
+          if lvl = 0 then (
             match Atom.reason store a with
-            | Some (Bcp _ | Bcp_lazy (lazy _)) ->
-              partition_aux trues unassigned falses (i + 1)
-            (* Atom var false at level 0 can be eliminated from the clause,
-               but we need to kepp in mind that we used another clause to simplify it. *)
-            (* TODO: get a proof of the propagation. *)
-            | None | Some Decision -> assert false
-            (* The var must have a reason, and it cannot be a decision/assumption,
-               since its level is 0. *)
+            | Some (Bcp cl | Bcp_lazy (lazy cl)) ->
+              (* Atom var false at level 0 can be eliminated from the clause,
+                 but we need to kepp in mind that we used another clause to simplify it. *)
+              add_proof (Clause.proof_step store cl);
+              loop trues unassigned falses (i + 1)
+            | None | Some Decision ->
+              (* The var must have a reason, and it cannot be a decision/assumption,
+                 since its level is 0. *)
+              assert false
           ) else (
-            partition_aux trues unassigned (a::falses) (i + 1)
+            loop trues unassigned (a::falses) (i + 1)
           )
         ) else (
-          partition_aux trues (a::unassigned) falses (i + 1)
+          loop trues (a::unassigned) falses (i + 1)
         )
       )
     in
-    partition_aux [] [] [] 0
+
+    let l = loop [] [] [] 0 in
+    l, !proofs
 
 
   (* Making a decision.
@@ -1446,6 +1457,23 @@ module Make(Plugin : PLUGIN)
     cancel_until self (max cr.cr_backtrack_lvl 0);
     record_learnt_clause ~pool:self.clauses_learnt self confl cr
 
+  (* Return a clause like [c], but maybe with a proof involving [proofs] *)
+  let maybe_resolve_with_ (self:t) (c:clause) (proofs:proof_step list) : clause =
+    if proofs=[] then c
+    else (
+      let proof =
+        let lits =
+          Clause.atoms_a self.store c
+          |> Iter.of_array
+          |> Iter.map (Atom.lit self.store)
+        in
+        Proof.emit_redundant_clause lits ~hyps:(Iter.of_list proofs) self.proof
+      in
+      Clause.make_a
+        self.store (Clause.atoms_a self.store c) proof
+        ~removable:(Clause.removable self.store c)
+    )
+
   (* Add a new clause, simplifying, propagating, and backtracking if
      the clause is false in the current trail *)
   let add_clause_ (self:t) ~pool (init:clause) : unit =
@@ -1457,13 +1485,16 @@ module Make(Plugin : PLUGIN)
     try
       let c = eliminate_duplicates store init in
       Log.debugf 30 (fun k -> k "(@[sat.dups-removed@ %a@])" (Clause.debug store) c);
-      let atoms = partition store (Clause.atoms_a store c) in
+      let atoms, proofs = partition_atoms_ store (Clause.atoms_a store c) in
       let clause =
         (* just update order of atoms *)
         let c_atoms = Clause.atoms_a store c in
         List.iteri (fun i a -> c_atoms.(i) <- a) atoms;
         c
       in
+      (* update proof as well *)
+      let clause = maybe_resolve_with_ self clause proofs in
+
       assert (Clause.removable store clause = Clause.removable store init);
       Log.debugf 5 (fun k->k "(@[sat.new-clause@ @[<hov>%a@]@])" (Clause.debug store) clause);
       match atoms with
