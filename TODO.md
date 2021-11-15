@@ -1,56 +1,21 @@
 
 ## TODO
 
-- dyn-trans for CC: add hooks in CC explanation of conflict
-  so the theory can intercept that
+- self-contained proofs (add axioms and type declarations)
 
-- emit proofs for SMT;
-  * remove dproof, emit them directly (maybe have `emit_input` vs `emit_input_sat` so we can avoid duplicating `i` lines)
-
+- add Egg
+  * use for existing theories (at least datatypes)
+  * integrate proofs using cc-lemma (no resolution, no intermediate clause)
 
 - data oriented congruence closure (all based on VecI32.t)
-  * then add Egg
 
 - new proofs:
   * simplify : use subproof
   * preprocess: no subproof
   * rule for proving `t=u` by CC modulo all previous unit equalities (needed
     for simp/preprocess)
-  * to prove `if a b b = b`, do `a => if a b b = b`,
+  * [x] to prove `if a b b = b`, do `a => if a b b = b`,
     `¬a => if a b b = b`, and use resolution on these to remove conditions.
-
-- dynamic ackermannization and transitivity (and maybe datatype acyclicity)
-  * clause pool for each type of dynamic inference (dynamic ack, etc.), with
-    its own GC limit.
-  * Probably need removable atoms too, once all clauses containing it are gone,
-    for atoms not added by the user explicitely.
-
-- enable conflict minimization (from branch) in SAT solver
-
-- sidekick-check:
-  * implement deletion
-  * seems like drat-trim is much faster in backward checking mode, see why
-  * implement checking of CC/preprocess
-  * checking of LRA
-  * checking of DT
-
-- refactor:
-  * revamp msat proofs
-    (store proofs in allocator, also encoded as 0-terminated series of ints
-     indicating clause numbers?
-     this way we can GC them just like we GC clauses)
-      ⇒ keep arrays, simpler
-    + means the type of proofs is independent of variables
-    + actually: try to use RUP (side buffer to store a representation of
-      a list of clauses, each "line" is `c_i := l1…ln 0` like dimacs.
-      Add delete lines to get DRUP.)
-      proof reconstruction to get, _if wanted_, proper resolution.
-    + or just store clause premises in a set, use local RUP to reconstruct
-      (assert ¬C and propagate)
-  * fix proof production for minimized conflicts (or come back after proof are better)
-
-- implement Egg paper
-  * use it for existing theories
 
 - stronger preprocessing:
   * first, split conjunction eagerly
@@ -67,6 +32,13 @@
     - preprocess LRA for:
       `./sidekick tests/unsat/pb_real_50_150_30_47.smt2`
       `./sidekick tests/unsat/clocksynchro_9clocks.main_invar.base.smt2`
+
+- sidekick-check:
+  * implement deletion
+  * seems like drat-trim is much faster in backward checking mode, see why
+  * implement checking of CC/preprocess
+  * checking of LRA
+  * checking of DT
 
 - proof production:
   * [x] produce Quip
@@ -128,6 +100,29 @@
 
 ## Done
 
+- refactor:
+  * revamp msat proofs
+    (store proofs in allocator, also encoded as 0-terminated series of ints
+     indicating clause numbers?
+     this way we can GC them just like we GC clauses)
+      ⇒ keep arrays, simpler
+    + means the type of proofs is independent of variables
+    + actually: try to use RUP (side buffer to store a representation of
+      a list of clauses, each "line" is `c_i := l1…ln 0` like dimacs.
+      Add delete lines to get DRUP.)
+      proof reconstruction to get, _if wanted_, proper resolution.
+    + or just store clause premises in a set, use local RUP to reconstruct
+      (assert ¬C and propagate)
+  * fix proof production for minimized conflicts (or come back after proof are better)
+- enable conflict minimization (from branch) in SAT solver
+- emit proofs for SMT;
+  * [x] add a clause preprocessing rule
+    (combines all the `… |- t=u`
+    proofs for preprocessing literals, to rewrite C into D)
+  * [x] add a RUP rule into Quip, with explicit hyps (fast but more lenient
+    than resolution with explicit order+pivots) ⇒ used in SAT solver
+  * [x] store proof in temp file, then parse it backward (using adequate framing)
+    to obtain relevant part in memory and produce Quip file
 - write theory of datatypes (without acyclicity) with local case splits + injectivity + selectors
 - datatype acyclicity check
 - make CC work on QF_UF
@@ -180,3 +175,11 @@
 - base types (Term, Lit, …)
 - theory combination
 - basic design of theories
+
+## Cancelled
+
+- dynamic ackermannization and transitivity (and maybe datatype acyclicity)
+  * clause pool for each type of dynamic inference (dynamic ack, etc.), with
+    its own GC limit.
+  * Probably need removable atoms too, once all clauses containing it are gone,
+    for atoms not added by the user explicitely.
