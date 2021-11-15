@@ -2141,7 +2141,7 @@ module Make(Plugin : PLUGIN)
     assert (AVec.is_empty to_unmark);
 
     (* resolve against the root cause of [a] being false *)
-    let rec resolve_with_a (a:atom) : unit =
+    let resolve_with_a (a:atom) : unit =
       assert (Atom.is_false self.store a);
       if not (Var.marked self.store (Atom.var a)) then (
         AVec.push to_unmark a;
@@ -2152,11 +2152,8 @@ module Make(Plugin : PLUGIN)
         | Some Decision -> res := a :: !res (* keep assumption *)
         | Some (Bcp c2 | Bcp_lazy (lazy c2)) ->
           lvl0 := Clause.proof_step self.store c2 :: !lvl0;
-          (* recursively explain other literals of [c2] *)
-          Clause.iter self.store c2
-            ~f:(fun a2 ->
-                let na2 = Atom.neg a2 in
-                if not (Atom.equal a na2) then resolve_with_a a2)
+          (* NOTE: no need to recurse, we just need to depend on [c2]
+             and its proof will be required later *)
       )
     in
 
