@@ -237,7 +237,7 @@ end = struct
           Array.iter add_needed_step exprs;
           let p = lazy (
             let exprs = Util.array_to_list_map L_terms.find exprs in
-            P.bool_c rule exprs
+            P.nn @@ P.bool_c rule exprs
           ) in
           L_proofs.add lid p;
 
