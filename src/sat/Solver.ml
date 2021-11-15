@@ -1375,19 +1375,6 @@ module Make(Plugin : PLUGIN)
       cr_steps;
     }
 
-  (* FIXME
-  let prove_unsat_ (self:t) (conflict:conflict_res) : proof_step =
-    if Array.length conflict.atoms = 0 then (
-      conflict
-    ) else (
-      Log.debugf 1 (fun k -> k "(@[sat.prove-unsat@ :from %a@])" Clause.debug conflict);
-      let l = Array.fold_left (fun acc a -> set_atom_proof a :: acc) [] conflict.atoms in
-      let res = Clause.make_permanent [] (History (conflict :: l)) in
-      Log.debugf 1 (fun k -> k "(@[sat.proof-found@ %a@])" Clause.debug res);
-      res
-    )
-     *)
-
   (* Get the correct vector to insert a clause in. *)
   let[@inline] add_clause_to_vec_ ~pool self c =
     if Clause.removable self.store c && Clause.n_atoms self.store c > 2 then (
