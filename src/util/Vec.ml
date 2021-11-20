@@ -96,6 +96,16 @@ let[@inline] fast_remove t i =
   Array.unsafe_set t.data i @@ Array.unsafe_get t.data (t.sz - 1);
   t.sz <- t.sz - 1
 
+let append ~into v : unit =
+  if v.sz = 0 then ()
+  else (
+    if v.sz + into.sz > Array.length into.data then (
+      resize_ into v.data.(0) (v.sz + into.sz);
+    );
+    Array.blit v.data 0 into.data into.sz v.sz;
+    into.sz <- into.sz + v.sz;
+  )
+
 let prepend v ~into : unit =
   if v.sz = 0 then ()
   else (
@@ -104,6 +114,7 @@ let prepend v ~into : unit =
     );
     Array.blit into.data 0 into.data v.sz into.sz; (* shift elements *)
     Array.blit v.data 0 into.data 0 v.sz;
+    into.sz <- into.sz + v.sz;
   )
 
 let filter_in_place f vec =
