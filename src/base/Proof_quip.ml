@@ -88,11 +88,16 @@ end = struct
      where it's typically `(stepc c5 (cl …) (ccl (cl …)))` for twice the space.
      *)
 
+  let is_def_ (step:PS.Step.t) =
+    match step.view with
+    | PS.Step_view.Expr_def _ -> true
+    | _ -> false
+
   (* process a step of the trace *)
   let process_step_ (step: PS.Step.t) : unit =
     let lid = step.id in
     let id = Int32.to_int lid in
-    if Util.Int_tbl.mem needed_steps_ id then (
+    if Util.Int_tbl.mem needed_steps_ id || is_def_ step then (
       Log.debugf 20 (fun k->k"(@[proof-quip.process-needed-step@ %a@])" PS.Step.pp step);
       Util.Int_tbl.remove needed_steps_ id;
 
