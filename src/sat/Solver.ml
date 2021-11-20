@@ -962,6 +962,7 @@ module Make(Plugin : PLUGIN)
             raise Trivial
           );
           Vec.push trues a;
+
         ) else if Atom.is_false store a then (
           let lvl = Atom.level store a in
           if lvl = 0 then (
@@ -976,6 +977,7 @@ module Make(Plugin : PLUGIN)
           ) else (
             Vec.push falses a;
           )
+
         ) else (
           Vec.push unassigned a
         );
@@ -992,18 +994,21 @@ module Make(Plugin : PLUGIN)
     end;
 
     (* merge all atoms together *)
-    let atoms = trues in
-    Vec.append ~into:atoms unassigned;
-    Vec.append ~into:atoms falses;
-    let atoms = Vec.to_array atoms in
+    let atoms =
+      let v = trues in
+      Vec.append ~into:v unassigned;
+      Vec.append ~into:v falses;
+      Vec.to_array v
+    in
 
-    if Array.length atoms = Clause.n_atoms store c then (
+    if !res0_proofs = [] then (
       (* no change except in the order of literals *)
-      assert (!res0_proofs = []);
       Clause.make_a store atoms
         ~removable:(Clause.removable store c)
         (Clause.proof_step store c)
+
     ) else (
+      assert (Array.length atoms < Clause.n_atoms store c);
       (* some atoms were removed by resolution with level-0 clauses *)
       Log.debugf 30 (fun k->k"(@[sat.add-clause.resolved-lvl-0@ :into [@[%a@]]@])"
                         (Atom.debug_a store) atoms);
@@ -1417,6 +1422,9 @@ module Make(Plugin : PLUGIN)
       | _, (None | Some Decision) -> assert false
     done;
 
+    Log.debugf 10
+      (fun k->k "(@[sat.conflict.res@ %a@])" (AVec.pp @@ Atom.debug store) learnt);
+
     (* minimize conflict, to get a more general lemma *)
     minimize_conflict self conflict_level learnt steps;
 
@@ -1436,6 +1444,10 @@ module Make(Plugin : PLUGIN)
 
     (* put_high_level_atoms_first a; *)
     let level, is_uip = backtrack_lvl self cr_learnt in
+    Log.debugf 10
+      (fun k->k "(@[sat.conflict.res.final@ :lvl %d@ {@[%a@]}@])"
+          level (Util.pp_array @@ Atom.debug store) cr_learnt);
+
     { cr_backtrack_lvl = level;
       cr_learnt;
       cr_is_uip = is_uip;
@@ -2197,7 +2209,7 @@ module Make(Plugin : PLUGIN)
     let resolve_with_a (a:atom) : unit =
       assert (Atom.is_false self.store a && Atom.level self.store a=0);
       if not (Var.marked self.store (Atom.var a)) then (
-        Log.debugf 50 (fun k->k"resolve lvl0 :atom %a" (Atom.debug self.store) a);
+        Log.debugf 50 (fun k->k"(@[sat.resolve-lvl0@ :atom %a@])" (Atom.debug self.store) a);
         AVec.push to_unmark a;
         Var.mark self.store (Atom.var a);
 
@@ -2235,9 +2247,9 @@ module Make(Plugin : PLUGIN)
     in
     let unsat_conflict = match us with
       | US_false c0 ->
-        Log.debugf 10 (fun k->k"unsat conflict clause %a" (Clause.debug store) c0);
+        Log.debugf 10 (fun k->k"(@[sat.unsat-conflict-clause@ %a@])" (Clause.debug store) c0);
         let c = resolve_with_lvl0 self c0 in
-        Log.debugf 10 (fun k->k"proper conflict clause %a" (Clause.debug store) c);
+        Log.debugf 10 (fun k->k"(@[sat.unsat-conflict-clause.proper@ %a@])" (Clause.debug store) c);
         (fun() -> c)
       | US_local {core=[]; _} -> assert false
       | US_local {first; core} ->
