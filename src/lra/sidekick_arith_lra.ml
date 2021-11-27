@@ -627,7 +627,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* look for subterms of type Real, for they will need theory combination *)
   let on_subterm (self:state) _ (t:T.t) : unit =
-    Log.debugf 50 (fun k->k "lra: cc-on-subterm %a" T.pp t);
+    Log.debugf 50 (fun k->k "(@[lra.cc-on-subterm@ %a@])" T.pp t);
     if A.has_ty_real t &&
        not (T.Tbl.mem self.needs_th_combination t) then (
       Log.debugf 5 (fun k->k "(@[lra.needs-th-combination@ %a@])" T.pp t);

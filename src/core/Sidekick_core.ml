@@ -1276,7 +1276,7 @@ end = struct
     else None
 
   let on_new_term self cc n (t:T.t) : unit =
-    Log.debugf 50 (fun k->k "@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);
+    (*Log.debugf 50 (fun k->k "(@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);*)
     let maybe_m, l = M.of_term cc n t in
     begin match maybe_m with
       | Some v ->

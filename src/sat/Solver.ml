@@ -1329,6 +1329,7 @@ module Make(Plugin : PLUGIN)
     AVec.clear learnt;
 
     let steps = self.temp_step_vec in (* for proof *)
+    assert (Step_vec.is_empty steps);
 
     (* loop variables *)
     let pathC  = ref 0 in
@@ -1371,16 +1372,14 @@ module Make(Plugin : PLUGIN)
           let atoms = Clause.atoms_a store clause in
           for j = 0 to Array.length atoms - 1 do
             let q = atoms.(j) in
-            assert (Atom.is_true store q ||
-                    Atom.is_false store q &&
-                    Atom.level store q >= 0); (* unsure? *)
-            if Atom.level store q <= 0 then (
+            assert (Atom.has_value store q);
+            assert (Atom.level store q >= 0);
+            if Atom.level store q = 0 then (
               assert (Atom.is_false store q);
-              begin match Atom.reason store q with
-                | Some (Bcp cl | Bcp_lazy (lazy cl)) when Proof.enabled self.proof ->
-                  Step_vec.push steps (Clause.proof_step self.store cl);
-                | _ -> ()
-              end
+              if Proof.enabled self.proof then (
+                let step = proof_of_atom_lvl0_ self (Atom.neg q) in
+                Step_vec.push steps step;
+              )
             );
             if not (Var.marked store (Atom.var q)) then (
               Var.mark store (Atom.var q);
@@ -1549,7 +1548,7 @@ module Make(Plugin : PLUGIN)
           (* cannot recover from this *)
           report_unsat self @@ US_false clause
         ) else if Atom.is_true store a then (
-          () (* atom is already true, nothing to do *)
+          () (* atom is already true, (at level 0) nothing to do *)
         ) else (
           Log.debugf 40
             (fun k->k "(@[sat.add-clause.unit-clause@ :propagating %a@])" (Atom.debug store) a);
