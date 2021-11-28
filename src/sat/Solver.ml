@@ -1028,8 +1028,7 @@ module Make(Plugin : PLUGIN)
                         (Atom.debug_a store) atoms);
       let proof =
         let lits =
-          Clause.atoms_a store c
-          |> Iter.of_array
+          Iter.of_array atoms
           |> Iter.map (Atom.lit store)
         in
         Proof.emit_redundant_clause lits
