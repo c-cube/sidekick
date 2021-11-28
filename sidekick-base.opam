@@ -21,6 +21,7 @@ depends: [
   "qcheck" {with-test & >= "0.16" }
   "odoc" {with-doc}
   "mdx" {with-test}
+  # "bare_encoding" {with-doc}
 ]
 tags: [ "sat" "smt" ]
 homepage: "https://github.com/c-cube/sidekick"
