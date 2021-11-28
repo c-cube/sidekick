@@ -1266,9 +1266,17 @@ module Make(Plugin : PLUGIN)
          (* check that all the other lits of [c] are marked or redundant *)
          for i = 1 to Array.length c_atoms - 1 do
            let v2 = Atom.var c_atoms.(i) in
-           if not (Var.marked store v2) && Var.level store v2 > 0 then (
+           let lvl_v2 = Var.level store v2 in
+           if not (Var.marked store v2) then (
              match Var.reason store v2 with
              | None -> assert false
+             | _ when lvl_v2 = 0 ->
+               (* can always remove literals at level 0, but got
+                  to update proof properly *)
+               if Proof.enabled self.proof then (
+                 let p = proof_of_atom_lvl0_ self (Atom.neg c_atoms.(i)) in
+                 Step_vec.push steps p;
+               )
              | Some (Bcp _ | Bcp_lazy _)
                when (abstract_level_ self v2 land abstract_levels) <> 0 ->
                (* possibly removable, its level may comprise an atom in learnt clause *)
