@@ -19,6 +19,8 @@ module type BASE = sig
 
   val clear : t -> unit
 
+  val copy : t -> t
+
   val is_empty : t -> bool
 
   val push : t -> elt -> unit
@@ -28,6 +30,8 @@ module type BASE = sig
       (swap with last element) *)
 
   val filter_in_place : (elt -> bool) -> t -> unit
+
+  val ensure_size : t -> int -> unit
 
   val pop : t -> elt
 

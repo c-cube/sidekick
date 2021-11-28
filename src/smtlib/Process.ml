@@ -129,10 +129,20 @@ let mk_progress (_s:Solver.t) : _ -> unit =
       flush stdout
     )
 
+let with_file_out (file:string) (f:out_channel -> 'a): 'a =
+  if Filename.extension file = ".gz" then (
+    let p =
+      Unix.open_process_out
+        (Printf.sprintf "gzip -c - > \"%s\"" (String.escaped file))
+    in
+    CCFun.finally1 ~h:(fun () -> Unix.close_process_out p) f p
+  ) else CCIO.with_out file f
+
 (* call the solver to check-sat *)
 let solve
     ?gc:_
     ?restarts:_
+    ?proof_file
     ?(pp_model=false)
     ?(check=false)
     ?time:_ ?memory:_ ?(progress=false)
@@ -163,7 +173,7 @@ let solve
          *)
       let t3 = Sys.time () -. t2 in
       Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
-    | Solver.Unsat _ ->
+    | Solver.Unsat { unsat_proof_step; unsat_core=_ } ->
 
       if check then (
         ()
@@ -175,16 +185,23 @@ let solve
            *)
       );
 
-      (* FIXME: instead, create a proof if proof file or --check is given
-      begin match proof_file, proof with
-        | Some file, lazy (Some p) ->
-          Profile.with_ "proof.write-file" @@ fun () ->
-          let p = Profile.with1 "proof.mk-proof" Solver.Pre_proof.to_proof p in
-          CCIO.with_out file
-            (fun oc -> Proof.Quip.output oc p; flush oc)
+      begin match proof_file with
+        | Some file ->
+          begin match unsat_proof_step() with
+            | None -> ()
+            | Some unsat_step ->
+              let proof = Solver.proof s in
+              let proof_quip =
+                Profile.with_ "proof.to-quip" @@ fun () ->
+                Proof_quip.of_proof proof ~unsat:unsat_step
+              in
+              Profile.with_ "proof.write-file" @@ fun () ->
+              with_file_out file @@ fun oc ->
+              Proof_quip.output oc proof_quip;
+              flush oc
+          end
         | _ -> ()
       end;
-         *)
 
       let t3 = Sys.time () -. t2 in
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
@@ -196,7 +213,7 @@ let solve
 (* process a single statement *)
 let process_stmt
     ?gc ?restarts ?(pp_cnf=false)
-    ?pp_model ?(check=false)
+    ?proof_file ?pp_model ?(check=false)
     ?time ?memory ?progress
     (solver:Solver.t)
     (stmt:Statement.t) : unit or_error =
@@ -234,7 +251,7 @@ let process_stmt
           l
       in
       solve
-        ?gc ?restarts ~check ?pp_model
+        ?gc ?restarts ~check ?pp_model ?proof_file
         ?time ?memory ?progress
         ~assumptions
         solver;
@@ -252,7 +269,7 @@ let process_stmt
       );
       let lit = Solver.mk_lit_t solver t in
       Solver.add_clause solver (IArray.singleton lit)
-        (Solver.P.emit_input_clause (Iter.singleton lit));
+        (Solver.P.emit_input_clause (Iter.singleton lit) (Solver.proof solver));
       E.return()
 
     | Statement.Stmt_assert_clause c_ts ->
@@ -263,14 +280,14 @@ let process_stmt
       let c = CCList.map (fun t -> Solver.mk_lit_t solver t) c_ts in
 
       (* proof of assert-input + preprocessing *)
-      let emit_proof p =
+      let pr =
         let module P = Solver.P in
+        let proof = Solver.proof solver in
         let tst = Solver.tst solver in
-        P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) p;
-        P.emit_redundant_clause (Iter.of_list c) p;
+        P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) proof
       in
 
-      Solver.add_clause solver (IArray.of_list c) emit_proof;
+      Solver.add_clause solver (IArray.of_list c) pr;
       E.return()
 
     | Statement.Stmt_data _ ->

@@ -9,14 +9,14 @@ module Make(Elt : RANKED) = struct
 
   type t = {
     store : elt_store;
-    heap : VecI32.t; (* vec of elements *)
+    heap : VecSmallInt.t; (* vec of elements *)
   }
 
   let _absent_index = -1
 
   let create store : t =
     { store;
-      heap = VecI32.create(); }
+      heap = VecSmallInt.create(); }
 
   let[@inline] left i = (i lsl 1) + 1 (* i*2 + 1 *)
   let[@inline] right i = (i + 1) lsl 1 (* (i+1)*2 *)
@@ -24,15 +24,15 @@ module Make(Elt : RANKED) = struct
 
   (*
   let rec heap_property cmp ({heap=heap} as s) i =
-    i >= (VecI32.size heap)  ||
+    i >= (VecSmallInt.size heap)  ||
       ((i = 0 || not(cmp (Vec. get heap i) (Vec.get heap (parent i))))
        && heap_property cmp s (left i) && heap_property cmp s (right i))
 
   let heap_property cmp s = heap_property cmp s 1
   *)
 
-  let[@inline] get_elt_ self i = Elt.of_int_unsafe (VecI32.get self.heap i)
-  let[@inline] set_elt_ self i elt = VecI32.set self.heap i (elt:Elt.t:>int)
+  let[@inline] get_elt_ self i = Elt.of_int_unsafe (VecSmallInt.get self.heap i)
+  let[@inline] set_elt_ self i elt = VecSmallInt.set self.heap i (elt:Elt.t:>int)
 
   (* [elt] is above or at its expected position. Move it up the heap
      (towards high indices) to restore the heap property *)
@@ -49,7 +49,7 @@ module Make(Elt : RANKED) = struct
     Elt.set_heap_idx self.store elt !i
 
   let percolate_down (self:t) (elt:Elt.t): unit =
-    let sz = VecI32.size self.heap in
+    let sz = VecSmallInt.size self.heap in
     let li = ref (left (Elt.heap_idx self.store elt)) in
     let ri = ref (right (Elt.heap_idx self.store elt)) in
     let i = ref (Elt.heap_idx self.store elt) in
@@ -85,7 +85,7 @@ module Make(Elt : RANKED) = struct
 
   let filter (self:t) filt : unit =
     let j = ref 0 in
-    let lim = VecI32.size self.heap in
+    let lim = VecSmallInt.size self.heap in
     for i = 0 to lim - 1 do
       if filt (get_elt_ self i) then (
         set_elt_ self !j (get_elt_ self i);
@@ -95,24 +95,24 @@ module Make(Elt : RANKED) = struct
         Elt.set_heap_idx self.store (get_elt_ self i) _absent_index;
       );
     done;
-    VecI32.shrink self.heap (lim - !j);
+    VecSmallInt.shrink self.heap (lim - !j);
     for i = (lim / 2) - 1 downto 0 do
       percolate_down self (get_elt_ self i)
     done
 
-  let[@inline] size s = VecI32.size s.heap
-  let[@inline] is_empty s = VecI32.is_empty s.heap
+  let[@inline] size s = VecSmallInt.size s.heap
+  let[@inline] is_empty s = VecSmallInt.is_empty s.heap
 
   let clear self : unit =
-    VecI32.iter self.heap
+    VecSmallInt.iter self.heap
       ~f:(fun e -> Elt.set_heap_idx self.store (Elt.of_int_unsafe e) _absent_index);
-    VecI32.clear self.heap;
+    VecSmallInt.clear self.heap;
     ()
 
   let insert self elt =
     if not (in_heap self elt) then (
-      Elt.set_heap_idx self.store elt (VecI32.size self.heap);
-      VecI32.push self.heap (elt:Elt.t:>int);
+      Elt.set_heap_idx self.store elt (VecSmallInt.size self.heap);
+      VecSmallInt.push self.heap (elt:Elt.t:>int);
       percolate_up self elt;
     )
 
@@ -131,20 +131,20 @@ module Make(Elt : RANKED) = struct
   *)
 
   let remove_min self =
-    match VecI32.size self.heap with
+    match VecSmallInt.size self.heap with
     | 0 -> raise Not_found
     | 1 ->
-      let x = Elt.of_int_unsafe (VecI32.pop self.heap) in
+      let x = Elt.of_int_unsafe (VecSmallInt.pop self.heap) in
       Elt.set_heap_idx self.store x _absent_index;
       x
     | _ ->
       let x = get_elt_ self 0 in
-      let new_hd = Elt.of_int_unsafe (VecI32.pop self.heap) in (* heap.last() *)
+      let new_hd = Elt.of_int_unsafe (VecSmallInt.pop self.heap) in (* heap.last() *)
       set_elt_ self 0 new_hd;
       Elt.set_heap_idx self.store x _absent_index;
       Elt.set_heap_idx self.store new_hd 0;
       (* enforce heap property again *)
-      if VecI32.size self.heap > 1 then (
+      if VecSmallInt.size self.heap > 1 then (
         percolate_down self new_hd;
       );
       x

@@ -16,6 +16,7 @@ module Make (A: CC_ARG)
   : S with module T = A.T
        and module Lit = A.Lit
        and type proof = A.proof
+       and type proof_step = A.proof_step
        and module Actions = A.Actions
 = struct
   module T = A.T
@@ -27,7 +28,7 @@ module Make (A: CC_ARG)
   type lit = Lit.t
   type fun_ = T.Fun.t
   type proof = A.proof
-  type dproof = proof -> unit
+  type proof_step = A.proof_step
   type actions = Actions.t
 
   module Term = T.Term
@@ -95,7 +96,7 @@ module Make (A: CC_ARG)
     | E_merge_t of term * term
     | E_congruence of node * node (* caused by normal congruence *)
     | E_and of explanation * explanation
-    | E_theory of explanation
+    | E_theory of proof_step * explanation list
 
   type repr = node
 
@@ -166,7 +167,7 @@ module Make (A: CC_ARG)
       | E_congruence (n1,n2) -> Fmt.fprintf out "(@[congruence@ %a@ %a@])" N.pp n1 N.pp n2
       | E_merge (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" N.pp a N.pp b
       | E_merge_t (a,b) -> Fmt.fprintf out "(@[<hv>merge@ @[:n1 %a@]@ @[:n2 %a@]@])" Term.pp a Term.pp b
-      | E_theory e -> Fmt.fprintf out "(@[th@ %a@])" pp e
+      | E_theory (_p,es) -> Fmt.fprintf out "(@[th@ %a@])" (Util.pp_list pp) es
       | E_and (a,b) ->
         Format.fprintf out "(@[<hv1>and@ %a@ %a@])" pp a pp b
 
@@ -175,7 +176,7 @@ module Make (A: CC_ARG)
     let[@inline] mk_merge a b : t = if N.equal a b then mk_reduction else E_merge (a,b)
     let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_reduction else E_merge_t (a,b)
     let[@inline] mk_lit l : t = E_lit l
-    let mk_theory e = E_theory e
+    let[@inline] mk_theory p es = E_theory (p,es)
 
     let rec mk_list l =
       match l with
@@ -241,6 +242,7 @@ module Make (A: CC_ARG)
   type t = {
     tst: term_store;
     tbl: node T_tbl.t;
+    proof: proof;
     (* internalization [term -> node] *)
     signatures_tbl : node Sig_tbl.t;
     (* map a signature to the corresponding node in some equivalence class.
@@ -279,7 +281,7 @@ module Make (A: CC_ARG)
   and ev_on_post_merge = t -> actions -> N.t -> N.t -> unit
   and ev_on_new_term = t -> N.t -> term -> unit
   and ev_on_conflict = t -> th:bool -> lit list -> unit
-  and ev_on_propagate = t -> lit -> (unit -> lit list * (proof -> unit)) -> unit
+  and ev_on_propagate = t -> lit -> (unit -> lit list * proof_step) -> unit
   and ev_on_is_subterm = N.t -> term -> unit
 
   let[@inline] size_ (r:repr) = r.n_size
@@ -287,6 +289,7 @@ module Make (A: CC_ARG)
   let[@inline] n_false cc = Lazy.force cc.false_
   let n_bool cc b = if b then n_true cc else n_false cc
   let[@inline] term_store cc = cc.tst
+  let[@inline] proof cc = cc.proof
   let allocate_bitfield ~descr cc =
     Log.debugf 5 (fun k->k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
     Bits.mk_field cc.bitgen
@@ -372,7 +375,7 @@ module Make (A: CC_ARG)
         n.n_expl <- FL_none;
     end
 
-  let raise_conflict_ (cc:t) ~th (acts:actions) (e:lit list) p : _ =
+  let raise_conflict_ (cc:t) ~th (acts:actions) (e:lit list) (p:proof_step) : _ =
     Profile.instant "cc.conflict";
     (* clear tasks queue *)
     Vec.clear cc.pending;
@@ -455,8 +458,16 @@ module Make (A: CC_ARG)
           assert false
       end
     | E_lit lit -> lit :: acc
-    | E_theory e' ->
-      th := true; explain_decompose_expl cc ~th acc e'
+    | E_theory (_pr, sub_l) ->
+      (* FIXME: use pr as a subproof. We need to accumulate subproofs too, because
+         there is some amount of resolution done inside the congruence closure
+         itself to resolve Horn clauses produced by theories.
+
+         maybe we need to store [t=u] where [pr] is the proof of [Gamma |- t=u],
+         add [t=u] to the explanation, and use a subproof to resolve
+         it away using [pr] and add [Gamma] to the mix *)
+      th := true;
+      List.fold_left (explain_decompose_expl cc ~th) acc sub_l
     | E_merge (a,b) -> explain_equal_rec_ cc ~th acc a b
     | E_merge_t (a,b) ->
       (* find nodes for [a] and [b] on the fly *)
@@ -656,10 +667,11 @@ module Make (A: CC_ARG)
         let lits = explain_decompose_expl cc ~th [] e_ab in
         let lits = explain_equal_rec_ cc ~th lits a ra in
         let lits = explain_equal_rec_ cc ~th lits b rb in
-        let emit_proof p =
+        let pr =
           let p_lits = Iter.of_list lits |> Iter.map Lit.neg in
-          P.lemma_cc p_lits p in
-        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) emit_proof
+          P.lemma_cc p_lits @@ Actions.proof acts
+        in
+        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) pr
       );
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, but always
@@ -774,12 +786,12 @@ module Make (A: CC_ARG)
              let e = lazy (
                let lazy (th, acc) = half_expl in
                let lits = explain_equal_rec_ cc ~th acc u1 t1 in
-               let emit_proof p =
+               let pr =
                  (* make a tautology, not a true guard *)
                  let p_lits = Iter.cons lit (Iter.of_list lits |> Iter.map Lit.neg) in
-                 P.lemma_cc p_lits p
+                 P.lemma_cc p_lits @@ Actions.proof acts
                in
-               lits, emit_proof
+               lits, pr
              ) in
              fun () -> Lazy.force e
            in
@@ -846,11 +858,11 @@ module Make (A: CC_ARG)
     let th = ref true in
     let lits = explain_decompose_expl cc ~th [] expl in
     let lits = List.rev_map Lit.neg lits in
-    let emit_proof p =
+    let pr =
       let p_lits = Iter.of_list lits in
-      P.lemma_cc p_lits p
+      P.lemma_cc p_lits @@ Actions.proof acts
     in
-    raise_conflict_ cc ~th:!th acts lits emit_proof
+    raise_conflict_ cc ~th:!th acts lits pr
 
   let merge cc n1 n2 expl =
     Log.debugf 5
@@ -876,12 +888,12 @@ module Make (A: CC_ARG)
       ?(on_pre_merge=[]) ?(on_post_merge=[]) ?(on_new_term=[])
       ?(on_conflict=[]) ?(on_propagate=[]) ?(on_is_subterm=[])
       ?(size=`Big)
-      (tst:term_store) : t =
+      (tst:term_store) (proof:proof) : t =
     let size = match size with `Small -> 128 | `Big -> 2048 in
     let bitgen = Bits.mk_gen () in
     let field_marked_explain = Bits.mk_field bitgen in
     let rec cc = {
-      tst;
+      tst; proof;
       tbl = T_tbl.create size;
       signatures_tbl = Sig_tbl.create size;
       bitgen;

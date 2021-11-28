@@ -37,6 +37,9 @@ let array_of_list_map f l =
 let array_to_list_map f arr =
   CCList.init (Array.length arr) (fun i -> f arr.(i))
 
+let lazy_map f x = lazy (let (lazy x) = x in f x)
+let lazy_map2 f x y = lazy (let (lazy x) = x and (lazy y) = y in f x y)
+
 let setup_gc () =
   let g = Gc.get () in
   Gc.set {
@@ -50,3 +53,4 @@ module Int_set = CCSet.Make(CCInt)
 module Int_map = CCMap.Make(CCInt)
 module Int_tbl = CCHashtbl.Make(CCInt)
 
+module Str_tbl = CCHashtbl.Make(CCString)

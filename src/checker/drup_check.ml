@@ -71,7 +71,7 @@ end
     Each event is checked by reverse-unit propagation on previous events. *)
 module Fwd_check : sig
   type error =
-    [ `Bad_steps of VecI32.t
+    [ `Bad_steps of VecSmallInt.t
     | `No_empty_clause
     ]
 
@@ -84,11 +84,11 @@ module Fwd_check : sig
 end = struct
   type t = {
     checker: Checker.t;
-    errors: VecI32.t;
+    errors: VecSmallInt.t;
   }
   let create cstore : t = {
     checker=Checker.create cstore;
-    errors=VecI32.create();
+    errors=VecSmallInt.create();
   }
 
   (* check event, return [true] if it's valid *)
@@ -114,17 +114,17 @@ end = struct
     end
 
   type error =
-    [ `Bad_steps of VecI32.t
+    [ `Bad_steps of VecSmallInt.t
     | `No_empty_clause
     ]
 
   let pp_error trace out = function
     | `No_empty_clause -> Fmt.string out "no empty clause found"
     | `Bad_steps bad ->
-      let n0 = VecI32.get bad 0 in
+      let n0 = VecSmallInt.get bad 0 in
       Fmt.fprintf out
         "@[<v>checking failed on %d ops.@ @[<2>First failure is op[%d]:@ %a@]@]"
-        (VecI32.size bad) n0
+        (VecSmallInt.size bad) n0
         Trace.pp_op (Trace.get trace n0)
 
   let check trace : _ result =
@@ -137,7 +137,7 @@ end = struct
           let ok = check_op self i op in
           if ok then (
             Log.debugf 50
-              (fun k->k"(@[check.step.ok@ :idx %d@ :op %a@])" i Trace.pp_op op);
+              (fun k->k"(@[check.proof_rule.ok@ :idx %d@ :op %a@])" i Trace.pp_op op);
 
             (* check if op adds the empty clause *)
             begin match op with
@@ -147,13 +147,13 @@ end = struct
             end;
           ) else (
             Log.debugf 10
-              (fun k->k"(@[check.step.fail@ :idx %d@ :op %a@])" i Trace.pp_op op);
-            VecI32.push self.errors i
+              (fun k->k"(@[check.proof_rule.fail@ :idx %d@ :op %a@])" i Trace.pp_op op);
+            VecSmallInt.push self.errors i
           ));
 
-    Log.debugf 10 (fun k->k"found %d errors" (VecI32.size self.errors));
+    Log.debugf 10 (fun k->k"found %d errors" (VecSmallInt.size self.errors));
     if not !has_false then Error `No_empty_clause
-    else if VecI32.size self.errors > 0 then Error (`Bad_steps self.errors)
+    else if VecSmallInt.size self.errors > 0 then Error (`Bad_steps self.errors)
     else Ok ()
 end
 

@@ -7,7 +7,7 @@ module Solver
                             and type T.Term.store = Term.store
                             and type T.Ty.t = Ty.t
                             and type T.Ty.store = Ty.store
-                            and type proof = Proof_stub.t
+                            and type proof = Proof.t
 
 val th_bool : Solver.theory
 val th_data : Solver.theory
@@ -24,6 +24,7 @@ val process_stmt :
   ?gc:bool ->
   ?restarts:bool ->
   ?pp_cnf:bool ->
+  ?proof_file:string ->
   ?pp_model:bool ->
   ?check:bool ->
   ?time:float ->

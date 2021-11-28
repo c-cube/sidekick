@@ -1,0 +1,14 @@
+
+(library
+  (name sidekick_base_proof_trace)
+  (public_name sidekick-base.proof-trace)
+  (libraries sidekick.util)
+  (flags :standard -w -32 -warn-error -a+8 -open Sidekick_util))
+
+; generate (de)ser + types from .bare file
+(rule
+  (targets proof_ser.ml)
+  (deps proof_ser.bare)
+  (mode promote) ; not required in releases
+  (action (run bare-codegen --pp --standalone %{deps} -o %{targets})))
+

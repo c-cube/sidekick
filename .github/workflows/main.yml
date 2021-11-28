@@ -14,8 +14,7 @@ jobs:
           - windows-latest
             #- macos-latest  # clogs CI
         ocaml-compiler:
-          - 4.04.x
-          - 4.10.x
+          - 4.08.x
           - 4.12.x
     runs-on: ${{ matrix.os }}
     steps:
@@ -26,6 +25,6 @@ jobs:
     - run: opam pin -n .
     - run: opam depext -yt sidekick sidekick-base sidekick-bin
     - run: opam install -t . --deps-only
-    - run: opam exec -- dune build
-    - run: opam exec -- dune runtest
+    - run: opam exec -- dune build --ignore-promoted-rules
+    - run: opam exec -- dune runtest --ignore-promoted-rules
       if: ${{ matrix.os == 'ubuntu-latest'}}

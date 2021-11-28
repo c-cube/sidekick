@@ -17,7 +17,7 @@ type ('lit, 'proof) reason = ('lit, 'proof) Solver_intf.reason =
   | Consequence of (unit -> 'lit list * 'proof) [@@unboxed]
 
 module type ACTS = Solver_intf.ACTS
-type ('lit, 'proof) acts = ('lit, 'proof) Solver_intf.acts
+type ('lit, 'proof, 'proof_step) acts = ('lit, 'proof, 'proof_step) Solver_intf.acts
 
 type negated = bool
 

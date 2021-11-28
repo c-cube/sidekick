@@ -1,12 +1,12 @@
 
 (** DRUP trace checker.
 
-    This module provides a checker for DRUP traces, including step-by-step
+    This module provides a checker for DRUP traces, including proof_rule-by-proof_rule
     checking for traces that interleave DRUP steps with other kinds of steps.
 *)
 
 module Fmt = CCFormat
-module VecI32 = VecI32
+module VecSmallInt = VecSmallInt
 
 (* TODO: resolution proof construction, optionally *)
 
@@ -108,7 +108,7 @@ module Make() : S = struct
       let set = Vec.set
     end
     module Stack = struct
-      include VecI32
+      include VecSmallInt
       let create()=create()
     end
   end

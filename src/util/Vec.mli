@@ -70,6 +70,9 @@ val fast_remove : 'a t -> int -> unit
 (** Remove element at index [i] without preserving order
     (swap with last element) *)
 
+val append : into:'a t -> 'a t -> unit
+(** [append ~into v] pushes elements of [v] in the vector [into] *)
+
 val prepend : 'a t -> into:'a t -> unit
 (** [prepend v ~into] pushes all elements of [v] into [into],
     at the beginning. consumes [v]. *)

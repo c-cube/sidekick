@@ -29,6 +29,17 @@ let cons x t = match t with
   | L _ -> N (L x, t)
   | N (_,_) -> N (L x, t)
 
+let snoc t x = match t with
+  | E -> L x
+  | L _ -> N (t, L x)
+  | N (_, _) -> N (t, L x)
+
+let of_iter i =
+  let r = ref empty in
+
+  i (fun x -> r := snoc !r x);
+  !r
+
 let rec fold f acc = function
   | E -> acc
   | L x -> f acc x

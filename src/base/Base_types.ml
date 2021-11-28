@@ -5,6 +5,8 @@ module Log = Sidekick_util.Log
 module Fmt = CCFormat
 
 module CC_view = Sidekick_core.CC_view
+module Proof_ser = Sidekick_base_proof_trace.Proof_ser
+module Storage = Sidekick_base_proof_trace.Storage
 
 type lra_pred = Sidekick_arith_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 type lra_op = Sidekick_arith_lra.op = Plus | Minus

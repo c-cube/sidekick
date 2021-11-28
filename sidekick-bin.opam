@@ -19,7 +19,7 @@ depends: [
   "sidekick" { = version }
   "sidekick-base" { = version }
   "menhir"
-  "ocaml" { >= "4.04" }
+  "ocaml" { >= "4.08" }
   "odoc" {with-doc}
 ]
 depopts: [

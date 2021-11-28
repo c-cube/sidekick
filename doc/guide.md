@@ -196,7 +196,7 @@ A list of theories can be added initially, or later using
 `Solver.add_theory`.
 
 ```ocaml
-# let solver = Solver.create ~theories:[th_bool] ~proof:(Proof_stub.create()) tstore () ();;
+# let solver = Solver.create ~theories:[th_bool] ~proof:(Proof.empty) tstore () ();;
 val solver : Solver.t = <abstr>
 
 # Solver.add_theory;;
@@ -238,7 +238,7 @@ whether the assertions and hypotheses are satisfiable together.
                   Solver.mk_lit_t solver q ~sign:false];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
 ```
 
 Here it's unsat, because we asserted "p = q", and then assumed "p"
@@ -295,7 +295,7 @@ val q_imp_not_r : Term.t = (=> q (not r))
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
 ```
 
 This time we got _unsat_ and there is no way of undoing it.
@@ -309,7 +309,7 @@ We can solve linear real arithmetic problems as well.
 Let's create a new solver and add the theory of reals to it.
 
 ```ocaml
-# let solver = Solver.create ~theories:[th_bool; th_lra] ~proof:(Proof_stub.create()) tstore () ();;
+# let solver = Solver.create ~theories:[th_bool; th_lra] ~proof:(Proof.empty) tstore () ();;
 val solver : Solver.t = <abstr>
 ```
 
@@ -356,10 +356,10 @@ val b_leq_half : Term.t = (<= b 1/2)
                   Solver.mk_lit_t solver b_leq_half];;
 val res : Solver.res =
   Sidekick_base_solver.Solver.Unsat
-   {Sidekick_base_solver.Solver.unsat_core = <fun>}
+   {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
 
 # match res with Solver.Unsat {unsat_core=us; _} -> us() |> Iter.to_list | _ -> assert false;;
-- : Proof_stub.lit list = [(a >= 1); (b <= 1/2)]
+- : Proof.lit list = [(a >= 1); (b <= 1/2)]
 ```
 
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
@@ -401,7 +401,7 @@ val f1_u1 : Term.t = (f1 u1)
 Anyway, Sidekick knows how to reason about functions.
 
 ```ocaml
-# let solver = Solver.create ~theories:[] ~proof:(Proof_stub.create()) tstore () ();;
+# let solver = Solver.create ~theories:[] ~proof:(Proof.empty) tstore () ();;
 val solver : Solver.t = <abstr>
 
 # (* helper *)
@@ -422,13 +422,13 @@ val appf1 : Term.t list -> Term.t = <fun>
     ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u1 (appf1[u1]))];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
 
 # Solver.solve solver
     ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u2 u3)];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
 ```
 
 Assuming: `f1(u1)=u2, f1(u2)=u3, f1^2(u1)=u1, f1^3(u1)=u1`,
