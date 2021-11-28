@@ -888,8 +888,9 @@ module Make(Plugin : PLUGIN)
     if i >= Array.length arr then []
     else Array.to_list (Array.sub arr i (Array.length arr - i))
 
-  (* get/build the proof for [a], which must be an atom true at level0.
-     This uses a cache *)
+  (* get/build the proof for [a], which must be an atom true at level 0.
+     This uses a global cache to avoid repeated computations, as many clauses
+     might resolve against a given 0-level atom. *)
   let rec proof_of_atom_lvl0_ (self:t) (a:atom) : proof_step =
     assert (Atom.is_true self.store a && Atom.level self.store a = 0);
 
@@ -902,19 +903,32 @@ module Make(Plugin : PLUGIN)
           | None -> assert false
           | Some Decision -> assert false (* no decisions at level0 *)
           | Some (Bcp c2 | Bcp_lazy (lazy c2)) ->
+            Log.debugf 50
+              (fun k->k"(@[sat.proof-of-atom-lvl0.clause@ %a@])"
+                  (Clause.debug self.store) c2);
+
             let steps = ref [] in
             (* recurse, so we get the whole level-0 resolution graph *)
             Clause.iter self.store c2
               ~f:(fun a2 ->
                   if not (Var.equal (Atom.var a) (Atom.var a2)) then (
+                    Log.debugf 50
+                      (fun k->k"(@[sat.proof-of-atom-lvl0@ :of %a@ \
+                                @[:resolve-with@ %a@]@])"
+                          (Atom.debug self.store) a (Atom.debug self.store) a2);
+
                     let p2 = proof_of_atom_lvl0_ self (Atom.neg a2) in
                     steps := p2 :: !steps;
                   ));
 
-            Proof.emit_redundant_clause
-              (Iter.return (Atom.lit self.store a))
-              ~hyps:Iter.(cons (Clause.proof_step self.store c2) (of_list !steps))
-              self.proof
+            let proof_c2 = Clause.proof_step self.store c2 in
+            if !steps = [] then proof_c2
+            else (
+              Proof.emit_redundant_clause
+                (Iter.return (Atom.lit self.store a))
+                ~hyps:Iter.(cons proof_c2 (of_list !steps))
+                self.proof
+            )
         in
 
         Atom.set_proof_lvl0 self.store a p; (* put in cache *)
