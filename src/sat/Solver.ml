@@ -950,7 +950,7 @@ module Make(Plugin : PLUGIN)
   let preprocess_clause_ (self:t) (c:Clause.t) : Clause.t =
     let store = self.store in
     let res0_proofs = ref [] in (* steps of resolution at level 0 *)
-    let add_proof_ p = res0_proofs := p :: !res0_proofs in
+    let add_proof_lvl0_ p = res0_proofs := p :: !res0_proofs in
 
     let trues = Vec.create () in
     let unassigned = Vec.create() in
@@ -987,7 +987,7 @@ module Make(Plugin : PLUGIN)
                   (Atom.debug store) a);
 
             let p = proof_of_atom_lvl0_ self (Atom.neg a) in
-            add_proof_ p;
+            add_proof_lvl0_ p;
           ) else (
             Vec.push falses a;
           )
@@ -1334,7 +1334,7 @@ module Make(Plugin : PLUGIN)
   }
 
   (* conflict analysis, starting with top of trail and conflict clause *)
-  let analyze (self:t) c_clause : conflict_res =
+  let analyze (self:t) (c_clause:clause) : conflict_res =
     let store = self.store in
 
     let to_unmark = self.to_clear in (* for cleanup *)
@@ -1389,13 +1389,13 @@ module Make(Plugin : PLUGIN)
             assert (Atom.has_value store q);
             assert (Atom.level store q >= 0);
             if Atom.level store q = 0 then (
+              (* skip [q] entirely, resolved away at level 0 *)
               assert (Atom.is_false store q);
               if Proof.enabled self.proof then (
                 let step = proof_of_atom_lvl0_ self (Atom.neg q) in
                 Step_vec.push steps step;
               )
-            );
-            if not (Var.marked store (Atom.var q)) then (
+            ) else if not (Var.marked store (Atom.var q)) then (
               Var.mark store (Atom.var q);
               Vec.push to_unmark (Atom.var q);
               if Atom.level store q > 0 then (
@@ -1477,25 +1477,26 @@ module Make(Plugin : PLUGIN)
     )
 
   (* add the learnt clause to the clause database, propagate, etc. *)
-  let record_learnt_clause (self:t) ~pool (confl:clause) (cr:conflict_res): unit =
+  let record_learnt_clause (self:t) ~pool (cr:conflict_res): unit =
     let store = self.store in
     begin match cr.cr_learnt with
       | [| |] -> assert false
       | [|fuip|] ->
         assert (cr.cr_backtrack_lvl = 0 && decision_level self = 0);
+
+        let p =
+          Proof.emit_redundant_clause
+            (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
+            ~hyps:(Step_vec.to_iter cr.cr_steps)
+            self.proof
+        in
+        let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
+        (match self.on_learnt with Some f -> f self uclause | None -> ());
+
         if Atom.is_false store fuip then (
           (* incompatible at level 0 *)
-          report_unsat self (US_false confl)
+          report_unsat self (US_false uclause)
         ) else (
-          let p =
-            Proof.emit_redundant_clause
-              (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
-              ~hyps:(Step_vec.to_iter cr.cr_steps)
-              self.proof
-          in
-          let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
-
-          (match self.on_learnt with Some f -> f self uclause | None -> ());
           (* no need to attach [uclause], it is true at level 0 *)
           enqueue_bool self fuip ~level:0 (Bcp uclause)
         )
@@ -1536,7 +1537,7 @@ module Make(Plugin : PLUGIN)
     );
     let cr = analyze self confl in
     cancel_until self (max cr.cr_backtrack_lvl 0);
-    record_learnt_clause ~pool:self.clauses_learnt self confl cr
+    record_learnt_clause ~pool:self.clauses_learnt self cr
 
   (* Add a new clause, simplifying, propagating, and backtracking if
      the clause is false in the current trail *)
