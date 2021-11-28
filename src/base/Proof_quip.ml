@@ -220,7 +220,7 @@ end = struct
           let name = name_clause lid in
 
           let step = lazy (
-            let c = P.nn @@ L_proofs.find c in
+            let c = L_proofs.find c in
             let using = Util.array_to_list_map L_proofs.find using in
             let res = !! res in
             P.S_step_c {name; res; proof=P.Clause_rw {res; c0=c; using}}
@@ -242,7 +242,7 @@ end = struct
           Array.iter add_needed_step exprs;
           let p = lazy (
             let exprs = Util.array_to_list_map L_terms.find exprs in
-            P.nn @@ P.bool_c rule exprs
+            P.bool_c rule exprs
           ) in
           L_proofs.add lid p;
 

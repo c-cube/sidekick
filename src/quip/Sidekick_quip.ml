@@ -60,8 +60,9 @@ module Make_printer(Out : OUT) = struct
 
   let pp_l ppx xs = l (List.map ppx xs)
   let pp_lit ~pp_t lit = match lit with
-    | Lit.L_a(b,t) -> l[a(if b then"+" else"-");pp_t t]
-    | Lit.L_eq(b,t,u) -> l[a(if b then"+" else"-");l[a"=";pp_t t;pp_t u]]
+    | Lit.L_a(true,t) -> pp_t t
+    | Lit.L_a(false,t) -> l[a"not";pp_t t]
+    | Lit.L_eq(t,u) -> l[a"=";pp_t t;pp_t u]
   let pp_cl ~pp_t c =
     l (a "cl" :: List.map (pp_lit ~pp_t) c)
 
@@ -80,7 +81,6 @@ module Make_printer(Out : OUT) = struct
     | Bool_true_neq_false -> a"t-ne-f"
     | Bool_eq (t1,t2) -> l[a"bool-eq";pp_t t1;pp_t t2]
     | Bool_c (name,ts) -> l(a"bool-c" :: a name :: List.map pp_t ts)
-    | Nn p -> l[a"nn";pp_rec p]
     | Assertion t -> l[a"assert";pp_t t]
     | Assertion_c c -> l[a"assert-c";pp_cl c]
     | Hres (c, steps) -> l[a"hres";pp_rec c;l(List.map pp_hres_step steps)]

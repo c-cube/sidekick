@@ -77,27 +77,19 @@ type ty = Ty.t
 
 module Lit = struct
   type t =
-    | L_eq of bool * term * term
+    | L_eq of term * term
     | L_a of bool * term
 
-  let not = function
-    | L_eq (sign,a,b) -> L_eq(not sign,a,b)
-    | L_a (sign,t) -> L_a (not sign,t)
-
   let pp_with ~pp_t out =
-    let strsign = function true -> "+" | false -> "-" in
     function
-    | L_eq (b,t,u) -> Fmt.fprintf out "(@[%s@ (@[=@ %a@ %a@])@])" (strsign b) pp_t t pp_t u
-    | L_a (b,t) -> Fmt.fprintf out "(@[%s@ %a@])" (strsign b) pp_t t
+    | L_eq (t,u) -> Fmt.fprintf out "(@[=@ %a@ %a@])" pp_t t pp_t u
+    | L_a (false,t) -> Fmt.fprintf out "(@[not@ %a@])" pp_t t
+    | L_a (true,t) -> pp_t out t
 
   let pp = pp_with ~pp_t:T.pp
 
-  let a t = L_a (true,t)
-  let na t = L_a (false,t)
-  let eq t u = L_eq (true,t,u)
-  let neq t u = L_eq (false,t,u)
+  let eq t u = L_eq (t,u)
   let mk b t = L_a (b,t)
-  let sign = function L_a (b,_) | L_eq (b,_,_) -> b
 end
 
 type clause = Lit.t list
@@ -129,7 +121,6 @@ type t =
   | Bool_true_neq_false
   | Bool_eq of term * term (* equal by pure boolean reasoning *)
   | Bool_c of bool_c_name * term list (* boolean tautology *)
-  | Nn of t (* negation normalization *)
   | Ite_true of term (* given [if a b c] returns [a=T |- if a b c=b] *)
   | Ite_false of term
   | LRA of clause
@@ -205,7 +196,6 @@ let true_is_true : t = Bool_true_is_true
 let true_neq_false : t = Bool_true_neq_false
 let bool_eq a b : t = Bool_eq (a,b)
 let bool_c name c : t = Bool_c (name, c)
-let nn c : t = Nn c
 
 let hres_l p l : t =
   let l = List.filter (function (P1 (Refl _)) -> false | _ -> true) l in
