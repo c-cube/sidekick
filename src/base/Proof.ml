@@ -217,11 +217,16 @@ let lemma_cc lits (self:t) =
   PS.(Step_view.Step_cc {Step_cc.eqns=lits})
 
 let lemma_rw_clause c ~res ~using (self:t) =
-  emit_ self @@ fun() ->
-  let lits = Iter.map (emit_lit_ self) res |> Iter.to_array in
-  let res = Proof_ser.{Clause.lits} in
-  let using = Iter.to_array using in
-  PS.(Step_view.Step_clause_rw {Step_clause_rw.c; res; using})
+  if enabled self then (
+    let using = Iter.to_array using in
+    if Array.length using=0 then c (* useless step *)
+    else (
+      emit_ self @@ fun() ->
+      let lits = Iter.map (emit_lit_ self) res |> Iter.to_array in
+      let res = Proof_ser.{Clause.lits} in
+      PS.(Step_view.Step_clause_rw {Step_clause_rw.c; res; using})
+    )
+  ) else dummy_step
 
 (* TODO *)
 let with_defs _ _ (_pr:t) = dummy_step
