@@ -27,7 +27,7 @@ Most of these solvers are implemented in C or C++.
 
 CDCL(T) is the combination of [CDCL](https://en.wikipedia.org/wiki/Conflict-driven_clause_learning),
 the leading technique for SAT solving (as popularized by Chaff, minisat, etc.
-in the early oughties), and a **theory** T. In practice, SMT solvers _combine_
+in the early eighties), and a **theory** T. In practice, SMT solvers _combine_
 multiple theories into one before doing the combination with the SAT solver.
 Some examples of theories are uninterpreted functions symbols, integer linear
 arithmetic ("LIA"), rational nonlinear arithmetic ("NRA"), bitvectors for fixed-size
