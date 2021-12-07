@@ -22,6 +22,7 @@ module Int_map = Util.Int_map
 module IArray = IArray
 module Backtrack_stack = Backtrack_stack
 module Backtrackable_tbl = Backtrackable_tbl
+module Backtrackable_ref = Backtrackable_ref
 
 module Log = Log
 module Error = Error
