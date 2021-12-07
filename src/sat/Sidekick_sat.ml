@@ -32,3 +32,6 @@ exception No_proof = Solver_intf.No_proof
 module Solver = Solver
 module Make_cdcl_t = Solver.Make_cdcl_t
 module Make_pure_sat = Solver.Make_pure_sat
+
+(** Module for dummy proofs based on unit *)
+module Proof_dummy = Proof_dummy
