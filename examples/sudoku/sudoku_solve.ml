@@ -282,9 +282,23 @@ let solve_grid (g:Grid.t) : Grid.t option =
   let s = Solver.create g in
   Solver.solve s
 
-let solve_file file =
+module type CHRONO = sig
+  val pp_elapsed : Fmt.formatter -> unit
+end
+
+let chrono ~pp_time : (module CHRONO) =
+  let module M = struct
+    let start = Sys.time()
+    let pp_elapsed out =
+      if pp_time then
+        Fmt.fprintf out " (in %.3fs)" (Sys.time() -. start)
+  end in
+  (module M)
+
+let solve_file ~pp_time file =
+  let open (val chrono ~pp_time) in
   Format.printf "solve grids in file %S@." file;
-  let start = Sys.time() in
+
   let grids =
     CCIO.with_in file CCIO.read_lines_l
     |> CCList.filter_map
@@ -296,13 +310,13 @@ let solve_file file =
            | exception e ->
              errorf "cannot parse sudoku %S: %s@." s (Printexc.to_string e))
   in
-  Format.printf "parsed %d grids (in %.3fs)@." (List.length grids) (Sys.time()-.start);
+  Format.printf "parsed %d grids%t@." (List.length grids) pp_elapsed;
   List.iter
     (fun g ->
        Format.printf "@[<v>@,#########################@,@[<2>solve grid:@ %a@]@]@." Grid.pp g;
-       let start=Sys.time() in
+       let open (val chrono ~pp_time) in
        match solve_grid g with
-       | None -> Format.printf "no solution (in %.3fs)@." (Sys.time()-.start)
+       | None -> Format.printf "no solution%t@." pp_elapsed
        | Some g' when not @@ Grid.is_full g' ->
          errorf "grid %a@ is not full" Grid.pp g'
        | Some g' when not @@ Grid.is_valid g' ->
@@ -310,24 +324,26 @@ let solve_file file =
        | Some g' when not @@ Grid.matches ~pat:g g' ->
          errorf "grid %a@ @[<2>does not match original@ %a@]" Grid.pp g' Grid.pp g
        | Some g' ->
-         Format.printf "@[<v>@[<2>solution (in %.3fs):@ %a@]@,###################@]@."
-           (Sys.time()-.start) Grid.pp g')
+         Format.printf "@[<v>@[<2>solution%t:@ %a@]@,###################@]@."
+           pp_elapsed Grid.pp g')
     grids;
-  Format.printf "@.solved %d grids (in %.3fs)@." (List.length grids) (Sys.time()-.start);
+  Format.printf "@.solved %d grids%t@." (List.length grids) pp_elapsed;
   ()
 
 let () =
   Fmt.set_color_default true;
   let files = ref [] in
   let debug = ref 0 in
+  let pp_time = ref true in
   let opts = [
     "--debug", Arg.Set_int debug, " debug";
     "-d", Arg.Set_int debug, " debug";
+    "--no-time", Arg.Clear pp_time, " do not print solve time";
   ] |> Arg.align in
   Arg.parse opts (fun f -> files := f :: !files) "sudoku_solve [options] <file>";
   Log.set_debug !debug;
   try
-    List.iter (fun f -> solve_file f) !files;
+    List.iter (fun f -> solve_file ~pp_time:!pp_time f) !files;
   with
   | Failure msg | Invalid_argument msg ->
     Format.printf "@{<Red>Error@}:@.%s@." msg;

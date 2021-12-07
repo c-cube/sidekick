@@ -1,0 +1,12 @@
+
+(rule
+  (targets head15_top1465.out)
+  (deps head15_top1465.txt)
+  (action
+    (with-stdout-to
+      %{targets}
+      (run ../sudoku_solve.exe --no-time %{deps}))))
+
+(alias
+  (name runtest)
+  (action (diff head15_top1465.expected head15_top1465.out)))
