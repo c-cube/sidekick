@@ -10,7 +10,7 @@
 - data oriented congruence closure (all based on VecI32.t)
 
 - new proofs:
-  * simplify : use subproof
+  * simplify : use subproof (maybe not even there?)
   * preprocess: no subproof
   * rule for proving `t=u` by CC modulo all previous unit equalities (needed
     for simp/preprocess)
@@ -123,6 +123,8 @@
     than resolution with explicit order+pivots) ⇒ used in SAT solver
   * [x] store proof in temp file, then parse it backward (using adequate framing)
     to obtain relevant part in memory and produce Quip file
+- dyn-trans for CC: add hooks in CC explanation of conflict
+  so the theory can intercept that
 - write theory of datatypes (without acyclicity) with local case splits + injectivity + selectors
 - datatype acyclicity check
 - make CC work on QF_UF
