@@ -1,0 +1,9 @@
+
+(executable
+  (name sudoku_solve)
+  (modes native)
+  (libraries sidekick.core sidekick.util sidekick.sat iter containers)
+  (flags :standard -warn-error -a+8 -color always -safe-string -strict-sequence)
+  (ocamlopt_flags :standard -O3 -bin-annot
+                  -unbox-closures -unbox-closures-factor 20))
+
