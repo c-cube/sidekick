@@ -16,33 +16,33 @@
   (name sidekick-smt-quick)
   (action
     (run_provers
-      (provers sidekick-dev z3)
+      (provers (sidekick-dev z3))
       (timeout 10)
-      (dirs $cur_dir/sat $cur_dir/unsat $cur_dir/pigeon))))
+      (dirs ($cur_dir/sat $cur_dir/unsat $cur_dir/pigeon)))))
 
 (task
   (name sidekick-smt-local)
   (action
     (run_provers
-      (provers sidekick-dev z3)
+      (provers (sidekick-dev z3))
       (timeout 10)
-      (dirs $cur_dir/))))
+      (dirs ($cur_dir/)))))
 
 (task
   (name sidekick-smt-nodir)
   (action
     (run_provers
-      (provers sidekick-dev z3)
+      (provers (sidekick-dev z3))
       (timeout 10)
-      (dirs))))
+      (dirs ()))))
 
 (task
   (name sidekick-smt-all)
   (action
     (run_provers
-      (provers sidekick-dev z3)
+      (provers (sidekick-dev z3))
       (timeout 10)
-      (dirs $HOME/workspace/smtlib))))
+      (dirs ($HOME/workspace/smtlib)))))
 
 (set-options (progress true))
 
