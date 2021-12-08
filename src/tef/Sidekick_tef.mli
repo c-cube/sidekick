@@ -22,3 +22,5 @@ val setup : unit -> unit
 (** Install the TEF logger as a profiling backend. *)
 
 val teardown : unit -> unit
+
+val with_setup: (unit -> 'a) -> 'a

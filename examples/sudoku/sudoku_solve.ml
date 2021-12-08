@@ -5,6 +5,8 @@ module Fmt = CCFormat
 module Vec = Sidekick_util.Vec
 module Log = Sidekick_util.Log
 
+module Profile = Sidekick_util.Profile
+
 let errorf msg = Fmt.kasprintf failwith msg
 
 module Cell : sig
@@ -173,6 +175,7 @@ end = struct
 
     (* check that all cells are full *)
     let check_full_ (self:t) (acts:(Lit.t,proof,proof_step) acts) : unit =
+      Profile.with_ "check-full" @@ fun () ->
       let (module A) = acts in
       Grid.all_cells (grid self)
         (fun (x,y,c) ->
@@ -187,6 +190,7 @@ end = struct
 
     (* check constraints *)
     let check_ (self:t) (acts:(Lit.t,proof,proof_step) acts) : unit =
+      Profile.with_ "check-constraints" @@ fun () ->
       Log.debugf 4 (fun k->k "(@[sudoku.check@ @[:g %a@]@])" Grid.pp (B_ref.get self.grid));
       let (module A) = acts in
       let[@inline] all_diff kind f =
@@ -237,6 +241,7 @@ end = struct
         )
 
     let partial_check (self:t) acts : unit =
+      Profile.with_ "partial-check" @@ fun () ->
       Log.debugf 4
         (fun k->k "(@[sudoku.partial-check@ :trail [@[%a@]]@])"
             (Fmt.list F.pp) (trail_ acts |> Iter.to_list));
@@ -244,6 +249,7 @@ end = struct
       check_ self acts
 
     let final_check (self:t) acts : unit =
+      Profile.with_ "final-check" @@ fun () ->
       Log.debugf 4 (fun k->k "(@[sudoku.final-check@])");
       check_full_ self acts;
       check_ self acts
@@ -258,6 +264,7 @@ end = struct
   }
 
   let solve (self:t) : _ option =
+    Profile.with_ "sudoku.solve" @@ fun () ->
     let assumptions =
       Grid.all_cells self.grid0
       |> Iter.filter (fun (_,_,c) -> Cell.is_full c)
@@ -296,6 +303,7 @@ let chrono ~pp_time : (module CHRONO) =
   (module M)
 
 let solve_file ~pp_time file =
+  Profile.with_ "solve-file" @@ fun () ->
   let open (val chrono ~pp_time) in
   Format.printf "solve grids in file %S@." file;
 
@@ -331,6 +339,8 @@ let solve_file ~pp_time file =
   ()
 
 let () =
+  Sidekick_tef.with_setup @@ fun () ->
+
   Fmt.set_color_default true;
   let files = ref [] in
   let debug = ref 0 in

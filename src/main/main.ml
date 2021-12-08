@@ -211,8 +211,7 @@ let main_cnf () : _ result =
 let main () =
 
   (* instrumentation and tracing *)
-  Sidekick_tef.setup();
-  at_exit Sidekick_tef.teardown;
+  Sidekick_tef.with_setup @@ fun () ->
   Sidekick_memtrace.trace_if_requested ~context:"sidekick" ();
 
   CCFormat.set_color_default true;
