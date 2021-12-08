@@ -35,6 +35,9 @@ snapshots:
 $(TESTTOOL)-quick: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick
+$(TESTTOOL)-quick-proofs: snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick-proofs --proof-dir out-proofs-$(DATE)/
 $(TESTTOOL)-local: snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-local
