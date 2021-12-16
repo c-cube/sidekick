@@ -710,6 +710,17 @@ module Make(A : ARG)
     let pacts = preprocess_acts_of_solver_ self in
     Solver_internal.preprocess_lit_ ~steps self.si pacts lit
 
+  (* preprocess clause, return new proof *)
+  let preprocess_clause_ (self:t)
+      (c:lit IArray.t) (pr:proof_step) : lit IArray.t * proof_step =
+    let steps = ref [] in
+    let c = IArray.map (preprocess_lit_ self ~steps) c in
+    let pr =
+      P.lemma_rw_clause pr
+        ~res:(IArray.to_iter c) ~using:(Iter.of_list !steps) self.proof
+    in
+    c, pr
+
   (* make a literal from a term, ensuring it is properly preprocessed *)
   let mk_lit_t (self:t) ?sign (t:term) : lit =
     let pacts = preprocess_acts_of_solver_ self in
@@ -768,7 +779,8 @@ module Make(A : ARG)
   let pp_stats out (self:t) : unit =
     Stat.pp_all out (Stat.all @@ stats self)
 
-  let add_clause (self:t) (c:lit IArray.t) (proof:proof_step) : unit =
+  (* add [c], without preprocessing its literals *)
+  let add_clause_nopreproc_ (self:t) (c:lit IArray.t) (proof:proof_step) : unit =
     Stat.incr self.count_clause;
     Log.debugf 50 (fun k->
         k "(@[solver.add-clause@ %a@])"
@@ -776,6 +788,12 @@ module Make(A : ARG)
     let pb = Profile.begin_ "add-clause" in
     Sat_solver.add_clause_a self.solver (c:> lit array) proof;
     Profile.exit pb
+
+  let add_clause_nopreproc_l_ self c p = add_clause_nopreproc_ self (IArray.of_list c) p
+
+  let add_clause (self:t) (c:lit IArray.t) (proof:proof_step) : unit =
+    let c, proof = preprocess_clause_ self c proof in
+    add_clause_nopreproc_ self c proof
 
   let add_clause_l self c p = add_clause self (IArray.of_list c) p
 
