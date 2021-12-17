@@ -230,6 +230,11 @@ module type PROOF = sig
       and [p2] proves [C \/ t], is the rule that produces [C \/ u],
       i.e unit paramodulation. *)
 
+  val proof_r1 : proof_step -> proof_step -> proof_rule
+  (** [proof_r1 p1 p2], where [p1] proves the unit clause [|- t] (t:bool)
+      and [p2] proves [C \/ ¬t], is the rule that produces [C \/ u],
+      i.e unit resolution. *)
+
   val with_defs : proof_step -> proof_step Iter.t -> proof_rule
   (** [with_defs pr defs] specifies that [pr] is valid only in
       a context where the definitions [defs] are present. *)

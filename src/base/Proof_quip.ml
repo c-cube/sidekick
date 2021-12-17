@@ -238,6 +238,16 @@ end = struct
           ) in
           L_proofs.add lid p;
 
+        | PS.Step_view.Step_proof_r1 { unit; c } ->
+          add_needed_step c;
+          add_needed_step unit;
+          let p = lazy (
+            let unit = L_proofs.find unit in
+            let c = L_proofs.find c in
+            P.res1 unit c
+          ) in
+          L_proofs.add lid p;
+
         | PS.Step_view.Step_bool_c { rule; exprs } ->
           Array.iter add_needed_step exprs;
           let p = lazy (

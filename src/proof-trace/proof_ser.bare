@@ -52,6 +52,12 @@ type Step_proof_p1 {
   c: ID
 }
 
+# resolve `c` with the unit clause `unit` of the form `|- t`  *)
+type Step_proof_r1 {
+  unit: ID
+  c: ID
+}
+
 type Step_bool_tauto {
   lits: []Lit
 }
@@ -110,6 +116,7 @@ type Step_view
   | Step_bool_tauto
   | Step_bool_c
   | Step_proof_p1
+  | Step_proof_r1
   | Step_true
   | Fun_decl
   | Expr_def

@@ -200,6 +200,10 @@ let proof_p1 rw_with c (self:t) =
   emit_ self @@ fun() ->
   PS.(Step_view.Step_proof_p1 {Step_proof_p1.c; rw_with})
 
+let proof_r1 unit c (self:t) =
+  emit_ self @@ fun() ->
+  PS.(Step_view.Step_proof_r1 {Step_proof_r1.c; unit})
+
 let lemma_preprocess t u ~using (self:t) =
   emit_ self @@ fun () ->
   let t = emit_term_ self t and u = emit_term_ self u in
