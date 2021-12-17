@@ -872,7 +872,15 @@ module Make(A : ARG)
     Stat.incr self.count_solve;
     match r with
     | Sat_solver.Sat (module SAT) ->
-      Log.debug 1 "sidekick.smt-solver: SAT";
+      Log.debug 1 "(sidekick.smt-solver: SAT)";
+
+      Log.debugf 50
+        (fun k->
+           let ppc out n =
+             Fmt.fprintf out "{@[class@ %a@]}" (Util.pp_iter N.pp) (N.iter_class n) in
+           k "(@[sidekick.smt-solver.classes@ (@[%a@])@])"
+            (Util.pp_iter ppc) (CC.all_classes @@ Solver_internal.cc self.si));
+
       let _lits f = SAT.iter_trail f in
       (* TODO: theory combination *)
       let m = mk_model self _lits in
