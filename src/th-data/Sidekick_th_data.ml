@@ -312,7 +312,7 @@ module Make(A : ARG) : S with module A = A = struct
     | _, Ty_data {cstors; _} ->
       begin match Iter.take 2 cstors |> Iter.to_rev_list with
         | [cstor] when not (T.Tbl.mem self.single_cstor_preproc_done t) ->
-          (* single cstor: turn [t] into [cstor (sel-c-0 t, …, sel-c n t)] *)
+          (* single cstor: assert [t = cstor (sel-c-0 t, …, sel-c n t)] *)
           Log.debugf 50
             (fun k->k
                 "(@[%s.preprocess.single-cstor@ %a@ :ty %a@ :cstor %a@])"
@@ -342,10 +342,12 @@ module Make(A : ARG) : S with module A = A = struct
             SI.P.proof_r1 pr_isa pr_eq_sel self.proof
           in
 
-          Log.debugf 20 (fun k->k "(@[%s.preproc-into@ %a@ :into %a@])" name T.pp t T.pp u);
-
           T.Tbl.add self.single_cstor_preproc_done t (); (* avoid loops *)
-          Some (u, Iter.return proof)
+          T.Tbl.add self.case_split_done t (); (* no need to decide *)
+
+          Act.add_clause [Act.mk_lit_nopreproc (A.mk_eq self.tst t u)] proof;
+
+          None
 
         | _ -> None
       end
