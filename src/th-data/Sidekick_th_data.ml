@@ -268,7 +268,7 @@ module Make(A : ARG) : S with module A = A = struct
 
     let merge cc n1 v1 n2 v2 _e : _ result =
       Log.debugf 5
-        (fun k->k "(@[%s.merge@ @[:c1 %a %a@]@ @[:c2 %a %a@]@])"
+        (fun k->k "(@[%s.merge@ @[:c1 %a@ :v %a@]@ @[:c2 %a@ :v %a@]@])"
             name N.pp n1 pp v1 N.pp n2 pp v2);
       let parent_is_a = v1.parent_is_a @ v2.parent_is_a in
       let parent_select = v1.parent_select @ v2.parent_select in
