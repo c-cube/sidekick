@@ -304,6 +304,50 @@ module Make(A : ARG) : S with module A = A = struct
     N_tbl.pop_levels self.to_decide n;
     ()
 
+  let preprocess (self:t) si (acts:SI.preprocess_actions) (t:T.t) : _ option =
+    let ty = T.ty t in
+    match A.view_as_data t, A.as_datatype ty with
+    | T_cstor _, _ -> None
+    | _, Ty_data {cstors; _} ->
+      begin match Iter.take 2 cstors |> Iter.to_rev_list with
+        | [cstor] ->
+          (* single cstor: turn [t] into [cstor (sel-c-0 t, …, sel-c n t)] *)
+          Log.debugf 50
+            (fun k->k
+                "(@[%s.preprocess.single-cstor@ %a@ :ty %a@ :cstor %a@])"
+                name T.pp t Ty.pp ty A.Cstor.pp cstor);
+
+          let (module Act) = acts in
+
+          let u =
+            let args =
+              A.Cstor.ty_args cstor
+              |> Iter.mapi (fun i ty -> A.mk_sel self.tst cstor i t)
+              |> Iter.to_array |> IArray.of_array_unsafe
+            in
+            A.mk_cstor self.tst cstor args
+          in
+
+          (* proof: resolve [is-c(t) |- t = c(sel-c-0(t), …, sel-c-n(t))]
+             with exhaustiveness: [|- is-c(t)] *)
+          let proof =
+            let pr_isa =
+              A.P.lemma_isa_split t
+                (Iter.return @@ Act.mk_lit_nopreproc (A.mk_is_a self.tst cstor t))
+                self.proof
+            and pr_eq_sel =
+              A.P.lemma_select_cstor ~cstor_t:u t self.proof
+            in
+            SI.P.proof_r1 pr_isa pr_eq_sel self.proof
+          in
+
+          Log.debugf 20 (fun k->k "(@[%s.preproc-into@ %a@ :into %a@])" name T.pp t T.pp u);
+          Some (u, Iter.return proof)
+
+        | _ -> None
+      end
+    | _ -> None
+
   (* remember terms of a datatype *)
   let on_new_term_look_at_ty (self:t) n (t:T.t) : unit =
     let ty = T.ty t in
@@ -649,6 +693,7 @@ module Make(A : ARG) : S with module A = A = struct
       stat_acycl_conflict=Stat.mk_int (SI.stats solver) "data.acycl.conflict";
     } in
     Log.debugf 1 (fun k->k "(setup :%s)" name);
+    SI.on_preprocess solver (preprocess self);
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_final_check solver (on_final_check self);
