@@ -288,6 +288,7 @@ module Make(A : ARG) : S with module A = A = struct
     to_decide: unit N_tbl.t; (* set of terms to decide. *)
     to_decide_for_complete_model: unit N_tbl.t; (* infinite types but we need a cstor in model*)
     case_split_done: unit T.Tbl.t; (* set of terms for which case split is done *)
+    single_cstor_preproc_done: unit T.Tbl.t; (* preprocessed terms *)
     stat_acycl_conflict: int Stat.counter;
     (* TODO: bitfield for types with less than 62 cstors, to quickly detect conflict? *)
   }
@@ -310,7 +311,7 @@ module Make(A : ARG) : S with module A = A = struct
     | T_cstor _, _ -> None
     | _, Ty_data {cstors; _} ->
       begin match Iter.take 2 cstors |> Iter.to_rev_list with
-        | [cstor] ->
+        | [cstor] when not (T.Tbl.mem self.single_cstor_preproc_done t) ->
           (* single cstor: turn [t] into [cstor (sel-c-0 t, …, sel-c n t)] *)
           Log.debugf 50
             (fun k->k
@@ -342,6 +343,8 @@ module Make(A : ARG) : S with module A = A = struct
           in
 
           Log.debugf 20 (fun k->k "(@[%s.preproc-into@ %a@ :into %a@])" name T.pp t T.pp u);
+
+          T.Tbl.add self.single_cstor_preproc_done t (); (* avoid loops *)
           Some (u, Iter.return proof)
 
         | _ -> None
@@ -688,6 +691,7 @@ module Make(A : ARG) : S with module A = A = struct
       parents=ST_parents.create_and_setup ~size:32 solver;
       to_decide=N_tbl.create ~size:16 ();
       to_decide_for_complete_model=N_tbl.create ~size:16 ();
+      single_cstor_preproc_done=T.Tbl.create 8;
       case_split_done=T.Tbl.create 16;
       cards=Card.create();
       stat_acycl_conflict=Stat.mk_int (SI.stats solver) "data.acycl.conflict";
