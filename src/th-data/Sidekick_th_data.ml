@@ -321,12 +321,12 @@ module Make(A : ARG) : S with module A = A = struct
           let (module Act) = acts in
 
           let u =
-            let args =
+            let sel_args =
               A.Cstor.ty_args cstor
               |> Iter.mapi (fun i ty -> A.mk_sel self.tst cstor i t)
               |> Iter.to_array |> IArray.of_array_unsafe
             in
-            A.mk_cstor self.tst cstor args
+            A.mk_cstor self.tst cstor sel_args
           in
 
           (* proof: resolve [is-c(t) |- t = c(sel-c-0(t), …, sel-c-n(t))]
@@ -346,7 +346,6 @@ module Make(A : ARG) : S with module A = A = struct
           T.Tbl.add self.case_split_done t (); (* no need to decide *)
 
           Act.add_clause [Act.mk_lit_nopreproc (A.mk_eq self.tst t u)] proof;
-
           None
 
         | _ -> None
