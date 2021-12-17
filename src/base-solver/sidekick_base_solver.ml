@@ -60,14 +60,7 @@ module Th_data = Sidekick_th_data.Make(struct
     let ty_is_finite = Ty.finite
     let ty_set_is_finite = Ty.set_finite
 
-    let lemma_isa_cstor = Proof.lemma_isa_cstor
-    let lemma_select_cstor = Proof.lemma_select_cstor
-    let lemma_isa_split = Proof.lemma_isa_split
-    let lemma_isa_sel = Proof.lemma_isa_sel
-    let lemma_isa_disj = Proof.lemma_isa_disj
-    let lemma_cstor_inj = Proof.lemma_cstor_inj
-    let lemma_cstor_distinct = Proof.lemma_cstor_distinct
-    let lemma_acyclicity = Proof.lemma_acyclicity
+    module P = Proof
   end)
 
 (** Reducing boolean formulas to clauses *)

@@ -57,19 +57,6 @@ end = struct
   let create() : t = { cards=Ty_tbl.create 16}
 
   let find (self:t) (ty0:Ty.t) : ty_cell =
-    (* TODO: remove
-    (* does [ty] contain a direct reference to [ty0] *)
-    let rec contains_self ty : bool =
-      Ty.equal ty0 ty ||
-      match A.as_datatype ty with
-      | Ty_other -> false
-      | Ty_app {args} -> Iter.exists contains_self args
-      | Ty_arrow (args, ret) -> Iter.exists contains_self args || contains_self ret
-      | Ty_data {cstors} ->
-        Iter.flat_map A.Cstor.ty_args cstors |> Iter.exists contains_self
-    in
-       *)
-
     let dr_tbl = Ty_tbl.create 16 in
 
     (* to build [ty], do we need to build [ty0]? *)
@@ -206,7 +193,7 @@ module Make(A : ARG) : S with module A = A = struct
 
         let expl_merge i =
           mk_expl @@
-          A.lemma_cstor_inj (N.term c1.c_n) (N.term c2.c_n) i (SI.CC.proof cc)
+          A.P.lemma_cstor_inj (N.term c1.c_n) (N.term c2.c_n) i (SI.CC.proof cc)
         in
 
         assert (IArray.length c1.c_args = IArray.length c2.c_args);
@@ -219,7 +206,7 @@ module Make(A : ARG) : S with module A = A = struct
 
         let expl =
           mk_expl @@
-          A.lemma_cstor_distinct (N.term c1.c_n) (N.term c2.c_n) (SI.CC.proof cc)
+          A.P.lemma_cstor_distinct (N.term c1.c_n) (N.term c2.c_n) (SI.CC.proof cc)
         in
 
         Error expl
@@ -351,7 +338,7 @@ module Make(A : ARG) : S with module A = A = struct
           Log.debugf 5
             (fun k->k "(@[%s.on-new-term.is-a.reduce@ :t %a@ :to %B@ :n %a@ :sub-cstor %a@])"
                 name T.pp t is_true N.pp n Monoid_cstor.pp cstor);
-          let pr = A.lemma_isa_cstor ~cstor_t:(N.term cstor.c_n) t (SI.CC.proof cc) in
+          let pr = A.P.lemma_isa_cstor ~cstor_t:(N.term cstor.c_n) t (SI.CC.proof cc) in
           SI.CC.merge cc n (SI.CC.n_bool cc is_true)
             Expl.(mk_theory pr [mk_merge n_u cstor.c_n])
       end
@@ -365,7 +352,7 @@ module Make(A : ARG) : S with module A = A = struct
                 name N.pp n i A.Cstor.pp c_t);
           assert (i < IArray.length cstor.c_args);
           let u_i = IArray.get cstor.c_args i in
-          let pr = A.lemma_select_cstor ~cstor_t:(N.term cstor.c_n) t (SI.CC.proof cc) in
+          let pr = A.P.lemma_select_cstor ~cstor_t:(N.term cstor.c_n) t (SI.CC.proof cc) in
           SI.CC.merge cc n u_i
             Expl.(mk_theory pr [mk_merge n_u cstor.c_n])
         | Some _ -> ()
@@ -386,7 +373,7 @@ module Make(A : ARG) : S with module A = A = struct
         (fun k->k "(@[%s.on-merge.is-a.reduce@ %a@ :to %B@ :n1 %a@ :n2 %a@ :sub-cstor %a@])"
             name Monoid_parents.pp_is_a is_a2 is_true N.pp n1 N.pp n2 Monoid_cstor.pp c1);
       let pr =
-        A.lemma_isa_cstor ~cstor_t:(N.term c1.c_n) (N.term is_a2.is_a_n) self.proof in
+        A.P.lemma_isa_cstor ~cstor_t:(N.term c1.c_n) (N.term is_a2.is_a_n) self.proof in
       SI.CC.merge cc is_a2.is_a_n (SI.CC.n_bool cc is_true)
         Expl.(mk_theory pr
                 [mk_merge n1 c1.c_n; mk_merge n1 n2;
@@ -399,7 +386,7 @@ module Make(A : ARG) : S with module A = A = struct
               name N.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
         assert (sel2.sel_idx < IArray.length c1.c_args);
         let pr =
-          A.lemma_select_cstor ~cstor_t:(N.term c1.c_n) (N.term sel2.sel_n) self.proof in
+          A.P.lemma_select_cstor ~cstor_t:(N.term c1.c_n) (N.term sel2.sel_n) self.proof in
         let u_i = IArray.get c1.c_args sel2.sel_idx in
         SI.CC.merge cc sel2.sel_n u_i
           Expl.(mk_theory pr
@@ -489,7 +476,7 @@ module Make(A : ARG) : S with module A = A = struct
           (* conflict: the [path] forms a cycle *)
           let path = (n, node) :: path in
           let pr =
-            A.lemma_acyclicity
+            A.P.lemma_acyclicity
               (Iter.of_list path |> Iter.map (fun (a,b) -> N.term a, N.term b.repr))
               self.proof
           in
@@ -534,7 +521,7 @@ module Make(A : ARG) : S with module A = A = struct
         Log.debugf 50
           (fun k->k"(@[%s.assign-is-a@ :lhs %a@ :rhs %a@ :lit %a@])"
               name T.pp u  T.pp rhs SI.Lit.pp lit);
-        let pr = A.lemma_isa_sel t self.proof in
+        let pr = A.P.lemma_isa_sel t self.proof in
         SI.cc_merge_t solver acts u rhs (Expl.mk_theory pr [Expl.mk_lit lit])
       | _ -> ()
     in
@@ -557,11 +544,11 @@ module Make(A : ARG) : S with module A = A = struct
         |> Iter.to_rev_list
       in
       SI.add_clause_permanent solver acts c
-        (A.lemma_isa_split t (Iter.of_list c) self.proof);
+        (A.P.lemma_isa_split t (Iter.of_list c) self.proof);
       Iter.diagonal_l c
         (fun (l1,l2) ->
            let pr =
-             A.lemma_isa_disj (SI.Lit.neg l1) (SI.Lit.neg l2) self.proof in
+             A.P.lemma_isa_disj (SI.Lit.neg l1) (SI.Lit.neg l2) self.proof in
            SI.add_clause_permanent solver acts
              [SI.Lit.neg l1; SI.Lit.neg l2] pr);
     )

@@ -105,7 +105,7 @@ module type ARG = sig
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
   (** Modify the "finite" field (see {!ty_is_finite}) *)
 
-  include PROOF
+  module P : PROOF
     with type proof := S.P.t
      and type proof_step := S.P.proof_step
      and type term := S.T.Term.t
