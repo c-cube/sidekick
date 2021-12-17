@@ -935,7 +935,34 @@ module Make (A: CC_ARG)
 
   let new_merges cc = cc.new_merges
 
+  let check_inv_enabled_ = true (* XXX NUDGE *)
+
+  (* check some internal invariants *)
+  let check_inv_ (self:t) : unit =
+    if check_inv_enabled_ then (
+      Log.debug 2 "(cc.check-invariants)";
+      all_classes self
+      |> Iter.flat_map N.iter_class
+      |> Iter.iter
+        (fun n ->
+           match n.n_sig0 with
+           | None -> ()
+           | Some s ->
+             let s' = update_sig s in
+             let ok = match find_signature self s' with
+               | None -> false
+               | Some r -> N.equal r n.n_root
+             in
+             if not ok then (
+               Log.debugf 0
+                 (fun k->k "(@[cc.check.fail@ :n %a@ :sig %a@ :actual-sig %a@])"
+                     N.pp n Signature.pp s Signature.pp s')
+             )
+        )
+    )
+
   (* model: return all the classes *)
   let get_model (cc:t) : repr Iter.t Iter.t =
+    check_inv_ cc;
     all_classes cc |> Iter.map N.iter_class
 end
