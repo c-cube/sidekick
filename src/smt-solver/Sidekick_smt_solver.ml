@@ -877,7 +877,7 @@ module Make(A : ARG)
       Log.debugf 50
         (fun k->
            let ppc out n =
-             Fmt.fprintf out "{@[class@ %a@]}" (Util.pp_iter N.pp) (N.iter_class n) in
+             Fmt.fprintf out "{@[<hv>class@ %a@]}" (Util.pp_iter N.pp) (N.iter_class n) in
            k "(@[sidekick.smt-solver.classes@ (@[%a@])@])"
             (Util.pp_iter ppc) (CC.all_classes @@ Solver_internal.cc self.si));
 
