@@ -2125,7 +2125,7 @@ module Make(Plugin : PLUGIN)
 
   (* fixpoint of propagation and decisions until a model is found, or a
      conflict is reached *)
-  let solve_ (self:t) : unit =
+  let solve_ ~on_progress (self:t) : unit =
     Log.debugf 5 (fun k->k "(@[sat.solve :assms %d@])" (AVec.size self.assumptions));
     check_unsat_ self;
     try
@@ -2133,6 +2133,7 @@ module Make(Plugin : PLUGIN)
       let max_conflicts = ref (float_of_int restart_first) in
       let max_learnt = ref ((float_of_int (nb_clauses self)) *. learntsize_factor) in
       while true do
+        on_progress();
         begin try
             self.max_clauses_learnt := int_of_float !max_learnt ;
             search self ~max_conflicts:(int_of_float !max_conflicts)
@@ -2341,7 +2342,9 @@ module Make(Plugin : PLUGIN)
     Vec.push self.clause_pools p;
     Clause_pool_id._unsafe_of_int id
 
-  let solve ?(assumptions=[]) (self:t) : res =
+  let solve
+      ?(on_progress=fun _ -> ())
+      ?(assumptions=[]) (self:t) : res =
     cancel_until self 0;
     AVec.clear self.assumptions;
     List.iter
@@ -2350,7 +2353,7 @@ module Make(Plugin : PLUGIN)
          AVec.push self.assumptions a)
       assumptions;
     try
-      solve_ self;
+      solve_ ~on_progress self;
       Sat (mk_sat self)
     with E_unsat us ->
       (* FIXME

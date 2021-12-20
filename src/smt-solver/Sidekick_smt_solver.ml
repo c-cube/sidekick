@@ -733,11 +733,13 @@ module Make(A : ARG)
       | U_timeout
       | U_max_depth
       | U_incomplete
+      | U_asked_to_stop
 
     let pp out = function
       | U_timeout -> Fmt.string out "timeout"
       | U_max_depth -> Fmt.string out "max depth reached"
       | U_incomplete -> Fmt.string out "incomplete fragment"
+      | U_asked_to_stop -> Fmt.string out "asked to stop by callback"
   end [@@ocaml.warning "-37"]
 
   module Model = struct
@@ -860,17 +862,31 @@ module Make(A : ARG)
               )));
     Model.Map model
 
-  let solve ?(on_exit=[]) ?(check=true) ?(on_progress=fun _ -> ())
+  exception Should_stop
+
+  let solve
+      ?(on_exit=[]) ?(check=true)
+      ?(on_progress=fun _ -> ())
+      ?(should_stop=fun _ _ -> false)
       ~assumptions (self:t) : res =
     Profile.with_ "smt-solver.solve" @@ fun () ->
     let do_on_exit () =
       List.iter (fun f->f()) on_exit;
     in
-    self.si.on_progress <- (fun () -> on_progress self);
 
-    let r = Sat_solver.solve ~assumptions (solver self) in
-    Stat.incr self.count_solve;
-    match r with
+    let on_progress =
+      let resource_counter = ref 0 in
+      fun() ->
+        incr resource_counter;
+        on_progress self;
+        if should_stop self !resource_counter then raise_notrace Should_stop
+    in
+    self.si.on_progress <- on_progress;
+
+    match
+      Stat.incr self.count_solve;
+      Sat_solver.solve ~on_progress ~assumptions (solver self)
+    with
     | Sat_solver.Sat (module SAT) ->
       Log.debug 1 "(sidekick.smt-solver: SAT)";
 
@@ -895,6 +911,7 @@ module Make(A : ARG)
       let unsat_proof_step () = Some (UNSAT.unsat_proof()) in
       do_on_exit ();
       Unsat {unsat_core; unsat_proof_step}
+    | exception Should_stop -> Unknown Unknown.U_asked_to_stop
 
   let mk_theory (type st)
       ~name ~create_and_setup

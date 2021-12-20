@@ -961,7 +961,7 @@ module type SOLVER_INTERNAL = sig
   (** Add a hook that will be called when a model is being produced *)
 end
 
-(** User facing view of the solver
+(** User facing view of the solver.
 
     This is the solver a user of sidekick can see, after instantiating
     everything. The user can add some theories, clauses, etc. and asks
@@ -1164,6 +1164,7 @@ module type SOLVER = sig
     ?on_exit:(unit -> unit) list ->
     ?check:bool ->
     ?on_progress:(t -> unit) ->
+    ?should_stop:(t -> int -> bool) ->
     assumptions:lit list ->
     t ->
     res
@@ -1172,6 +1173,11 @@ module type SOLVER = sig
       @param on_progress called regularly during solving.
       @param assumptions a set of atoms held to be true. The unsat core,
         if any, will be a subset of [assumptions].
+      @param should_stop a callback regularly called with the solver,
+        and with a number of "steps" done since last call. The exact notion
+        of step is not defined, but is guaranteed to increase regularly.
+        The function should return [true] if it judges solving
+        must stop (returning [Unknown]), [false] if solving can proceed.
       @param on_exit functions to be run before this returns *)
 
   (* TODO: allow on_progress to return a bool to know whether to stop? *)

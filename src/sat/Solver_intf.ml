@@ -378,12 +378,15 @@ module type S = sig
   (* TODO: API to push/pop/clear assumptions from an inner vector *)
 
   val solve :
+    ?on_progress:(unit -> unit) ->
     ?assumptions:lit list ->
     t -> res
   (** Try and solves the current set of clauses.
       @param assumptions additional atomic assumptions to be temporarily added.
         The assumptions are just used for this call to [solve], they are
-        not saved in the solver's state. *)
+        not saved in the solver's state.
+      @param on_progress regularly called during solving
+  *)
 
   val add_lit : t -> ?default_pol:bool -> lit -> unit
   (** Ensure the SAT solver handles this particular literal, ie add
