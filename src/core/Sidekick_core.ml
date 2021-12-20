@@ -1180,6 +1180,44 @@ module type SOLVER = sig
         must stop (returning [Unknown]), [false] if solving can proceed.
       @param on_exit functions to be run before this returns *)
 
+  val push_assumption : t -> lit -> unit
+  (** Pushes an assumption onto the assumption stack. It will remain
+      there until it's pop'd by {!pop_assumptions}. *)
+
+  val pop_assumptions : t -> int -> unit
+  (** [pop_assumptions solver n] removes [n] assumptions from the stack.
+      It removes the assumptions that were the most
+      recently added via {!push_assumptions}.
+      Note that {!check_sat_propagations_only} can call this if it meets
+      a conflict. *)
+
+  type propagation_result =
+    | PR_sat
+    | PR_conflict of {
+        backtracked: int;
+      }
+    | PR_unsat of {
+        unsat_core: unit -> lit Iter.t;
+      }
+
+  val check_sat_propagations_only :
+    assumptions:lit list ->
+    t ->
+    propagation_result
+  (** [check_sat_propagations_only solver] uses assumptions (including
+      the [assumptions] parameter, and atoms previously added via {!push_assumptions})
+      and boolean+theory propagation to quickly assess satisfiability.
+      It is not complete; calling {!solve} is required to get an accurate
+      result.
+      @returns one of:
+
+      - [PR_sat] if the current state seems satisfiable
+      - [PR_conflict {backtracked=n}] if a conflict was found and resolved,
+      leading to backtracking [n] levels of assumptions
+      - [PR_unsat …] if the assumptions were found to be unsatisfiable, with
+        the given core.
+  *)
+
   (* TODO: allow on_progress to return a bool to know whether to stop? *)
 
   val pp_stats : t CCFormat.printer

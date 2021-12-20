@@ -288,6 +288,8 @@ module type S = sig
      and type t = proof
   (** A module to manipulate proofs. *)
 
+  (** {2 Main Solver Type} *)
+
   type t = solver
   (** Main solver type, containing all state for solving. *)
 
@@ -375,7 +377,7 @@ module type S = sig
   val add_clause_a_in_pool : t -> pool:clause_pool_id -> lit array -> proof_step -> unit
   (** Like {!add_clause_a} but using a specific clause pool *)
 
-  (* TODO: API to push/pop/clear assumptions from an inner vector *)
+(** {2 Solving} *)
 
   val solve :
     ?on_progress:(unit -> unit) ->
@@ -387,6 +389,8 @@ module type S = sig
         not saved in the solver's state.
       @param on_progress regularly called during solving
   *)
+
+  (** {2 Evaluating and adding literals} *)
 
   val add_lit : t -> ?default_pol:bool -> lit -> unit
   (** Ensure the SAT solver handles this particular literal, ie add
@@ -402,5 +406,31 @@ module type S = sig
 
   val eval_lit : t -> lit -> lbool
   (** Evaluate atom in current state *)
+
+  (** {2 Assumption stack} *)
+
+  val push_assumption : t -> lit -> unit
+  (** Pushes an assumption onto the assumption stack. It will remain
+      there until it's pop'd by {!pop_assumptions}. *)
+
+  val pop_assumptions : t -> int -> unit
+  (** [pop_assumptions solver n] removes [n] assumptions from the stack.
+      It removes the assumptions that were the most
+      recently added via {!push_assumptions}. *)
+
+  (** Result returned by {!check_sat_propagations_only} *)
+  type propagation_result =
+    | PR_sat
+    | PR_conflict of { backtracked: int }
+    | PR_unsat of (lit,clause,proof_step) unsat_state
+
+  val check_sat_propagations_only : ?assumptions:lit list -> t -> propagation_result
+  (** [check_sat_propagations_only solver] uses the added clauses
+      and local assumptions (using {!push_assumptions} and [assumptions])
+      to quickly assess whether the context is satisfiable.
+      It is not complete; calling {!solve} is required to get an accurate
+      result.
+      @returns either [Ok()] if propagation yielded no conflict, or [Error c]
+        if a conflict clause [c] was found. *)
 end
 

@@ -898,7 +898,6 @@ module Make(A : ARG)
             (Util.pp_iter ppc) (CC.all_classes @@ Solver_internal.cc self.si));
 
       let _lits f = SAT.iter_trail f in
-      (* TODO: theory combination *)
       let m = mk_model self _lits in
       (* TODO: check model *)
       let _ = check in
@@ -912,6 +911,30 @@ module Make(A : ARG)
       do_on_exit ();
       Unsat {unsat_core; unsat_proof_step}
     | exception Should_stop -> Unknown Unknown.U_asked_to_stop
+
+  let push_assumption self a = Sat_solver.push_assumption self.solver a
+  let pop_assumptions self n = Sat_solver.pop_assumptions self.solver n
+
+  type propagation_result =
+    | PR_sat
+    | PR_conflict of {
+        backtracked: int;
+      }
+    | PR_unsat of {
+        unsat_core: unit -> lit Iter.t;
+      }
+
+  let check_sat_propagations_only ~assumptions self : propagation_result =
+    match
+      Sat_solver.check_sat_propagations_only ~assumptions self.solver
+    with
+    | Sat_solver.PR_sat -> PR_sat
+    | Sat_solver.PR_conflict {backtracked} ->
+      PR_conflict {backtracked}
+
+    | Sat_solver.PR_unsat (module UNSAT) ->
+      let unsat_core () = UNSAT.unsat_assumptions () in
+      PR_unsat {unsat_core}
 
   let mk_theory (type st)
       ~name ~create_and_setup

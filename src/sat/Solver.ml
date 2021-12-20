@@ -2020,46 +2020,57 @@ module Make(Plugin : PLUGIN)
     Log.debugf 3 (fun k->k "(@[sat.gc.done :collected %d@])" n_collected);
     ()
 
-  (* Decide on a new literal, and enqueue it into the trail *)
-  let rec pick_branch_aux self atom : unit =
-    let v = Atom.var atom in
-    if Var.level self.store v >= 0 then (
-      assert (Atom.is_true self.store (Atom.pa v) ||
-              Atom.is_true self.store (Atom.na v));
-      pick_branch_lit self
-    ) else (
-      new_decision_level self;
-      let current_level = decision_level self in
-      enqueue_bool self atom ~level:current_level Decision;
-      Stat.incr self.n_decisions;
-      (match self.on_decision with Some f -> f self (Atom.lit self.store atom) | None -> ());
-    )
+  (* Decide on a new literal, and enqueue it into the trail.
+     Return [true] if a decision was made.
+     @param full if true, do decisions;
+     if false, only pick from [self.next_decisions]
+     and [self.assumptions] *)
+  let pick_branch_lit ~full self : bool =
+    let rec pick_lit () =
+      match self.next_decisions with
+      | atom :: tl ->
+        self.next_decisions <- tl;
+        pick_with_given_atom atom
+      | [] when decision_level self < AVec.size self.assumptions ->
+        (* use an assumption *)
+        let a = AVec.get self.assumptions (decision_level self) in
+        if Atom.is_true self.store a then (
+          new_decision_level self; (* pseudo decision level, [a] is already true *)
+          pick_lit ()
+        ) else if Atom.is_false self.store a then (
+          (* root conflict, find unsat core *)
+          let core = analyze_final self a in
+          raise (E_unsat (US_local {first=a; core}))
+        ) else (
+          pick_with_given_atom a
+        )
+      | [] when not full -> false
+      | [] ->
+        begin match H.remove_min self.order with
+          | v ->
+            pick_with_given_atom
+              (if Var.default_pol self.store v then Atom.pa v else Atom.na v)
+          | exception Not_found ->
+            false
+        end
 
-  and pick_branch_lit self : unit =
-    match self.next_decisions with
-    | atom :: tl ->
-      self.next_decisions <- tl;
-      pick_branch_aux self atom
-    | [] when decision_level self < AVec.size self.assumptions ->
-      (* use an assumption *)
-      let a = AVec.get self.assumptions (decision_level self) in
-      if Atom.is_true self.store a then (
-        new_decision_level self; (* pseudo decision level, [a] is already true *)
-        pick_branch_lit self
-      ) else if Atom.is_false self.store a then (
-        (* root conflict, find unsat core *)
-        let core = analyze_final self a in
-        raise (E_unsat (US_local {first=a; core}))
+    (* pick a decision, trying [atom] first if it's not assigned yet. *)
+    and pick_with_given_atom (atom:atom) : bool =
+      let v = Atom.var atom in
+      if Var.level self.store v >= 0 then (
+        assert (Atom.is_true self.store (Atom.pa v) ||
+                Atom.is_true self.store (Atom.na v));
+        pick_lit ()
       ) else (
-        pick_branch_aux self a
+        new_decision_level self;
+        let current_level = decision_level self in
+        enqueue_bool self atom ~level:current_level Decision;
+        Stat.incr self.n_decisions;
+        (match self.on_decision with Some f -> f self (Atom.lit self.store atom) | None -> ());
+        true
       )
-    | [] ->
-      begin match H.remove_min self.order with
-        | v ->
-          pick_branch_aux self
-            (if Var.default_pol self.store v then Atom.pa v else Atom.na v)
-        | exception Not_found -> raise_notrace E_sat
-      end
+    in
+    pick_lit()
 
   (* do some amount of search, until the number of conflicts or clause learnt
      reaches the given parameters *)
@@ -2105,7 +2116,8 @@ module Make(Plugin : PLUGIN)
           reduce_clause_db st;
         );
 
-        pick_branch_lit st
+        let decided = pick_branch_lit ~full:true st in
+        if not decided then raise_notrace E_sat
     done
 
   let eval_level (self:t) (a:atom) =
@@ -2298,6 +2310,49 @@ module Make(Plugin : PLUGIN)
     end in
     (module M)
 
+  type propagation_result =
+    | PR_sat
+    | PR_conflict of { backtracked: int }
+    | PR_unsat of (lit,clause,proof_step) Solver_intf.unsat_state
+
+  (* decide on assumptions, and do propagations, but no other kind of decision *)
+  let propagate_under_assumptions (self:t) : propagation_result =
+    let result = ref PR_sat in
+    try
+      while true do
+        match propagate self with
+        | Some confl ->
+          (* When the theory has raised Unsat, add_boolean_conflict
+             might 'forget' the initial conflict clause, and only add the
+             analyzed backtrack clause. So in those case, we use add_clause
+             to make sure the initial conflict clause is also added. *)
+          if Clause.attached self.store confl then (
+            add_boolean_conflict self confl
+          ) else (
+            add_clause_ ~pool:self.clauses_learnt self confl
+          );
+          Stat.incr self.n_conflicts;
+
+          (* see by how much we backtracked the decision trail *)
+          let new_lvl = decision_level self in
+          assert (new_lvl < AVec.size self.assumptions);
+          let backtracked = AVec.size self.assumptions - new_lvl in
+          result := PR_conflict {backtracked};
+          AVec.shrink self.assumptions new_lvl;
+          raise_notrace Exit
+
+        | None -> (* No Conflict *)
+
+          let decided = pick_branch_lit self ~full:false in
+          if not decided then (
+            result := PR_sat;
+            raise Exit
+          )
+      done;
+      assert false
+    with Exit ->
+      !result
+
   let add_clause_atoms_ self ~pool ~removable (c:atom array) (pr:proof_step) : unit =
     try
       let c = Clause.make_a self.store ~removable c pr in
@@ -2342,25 +2397,54 @@ module Make(Plugin : PLUGIN)
     Vec.push self.clause_pools p;
     Clause_pool_id._unsafe_of_int id
 
-  let solve
-      ?(on_progress=fun _ -> ())
-      ?(assumptions=[]) (self:t) : res =
-    cancel_until self 0;
-    AVec.clear self.assumptions;
+  (* run [f()] with additional assumptions *)
+  let with_local_assumptions_ (self:t) (assumptions:lit list) f =
+    let old_assm_lvl = AVec.size self.assumptions in
     List.iter
       (fun lit ->
          let a = make_atom_ self lit in
          AVec.push self.assumptions a)
       assumptions;
     try
+      let x = f() in
+      AVec.shrink self.assumptions old_assm_lvl;
+      x
+    with e ->
+      AVec.shrink self.assumptions old_assm_lvl;
+      raise e
+
+  let solve
+      ?(on_progress=fun _ -> ())
+      ?(assumptions=[]) (self:t) : res =
+    cancel_until self 0; (* make sure we are at level 0 *)
+    with_local_assumptions_ self assumptions @@ fun () ->
+    try
       solve_ ~on_progress self;
       Sat (mk_sat self)
-    with E_unsat us ->
-      (* FIXME
-      (* emit empty clause *)
-      Proof.with_proof self.proof (Proof.emit_redundant_clause Iter.empty);
-         *)
+    with
+    | E_unsat us ->
       Unsat (mk_unsat self us)
+
+  let push_assumption (self:t) (lit:lit) : unit =
+    let a = make_atom_ self lit in
+    AVec.push self.assumptions a
+
+  let pop_assumptions self n : unit =
+    let n_ass = AVec.size self.assumptions in
+    assert (n <= n_ass);
+    AVec.shrink self.assumptions (n_ass - n)
+
+  let check_sat_propagations_only ?(assumptions=[]) (self:t) : propagation_result =
+    cancel_until self 0;
+    with_local_assumptions_ self assumptions @@ fun () ->
+    try
+      check_unsat_ self;
+      flush_clauses self; (* add initial clauses *)
+      propagate_under_assumptions self
+    with
+    | E_unsat us ->
+      let us = mk_unsat self us in
+      PR_unsat us
 
   let true_at_level0 (self:t) (lit:lit) : bool =
     match find_atom_ self lit with
