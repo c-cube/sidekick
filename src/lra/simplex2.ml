@@ -217,8 +217,8 @@ module Make(Q : RATIONAL)(Var: VAR)
     let[@inline] (>=) a b = compare a b >= 0
     let[@inline] (=) a b = compare a b = 0
 
-    let plus_inf = make Q.inf Q.zero
-    let minus_inf = make Q.minus_inf Q.zero
+    let plus_inf = make Q.infinity Q.zero
+    let minus_inf = make Q.minus_infinity Q.zero
     let[@inline] min x y = if x <= y then x else y
     let[@inline] max x y = if x >= y then x else y
 

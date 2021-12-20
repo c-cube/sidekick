@@ -15,6 +15,10 @@ module Rational
   let pp = pp_print
   let hash a = Hashtbl.hash (Z.hash (num a), Z.hash (den a))
 
+  let infinity = Q.inf
+  let minus_infinity = Q.minus_inf
+  let is_real = Q.is_real
+
   let pp_approx n out q = Format.fprintf out "%*.1f" n (Q.to_float q)
 end
 

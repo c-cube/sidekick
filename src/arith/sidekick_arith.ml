@@ -45,6 +45,14 @@ module type RATIONAL = sig
   val num : t -> bigint
   val denum : t -> bigint
 
+  val infinity : t
+  (** +infinity *)
+
+  val minus_infinity : t
+
+  val is_real : t -> bool
+  (** A proper real, not nan/infinity *)
+
   val pp_approx : int -> Format.formatter -> t -> unit
   (** Pretty print rational with given amount of precision
       (for example as a floating point number) *)
