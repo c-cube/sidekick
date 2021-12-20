@@ -1031,14 +1031,11 @@ module Make(Q : RATIONAL)(Var: VAR)
     let cert = Unsat_cert.unsat_basic x_i (op, bnd) le bounds in
     cert
 
-  let out_ = open_out "pivots"
-
   (* main satisfiability check.
      page 15, figure 3.2 *)
   let check_exn ~on_propagate:_ (self:t) : unit =
     let exception Stop in
     Log.debugf 20 (fun k->k "(@[simplex2.check@ %a@])" pp_stats self);
-      Printf.fprintf out_ "check\n";
     Stat.incr self.stat_check;
 
     let m = self.matrix in
@@ -1076,7 +1073,6 @@ module Make(Q : RATIONAL)(Var: VAR)
           Log.debugf 50
             (fun k->k "(@[simplex2.pivot@ :basic %a@ :n-basic %a@])"
                 Var_state.pp x_i Var_state.pp x_j);
-          Printf.fprintf out_ "pivot x%d -> x%d\n%!" x_i.idx x_j.idx;
           pivot_and_update self x_i x_j bnd.b_val
         ) else (
           (* line 10 *)
@@ -1100,12 +1096,10 @@ module Make(Q : RATIONAL)(Var: VAR)
           Log.debugf 50
             (fun k->k "(@[simplex2.pivot@ :basic %a@ :n-basic %a@])"
                 Var_state.pp x_i Var_state.pp x_j);
-          Printf.fprintf out_ "pivot x%d -> x%d\n%!" x_i.idx x_j.idx;
           pivot_and_update self x_i x_j bnd.b_val
         )
       done;
     with Stop ->
-      Printf.fprintf out_ "done\n";
       Log.debugf 50 (fun k->k "(@[simplex2.check.done@])");
       ()
 
@@ -1117,7 +1111,7 @@ module Make(Q : RATIONAL)(Var: VAR)
       bound_stack=Backtrack_stack.create();
       undo_stack=Backtrack_stack.create();
       stat_check=Stat.mk_int stat "simplex.check";
-      stat_unsat=Stat.mk_int stat "simplex.unsat";
+      stat_unsat=Stat.mk_int stat "simplex.conflicts";
       stat_define=Stat.mk_int stat "simplex.define";
       stat_propagate=Stat.mk_int stat "simplex.propagate";
     } in
