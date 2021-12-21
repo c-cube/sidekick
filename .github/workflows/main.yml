@@ -11,7 +11,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - windows-latest
+            #- windows-latest   # see  https://github.com/ocaml/setup-ocaml/issues/361
             #- macos-latest  # clogs CI
         ocaml-compiler:
           - 4.08.x
