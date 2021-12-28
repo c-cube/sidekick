@@ -9,7 +9,7 @@
 
 (proof_checker
   (name quip)
-  (cmd "quip -nc $proof_file --problem=$file")
+  (cmd "quip check --color=false $proof_file --problem=$file")
   (valid "^OK$")
   (invalid "^FAIL$"))
 
