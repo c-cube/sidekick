@@ -56,6 +56,10 @@ end = struct
   (* id -> function symbol *)
   let funs: P.Fun.t Util.Int_tbl.t = Util.Int_tbl.create 32
 
+  let find_fun (f:PS.ID.t) : P.Fun.t =
+    try Util.Int_tbl.find funs (Int32.to_int f)
+    with Not_found -> Error.errorf "unknown function '%ld'" f
+
   (* list of toplevel steps, in the final proof order *)
   let top_steps_ : P.composite_step lazy_t list ref = ref []
   let add_top_step s = top_steps_ := s :: !top_steps_
@@ -149,14 +153,21 @@ end = struct
           let t = Lazy.from_val (P.T.bool b) in
           L_terms.add lid t
 
+        | PS.Step_view.Expr_isa {c; arg} ->
+          add_needed_step c;
+          add_needed_step arg;
+          let t = lazy (
+            let c = find_fun c in
+            let arg = L_terms.find arg in
+            P.T.is_a c arg
+          ) in
+          L_terms.add lid t
+
         | PS.Step_view.Expr_app { f; args } ->
           add_needed_step f;
           Array.iter add_needed_step args;
           let t = lazy (
-            let f =
-              try Util.Int_tbl.find funs (Int32.to_int f)
-              with Not_found -> Error.errorf "unknown function '%ld'" f
-            in
+            let f = find_fun f in
             let args = Array.map L_terms.find args in
             P.T.app_fun f args
           ) in

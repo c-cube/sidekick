@@ -879,6 +879,30 @@ module Expr_app = struct
 
 end
 
+module Expr_isa = struct
+  type t = {
+    c: ID.t;
+    arg: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let c = ID.decode dec in let arg = ID.decode dec in {c; arg; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin ID.encode enc self.c; ID.encode enc self.arg; end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{ @[";
+       Format.fprintf out "c=%a;@ " ID.pp x.c;
+       Format.fprintf out "arg=%a;@ " ID.pp x.arg;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
 module Step_view = struct
   type t =
     | Step_input of Step_input.t
@@ -898,6 +922,7 @@ module Step_view = struct
     | Expr_bool of Expr_bool.t
     | Expr_if of Expr_if.t
     | Expr_not of Expr_not.t
+    | Expr_isa of Expr_isa.t
     | Expr_eq of Expr_eq.t
     | Expr_app of Expr_app.t
     
@@ -923,8 +948,9 @@ module Step_view = struct
     | 14L -> Expr_bool (Expr_bool.decode dec)
     | 15L -> Expr_if (Expr_if.decode dec)
     | 16L -> Expr_not (Expr_not.decode dec)
-    | 17L -> Expr_eq (Expr_eq.decode dec)
-    | 18L -> Expr_app (Expr_app.decode dec)
+    | 17L -> Expr_isa (Expr_isa.decode dec)
+    | 18L -> Expr_eq (Expr_eq.decode dec)
+    | 19L -> Expr_app (Expr_app.decode dec)
     | _ -> raise (Bare.Decode.Error(Printf.sprintf "unknown union tag Step_view.t: %Ld" tag))
     
   
@@ -981,11 +1007,14 @@ module Step_view = struct
     | Expr_not x ->
       Bare.Encode.uint enc 16L;
       Expr_not.encode enc x
-    | Expr_eq x ->
+    | Expr_isa x ->
       Bare.Encode.uint enc 17L;
+      Expr_isa.encode enc x
+    | Expr_eq x ->
+      Bare.Encode.uint enc 18L;
       Expr_eq.encode enc x
     | Expr_app x ->
-      Bare.Encode.uint enc 18L;
+      Bare.Encode.uint enc 19L;
       Expr_app.encode enc x
     
     
@@ -1025,6 +1054,8 @@ module Step_view = struct
         Format.fprintf out "(@[Expr_if@ %a@])" Expr_if.pp x
       | Expr_not x ->
         Format.fprintf out "(@[Expr_not@ %a@])" Expr_not.pp x
+      | Expr_isa x ->
+        Format.fprintf out "(@[Expr_isa@ %a@])" Expr_isa.pp x
       | Expr_eq x ->
         Format.fprintf out "(@[Expr_eq@ %a@])" Expr_eq.pp x
       | Expr_app x ->

@@ -145,7 +145,14 @@ let rec emit_term_ (self:t) (t:Term.t) : term_id =
       | Term_cell.Not a ->
         PS.Step_view.Expr_not {PS.Expr_not.f=a}
 
+      | Term_cell.App_fun ({fun_view=Fun.Fun_is_a c;_}, args) ->
+        assert (IArray.length args=1);
+        let c = emit_fun_ self (Fun.cstor c) in
+        let arg = IArray.get args 0 in
+        PS.Step_view.Expr_isa {PS.Expr_isa.c; arg}
+
       | Term_cell.App_fun (f, arr) ->
+
         let f = emit_fun_ self f in
         PS.Step_view.Expr_app {PS.Expr_app.f; args=(arr:_ IArray.t:> _ array)}
 

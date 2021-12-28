@@ -40,6 +40,7 @@ module T = struct
     | Bool of bool
     | App_fun of Fun.t * t array
     | App_ho of t * t
+    | Is_a of Fun.t * t
     | Ite of t * t * t
     | Not of t
     | Eq of t * t
@@ -59,6 +60,7 @@ module T = struct
   let const c = app_fun c [||]
   let app_ho a b : t = App_ho (a,b)
   let ite a b c : t = Ite (a,b,c)
+  let is_a f t : t = Is_a (f,t)
 
   let rec pp out = function
     | Bool b -> Fmt.bool out b
@@ -70,6 +72,7 @@ module T = struct
     | Not a -> Fmt.fprintf out "(@[not@ %a@])" pp a
     | Eq (a,b) -> Fmt.fprintf out "(@[=@ %a@ %a@])" pp a pp b
     | Ref name -> Fmt.fprintf out "(@@ %s)" name
+    | Is_a (c,t) -> Fmt.fprintf out "(@[(_ is %a)@ %a@])" Fun.pp c pp t
 end
 
 type term = T.t

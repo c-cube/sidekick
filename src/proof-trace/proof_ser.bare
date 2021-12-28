@@ -105,6 +105,11 @@ type Expr_app {
   args: []ID
 }
 
+type Expr_isa {
+  c: ID
+  arg: ID
+}
+
 type Step_view
   ( Step_input
   | Step_unsat
@@ -123,6 +128,7 @@ type Step_view
   | Expr_bool
   | Expr_if
   | Expr_not
+  | Expr_isa
   | Expr_eq
   | Expr_app
   )

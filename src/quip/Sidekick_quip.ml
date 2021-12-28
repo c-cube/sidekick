@@ -28,6 +28,7 @@ module Make_printer(Out : OUT) = struct
     | T.App_fun (c, [||]) -> a c
     | T.App_fun (c, args) ->
       l(a c :: Util.array_to_list_map pp_t args)
+    | T.Is_a(c,u) -> l[l[a"_";a"is";a c];pp_t u] (* ((_ is c) t) *)
     | T.Ref name -> l[a"@"; a name]
     | T.App_ho(f,a) -> l[pp_t f;pp_t a]
     | T.Eq (t,u) -> l[a"=";pp_t t;pp_t u]
