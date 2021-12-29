@@ -154,6 +154,11 @@ module type CC_PROOF = sig
   val lemma_cc : lit Iter.t -> t -> proof_step
   (** [lemma_cc proof lits] asserts that [lits] form a tautology for the theory
       of uninterpreted functions. *)
+
+  val proof_r1 : proof_step -> proof_step -> t -> proof_step
+  (** [proof_r1 p1 p2], where [p1] proves the unit clause [|- t] (t:bool)
+      and [p2] proves [C \/ ¬t], is the rule that produces [C \/ u],
+      i.e unit resolution. *)
 end
 
 (** Signature for SAT-solver proof emission. *)
@@ -363,6 +368,9 @@ module type CC_ARG = sig
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
+
+  val mk_lit_eq : ?sign:bool -> T.Term.store -> T.Term.t -> T.Term.t -> Lit.t
+  (** [mk_lit_eq store t u] makes the literal [t=u] *)
 end
 
 (** Main congruence closure signature.
@@ -482,17 +490,40 @@ module type CC_S = sig
     val pp : t Fmt.printer
 
     val mk_merge : N.t -> N.t -> t
-    val mk_merge_t : term -> term -> t
-    val mk_lit : lit -> t
-    val mk_list : t list -> t
-    val mk_theory : proof_step -> t list -> t
-    (* FIXME: this should probably take [t, u, proof(Gamma |- t=u), expls],
-       where [expls] is a list of explanation of the equations in [Gamma].
 
-       For example for the lemma [a=b] deduced by injectivity from [Some a=Some b]
-       in the theory of datatypes,
-       the arguments would be [a, b, proof(Some a=Some b |- a=b), e0]
-       where [e0] is an explanation of [Some a=Some b] *)
+    val mk_merge_t : term -> term -> t
+    (** Explanation: the terms were explicitly merged *)
+
+    val mk_lit : lit -> t
+    (** Explanation: we merged [t] and [u] because of literal [t=u],
+        or we merged [t] and [true] because of literal [t],
+        or [t] and [false] because of literal [¬t] *)
+
+    val mk_list : t list -> t
+    (** Conjunction of explanations *)
+
+    val mk_theory :
+      term -> term ->
+      (term * term * t list) list ->
+      proof_step -> t
+    (** [mk_theory t u expl_sets pr] builds a theory explanation for
+        why [|- t=u]. It depends on sub-explanations [expl_sets] which
+        are tuples [ (t_i, u_i, expls_i) ] where [expls_i] are
+        explanations that justify [t_i = u_i] in the current congruence closure.
+
+        The proof [pr] is the theory lemma, of the form
+        [ (t_i = u_i)_i |- t=u ].
+        It is resolved against each [expls_i |- t_i=u_i] obtained from
+        [expl_sets], on pivot [t_i=u_i], to obtain a proof of [Gamma |- t=u]
+        where [Gamma] is a subset of the literals asserted into the congruence
+        closure.
+
+        For example for the lemma [a=b] deduced by injectivity
+        from [Some a=Some b] in the theory of datatypes,
+        the arguments would be
+        [a, b, [Some a, Some b, mk_merge_t (Some a)(Some b)], pr]
+        where [pr] is the injectivity lemma [Some a=Some b |- a=b].
+    *)
   end
 
   type node = N.t

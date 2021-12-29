@@ -96,7 +96,7 @@ module Make (A: CC_ARG)
     | E_merge_t of term * term
     | E_congruence of node * node (* caused by normal congruence *)
     | E_and of explanation * explanation
-    | E_theory of proof_step * explanation list
+    | E_theory of term * term * (term * term * explanation list) list * proof_step
 
   type repr = node
 
@@ -166,8 +166,12 @@ module Make (A: CC_ARG)
       | E_lit lit -> Lit.pp out lit
       | E_congruence (n1,n2) -> Fmt.fprintf out "(@[congruence@ %a@ %a@])" N.pp n1 N.pp n2
       | E_merge (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" N.pp a N.pp b
-      | E_merge_t (a,b) -> Fmt.fprintf out "(@[<hv>merge@ @[:n1 %a@]@ @[:n2 %a@]@])" Term.pp a Term.pp b
-      | E_theory (_p,es) -> Fmt.fprintf out "(@[th@ %a@])" (Util.pp_list pp) es
+      | E_merge_t (a,b) ->
+        Fmt.fprintf out "(@[<hv>merge@ @[:n1 %a@]@ @[:n2 %a@]@])" Term.pp a Term.pp b
+      | E_theory (t,u,es,_) ->
+        Fmt.fprintf out "(@[th@ :t `%a`@ :u `%a`@ :expl_sets %a@])"
+          Term.pp t Term.pp u
+          (Util.pp_list @@ Fmt.Dump.triple Term.pp Term.pp (Fmt.Dump.list pp)) es
       | E_and (a,b) ->
         Format.fprintf out "(@[<hv1>and@ %a@ %a@])" pp a pp b
 
@@ -176,7 +180,7 @@ module Make (A: CC_ARG)
     let[@inline] mk_merge a b : t = if N.equal a b then mk_reduction else E_merge (a,b)
     let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_reduction else E_merge_t (a,b)
     let[@inline] mk_lit l : t = E_lit l
-    let[@inline] mk_theory p es = E_theory (p,es)
+    let[@inline] mk_theory t u es pr = E_theory (t,u,es,pr)
 
     let rec mk_list l =
       match l with
@@ -436,72 +440,100 @@ module Make (A: CC_ARG)
     cleanup_ b;
     n
 
+  module Expl_state = struct
+    type t = {
+      mutable lits: Lit.t list;
+      mutable th_lemmas:
+        (Term.t * Term.t * Lit.t *
+         (Term.t * Term.t * Lit.t * Lit.t list) list * proof_step) list;
+    }
+
+    let create(): t = { lits=[]; th_lemmas=[] }
+
+    let[@inline] add_lit (self:t) lit = self.lits <- lit :: self.lits
+    let[@inline] add_th (self:t) t u lit l pr : unit =
+      self.th_lemmas <- (t,u,lit,l,pr) :: self.th_lemmas
+
+    let merge self other =
+      let {lits=o_lits; th_lemmas=o_lemmas} = other in
+      self.lits <- List.rev_append o_lits self.lits;
+      self.th_lemmas <- List.rev_append o_lemmas self.th_lemmas
+  end
+
   (* decompose explanation [e] into a list of literals added to [acc] *)
-  let rec explain_decompose_expl cc ~th (acc:lit list) (e:explanation) : _ list =
+  let rec explain_decompose_expl cc (st:Expl_state.t) (e:explanation) : unit =
     Log.debugf 5 (fun k->k "(@[cc.decompose_expl@ %a@])" Expl.pp e);
     match e with
-    | E_reduction -> acc
+    | E_reduction -> ()
     | E_congruence (n1, n2) ->
       begin match n1.n_sig0, n2.n_sig0 with
         | Some (App_fun (f1, a1)), Some (App_fun (f2, a2)) ->
           assert (Fun.equal f1 f2);
           assert (List.length a1 = List.length a2);
-          List.fold_left2 (explain_equal_rec_ cc ~th) acc a1 a2
+          List.iter2 (explain_equal_rec_ cc st) a1 a2
         | Some (App_ho (f1, a1)), Some (App_ho (f2, a2)) ->
-          let acc = explain_equal_rec_ cc ~th acc f1 f2 in
-          explain_equal_rec_ cc ~th acc a1 a2
+          explain_equal_rec_ cc st f1 f2;
+          explain_equal_rec_ cc st a1 a2
         | Some (If (a1,b1,c1)), Some (If (a2,b2,c2)) ->
-          let acc = explain_equal_rec_ cc ~th acc a1 a2 in
-          let acc = explain_equal_rec_ cc ~th acc b1 b2 in
-          explain_equal_rec_ cc ~th acc c1 c2
+          explain_equal_rec_ cc st a1 a2;
+          explain_equal_rec_ cc st b1 b2;
+          explain_equal_rec_ cc st c1 c2;
         | _ ->
           assert false
       end
-    | E_lit lit -> lit :: acc
-    | E_theory (_pr, sub_l) ->
-      (* FIXME: use pr as a subproof. We need to accumulate subproofs too, because
-         there is some amount of resolution done inside the congruence closure
-         itself to resolve Horn clauses produced by theories.
-
-         maybe we need to store [t=u] where [pr] is the proof of [Gamma |- t=u],
-         add [t=u] to the explanation, and use a subproof to resolve
-         it away using [pr] and add [Gamma] to the mix *)
-      th := true;
-      List.fold_left (explain_decompose_expl cc ~th) acc sub_l
-    | E_merge (a,b) -> explain_equal_rec_ cc ~th acc a b
+    | E_lit lit -> Expl_state.add_lit st lit
+    | E_theory (t, u, expl_sets, pr) ->
+      let sub_proofs =
+        List.map
+          (fun (t_i,u_i,expls_i) ->
+             let lit_i = A.mk_lit_eq cc.tst t_i u_i in
+             (* use a separate call to [explain_expls] for each set *)
+             let sub = explain_expls cc expls_i in
+             Expl_state.merge st sub;
+             t_i, u_i, lit_i, sub.lits)
+          expl_sets
+      in
+      let lit_t_u = A.mk_lit_eq cc.tst t u in
+      Expl_state.add_th st t u lit_t_u sub_proofs pr
+    | E_merge (a,b) -> explain_equal_rec_ cc st a b
     | E_merge_t (a,b) ->
       (* find nodes for [a] and [b] on the fly *)
       begin match T_tbl.find cc.tbl a, T_tbl.find cc.tbl b with
-        | a, b -> explain_equal_rec_ cc ~th acc a b
+        | a, b -> explain_equal_rec_ cc st a b
         | exception Not_found ->
           Error.errorf "expl: cannot find node(s) for %a, %a" Term.pp a Term.pp b
       end
     | E_and (a,b) ->
-      let acc = explain_decompose_expl cc ~th acc a in
-      explain_decompose_expl cc ~th acc b
+      explain_decompose_expl cc st a;
+      explain_decompose_expl cc st b
 
-  and explain_equal_rec_ (cc:t) ~th (acc:lit list) (a:node) (b:node) : _ list =
+  and explain_expls cc (es:explanation list) : Expl_state.t =
+    let st = Expl_state.create() in
+    List.iter (explain_decompose_expl cc st) es;
+    st
+
+  and explain_equal_rec_ (cc:t) (st:Expl_state.t) (a:node) (b:node) : unit =
     Log.debugf 5
       (fun k->k "(@[cc.explain_loop.at@ %a@ =?= %a@])" N.pp a N.pp b);
     assert (N.equal (find_ a) (find_ b));
     let ancestor = find_common_ancestor cc a b in
-    let acc = explain_along_path cc ~th acc a ancestor in
-    explain_along_path cc ~th acc b ancestor
+    explain_along_path cc st a ancestor;
+    explain_along_path cc st b ancestor
 
   (* explain why [a = parent_a], where [a -> ... -> target] in the
      proof forest *)
-  and explain_along_path cc ~th acc (a:node) (target:node) : _ list =
-    let rec aux acc n =
-      if n == target then acc
+  and explain_along_path cc (st:Expl_state.t) (a:node) (target:node) : unit =
+    let rec aux n =
+      if n == target then ()
       else (
         match n.n_expl with
         | FL_none -> assert false
         | FL_some {next=next_n; expl=expl} ->
-          let acc = explain_decompose_expl cc ~th acc expl in
+          explain_decompose_expl cc st expl;
           (* now prove [next_n = target] *)
-          aux acc next_n
+          aux next_n
       )
-    in aux acc a
+    in aux a
 
   (* add a term *)
   let [@inline] rec add_term_rec_ cc t : node =
@@ -664,12 +696,27 @@ module Make (A: CC_ARG)
            C2: lemma [lits |- true=false]  (and resolve on theory proofs)
            C3: r1 C1 C2
         *)
-        let lits = explain_decompose_expl cc ~th [] e_ab in
-        let lits = explain_equal_rec_ cc ~th lits a ra in
-        let lits = explain_equal_rec_ cc ~th lits b rb in
+        let expl_st = Expl_state.create() in
+        explain_decompose_expl cc expl_st e_ab;
+        explain_equal_rec_ cc expl_st a ra;
+        explain_equal_rec_ cc expl_st b rb;
+        let {Expl_state.lits; th_lemmas} = expl_st in
         let pr =
-          let p_lits = Iter.of_list lits |> Iter.map Lit.neg in
-          P.lemma_cc p_lits @@ Actions.proof acts
+          let proof = Actions.proof acts in
+          let p_lits1 = Iter.of_list lits |> Iter.map Lit.neg in
+          let p_lits2 =
+            Iter.of_list th_lemmas
+            |> Iter.map (fun (_,_,lit_t_u,_,_) -> Lit.neg lit_t_u)
+          in
+          let p_cc = P.lemma_cc (Iter.append p_lits1 p_lits2) proof in
+          List.fold_left
+            (fun pr (_,_,lit_t_u,sub_proofs,pr_th) ->
+               let pr_th = List.fold_left
+                   (fun pr_th (_,_,lit_i,pr_i) -> P.proof_r1 pr_i pr_th proof)
+                   pr_th sub_proofs
+               in
+               P.proof_r1 pr_th pr proof)
+            p_cc th_lemmas
         in
         raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) pr
       );
