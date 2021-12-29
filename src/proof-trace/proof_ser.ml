@@ -612,6 +612,39 @@ module Step_proof_r1 = struct
 
 end
 
+module Step_proof_res = struct
+  type t = {
+    pivot: ID.t;
+    c1: ID.t;
+    c2: ID.t;
+  }
+  
+  (** @raise Bare.Decode.Error in case of error. *)
+  let decode (dec: Bare.Decode.t) : t =
+    let pivot = ID.decode dec in
+    let c1 = ID.decode dec in
+    let c2 = ID.decode dec in
+    {pivot; c1; c2; }
+  
+  let encode (enc: Bare.Encode.t) (self: t) : unit =
+    begin
+      ID.encode enc self.pivot;
+      ID.encode enc self.c1;
+      ID.encode enc self.c2;
+    end
+  
+  let pp out (self:t) : unit =
+    (fun out x ->
+     begin
+       Format.fprintf out "{ @[";
+       Format.fprintf out "pivot=%a;@ " ID.pp x.pivot;
+       Format.fprintf out "c1=%a;@ " ID.pp x.c1;
+       Format.fprintf out "c2=%a;@ " ID.pp x.c2;
+       Format.fprintf out "@]}";
+     end) out self
+
+end
+
 module Step_bool_tauto = struct
   type t = {
     lits: Lit.t array;
@@ -916,6 +949,7 @@ module Step_view = struct
     | Step_bool_c of Step_bool_c.t
     | Step_proof_p1 of Step_proof_p1.t
     | Step_proof_r1 of Step_proof_r1.t
+    | Step_proof_res of Step_proof_res.t
     | Step_true of Step_true.t
     | Fun_decl of Fun_decl.t
     | Expr_def of Expr_def.t
@@ -942,15 +976,16 @@ module Step_view = struct
     | 8L -> Step_bool_c (Step_bool_c.decode dec)
     | 9L -> Step_proof_p1 (Step_proof_p1.decode dec)
     | 10L -> Step_proof_r1 (Step_proof_r1.decode dec)
-    | 11L -> Step_true (Step_true.decode dec)
-    | 12L -> Fun_decl (Fun_decl.decode dec)
-    | 13L -> Expr_def (Expr_def.decode dec)
-    | 14L -> Expr_bool (Expr_bool.decode dec)
-    | 15L -> Expr_if (Expr_if.decode dec)
-    | 16L -> Expr_not (Expr_not.decode dec)
-    | 17L -> Expr_isa (Expr_isa.decode dec)
-    | 18L -> Expr_eq (Expr_eq.decode dec)
-    | 19L -> Expr_app (Expr_app.decode dec)
+    | 11L -> Step_proof_res (Step_proof_res.decode dec)
+    | 12L -> Step_true (Step_true.decode dec)
+    | 13L -> Fun_decl (Fun_decl.decode dec)
+    | 14L -> Expr_def (Expr_def.decode dec)
+    | 15L -> Expr_bool (Expr_bool.decode dec)
+    | 16L -> Expr_if (Expr_if.decode dec)
+    | 17L -> Expr_not (Expr_not.decode dec)
+    | 18L -> Expr_isa (Expr_isa.decode dec)
+    | 19L -> Expr_eq (Expr_eq.decode dec)
+    | 20L -> Expr_app (Expr_app.decode dec)
     | _ -> raise (Bare.Decode.Error(Printf.sprintf "unknown union tag Step_view.t: %Ld" tag))
     
   
@@ -989,32 +1024,35 @@ module Step_view = struct
     | Step_proof_r1 x ->
       Bare.Encode.uint enc 10L;
       Step_proof_r1.encode enc x
-    | Step_true x ->
+    | Step_proof_res x ->
       Bare.Encode.uint enc 11L;
+      Step_proof_res.encode enc x
+    | Step_true x ->
+      Bare.Encode.uint enc 12L;
       Step_true.encode enc x
     | Fun_decl x ->
-      Bare.Encode.uint enc 12L;
+      Bare.Encode.uint enc 13L;
       Fun_decl.encode enc x
     | Expr_def x ->
-      Bare.Encode.uint enc 13L;
+      Bare.Encode.uint enc 14L;
       Expr_def.encode enc x
     | Expr_bool x ->
-      Bare.Encode.uint enc 14L;
+      Bare.Encode.uint enc 15L;
       Expr_bool.encode enc x
     | Expr_if x ->
-      Bare.Encode.uint enc 15L;
+      Bare.Encode.uint enc 16L;
       Expr_if.encode enc x
     | Expr_not x ->
-      Bare.Encode.uint enc 16L;
+      Bare.Encode.uint enc 17L;
       Expr_not.encode enc x
     | Expr_isa x ->
-      Bare.Encode.uint enc 17L;
+      Bare.Encode.uint enc 18L;
       Expr_isa.encode enc x
     | Expr_eq x ->
-      Bare.Encode.uint enc 18L;
+      Bare.Encode.uint enc 19L;
       Expr_eq.encode enc x
     | Expr_app x ->
-      Bare.Encode.uint enc 19L;
+      Bare.Encode.uint enc 20L;
       Expr_app.encode enc x
     
     
@@ -1042,6 +1080,8 @@ module Step_view = struct
         Format.fprintf out "(@[Step_proof_p1@ %a@])" Step_proof_p1.pp x
       | Step_proof_r1 x ->
         Format.fprintf out "(@[Step_proof_r1@ %a@])" Step_proof_r1.pp x
+      | Step_proof_res x ->
+        Format.fprintf out "(@[Step_proof_res@ %a@])" Step_proof_res.pp x
       | Step_true x ->
         Format.fprintf out "(@[Step_true@ %a@])" Step_true.pp x
       | Fun_decl x ->

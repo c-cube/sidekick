@@ -259,6 +259,18 @@ end = struct
           ) in
           L_proofs.add lid p;
 
+        | PS.Step_view.Step_proof_res { pivot; c1; c2; } ->
+          add_needed_step c1;
+          add_needed_step c2;
+          add_needed_step pivot;
+          let p = lazy (
+            let pivot = L_terms.find pivot in
+            let c1 = L_proofs.find c2 in
+            let c2 = L_proofs.find c2 in
+            P.res ~pivot c1 c2
+          ) in
+          L_proofs.add lid p;
+
         | PS.Step_view.Step_bool_c { rule; exprs } ->
           Array.iter add_needed_step exprs;
           let p = lazy (

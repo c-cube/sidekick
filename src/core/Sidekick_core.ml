@@ -145,22 +145,6 @@ module type TERM = sig
   end
 end
 
-(** Proofs for the congruence closure *)
-module type CC_PROOF = sig
-  type proof_step
-  type t
-  type lit
-
-  val lemma_cc : lit Iter.t -> t -> proof_step
-  (** [lemma_cc proof lits] asserts that [lits] form a tautology for the theory
-      of uninterpreted functions. *)
-
-  val proof_r1 : proof_step -> proof_step -> t -> proof_step
-  (** [proof_r1 p1 p2], where [p1] proves the unit clause [|- t] (t:bool)
-      and [p2] proves [C \/ ¬t], is the rule that produces [C \/ u],
-      i.e unit resolution. *)
-end
-
 (** Signature for SAT-solver proof emission. *)
 module type SAT_PROOF = sig
   type t
@@ -214,16 +198,15 @@ module type PROOF = sig
   type lit
   type proof_rule = t -> proof_step
 
-  include CC_PROOF
-    with type t := t
-     and type lit := lit
-     and type proof_step := proof_step
-
   include SAT_PROOF
     with type t := t
      and type lit := lit
      and type proof_step := proof_step
      and type proof_rule := proof_rule
+
+  val lemma_cc : lit Iter.t -> proof_rule
+  (** [lemma_cc proof lits] asserts that [lits] form a tautology for the theory
+      of uninterpreted functions. *)
 
   val define_term : term -> term -> proof_rule
   (** [define_term cst u proof] defines the new constant [cst] as being equal
@@ -239,6 +222,11 @@ module type PROOF = sig
   (** [proof_r1 p1 p2], where [p1] proves the unit clause [|- t] (t:bool)
       and [p2] proves [C \/ ¬t], is the rule that produces [C \/ u],
       i.e unit resolution. *)
+
+  val proof_res : pivot:term -> proof_step -> proof_step -> proof_rule
+  (** [proof_res ~pivot p1 p2], where [p1] proves the clause [|- C \/ l]
+      and [p2] proves [D \/ ¬l], where [l] is either [pivot] or [¬pivot],
+      is the rule that produces [C \/ D], i.e boolean resolution. *)
 
   val with_defs : proof_step -> proof_step Iter.t -> proof_rule
   (** [with_defs pr defs] specifies that [pr] is valid only in
@@ -322,9 +310,11 @@ module type CC_ACTIONS = sig
 
   type proof
   type proof_step
-  module P : CC_PROOF with type lit = Lit.t
-                       and type t = proof
-                       and type proof_step = proof_step
+  module P : PROOF
+    with type lit = Lit.t
+     and type t = proof
+     and type term = T.Term.t
+     and type proof_step = proof_step
 
   type t
   (** An action handle. It is used by the congruence closure
@@ -356,9 +346,10 @@ module type CC_ARG = sig
   module Lit : LIT with module T = T
   type proof
   type proof_step
-  module P : CC_PROOF
+  module P : PROOF
     with type lit = Lit.t
      and type t = proof
+     and type term = T.Term.t
      and type proof_step = proof_step
   module Actions : CC_ACTIONS
     with module T=T
@@ -396,7 +387,7 @@ module type CC_S = sig
   module Lit : LIT with module T = T
   type proof
   type proof_step
-  module P : CC_PROOF
+  module P : PROOF
     with type lit = Lit.t
      and type t = proof
      and type proof_step = proof_step

@@ -444,15 +444,14 @@ module Make (A: CC_ARG)
     type t = {
       mutable lits: Lit.t list;
       mutable th_lemmas:
-        (Term.t * Term.t * Lit.t *
-         (Term.t * Term.t * Lit.t * Lit.t list) list * proof_step) list;
+        (Lit.t * (Lit.t * Lit.t list) list * proof_step) list;
     }
 
     let create(): t = { lits=[]; th_lemmas=[] }
 
     let[@inline] add_lit (self:t) lit = self.lits <- lit :: self.lits
-    let[@inline] add_th (self:t) t u lit l pr : unit =
-      self.th_lemmas <- (t,u,lit,l,pr) :: self.th_lemmas
+    let[@inline] add_th (self:t) lit hyps pr : unit =
+      self.th_lemmas <- (lit,hyps,pr) :: self.th_lemmas
 
     let merge self other =
       let {lits=o_lits; th_lemmas=o_lemmas} = other in
@@ -490,11 +489,11 @@ module Make (A: CC_ARG)
              (* use a separate call to [explain_expls] for each set *)
              let sub = explain_expls cc expls_i in
              Expl_state.merge st sub;
-             t_i, u_i, lit_i, sub.lits)
+             lit_i, sub.lits)
           expl_sets
       in
       let lit_t_u = A.mk_lit_eq cc.tst t u in
-      Expl_state.add_th st t u lit_t_u sub_proofs pr
+      Expl_state.add_th st lit_t_u sub_proofs pr
     | E_merge (a,b) -> explain_equal_rec_ cc st a b
     | E_merge_t (a,b) ->
       (* find nodes for [a] and [b] on the fly *)
@@ -619,6 +618,45 @@ module Make (A: CC_ARG)
   let n_is_bool_value (self:t) n : bool =
     N.equal n (n_true self) || N.equal n (n_false self)
 
+  (* gather a pair [lits, pr], where [lits] is the set of
+     asserted literals needed in the explanation (which is useful for
+     the SAT solver), and [pr] is a proof, including sub-proofs for theory
+     merges. *)
+  let lits_and_proof_of_expl
+      (self:t) (st:Expl_state.t) : Lit.t list * proof_step =
+    let {Expl_state.lits; th_lemmas} = st in
+    let proof = self.proof in
+    (* proof of [\/_i ¬lits[i]] *)
+    let pr =
+      let p_lits1 = Iter.of_list lits |> Iter.map Lit.neg in
+      let p_lits2 =
+        Iter.of_list th_lemmas
+        |> Iter.map (fun (lit_t_u,_,_) -> Lit.neg lit_t_u)
+      in
+      let p_cc = P.lemma_cc (Iter.append p_lits1 p_lits2) proof in
+      let resolve_with_th_proof pr (lit_t_u,sub_proofs,pr_th) =
+        (* pr_th: [sub_proofs |- t=u].
+              now resolve away [sub_proofs] to get literals that were
+              asserted in the congruence closure *)
+        let pr_th = List.fold_left
+            (fun pr_th (lit_i,hyps_i) ->
+               (* [hyps_i |- lit_i] *)
+               let lemma_i =
+                 P.lemma_cc Iter.(cons lit_i (of_list hyps_i |> map Lit.neg)) proof
+               in
+               (* resolve [lit_i] away. *)
+               P.proof_res ~pivot:(Lit.term lit_i) lemma_i pr_th proof)
+            pr_th sub_proofs
+        in
+        P.proof_res ~pivot:(Lit.term lit_t_u) pr_th pr proof
+      in
+
+
+      (* resolve with theory proofs responsible for some merges, if any. *)
+      List.fold_left resolve_with_th_proof p_cc th_lemmas
+    in
+    lits, pr
+
   (* main CC algo: add terms from [pending] to the signature table,
      check for collisions *)
   let rec update_tasks (cc:t) (acts:actions) : unit =
@@ -700,24 +738,8 @@ module Make (A: CC_ARG)
         explain_decompose_expl cc expl_st e_ab;
         explain_equal_rec_ cc expl_st a ra;
         explain_equal_rec_ cc expl_st b rb;
-        let {Expl_state.lits; th_lemmas} = expl_st in
-        let pr =
-          let proof = Actions.proof acts in
-          let p_lits1 = Iter.of_list lits |> Iter.map Lit.neg in
-          let p_lits2 =
-            Iter.of_list th_lemmas
-            |> Iter.map (fun (_,_,lit_t_u,_,_) -> Lit.neg lit_t_u)
-          in
-          let p_cc = P.lemma_cc (Iter.append p_lits1 p_lits2) proof in
-          List.fold_left
-            (fun pr (_,_,lit_t_u,sub_proofs,pr_th) ->
-               let pr_th = List.fold_left
-                   (fun pr_th (_,_,lit_i,pr_i) -> P.proof_r1 pr_i pr_th proof)
-                   pr_th sub_proofs
-               in
-               P.proof_r1 pr_th pr proof)
-            p_cc th_lemmas
-        in
+
+        let lits, pr = lits_and_proof_of_expl cc expl_st in
         raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) pr
       );
       (* We will merge [r_from] into [r_into].
@@ -810,10 +832,11 @@ module Make (A: CC_ARG)
      We can explain the propagation with [u1 = t1 =e= t2 = r2==bool] *)
   and propagate_bools cc acts r1 t1 r2 t2 (e_12:explanation) sign : unit =
     (* explanation for [t1 =e= t2 = r2] *)
-    let half_expl = lazy (
-      let th = ref false in
-      let lits = explain_decompose_expl cc ~th [] e_12 in
-      th, explain_equal_rec_ cc ~th lits r2 t2
+    let half_expl_and_pr = lazy (
+      let st = Expl_state.create() in
+      explain_decompose_expl cc st e_12;
+      explain_equal_rec_ cc st r2 t2;
+      st
     ) in
     (* TODO: flag per class, `or`-ed on merge, to indicate if the class
        contains at least one lit *)
@@ -831,14 +854,11 @@ module Make (A: CC_ARG)
            (* complete explanation with the [u1=t1] chunk *)
            let reason =
              let e = lazy (
-               let lazy (th, acc) = half_expl in
-               let lits = explain_equal_rec_ cc ~th acc u1 t1 in
-               let pr =
-                 (* make a tautology, not a true guard *)
-                 let p_lits = Iter.cons lit (Iter.of_list lits |> Iter.map Lit.neg) in
-                 P.lemma_cc p_lits @@ Actions.proof acts
-               in
-               lits, pr
+               let lazy st = half_expl_and_pr in
+               explain_equal_rec_ cc st u1 t1;
+               (* assert that [guard /\ ¬lit] is absurd, to propagate [lit] *)
+               Expl_state.add_lit st (Lit.neg lit);
+               lits_and_proof_of_expl cc st
              ) in
              fun () -> Lazy.force e
            in
@@ -902,14 +922,12 @@ module Make (A: CC_ARG)
   let raise_conflict_from_expl cc (acts:actions) expl =
     Log.debugf 5
       (fun k->k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
-    let th = ref true in
-    let lits = explain_decompose_expl cc ~th [] expl in
-    let lits = List.rev_map Lit.neg lits in
-    let pr =
-      let p_lits = Iter.of_list lits in
-      P.lemma_cc p_lits @@ Actions.proof acts
-    in
-    raise_conflict_ cc ~th:!th acts lits pr
+    let st = Expl_state.create() in
+    explain_decompose_expl cc st expl;
+    let lits, pr = lits_and_proof_of_expl cc st in
+    let c = List.rev_map Lit.neg lits in
+    let th = st.th_lemmas <> [] in
+    raise_conflict_ cc ~th acts c pr
 
   let merge cc n1 n2 expl =
     Log.debugf 5
@@ -921,8 +939,10 @@ module Make (A: CC_ARG)
     merge cc (add_term cc t1) (add_term cc t2) expl
 
   let explain_eq cc n1 n2 : lit list =
-    let th = ref true in
-    explain_equal_rec_ cc ~th [] n1 n2
+    let st = Expl_state.create() in
+    explain_equal_rec_ cc st n1 n2;
+    (* FIXME: also need to return the proof? *)
+    st.lits
 
   let on_pre_merge cc f = cc.on_pre_merge <- f :: cc.on_pre_merge
   let on_post_merge cc f = cc.on_post_merge <- f :: cc.on_post_merge

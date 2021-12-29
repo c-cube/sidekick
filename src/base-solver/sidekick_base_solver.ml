@@ -13,6 +13,7 @@ module Solver_arg = struct
   module Lit = Sidekick_base.Lit
 
   let cc_view = Term.cc_view
+  let mk_eq = Term.eq
   let is_valid_literal _ = true
   module P = Sidekick_base.Proof
   type proof = P.t
