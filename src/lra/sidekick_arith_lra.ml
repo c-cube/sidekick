@@ -272,9 +272,10 @@ module Make(A : ARG) : S with module A = A = struct
         T.Tbl.add self.encoded_eqs t ();
 
         (* encode [t <=> (u1 /\ u2)] *)
-        let lit_t = PA.mk_lit_nopreproc t in
-        let lit_u1 = PA.mk_lit_nopreproc u1 in
-        let lit_u2 = PA.mk_lit_nopreproc u2 in
+        (* FIXME: add preproc proofs, with a clause_rw perhaps *)
+        let lit_t,_ = PA.mk_lit t in
+        let lit_u1,_ = PA.mk_lit u1 in
+        let lit_u2,_ = PA.mk_lit u2 in
         add_clause_lra_ (module PA) [SI.Lit.neg lit_t; lit_u1];
         add_clause_lra_ (module PA) [SI.Lit.neg lit_t; lit_u2];
         add_clause_lra_ (module PA)
@@ -310,7 +311,7 @@ module Make(A : ARG) : S with module A = A = struct
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (proxy, op, le_const)) in
           begin
-            let lit = PA.mk_lit_nopreproc new_t in
+            let lit,_ = PA.mk_lit new_t in
             let constr = SimpSolver.Constraint.mk proxy op le_const in
             SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
           end;
