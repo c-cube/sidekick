@@ -127,17 +127,20 @@ let is_real t =
 
 (* convert [t] to a real term *)
 let cast_to_real (ctx:Ctx.t) (t:T.t) : T.t =
-  match T.view t with
-  | T.LRA _ -> t
-  | _ when Ty.equal (T.ty t) (Ty.real()) -> t
-  | T.LIA (Arith_const n) ->
-    (* TODO: do that but for more general constant expressions *)
-    T.lra ctx.tst (Arith_const (Q.of_bigint n))
-  | T.LIA _ ->
-    (* insert implicit cast *)
-    T.lra ctx.tst (Arith_to_real t)
-  | _ ->
-    errorf_ctx ctx "cannot cast term to real@ :term %a" T.pp t
+  let rec conv t =
+    match T.view t with
+    | T.LRA _ -> t
+    | _ when Ty.equal (T.ty t) (Ty.real()) -> t
+    | T.LIA (Arith_const n) ->
+      T.lra ctx.tst (Arith_const (Q.of_bigint n))
+    | T.LIA l ->
+      (* try to convert the whole structure to reals *)
+      let l = Base_types.map_arith_view ~f_c:Q.of_bigint conv l in
+      T.lra ctx.tst l
+    | _ ->
+      errorf_ctx ctx "cannot cast term to real@ :term %a" T.pp t
+  in
+  conv t
 
 let conv_arith_op (ctx:Ctx.t) t (op:PA.arith_op) (l:T.t list) : T.t =
   let open Base_types in

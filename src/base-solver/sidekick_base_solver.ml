@@ -97,7 +97,7 @@ module Th_lra = Sidekick_arith_lra.Make(struct
     | LRA.LRA_simplex_pred (x,p,c) -> T.lra store (Arith_simplex_pred (x,p,c))
   let mk_bool = T.bool
 
-  let view_as_lra t = match T.view t with
+  let rec view_as_lra t = match T.view t with
     | T.LRA l ->
       let open Base_types in
       let module LRA = Sidekick_arith_lra in
@@ -108,8 +108,7 @@ module Th_lra = Sidekick_arith_lra.Make(struct
         | Arith_mult (c,x) -> LRA.LRA_mult (c,x)
         | Arith_simplex_var x -> LRA.LRA_simplex_var x
         | Arith_simplex_pred (x,p,c) -> LRA.LRA_simplex_pred(x,p,c)
-
-        | Arith_to_real x
+        | Arith_to_real x -> view_as_lra x
         | Arith_var x -> LRA.LRA_other x
       end
     | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.real()) ->

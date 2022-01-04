@@ -23,16 +23,16 @@ type ('num, 'a) arith_view =
   | Arith_simplex_pred of 'a * Sidekick_arith_lra.S_op.t * 'num
   | Arith_simplex_var of 'a
 
-let map_arith_view f (l:_ arith_view) : _ arith_view =
+let map_arith_view ~f_c f (l:_ arith_view) : _ arith_view =
   begin match l with
     | Arith_pred (p, a, b) -> Arith_pred (p, f a, f b)
     | Arith_op (p, a, b) -> Arith_op (p, f a, f b)
-    | Arith_mult (n,a) -> Arith_mult (n, f a)
-    | Arith_const q -> Arith_const q
+    | Arith_mult (n,a) -> Arith_mult (f_c n, f a)
+    | Arith_const c -> Arith_const (f_c c)
     | Arith_var x -> Arith_var (f x)
     | Arith_to_real x -> Arith_to_real (f x)
     | Arith_simplex_var v -> Arith_simplex_var (f v)
-    | Arith_simplex_pred (v, op, q) -> Arith_simplex_pred (f v, op, q)
+    | Arith_simplex_pred (v, op, c) -> Arith_simplex_pred (f v, op, f_c c)
   end
 
 let iter_arith_view f l : unit =
@@ -820,8 +820,8 @@ end = struct
     | Not u -> Not (f u)
     | Eq (a,b) -> Eq (f a, f b)
     | Ite (a,b,c) -> Ite (f a, f b, f c)
-    | LRA l -> LRA (map_arith_view f l)
-    | LIA l -> LIA (map_arith_view f l)
+    | LRA l -> LRA (map_arith_view ~f_c:CCFun.id f l)
+    | LIA l -> LIA (map_arith_view ~f_c:CCFun.id f l)
 end
 
 (** Term creation and manipulation *)
@@ -1158,8 +1158,8 @@ end = struct
     | Not u -> not_ tst (f u)
     | Eq (a,b) -> eq tst (f a) (f b)
     | Ite (a,b,c) -> ite tst (f a) (f b) (f c)
-    | LRA l -> lra tst (map_arith_view f l)
-    | LIA l -> lia tst (map_arith_view f l)
+    | LRA l -> lra tst (map_arith_view ~f_c:CCFun.id f l)
+    | LIA l -> lia tst (map_arith_view ~f_c:CCFun.id f l)
 
   let store_size tst = H.size tst.tbl
   let store_iter tst = H.to_iter tst.tbl
