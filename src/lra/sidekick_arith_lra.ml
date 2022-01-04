@@ -315,7 +315,7 @@ module Make(A : ARG) : S with module A = A = struct
             SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
           end;
 
-          Log.debugf 10 (fun k->k "lra.preprocess:@ %a@ :into %a" T.pp t T.pp new_t);
+          Log.debugf 10 (fun k->k "(@[lra.preprocess:@ %a@ :into %a@])" T.pp t T.pp new_t);
           Some (new_t, Iter.of_list !steps)
 
         | Some (coeff, v), pred ->

@@ -159,7 +159,7 @@ let rec emit_term_ (self:t) (t:Term.t) : term_id =
       | Term_cell.Eq (a, b) ->
         PS.Step_view.Expr_eq {PS.Expr_eq.lhs=a; rhs=b}
 
-      | LRA _ -> assert false (* TODO *)
+      | LRA _ | LIA _ -> assert false (* TODO *)
     in
 
     let id = alloc_id self in

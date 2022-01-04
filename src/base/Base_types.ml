@@ -11,14 +11,38 @@ module Storage = Sidekick_base_proof_trace.Storage
 type lra_pred = Sidekick_arith_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 type lra_op = Sidekick_arith_lra.op = Plus | Minus
 
-type ('num, 'a) lra_view = ('num, 'a) Sidekick_arith_lra.lra_view =
-  | LRA_pred of lra_pred * 'a * 'a
-  | LRA_op of lra_op * 'a * 'a
-  | LRA_mult of 'num * 'a
-  | LRA_const of 'num
-  | LRA_simplex_var of 'a
-  | LRA_simplex_pred of 'a * Sidekick_arith_lra.S_op.t * 'num
-  | LRA_other of 'a
+type ('num, 'a) arith_view =
+  | Arith_pred of lra_pred * 'a * 'a
+  | Arith_op of lra_op * 'a * 'a
+  | Arith_mult of 'num * 'a
+  | Arith_const of 'num
+  | Arith_var of 'a
+  | Arith_to_real of 'a
+
+  (* after preprocessing *)
+  | Arith_simplex_pred of 'a * Sidekick_arith_lra.S_op.t * 'num
+  | Arith_simplex_var of 'a
+
+let map_arith_view f (l:_ arith_view) : _ arith_view =
+  begin match l with
+    | Arith_pred (p, a, b) -> Arith_pred (p, f a, f b)
+    | Arith_op (p, a, b) -> Arith_op (p, f a, f b)
+    | Arith_mult (n,a) -> Arith_mult (n, f a)
+    | Arith_const q -> Arith_const q
+    | Arith_var x -> Arith_var (f x)
+    | Arith_to_real x -> Arith_to_real (f x)
+    | Arith_simplex_var v -> Arith_simplex_var (f v)
+    | Arith_simplex_pred (v, op, q) -> Arith_simplex_pred (f v, op, q)
+  end
+
+let iter_arith_view f l : unit =
+  begin match l with
+    | Arith_pred (_, a, b)|Arith_op (_, a, b) -> f a; f b
+    | Arith_mult (_,x) | Arith_var x | Arith_to_real x -> f x
+    | Arith_simplex_var x -> f x
+    | Arith_simplex_pred (x,_,_) -> f x
+    | Arith_const _ -> ()
+  end
 
 (** Term.
 
@@ -40,7 +64,8 @@ and 'a term_view =
   | Eq of 'a * 'a
   | Not of 'a
   | Ite of 'a * 'a * 'a
-  | LRA of (Q.t, 'a) lra_view
+  | LRA of (Q.t, 'a) arith_view
+  | LIA of (Z.t, 'a) arith_view
 
 and fun_ = {
   fun_id: ID.t;
@@ -85,6 +110,7 @@ and ty = {
 and ty_view =
   | Ty_bool
   | Ty_real
+  | Ty_int
   | Ty_atomic of {
       def: ty_def;
       args: ty list;
@@ -209,6 +235,7 @@ let pp_db out (i,_) = Format.fprintf out "%%%d" i
 let rec pp_ty out t = match t.ty_view with
   | Ty_bool -> Fmt.string out "Bool"
   | Ty_real -> Fmt.string out "Real"
+  | Ty_int -> Fmt.string out "Int"
   | Ty_atomic {def=Ty_uninterpreted id; args=[]; _} -> ID.pp out id
   | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args
@@ -231,6 +258,21 @@ let string_of_lra_op = function
   | Minus -> "-"
 let pp_lra_op out p = Fmt.string out (string_of_lra_op p)
 
+let pp_arith_gen ~pp_c ~pp_t out = function
+  | Arith_pred (p, a, b) ->
+    Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_pred p) pp_t a pp_t b
+  | Arith_op (p, a, b) ->
+    Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_op p) pp_t a pp_t b
+  | Arith_mult (n, x) ->
+    Fmt.fprintf out "(@[*@ %a@ %a@])" pp_c n pp_t x
+  | Arith_const q -> pp_c out q
+  | Arith_var x -> pp_t out x
+  | Arith_to_real x -> Fmt.fprintf out "(@[to_real@ %a@])" pp_t x
+  | Arith_simplex_var v -> pp_t out v
+  | Arith_simplex_pred (v, op, c) ->
+    Fmt.fprintf out "(@[%a@ %s %a@])"
+      pp_t v (Sidekick_arith_lra.S_op.to_string op) pp_c c
+
 let pp_term_view_gen ~pp_id ~pp_t out = function
   | Bool true -> Fmt.string out "true"
   | Bool false -> Fmt.string out "false"
@@ -242,21 +284,8 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
   | Eq (a,b) -> Fmt.fprintf out "(@[<hv>=@ %a@ %a@])" pp_t a pp_t b
   | Not u -> Fmt.fprintf out "(@[not@ %a@])" pp_t u
   | Ite (a,b,c) -> Fmt.fprintf out "(@[ite@ %a@ %a@ %a@])" pp_t a pp_t b pp_t c
-  | LRA l ->
-    begin match l with
-      | LRA_pred (p, a, b) ->
-        Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_pred p) pp_t a pp_t b
-      | LRA_op (p, a, b) ->
-        Fmt.fprintf out "(@[%s@ %a@ %a@])" (string_of_lra_op p) pp_t a pp_t b
-      | LRA_mult (n, x) ->
-        Fmt.fprintf out "(@[*@ %a@ %a@])" Q.pp_print n pp_t x
-      | LRA_const q -> Q.pp_print out q
-      | LRA_simplex_var v -> pp_t out v
-      | LRA_simplex_pred (v, op, q) ->
-        Fmt.fprintf out "(@[%a@ %s %a@])"
-          pp_t v (Sidekick_arith_lra.S_op.to_string op) Q.pp_print q
-      | LRA_other x -> pp_t out x
-    end
+  | LRA l -> pp_arith_gen ~pp_c:Q.pp_print ~pp_t out l
+  | LIA l -> pp_arith_gen ~pp_c:Z.pp_print ~pp_t out l
 
 let pp_term_top ~ids out t =
   let rec pp out t =
@@ -276,6 +305,7 @@ module Ty : sig
   type view = ty_view =
     | Ty_bool
     | Ty_real
+    | Ty_int
     | Ty_atomic of {
       def: ty_def;
       args: ty list;
@@ -298,6 +328,7 @@ module Ty : sig
 
   val bool : store -> t
   val real : store -> t
+  val int : store -> t
   val atomic : def -> t list -> t
   val id_of_def : def -> ID.t
 
@@ -334,6 +365,7 @@ end = struct
   type view = ty_view =
     | Ty_bool
     | Ty_real
+    | Ty_int
     | Ty_atomic of {
       def: ty_def;
       args: ty list;
@@ -367,16 +399,18 @@ end = struct
   module H = Hashcons.Make(struct
       type t = ty
       let equal a b = match a.ty_view, b.ty_view with
-        | Ty_bool, Ty_bool -> true
+        | Ty_bool, Ty_bool
+        | Ty_int, Ty_int
         | Ty_real, Ty_real -> true
         | Ty_atomic a1, Ty_atomic a2 ->
           equal_def a1.def a2.def && CCList.equal equal a1.args a2.args
-        | (Ty_bool | Ty_atomic _ | Ty_real), _
+        | (Ty_bool | Ty_atomic _ | Ty_real | Ty_int), _
           -> false
 
       let hash t = match t.ty_view with
-        | Ty_bool -> 1
-        | Ty_real -> 2
+        | Ty_bool -> Hash.int 1
+        | Ty_real -> Hash.int 2
+        | Ty_int -> Hash.int 3
         | Ty_atomic {def=Ty_uninterpreted id; args; _} ->
           Hash.combine3 10 (ID.hash id) (Hash.list hash args)
         | Ty_atomic {def=Ty_def d; args; _} ->
@@ -398,15 +432,16 @@ end = struct
 
   let finite t = match view t with
     | Ty_bool -> true
-    | Ty_real -> false
+    | Ty_real | Ty_int -> false
     | Ty_atomic {finite=f; _} -> f
 
   let set_finite t b = match view t with
-    | Ty_bool | Ty_real -> assert false
+    | Ty_bool | Ty_real | Ty_int -> assert false
     | Ty_atomic r -> r.finite <- b
 
   let bool () = make_ Ty_bool
   let real () = make_ Ty_real
+  let int () = make_ Ty_int
 
   let atomic def args : t =
     make_ (Ty_atomic {def; args; finite=true;})
@@ -569,7 +604,8 @@ module Term_cell : sig
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of (Q.t, 'a) lra_view
+    | LRA of (Q.t, 'a) arith_view
+    | LIA of (Z.t, 'a) arith_view
 
   type t = term view
 
@@ -583,7 +619,8 @@ module Term_cell : sig
   val eq : term -> term -> t
   val not_ : term -> t
   val ite : term -> term -> term -> t
-  val lra : (Q.t,term) lra_view -> t
+  val lra : (Q.t,term) arith_view -> t
+  val lia : (Z.t,term) arith_view -> t
 
   val ty : t -> Ty.t
   (** Compute the type of this term cell. Not totally free *)
@@ -612,7 +649,8 @@ end = struct
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of (Q.t,'a) lra_view
+    | LRA of (Q.t, 'a) arith_view
+    | LIA of (Z.t, 'a) arith_view
 
   type t = term view
 
@@ -628,6 +666,21 @@ end = struct
     let sub_eq = A.equal
 
     let hash_q q = Hash.string (Q.to_string q)
+    let hash_z = Z.hash
+
+    let hash_arith ~hash_c = function
+      | Arith_pred (p, a, b) ->
+        Hash.combine4 81 (Hash.poly p) (sub_hash a) (sub_hash b)
+      | Arith_op (p, a, b) ->
+        Hash.combine4 82 (Hash.poly p) (sub_hash a) (sub_hash b)
+      | Arith_mult (n, x) ->
+        Hash.combine3 83 (hash_c n) (sub_hash x)
+      | Arith_const q -> Hash.combine2 84 (hash_c q)
+      | Arith_var x -> sub_hash x
+      | Arith_to_real x -> Hash.combine2 85 (sub_hash x)
+      | Arith_simplex_var v -> Hash.combine2 99 (sub_hash v)
+      | Arith_simplex_pred (v,op,q) ->
+        Hash.combine4 120 (sub_hash v) (Hash.poly op) (hash_c q)
 
     let hash (t:A.t view) : int = match t with
       | Bool b -> Hash.bool b
@@ -636,20 +689,27 @@ end = struct
       | Eq (a,b) -> Hash.combine3 12 (sub_hash a) (sub_hash b)
       | Not u -> Hash.combine2 70 (sub_hash u)
       | Ite (a,b,c) -> Hash.combine4 80 (sub_hash a)(sub_hash b)(sub_hash c)
-      | LRA l ->
-        begin match l with
-          | LRA_pred (p, a, b) ->
-            Hash.combine4 81 (Hash.poly p) (sub_hash a) (sub_hash b)
-          | LRA_op (p, a, b) ->
-            Hash.combine4 82 (Hash.poly p) (sub_hash a) (sub_hash b)
-          | LRA_mult (n, x) ->
-            Hash.combine3 83 (hash_q n) (sub_hash x)
-          | LRA_const q -> Hash.combine2 84 (hash_q q)
-          | LRA_simplex_var v -> Hash.combine2 99 (sub_hash v)
-          | LRA_simplex_pred (v,op,q) ->
-            Hash.combine4 120 (sub_hash v) (Hash.poly op) (hash_q q)
-          | LRA_other x -> sub_hash x
-        end
+      | LRA l -> hash_arith ~hash_c:hash_q l
+      | LIA l -> hash_arith ~hash_c:hash_z l
+
+    let equal_arith ~eq_c l1 l2 =
+      begin match l1, l2 with
+        | Arith_pred (p1,a1,b1), Arith_pred (p2,a2,b2) ->
+          p1 = p2 && sub_eq a1 a2 && sub_eq b1 b2
+        | Arith_op(p1,a1,b1), Arith_op (p2,a2,b2) ->
+          p1 = p2 && sub_eq a1 a2 && sub_eq b1 b2
+        | Arith_const a1, Arith_const a2 -> eq_c a1 a2
+        | Arith_mult (n1,x1), Arith_mult (n2,x2) -> eq_c n1 n2 && sub_eq x1 x2
+        | Arith_var x1, Arith_var x2
+        | Arith_to_real x1, Arith_to_real x2
+          -> sub_eq x1 x2
+        | Arith_simplex_var v1, Arith_simplex_var v2 -> sub_eq v1 v2
+        | Arith_simplex_pred (v1,op1,q1), Arith_simplex_pred (v2,op2,q2) ->
+          sub_eq v1 v2 && (op1==op2) && eq_c q1 q2
+        | (Arith_pred _ | Arith_op _ | Arith_const _ | Arith_simplex_var _
+          | Arith_mult _ | Arith_var _
+          | Arith_to_real _ | Arith_simplex_pred _), _ -> false
+      end
 
     (* equality that relies on physical equality of subterms *)
     let equal (a:A.t view) b : bool = match a, b with
@@ -660,22 +720,9 @@ end = struct
       | Not a, Not b -> sub_eq a b
       | Ite (a1,b1,c1), Ite (a2,b2,c2) ->
         sub_eq a1 a2 && sub_eq b1 b2 && sub_eq c1 c2
-      | LRA l1, LRA l2 ->
-        begin match l1, l2 with
-          | LRA_pred (p1,a1,b1), LRA_pred (p2,a2,b2) ->
-            p1 = p2 && sub_eq a1 a2 && sub_eq b1 b2
-          | LRA_op(p1,a1,b1), LRA_op (p2,a2,b2) ->
-            p1 = p2 && sub_eq a1 a2 && sub_eq b1 b2
-          | LRA_const a1, LRA_const a2 -> Q.equal a1 a2
-          | LRA_mult (n1,x1), LRA_mult (n2,x2) -> Q.equal n1 n2 && sub_eq x1 x2
-          | LRA_other x1, LRA_other x2 -> sub_eq x1 x2
-          | LRA_simplex_var v1, LRA_simplex_var v2 -> sub_eq v1 v2
-          | LRA_simplex_pred (v1,op1,q1), LRA_simplex_pred (v2,op2,q2) ->
-            sub_eq v1 v2 && (op1==op2) && Q.equal q1 q2
-          | (LRA_pred _ | LRA_op _ | LRA_const _ | LRA_simplex_var _
-            | LRA_mult _ | LRA_other _ | LRA_simplex_pred _), _ -> false
-        end
-      | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _ | LRA _), _
+      | LRA l1, LRA l2 -> equal_arith ~eq_c:Q.equal l1 l2
+      | LIA l1, LIA l2 -> equal_arith ~eq_c:Z.equal l1 l2
+      | (Bool _ | App_fun _ | Eq _ | Not _ | Ite _ | LRA _ | LIA _), _
         -> false
 
     let pp = pp_term_view_gen ~pp_id:ID.pp_name ~pp_t:A.pp
@@ -710,6 +757,7 @@ end = struct
 
   let[@inline] ite a b c = Ite (a,b,c)
   let[@inline] lra l : t = LRA l
+  let[@inline] lia l : t = LIA l
 
   let ty (t:t): Ty.t = match t with
     | Bool _ | Eq _ | Not _ -> Ty.bool ()
@@ -742,9 +790,17 @@ end = struct
       end
     | LRA l ->
       begin match l with
-        | LRA_pred _ | LRA_simplex_pred _ -> Ty.bool ()
-        | LRA_op _ | LRA_const _ | LRA_mult _ | LRA_simplex_var _ -> Ty.real ()
-        | LRA_other x -> x.term_ty
+        | Arith_pred _ | Arith_simplex_pred _ -> Ty.bool ()
+        | Arith_op _ | Arith_const _ | Arith_mult _
+        | Arith_simplex_var _ | Arith_to_real _ -> Ty.real ()
+        | Arith_var x -> x.term_ty
+      end
+    | LIA l ->
+      begin match l with
+        | Arith_pred _ | Arith_simplex_pred _ -> Ty.bool ()
+        | Arith_op _ | Arith_const _ | Arith_mult _ | Arith_simplex_var _ -> Ty.int ()
+        | Arith_to_real _ -> Ty.real()
+        | Arith_var x -> x.term_ty
       end
 
   let iter f view =
@@ -754,14 +810,8 @@ end = struct
     | Not u -> f u
     | Eq (a,b) -> f a; f b
     | Ite (a,b,c) -> f a; f b; f c
-    | LRA l ->
-      begin match l with
-        | LRA_pred (_, a, b)|LRA_op (_, a, b) -> f a; f b
-        | LRA_mult (_,x) | LRA_other x -> f x
-        | LRA_simplex_var x -> f x
-        | LRA_simplex_pred (x,_,_) -> f x
-        | LRA_const _ -> ()
-      end
+    | LRA l -> iter_arith_view f l
+    | LIA l -> iter_arith_view f l
 
   let map f view =
     match view with
@@ -770,7 +820,8 @@ end = struct
     | Not u -> Not (f u)
     | Eq (a,b) -> Eq (f a, f b)
     | Ite (a,b,c) -> Ite (f a, f b, f c)
-    | LRA l -> LRA (Sidekick_arith_lra.map_view f l)
+    | LRA l -> LRA (map_arith_view f l)
+    | LIA l -> LIA (map_arith_view f l)
 end
 
 (** Term creation and manipulation *)
@@ -787,7 +838,8 @@ module Term : sig
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of (Q.t,'a) lra_view
+    | LRA of (Q.t,'a) arith_view
+    | LIA of (Z.t,'a) arith_view
 
   val id : t -> int
   val view : t -> term view
@@ -823,14 +875,15 @@ module Term : sig
   val select : store -> select -> t -> t
   val app_cstor : store -> cstor -> t IArray.t -> t
   val is_a : store -> cstor -> t -> t
-  val lra : store -> (Q.t,t) lra_view -> t
+  val lra : store -> (Q.t,t) arith_view -> t
+  val lia : store -> (Z.t,t) arith_view -> t
 
-  (** Helpers for LRA *)
-  module LRA : sig
+  module type ARITH_HELPER = sig
+    type num
     val plus : store -> t -> t -> t
     val minus : store -> t -> t -> t
-    val mult : store -> Q.t -> t -> t
-    val const : store -> Q.t -> t
+    val mult : store -> num -> t -> t
+    val const : store -> num -> t
     val leq : store -> t -> t -> t
     val lt : store -> t -> t -> t
     val geq : store -> t -> t -> t
@@ -839,6 +892,9 @@ module Term : sig
     val neq : store -> t -> t -> t
     val var : store -> t -> t
   end
+
+  module LRA : ARITH_HELPER with type num := Q.t
+  module LIA : ARITH_HELPER with type num := Z.t
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
   val abs : store -> t -> t * bool
@@ -892,7 +948,8 @@ end = struct
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
-    | LRA of (Q.t,'a) lra_view
+    | LRA of (Q.t,'a) arith_view
+    | LIA of (Z.t,'a) arith_view
 
   let[@inline] id t = t.term_id
   let[@inline] ty t = t.term_ty
@@ -955,23 +1012,58 @@ end = struct
   let is_a st c t : t = app_fun st (Fun.is_a c) (IArray.singleton t)
   let app_cstor st c args : t = app_fun st (Fun.cstor c) args
 
-  let[@inline] lra (st:store) (l:(Q.t,t) lra_view) : t =
+  let[@inline] lra (st:store) (l:(Q.t,t) arith_view) : t =
     match l with
-    | LRA_other x -> x (* normalize *)
+    | Arith_var x -> x (* normalize *)
     | _ -> make st (Term_cell.lra l)
 
+  let[@inline] lia (st:store) (l:(Z.t,t) arith_view) : t =
+    match l with
+    | Arith_var x -> x (* normalize *)
+    | _ -> make st (Term_cell.lia l)
+
+
+  module type ARITH_HELPER = sig
+    type num
+    val plus : store -> t -> t -> t
+    val minus : store -> t -> t -> t
+    val mult : store -> num -> t -> t
+    val const : store -> num -> t
+    val leq : store -> t -> t -> t
+    val lt : store -> t -> t -> t
+    val geq : store -> t -> t -> t
+    val gt : store -> t -> t -> t
+    val eq : store -> t -> t -> t
+    val neq : store -> t -> t -> t
+    val var : store -> t -> t
+  end
+
   module LRA = struct
-    let plus st a b : t = lra st (LRA_op (Plus, a, b))
-    let minus st a b : t = lra st (LRA_op (Minus, a, b))
-    let mult st a b : t = lra st (LRA_mult (a, b))
-    let const st q : t = lra st (LRA_const q)
-    let leq st a b : t = lra st (LRA_pred (Leq, a, b))
-    let lt st a b : t = lra st (LRA_pred (Lt, a, b))
-    let geq st a b : t = lra st (LRA_pred (Geq, a, b))
-    let gt st a b : t = lra st (LRA_pred (Gt, a, b))
-    let eq st a b : t = lra st (LRA_pred (Eq, a, b))
-    let neq st a b : t = lra st (LRA_pred (Neq, a, b))
-    let var st a : t = lra st (LRA_simplex_var a)
+    let plus st a b : t = lra st (Arith_op (Plus, a, b))
+    let minus st a b : t = lra st (Arith_op (Minus, a, b))
+    let mult st a b : t = lra st (Arith_mult (a, b))
+    let const st q : t = lra st (Arith_const q)
+    let leq st a b : t = lra st (Arith_pred (Leq, a, b))
+    let lt st a b : t = lra st (Arith_pred (Lt, a, b))
+    let geq st a b : t = lra st (Arith_pred (Geq, a, b))
+    let gt st a b : t = lra st (Arith_pred (Gt, a, b))
+    let eq st a b : t = lra st (Arith_pred (Eq, a, b))
+    let neq st a b : t = lra st (Arith_pred (Neq, a, b))
+    let var st a : t = lra st (Arith_simplex_var a)
+  end
+
+  module LIA = struct
+    let plus st a b : t = lia st (Arith_op (Plus, a, b))
+    let minus st a b : t = lia st (Arith_op (Minus, a, b))
+    let mult st a b : t = lia st (Arith_mult (a, b))
+    let const st q : t = lia st (Arith_const q)
+    let leq st a b : t = lia st (Arith_pred (Leq, a, b))
+    let lt st a b : t = lia st (Arith_pred (Lt, a, b))
+    let geq st a b : t = lia st (Arith_pred (Geq, a, b))
+    let gt st a b : t = lia st (Arith_pred (Gt, a, b))
+    let eq st a b : t = lia st (Arith_pred (Eq, a, b))
+    let neq st a b : t = lia st (Arith_pred (Neq, a, b))
+    let var st a : t = lia st (Arith_simplex_var a)
   end
 
   let app_undefined store id ty args : t =
@@ -985,8 +1077,10 @@ end = struct
     | Not u -> u, false
     | App_fun ({fun_view=Fun_def def; _}, args) ->
       def.abs ~self:t args (* TODO: pass store *)
-    | LRA (LRA_pred (Neq, a, b)) ->
-      lra tst (LRA_pred (Eq,a,b)), false (* != is just not eq *)
+    | LRA (Arith_pred (Neq, a, b)) ->
+      lra tst (Arith_pred (Eq,a,b)), false (* != is just not eq *)
+    | LIA (Arith_pred (Neq, a, b)) ->
+      lia tst (Arith_pred (Eq,a,b)), false (* != is just not eq *)
     | _ -> t, true
 
   let[@inline] is_true t = match view t with Bool true -> true | _ -> false
@@ -1005,9 +1099,11 @@ end = struct
     | Eq (a,b) -> C.Eq (a, b)
     | Not u -> C.Not u
     | Ite (a,b,c) -> C.If (a,b,c)
-    | LRA (LRA_pred (Eq, a, b)) ->
+    | LRA (Arith_pred (Eq, a, b)) ->
       C.Eq (a,b) (* need congruence closure on this one, for theory combination *)
-    | LRA _ -> C.Opaque t (* no congruence here *)
+    | LIA (Arith_pred (Eq, a, b)) ->
+      C.Eq (a,b) (* need congruence closure on this one, for theory combination *)
+    | LRA _ | LIA _ -> C.Opaque t (* no congruence here *)
 
   module As_key = struct
     type t = term
@@ -1062,7 +1158,8 @@ end = struct
     | Not u -> not_ tst (f u)
     | Eq (a,b) -> eq tst (f a) (f b)
     | Ite (a,b,c) -> ite tst (f a) (f b) (f c)
-    | LRA l -> lra tst (Sidekick_arith_lra.map_view f l)
+    | LRA l -> lra tst (map_arith_view f l)
+    | LIA l -> lia tst (map_arith_view f l)
 
   let store_size tst = H.size tst.tbl
   let store_iter tst = H.to_iter tst.tbl

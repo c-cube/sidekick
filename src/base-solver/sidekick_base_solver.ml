@@ -36,7 +36,7 @@ module Th_data = Sidekick_th_data.Make(struct
         Ty_data {cstors=Lazy.force data.data.data_cstors |> ID.Map.values}
       | Ty_atomic {def=_;args;finite=_} ->
         Ty_app{args=Iter.of_list args}
-      | Ty_bool | Ty_real -> Ty_app {args=Iter.empty}
+      | Ty_bool | Ty_real | Ty_int -> Ty_app {args=Iter.empty}
 
     let view_as_data t = match Term.view t with
       | Term.App_fun ({fun_view=Fun.Fun_cstor c;_}, args) -> T_cstor (c, args)
@@ -84,14 +84,30 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   type term = S.T.Term.t
   type ty = S.T.Ty.t
 
+  module LRA = Sidekick_arith_lra
+
   let mk_eq = Form.eq
-  let mk_lra = T.lra
+  let mk_lra store l = match l with
+    | LRA.LRA_other x -> x
+    | LRA.LRA_pred (p, x, y) -> T.lra store (Arith_pred(p,x,y))
+    | LRA.LRA_op (op, x, y) -> T.lra store (Arith_op(op,x,y))
+    | LRA.LRA_const c -> T.lra store (Arith_const c)
+    | LRA.LRA_mult (c,x) -> T.lra store (Arith_mult (c,x))
+    | LRA.LRA_simplex_var x -> T.lra store (Arith_simplex_var x)
+    | LRA.LRA_simplex_pred (x,p,c) -> T.lra store (Arith_simplex_pred (x,p,c))
   let mk_bool = T.bool
+
   let view_as_lra t = match T.view t with
-    | T.LRA l -> l
+    | T.LRA l ->
+      let open Base_types in
+      let module LRA = Sidekick_arith_lra in
+      begin match l with
+        | Arith_const c -> LRA.LRA_const c
+        | _ -> assert false
+      end
     | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.real()) ->
-      LRA_pred (Eq, a, b)
-    | _ -> LRA_other t
+      LRA.LRA_pred (Eq, a, b)
+    | _ -> LRA.LRA_other t
 
   let ty_lra _st = Ty.real()
   let has_ty_real t = Ty.equal (T.ty t) (Ty.real())

@@ -159,6 +159,9 @@ let eval (m:t) (t:Term.t) : Value.t option =
         | LRA_op (_, _, _)|LRA_const _|LRA_other _ -> assert false
       end
       *)
+    | LIA _l ->
+      assert false
+      (* TODO *)
     | App_fun (c, args) ->
       match Fun.view c, (args :_ IArray.t:> _ array) with
       | Fun_def udef, _ ->
