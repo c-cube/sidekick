@@ -53,6 +53,9 @@ module type RATIONAL = sig
   val is_real : t -> bool
   (** A proper real, not nan/infinity *)
 
+  val is_int : t -> bool
+  (** Is this a proper integer? *)
+
   val pp_approx : int -> Format.formatter -> t -> unit
   (** Pretty print rational with given amount of precision
       (for example as a floating point number) *)

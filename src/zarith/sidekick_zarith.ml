@@ -18,6 +18,7 @@ module Rational
   let infinity = Q.inf
   let minus_infinity = Q.minus_inf
   let is_real = Q.is_real
+  let is_int q = is_real q && Z.(equal (denum q) one)
 
   let pp_approx n out q = Format.fprintf out "%*.1f" n (Q.to_float q)
 end
