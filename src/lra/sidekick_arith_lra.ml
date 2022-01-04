@@ -619,6 +619,8 @@ module Make(A : ARG) : S with module A = A = struct
       ~f:(fun (n1,n2) -> add_local_eq self si acts n1 n2);
 
     Log.debug 5 "(th-lra: call arith solver)";
+    (* TODO: jiggle model to reduce the number of variables that
+       have the same value *)
     let model = check_simplex_ self si acts in
     Log.debugf 20 (fun k->k "(@[lra.model@ %a@])" SimpSolver.Subst.pp model);
     Log.debug 5 "lra: solver returns SAT";
