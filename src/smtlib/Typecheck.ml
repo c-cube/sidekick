@@ -203,8 +203,16 @@ let conv_arith_op (ctx:Ctx.t) t (op:PA.arith_op) (l:T.t list) : T.t =
           errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t
       end
 
-    | PA.Div, _ ->
-      errorf_ctx ctx "cannot handle integer div %a" PA.pp_term t
+    | PA.Div, [a;b] ->
+      (* becomes a real *)
+      begin match t_as_q a, t_as_q b with
+        | Some a, Some b -> T.lra tst (Arith_const (Q.div a b))
+        | _, Some b ->
+          let a = cast_to_real ctx a in
+          T.lra tst (Arith_mult (Q.inv b, a))
+        | _, None ->
+          errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t
+      end
 
     | _ ->
       errorf_ctx ctx "cannot handle arith construct %a" PA.pp_term t

@@ -103,7 +103,14 @@ module Th_lra = Sidekick_arith_lra.Make(struct
       let module LRA = Sidekick_arith_lra in
       begin match l with
         | Arith_const c -> LRA.LRA_const c
-        | _ -> assert false
+        | Arith_pred (p,a,b) -> LRA.LRA_pred(p,a,b)
+        | Arith_op(op,a,b) -> LRA.LRA_op(op,a,b)
+        | Arith_mult (c,x) -> LRA.LRA_mult (c,x)
+        | Arith_simplex_var x -> LRA.LRA_simplex_var x
+        | Arith_simplex_pred (x,p,c) -> LRA.LRA_simplex_pred(x,p,c)
+
+        | Arith_to_real x
+        | Arith_var x -> LRA.LRA_other x
       end
     | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.real()) ->
       LRA.LRA_pred (Eq, a, b)
