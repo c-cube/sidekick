@@ -96,6 +96,10 @@ let is_num s =
   then CCString.for_all is_digit_or_dot (String.sub s 1 (String.length s-1))
   else CCString.for_all is_digit_or_dot s
 
+let string_as_z (s:string) : Z.t option =
+  try Some (Z.of_string s)
+  with _ -> None
+
 let string_as_q (s:string) : Q.t option =
   try
     let x =
@@ -214,9 +218,13 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
   | PA.False -> T.false_ tst
   | PA.Const s when is_num s ->
     let open Base_types in
-    begin match string_as_q s with
-      | Some n -> T.lra tst (Arith_const n)
-      | None -> errorf_ctx ctx "expected a number for %a" PA.pp_term t
+    begin match string_as_z s with
+      | Some n -> T.lia tst (Arith_const n)
+      | None ->
+        begin match string_as_q s with
+          | Some n -> T.lra tst (Arith_const n)
+          | None -> errorf_ctx ctx "expected a number for %a" PA.pp_term t
+        end
     end
   | PA.Const f
   | PA.App (f, []) ->
@@ -360,7 +368,6 @@ let rec conv_term (ctx:Ctx.t) (t:PA.term) : T.t =
      A.match_ lhs cases
        *)
   | PA.Arith (op, l) ->
-    Log.debugf 0 (fun k->k"arith op!");
     let l = List.map (conv_term ctx) l in
     conv_arith_op ctx t op l
 
