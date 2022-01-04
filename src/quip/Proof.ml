@@ -141,6 +141,18 @@ and composite_step =
       res: clause; (* result of [proof] *)
       proof: t; (* sub-proof *)
     }
+  (** A named step in {!Composite}, with the expected result.
+      This decouples the checking of the sub-proof, from its use in the rest
+      of the proof, as we can use [res] even if checking [proof] failed. *)
+
+  | S_step_anon of {
+      name: string; (* name of step *)
+      proof: t; (* proof *)
+    }
+    (** A named intermediate proof, to be reused in subsequent proofs.
+        Unlike {!S_step_c} we do not specify the expected result
+        so if this fails, any proof downstream will also fail. *)
+
   | S_define_t of term * term (* [const := t] *)
   | S_define_t_name of string * term (* [const := t] *)
 
@@ -156,6 +168,7 @@ let p p ~lhs ~rhs : hres_step = P { p; lhs; rhs }
 let p1 p = P1 p
 
 let stepc ~name res proof : composite_step = S_step_c {proof;name;res}
+let step_anon ~name proof : composite_step = S_step_anon {name;proof}
 let deft c rhs : composite_step = S_define_t (c,rhs)
 let deft_name c rhs : composite_step = S_define_t_name (c,rhs)
 

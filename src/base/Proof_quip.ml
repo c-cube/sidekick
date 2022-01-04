@@ -84,6 +84,7 @@ end = struct
   let conv_clause (c:PS.Clause.t) : P.clause lazy_t = conv_lits c.lits
 
   let name_clause (id: PS.ID.t) : string = Printf.sprintf "c%ld" id
+  let name_step (id: PS.ID.t) : string = Printf.sprintf "s%ld" id
   let name_term (id: PS.ID.t) : string = Printf.sprintf "t%ld" id
 
   (* TODO: see if we can allow `(stepc c5 (cl …) (… (@ c5) …))`.
@@ -259,13 +260,27 @@ end = struct
           ) in
           L_proofs.add lid p;
 
-        | PS.Step_view.Step_bool_c { rule; exprs } ->
-          Array.iter add_needed_step exprs;
+        | PS.Step_view.Step_proof_res { pivot; c1; c2; } ->
+          add_needed_step c1;
+          add_needed_step c2;
+          add_needed_step pivot;
           let p = lazy (
-            let exprs = Util.array_to_list_map L_terms.find exprs in
-            P.bool_c rule exprs
+            let pivot = L_terms.find pivot in
+            let c1 = L_proofs.find c2 in
+            let c2 = L_proofs.find c2 in
+            P.res ~pivot c1 c2
           ) in
           L_proofs.add lid p;
+
+        | PS.Step_view.Step_bool_c { rule; exprs } ->
+          let name = name_step lid in
+          Array.iter add_needed_step exprs;
+          let step = lazy (
+            let exprs = Util.array_to_list_map L_terms.find exprs in
+            P.step_anon ~name @@ P.bool_c rule exprs
+          ) in
+          add_top_step step;
+          L_proofs.add lid (lazy (P.ref_by_name name));
 
         | PS.Step_view.Step_preprocess { t; u; using } ->
           let name = name_clause lid in

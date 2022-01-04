@@ -113,6 +113,8 @@ module Make_printer(Out : OUT) = struct
     match proof_rule with
     | S_step_c {name;res;proof} ->
       l[a"stepc";a name;pp_cl res;pp_rec proof]
+    | S_step_anon {name;proof} ->
+      l[a"step";a name;pp_rec proof]
     | S_define_t (c,rhs) ->
       (* disable sharing for [rhs], otherwise it'd print [c] *)
       l[a"deft";pp_t c; pp_t rhs]

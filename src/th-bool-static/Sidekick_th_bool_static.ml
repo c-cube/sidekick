@@ -413,7 +413,8 @@ module Make(A : ARG) : S with module A = A = struct
              (* produce a single step proof of [|- t=u] *)
              let proof = SI.proof si in
              let pr = SI.P.lemma_preprocess t u ~using:pr_t_u proof in
-             SI.CC.merge_t cc_ t u (SI.CC.Expl.mk_theory pr []);
+             SI.CC.merge_t cc_ t u
+               (SI.CC.Expl.mk_theory t u [] pr);
              ());
     end;
     ()

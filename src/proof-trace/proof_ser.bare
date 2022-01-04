@@ -58,6 +58,13 @@ type Step_proof_r1 {
   c: ID
 }
 
+# resolve `c1` with `c2` on pivot `pivot` *)
+type Step_proof_res {
+  pivot: ID
+  c1: ID
+  c2: ID
+}
+
 type Step_bool_tauto {
   lits: []Lit
 }
@@ -122,6 +129,7 @@ type Step_view
   | Step_bool_c
   | Step_proof_p1
   | Step_proof_r1
+  | Step_proof_res
   | Step_true
   | Fun_decl
   | Expr_def
