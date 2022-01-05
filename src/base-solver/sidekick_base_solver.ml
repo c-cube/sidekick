@@ -98,6 +98,7 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   let mk_bool = T.bool
 
   let rec view_as_lra t = match T.view t with
+    | T.LIA (Arith_const i) -> LRA.LRA_const (Q.of_bigint i)
     | T.LRA l ->
       let open Base_types in
       let module LRA = Sidekick_arith_lra in

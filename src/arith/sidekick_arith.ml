@@ -50,6 +50,8 @@ module type RATIONAL = sig
 
   val minus_infinity : t
 
+  val of_bigint : bigint -> t
+
   val is_real : t -> bool
   (** A proper real, not nan/infinity *)
 
