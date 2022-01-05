@@ -466,7 +466,7 @@ module Make(A : ARG) : S with module A = A = struct
     | _ -> ()
 
   let check_simplex_ self si acts : SimpSolver.Subst.t =
-    Log.debug 5 "lra: call arith solver";
+    Log.debug 5 "(lra.check-simplex)";
     let res =
       Profile.with_ "simplex.solve"
         (fun () ->
@@ -512,6 +512,7 @@ module Make(A : ARG) : S with module A = A = struct
   (* theory combination: add decisions [t=u] whenever [t] and [u]
      have the same value in [subst] and both occur under function symbols *)
   let do_th_combination (self:state) si acts (subst:Subst.t) : unit =
+    Log.debug 5 "(lra.do-th-combinations)";
     let n_th_comb = T.Tbl.keys self.needs_th_combination |> Iter.length in
     if n_th_comb > 0 then (
       Log.debugf 5
@@ -618,12 +619,11 @@ module Make(A : ARG) : S with module A = A = struct
     Backtrack_stack.iter self.local_eqs
       ~f:(fun (n1,n2) -> add_local_eq self si acts n1 n2);
 
-    Log.debug 5 "(th-lra: call arith solver)";
     (* TODO: jiggle model to reduce the number of variables that
        have the same value *)
     let model = check_simplex_ self si acts in
     Log.debugf 20 (fun k->k "(@[lra.model@ %a@])" SimpSolver.Subst.pp model);
-    Log.debug 5 "lra: solver returns SAT";
+    Log.debug 5 "(lra: solver returns SAT)";
     do_th_combination self si acts model;
     ()
 
