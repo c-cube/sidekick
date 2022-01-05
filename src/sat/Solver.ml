@@ -1743,7 +1743,8 @@ module Make(Plugin : PLUGIN)
     match List.find (Atom.is_true store) l with
     | a ->
       invalid_argf
-        "slice.acts_propagate:@ Consequence should contain only true literals, but %a isn't"
+        "slice.acts_propagate:@ Consequence should contain only false literals,@ \
+         but @[%a@] is true"
         (Atom.debug store) (Atom.neg a)
     | exception Not_found -> ()
 

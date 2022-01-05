@@ -856,9 +856,12 @@ module Make (A: CC_ARG)
              let e = lazy (
                let lazy st = half_expl_and_pr in
                explain_equal_rec_ cc st u1 t1;
-               (* assert that [guard /\ ¬lit] is absurd, to propagate [lit] *)
+               (* true literals explaining why t1=t2 *)
+               let guard = st.lits in
+               (* get a proof of [guard /\ ¬lit] being absurd, to propagate [lit] *)
                Expl_state.add_lit st (Lit.neg lit);
-               lits_and_proof_of_expl cc st
+               let _, pr = lits_and_proof_of_expl cc st in
+               guard, pr
              ) in
              fun () -> Lazy.force e
            in
