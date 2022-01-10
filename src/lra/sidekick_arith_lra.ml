@@ -9,6 +9,7 @@ open Sidekick_core
 module Simplex2 = Simplex2
 module Predicate = Predicate
 module Linear_expr = Linear_expr
+module Linear_expr_intf = Linear_expr_intf
 
 module type RATIONAL = Sidekick_arith.RATIONAL
 
@@ -79,6 +80,15 @@ end
 module type S = sig
   module A : ARG
 
+  (*
+  module SimpVar : Simplex2.VAR with type lit = A.S.Lit.t
+  module LE_ : Linear_expr_intf.S with module Var = SimpVar
+  module LE = LE_.Expr
+     *)
+
+  (** Simplexe *)
+  module SimpSolver : Simplex2.S
+
   type state
 
   val create : ?stat:Stat.t ->
@@ -86,6 +96,16 @@ module type S = sig
     A.S.T.Term.store ->
     A.S.T.Ty.store ->
     state
+
+  (* TODO: be able to declare some variables as ints *)
+
+  (*
+  val simplex : state -> Simplex.t
+     *)
+
+  val k_state : state A.S.Solver_internal.Registry.key
+  (** Key to access the state from outside,
+      available when the theory has been setup *)
 
   val theory : A.S.theory
 end
@@ -638,10 +658,13 @@ module Make(A : ARG) : S with module A = A = struct
         T.Tbl.add self.needs_th_combination t ()
       )
 
+  let k_state = SI.Registry.create_key ()
+
   let create_and_setup si =
     Log.debug 2 "(th-lra.setup)";
     let stat = SI.stats si in
     let st = create ~stat (SI.proof si) (SI.tst si) (SI.ty_st si) in
+    SI.Registry.set (SI.registry si) k_state st;
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
