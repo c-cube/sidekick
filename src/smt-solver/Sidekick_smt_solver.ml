@@ -262,6 +262,7 @@ module Make(A : ARG)
       mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
       mutable level: int;
+      mutable complete: bool;
     }
 
     and preprocess_hook =
@@ -633,6 +634,12 @@ module Make(A : ARG)
     let[@inline] final_check (self:t) (acts:_ Sidekick_sat.acts) : unit =
       check_ ~final:true self acts
 
+    let declare_pb_is_incomplete self =
+      if self.complete then (
+        Log.debug 1 "(solver.declare-pb-is-incomplete)";
+      );
+      self.complete <- false
+
     let create ~stat ~proof (tst:Term.store) (ty_st:Ty.store) () : t =
       let rec self = {
         tst;
@@ -658,6 +665,7 @@ module Make(A : ARG)
         on_partial_check=[];
         on_final_check=[];
         level=0;
+        complete=true;
       } in
       ignore (Lazy.force @@ self.cc : CC.t);
       self

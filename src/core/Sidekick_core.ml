@@ -990,6 +990,11 @@ module type SOLVER_INTERNAL = sig
       is given the whole trail.
   *)
 
+  val declare_pb_is_incomplete : t -> unit
+  (** Declare that, in some theory, the problem is outside the logic fragment
+      that is decidable (e.g. if we meet proper NIA formulas).
+      The solver will not reply "SAT" from now on. *)
+
   (** {3 Model production} *)
 
   type model_hook =
