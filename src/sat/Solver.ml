@@ -1740,7 +1740,9 @@ module Make(Plugin : PLUGIN)
 
   let check_consequence_lits_false_ self l : unit =
     let store = self.store in
-    match List.find (Atom.is_true store) l with
+    Log.debugf 50 (fun k->k "(@[sat.check-consequence-lits: %a@])"
+                      (Util.pp_list (Atom.debug store)) l);
+    match List.find (fun a -> Atom.is_true store a) l with
     | a ->
       invalid_argf
         "slice.acts_propagate:@ Consequence should contain only false literals,@ \
@@ -1753,26 +1755,28 @@ module Make(Plugin : PLUGIN)
     match expl with
     | Solver_intf.Consequence mk_expl ->
       let p = make_atom_ self f in
+      Log.debugf 30
+        (fun k->k "(@[sat.propagate-from-theory@ %a@])" (Atom.debug store) p);
       if Atom.is_true store p then ()
       else if Atom.is_false store p then (
         let lits, proof = mk_expl() in
-        let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
-        check_consequence_lits_false_ self l;
-        let c = Clause.make_l store ~removable:true (p :: l) proof in
+        let guard = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
+        check_consequence_lits_false_ self guard;
+        let c = Clause.make_l store ~removable:true (p::guard) proof in
         raise_notrace (Th_conflict c)
       ) else (
         insert_var_order self (Atom.var p);
         let c = lazy (
           let lits, proof = mk_expl () in
-          let l = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
+          let guard = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
           (* note: we can check that invariant here in the [lazy] block,
              as conflict analysis will run in an environment where
              the literals should be true anyway, since it's an extension of the
              current trail
              (otherwise the propagated lit would have been backtracked and
              discarded already.) *)
-          check_consequence_lits_false_ self l;
-          Clause.make_l store ~removable:true (p :: l) proof
+          check_consequence_lits_false_ self guard;
+          Clause.make_l store ~removable:true (p::guard) proof
         ) in
         let level = decision_level self in
         Stat.incr self.n_propagations;

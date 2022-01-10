@@ -449,6 +449,7 @@ module Make (A: CC_ARG)
 
     let create(): t = { lits=[]; th_lemmas=[] }
 
+    let[@inline] copy self : t = {self with lits=self.lits}
     let[@inline] add_lit (self:t) lit = self.lits <- lit :: self.lits
     let[@inline] add_th (self:t) lit hyps pr : unit =
       self.th_lemmas <- (lit,hyps,pr) :: self.th_lemmas
@@ -859,6 +860,7 @@ module Make (A: CC_ARG)
                (* true literals explaining why t1=t2 *)
                let guard = st.lits in
                (* get a proof of [guard /\ ¬lit] being absurd, to propagate [lit] *)
+               let st = Expl_state.copy st in (* do not modify shared st *)
                Expl_state.add_lit st (Lit.neg lit);
                let _, pr = lits_and_proof_of_expl cc st in
                guard, pr
