@@ -5,5 +5,5 @@
   (libraries sidekick-base sidekick.core sidekick.smt-solver
              sidekick.th-bool-static
              sidekick.mini-cc sidekick.th-data
-             sidekick.arith-lra sidekick.zarith)
+             sidekick.arith-lra sidekick.arith-lia sidekick.zarith)
   (flags :standard -warn-error -a+8 -safe-string -color always -open Sidekick_util))

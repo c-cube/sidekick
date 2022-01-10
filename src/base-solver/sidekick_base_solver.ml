@@ -139,6 +139,54 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   end
 end)
 
+module Th_lia = Sidekick_arith_lia.Make(struct
+  module S = Solver
+  module T = Term
+  module Q = Sidekick_zarith.Rational
+  module Z = Sidekick_zarith.Int
+  type term = S.T.Term.t
+  type ty = S.T.Ty.t
+
+  module LRA = Th_lra
+  module LIA = Sidekick_arith_lia
+
+  let mk_eq = Form.eq
+  let mk_lia store l = match l with
+    | LIA.LIA_other x -> x
+    | LIA.LIA_pred (p, x, y) -> T.lia store (Arith_pred(p,x,y))
+    | LIA.LIA_op (op, x, y) -> T.lia store (Arith_op(op,x,y))
+    | LIA.LIA_const c -> T.lia store (Arith_const c)
+    | LIA.LIA_mult (c,x) -> T.lia store (Arith_mult (c,x))
+    | LIA.LIA_simplex_var x -> T.lia store (Arith_simplex_var x)
+    | LIA.LIA_simplex_pred (x,p,c) -> T.lia store (Arith_simplex_pred (x,p,c))
+  let mk_bool = T.bool
+  let mk_to_real store t = T.lra store (Arith_to_real t)
+
+  let view_as_lia t = match T.view t with
+    | T.LIA l ->
+      let open Base_types in
+      let module LIA = Sidekick_arith_lia in
+      begin match l with
+        | Arith_const c -> LIA.LIA_const c
+        | Arith_pred (p,a,b) -> LIA.LIA_pred(p,a,b)
+        | Arith_op(op,a,b) -> LIA.LIA_op(op,a,b)
+        | Arith_mult (c,x) -> LIA.LIA_mult (c,x)
+        | Arith_simplex_var x -> LIA.LIA_simplex_var x
+        | Arith_simplex_pred (x,p,c) -> LIA.LIA_simplex_pred(x,p,c)
+        | Arith_to_real _ -> LIA.LIA_other t
+        | Arith_var x -> LIA.LIA_other x
+      end
+    | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.int()) ->
+      LIA.LIA_pred (Eq, a, b)
+    | _ -> LIA.LIA_other t
+
+  let ty_int _st = Ty.int()
+  let has_ty_int t = Ty.equal (T.ty t) (Ty.int())
+
+  let lemma_lia = Proof.lemma_lia
+end)
+
 let th_bool : Solver.theory = Th_bool.theory
 let th_data : Solver.theory = Th_data.theory
 let th_lra : Solver.theory = Th_lra.theory
+let th_lia : Solver.theory = Th_lia.theory
