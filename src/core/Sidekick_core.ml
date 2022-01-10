@@ -709,6 +709,23 @@ module type CC_S = sig
   (**/**)
 end
 
+(** Registry to extract values *)
+module type REGISTRY = sig
+  type t
+
+  type 'a key
+
+  val create_key : unit -> 'a key
+  (** Call this statically, typically at program initialization, for
+      each distinct key. *)
+
+  val create : unit -> t
+
+  val get : t -> 'a key -> 'a option
+
+  val set : t -> 'a key -> 'a -> unit
+end
+
 (** A view of the solver from a theory's point of view.
 
     Theories should interact with the solver via this module, to assert
@@ -742,6 +759,13 @@ module type SOLVER_INTERNAL = sig
 
   val proof : t -> proof
   (** Access the proof object *)
+
+  (** {3 Registry} *)
+
+  module Registry : REGISTRY
+
+  val registry : t -> Registry.t
+  (** A solver contains a registry so that theories can share data *)
 
   (** {3 Actions for the theories} *)
 
@@ -1018,6 +1042,13 @@ module type SOLVER = sig
   type ty = T.Ty.t
   type lit = Lit.t
 
+  (** {3 Value registry} *)
+
+  module Registry : REGISTRY
+
+  val registry : t -> Registry.t
+  (** A solver contains a registry so that theories can share data *)
+
   (** {3 A theory}
 
       Theories are abstracted over the concrete implementation of the solver,
@@ -1245,7 +1276,6 @@ module type SOLVER = sig
   val pp_stats : t CCFormat.printer
   (** Print some statistics. What it prints exactly is unspecified. *)
 end
-
 
 (** Helper for the congruence closure
 

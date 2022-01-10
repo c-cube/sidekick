@@ -32,6 +32,47 @@ end
 
 module type S = Sidekick_core.SOLVER
 
+module Registry : Sidekick_core.REGISTRY = struct
+  (* registry keys *)
+  module type KEY = sig
+    type elt
+    val id : int
+    exception E of elt
+  end
+
+  type 'a key = (module KEY with type elt = 'a)
+
+  type t = {
+    tbl: exn Util.Int_tbl.t;
+  } [@@unboxed]
+
+  let create() : t = {
+    tbl=Util.Int_tbl.create 8;
+  }
+
+  let n_ = ref 0
+
+  let create_key (type a) () : a key =
+    let id = !n_ in
+    incr n_;
+    let module K = struct
+      type elt = a
+      exception E of a
+      let id = id
+    end in
+    (module K)
+
+  let get (type a) (self:t) (k:a key) : _ option =
+    let (module K : KEY with type elt = a) = k in
+    match Util.Int_tbl.get self.tbl K.id with
+    | Some (K.E x) -> Some x
+    | _ -> None
+
+  let set (type a) (self:t) (k:a key) (v:a) : unit =
+    let (module K) = k in
+    Util.Int_tbl.replace self.tbl K.id (K.E v)
+end
+
 (** Main functor to get a solver. *)
 module Make(A : ARG)
   : S
@@ -198,6 +239,8 @@ module Make(A : ARG)
     end
     type preprocess_actions = (module PREPROCESS_ACTS)
 
+    module Registry = Registry
+
     type t = {
       tst: Term.store; (** state for managing terms *)
       ty_st: Ty.store;
@@ -208,6 +251,7 @@ module Make(A : ARG)
       count_preprocess_clause: int Stat.counter;
       count_conflict: int Stat.counter;
       count_propagate: int Stat.counter;
+      registry: Registry.t;
       mutable on_progress: unit -> unit;
       simp: Simplify.t;
       mutable preprocess: preprocess_hook list;
@@ -239,6 +283,7 @@ module Make(A : ARG)
     let[@inline] proof self = self.proof
     let stats t = t.stat
 
+    let registry self = self.registry
     let simplifier self = self.simp
     let simplify_t self (t:Term.t) : _ option = Simplify.normalize self.simp t
     let simp_t self (t:Term.t) : Term.t * _ = Simplify.normalize_t self.simp t
@@ -603,6 +648,7 @@ module Make(A : ARG)
         on_progress=(fun () -> ());
         preprocess=[];
         mk_model=[];
+        registry=Registry.create();
         preprocess_cache=Term.Tbl.create 32;
         count_axiom = Stat.mk_int stat "solver.th-axioms";
         count_preprocess_clause = Stat.mk_int stat "solver.preprocess-clause";
@@ -631,6 +677,9 @@ module Make(A : ARG)
     (* config: Config.t *)
   }
   type solver = t
+
+  module Registry = Solver_internal.Registry
+  let[@inline] registry self = Solver_internal.registry self.si
 
   module type THEORY = sig
     type t
@@ -891,6 +940,11 @@ module Make(A : ARG)
       Stat.incr self.count_solve;
       Sat_solver.solve ~on_progress ~assumptions (solver self)
     with
+    | Sat_solver.Sat _ when not self.si.complete ->
+      Log.debugf 1
+        (fun k->k "(@[sidekick.smt-solver: SAT@ actual: UNKNOWN@ :reason incomplete-fragment@])");
+      Unknown Unknown.U_incomplete
+
     | Sat_solver.Sat (module SAT) ->
       Log.debug 1 "(sidekick.smt-solver: SAT)";
 
