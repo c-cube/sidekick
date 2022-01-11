@@ -1738,10 +1738,10 @@ module Make(Plugin : PLUGIN)
                      (Clause.debug self.store) c);
     raise_notrace (Th_conflict c)
 
-  let check_consequence_lits_false_ self l : unit =
+  let check_consequence_lits_false_ self l p : unit =
     let store = self.store in
-    Log.debugf 50 (fun k->k "(@[sat.check-consequence-lits: %a@])"
-                      (Util.pp_list (Atom.debug store)) l);
+    Log.debugf 50 (fun k->k "(@[sat.check-consequence-lits: %a@ :for %a@])"
+                      (Util.pp_list (Atom.debug store)) l (Atom.debug store) p);
     match List.find (fun a -> Atom.is_true store a) l with
     | a ->
       invalid_argf
@@ -1761,24 +1761,32 @@ module Make(Plugin : PLUGIN)
       else if Atom.is_false store p then (
         let lits, proof = mk_expl() in
         let guard = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
-        check_consequence_lits_false_ self guard;
+        check_consequence_lits_false_ self guard p;
         let c = Clause.make_l store ~removable:true (p::guard) proof in
         raise_notrace (Th_conflict c)
       ) else (
         insert_var_order self (Atom.var p);
-        let c = lazy (
+        let level = decision_level self in
+        let c = (
+          (* Check literals + proof eagerly, as it's safer.
+
+             We could check invariants in a [lazy] block,
+             as conflict analysis would run in an environment where
+             the literals should be true anyway, since it's an extension of the
+             current trail.
+             (otherwise the propagated lit would have been backtracked and
+             discarded already.)
+
+             However it helps catching propagation bugs to verify truthiness
+             of the guard (and level) eagerly.
+          *)
           let lits, proof = mk_expl () in
           let guard = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
-          (* note: we can check that invariant here in the [lazy] block,
-             as conflict analysis will run in an environment where
-             the literals should be true anyway, since it's an extension of the
-             current trail
-             (otherwise the propagated lit would have been backtracked and
-             discarded already.) *)
-          check_consequence_lits_false_ self guard;
-          Clause.make_l store ~removable:true (p::guard) proof
+          check_consequence_lits_false_ self guard p;
+          assert (List.fold_left (fun l a -> max l (Atom.level store a)) 0 guard = level);
+          (* delay creating the actual clause. *)
+          lazy (Clause.make_l store ~removable:true (p::guard) proof)
         ) in
-        let level = decision_level self in
         Stat.incr self.n_propagations;
         enqueue_bool self p ~level (Bcp_lazy c)
       )
