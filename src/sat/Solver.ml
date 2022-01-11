@@ -620,6 +620,18 @@ module Make(Plugin : PLUGIN)
       number of clauses by default *)
   let learntsize_factor = 1. /. 3.
 
+  type action =
+    | Propagate_lit of {
+        p: atom;
+        lvl: int;
+        reason: reason;
+      }
+    | Add_clause_learnt of clause
+    | Add_clause_pool of {
+        c: clause;
+        pool: clause_pool;
+      }
+
   (* Singleton type containing the current state *)
   type t = {
     store : store;
@@ -1713,6 +1725,7 @@ module Make(Plugin : PLUGIN)
     let removable = not keep in
     let c = Clause.make_l self.store ~removable atoms p in
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
+    (* will be added later, even if we backtrack *)
     CVec.push self.clauses_to_add_learnt c
 
   let acts_add_clause_in_pool self ~pool (l:lit list) (p:proof_step): unit =
@@ -1723,15 +1736,45 @@ module Make(Plugin : PLUGIN)
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause-in-pool@ %a@ :pool %s@])"
                      (Clause.debug self.store) c
                      (cp_descr_ pool));
+    (* will be added later, even if we backtrack *)
     Vec.push self.clauses_to_add_in_pool (c, pool)
 
-  let acts_add_decision_lit (self:t) (f:lit) (sign:bool) : unit =
+  module Th_action = struct
+    type t =
+      | Add_decision of atom
+      | Propagate_atom of {
+          p: atom;
+          lvl: int;
+          reason: clause lazy_t;
+        }
+  end
+
+  module Th_action_queue : sig
+    type t
+    val create: unit -> t
+    val is_empty : t -> bool
+    val clear : t -> unit
+    val pop : t -> Th_action.t
+    val add : t -> Th_action.t -> unit
+  end = struct
+    type t = {
+      st: Th_action.t Vec.t;
+    } [@@unboxed]
+
+    let create() : t = { st=Vec.create() }
+    let clear self = Vec.clear self.st
+    let is_empty self = Vec.is_empty self.st
+    let pop self = Vec.pop_exn self.st
+    let add (self:t) (act:Th_action.t) = Vec.push self.st act
+  end
+
+  let acts_add_decision_lit (self:t) (q:Th_action_queue.t) (f:lit) (sign:bool) : unit =
     let store = self.store in
     let a = make_atom_ self f in
     let a = if sign then a else Atom.neg a in
     if not (Atom.has_value store a) then (
       Log.debugf 10 (fun k->k "(@[sat.th.add-decision-lit@ %a@])" (Atom.debug store) a);
-      self.next_decisions <- a :: self.next_decisions
+      Th_action_queue.add q (Th_action.Add_decision a)
     )
 
   let acts_raise self (l:lit list) (p:proof_step) : 'a =
@@ -1740,6 +1783,7 @@ module Make(Plugin : PLUGIN)
     let c = Clause.make_l self.store ~removable:true atoms p in
     Log.debugf 5 (fun k->k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])"
                      (Clause.debug self.store) c);
+    (* we can shortcut the rest of the theory propagations *)
     raise_notrace (Th_conflict c)
 
   let check_consequence_lits_false_ self l p : unit =
@@ -1754,7 +1798,7 @@ module Make(Plugin : PLUGIN)
         (Atom.debug store) (Atom.neg a)
     | exception Not_found -> ()
 
-  let acts_propagate (self:t) f (expl:(_,proof_step) Solver_intf.reason) =
+  let acts_propagate (self:t) (q:Th_action_queue.t) f (expl:(_,proof_step) Solver_intf.reason) =
     let store = self.store in
     match expl with
     | Solver_intf.Consequence mk_expl ->
@@ -1791,10 +1835,27 @@ module Make(Plugin : PLUGIN)
           (* delay creating the actual clause. *)
           lazy (Clause.make_l store ~removable:true (p::guard) proof), level
         ) in
-        Stat.incr self.n_propagations;
-        Log.debugf 40 (fun k->k "(@[sat.propagation-level %d@])" level);
-        enqueue_bool self p ~level (Bcp_lazy c)
+        let act = Th_action.Propagate_atom {p; lvl=level; reason=c} in
+        Th_action_queue.add q act
       )
+
+  let perform_th_actions_ (self:solver) (acts:Th_action_queue.t) =
+    while not (Th_action_queue.is_empty acts) do
+      let act = Th_action_queue.pop acts in
+      match act with
+      | Th_action.Add_decision a ->
+        self.next_decisions <- a :: self.next_decisions
+      | Th_action.Propagate_atom {p; lvl; reason=c} ->
+        if Atom.is_true self.store p then ()
+        else if Atom.is_false self.store p then (
+          raise_notrace (Th_conflict (Lazy.force c))
+        ) else (
+          (* if we backjump, rest of propagations are moot *)
+          if lvl < decision_level self then Th_action_queue.clear acts;
+          Stat.incr self.n_propagations;
+          enqueue_bool self p ~level:lvl (Bcp_lazy c)
+        )
+    done
 
   let[@specialise] acts_iter self ~full head f : unit =
     for i = (if full then 0 else head) to AVec.size self.trail-1 do
@@ -1814,7 +1875,7 @@ module Make(Plugin : PLUGIN)
   let[@inline] acts_add_lit self ?default_pol f : unit =
     ignore (make_atom_ ?default_pol self f : atom)
 
-  let[@inline] current_slice st : _ Solver_intf.acts =
+  let[@inline] current_slice st q : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
@@ -1826,14 +1887,14 @@ module Make(Plugin : PLUGIN)
       let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let add_clause_in_pool = acts_add_clause_in_pool st
-      let propagate = acts_propagate st
+      let propagate = acts_propagate st q
       let raise_conflict c pr=acts_raise st c pr
-      let add_decision_lit=acts_add_decision_lit st
+      let add_decision_lit=acts_add_decision_lit st q
     end in
     (module M)
 
   (* full slice, for [if_sat] final check *)
-  let[@inline] full_slice st : _ Solver_intf.acts =
+  let[@inline] full_slice st q : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
@@ -1845,9 +1906,9 @@ module Make(Plugin : PLUGIN)
       let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let add_clause_in_pool = acts_add_clause_in_pool st
-      let propagate = acts_propagate st
+      let propagate = acts_propagate st q
       let raise_conflict c pr=acts_raise st c pr
-      let add_decision_lit=acts_add_decision_lit st
+      let add_decision_lit=acts_add_decision_lit st q
     end in
     (module M)
 
@@ -1867,10 +1928,12 @@ module Make(Plugin : PLUGIN)
     if self.th_head = self.elt_head then (
       None (* fixpoint/no propagation *)
     ) else (
-      let slice = current_slice self in
+      let q = Th_action_queue.create() in
+      let slice = current_slice self q in
       self.th_head <- self.elt_head; (* catch up *)
       match Plugin.partial_check self.th slice with
       | () ->
+        perform_th_actions_ self q;
         flush_clauses self;
         propagate self
       | exception Th_conflict c ->
@@ -2175,15 +2238,18 @@ module Make(Plugin : PLUGIN)
             assert (self.elt_head = AVec.size self.trail &&
                     has_no_new_clauses self &&
                     self.next_decisions=[]);
-            begin match Plugin.final_check self.th (full_slice self) with
+            let q = Th_action_queue.create() in
+            begin match Plugin.final_check self.th (full_slice self q) with
               | () ->
                 if self.elt_head = AVec.size self.trail &&
                    has_no_new_clauses self &&
+                   Th_action_queue.is_empty q &&
                    self.next_decisions = []
                 then (
                   raise_notrace E_sat
                 );
                 (* otherwise, keep on *)
+                perform_th_actions_ self q;
                 flush_clauses self;
               | exception Th_conflict c ->
                 check_is_conflict_ self c;
