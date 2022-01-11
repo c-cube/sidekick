@@ -42,7 +42,10 @@ module Make(A : ARG) : S with module A = A = struct
     let st = create ~stat (SI.proof si) (SI.tst si) (SI.ty_st si) in
 
     SI.on_preprocess si (fun _si _ t ->
-        if A.has_ty_int t then (
+        let is_int_const t = match A.view_as_lia t with
+          | LIA_const _ -> true | _ -> false in
+        if A.has_ty_int t && not (is_int_const t) then (
+          Log.debugf 10 (fun k->k "lia: has ty int %a" T.pp t);
           SI.declare_pb_is_incomplete si; (* TODO: remove *)
 
 
