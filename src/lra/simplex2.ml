@@ -247,9 +247,6 @@ module Make(Q : RATIONAL)(Var: VAR)
     mutable l_bound: bound option;
     mutable u_bound: bound option;
 
-    mutable l_implied: Erat.t; (* implied lower bound for a basic var *)
-    mutable u_implied: Erat.t;
-
     mutable all_bound_lits : (is_lower * bound) list; (* all known literals on this var *)
   }
 
@@ -398,10 +395,11 @@ module Make(Q : RATIONAL)(Var: VAR)
         if self.basic_idx < 0 then () else Fmt.int out self.basic_idx
       in
       Fmt.fprintf out
-        "(@[v%d[%s%a]%s@ :value %a%a%a@])"
+        "(@[v%d[%s%a]%s@ :value %a%a%a@ :t-var %a@])"
         self.idx (if is_basic self then "B" else "N") pp_basic_idx ()
         bnd_status Erat.pp self.value
         (pp_bnd ":lower") self.l_bound (pp_bnd ":upper") self.u_bound
+        V.pp self.var
   end
 
   type t = {
@@ -481,51 +479,6 @@ module Make(Q : RATIONAL)(Var: VAR)
     try V_map.find x self.var_tbl
     with Not_found -> Error.errorf "variable is not in the simplex" Var.pp x
 
-  let[@inline] get_bnd_or v (b:bound option) =
-    match b with None -> v | Some b -> b.b_val
-
-  (* update implied bounds for basic variable [x_i] by looking at each
-     non-basic variable's bounds *)
-  let update_implied_bounds_ (self:t) (x_i:var_state) : unit =
-    assert (Var_state.is_basic x_i);
-    let m = self.matrix in
-
-    let i_low = ref Erat.zero in
-    let i_up = ref Erat.zero in
-
-    Matrix.iter_cols m ~skip:x_i.idx begin fun j ->
-      let a_ij: Q.t = Matrix.get m x_i.basic_idx j in
-      let x_j = Vec.get self.vars j in
-
-      let low_j = get_bnd_or Erat.minus_inf x_j.l_bound in
-      let up_j = get_bnd_or Erat.plus_inf x_j.u_bound in
-
-      if Q.(a_ij = zero) then()
-      else if Q.(a_ij > zero) then (
-        i_low := Erat.(!i_low + a_ij * low_j);
-        i_up := Erat.(!i_up + a_ij * up_j);
-      ) else (
-        (* [a_ij < 0] and [x_j < up],
-           means [-a_ij > 0] and [-x_j > -up]
-           means [x_i = rest + a_ij x_j > rest + (-a_ij) * (-up)] *)
-        i_low := Erat.(!i_low + a_ij * up_j);
-        i_up := Erat.(!i_up + a_ij * low_j);
-      )
-    end;
-
-    let old_i_low = x_i.l_implied in
-    let old_i_up = x_i.u_implied in
-    Backtrack_stack.push self.undo_stack
-      (fun () ->
-         x_i.l_implied <- old_i_low;
-         x_i.u_implied <- old_i_up);
-    x_i.l_implied <- !i_low;
-    x_i.u_implied <- !i_up;
-    Log.debugf 50
-      (fun k->k"(@[lra.implied-bounds@ :var %a@ :lower %a@ :upper %a@])"
-          Var_state.pp x_i Erat.pp !i_low Erat.pp !i_up);
-    ()
-
   (* define [x] as a basic variable *)
   let define (self:t) (x:V.t) (le:_ list) : unit =
     assert (not (has_var_ self x));
@@ -548,8 +501,6 @@ module Make(Q : RATIONAL)(Var: VAR)
               basic_idx=row_idx;
               l_bound=None;
               u_bound=None;
-              l_implied=Erat.minus_inf;
-              u_implied=Erat.plus_inf;
               all_bound_lits=[];
             })
     in
@@ -587,8 +538,6 @@ module Make(Q : RATIONAL)(Var: VAR)
          );
       ) le;
 
-    update_implied_bounds_ self vs;
-
     (* Log.debugf 50 (fun k->k "post-define: %a" pp self); *)
     _check_invariants_internal self;
     ()
@@ -604,8 +553,6 @@ module Make(Q : RATIONAL)(Var: VAR)
         var=x;
         l_bound=None;
         u_bound=None;
-        l_implied=Erat.minus_inf;
-        u_implied=Erat.plus_inf;
         value=Erat.zero;
         all_bound_lits=[];
       } in
@@ -673,8 +620,6 @@ module Make(Q : RATIONAL)(Var: VAR)
       (* make [x_i] non basic, and [x_j] basic *)
       x_j.basic_idx <- x_i.basic_idx;
       x_i.basic_idx <- -1;
-      x_i.l_implied <- Erat.minus_inf;
-      x_i.u_implied <- Erat.plus_inf;
       Matrix.set_row_var m x_j.basic_idx x_j;
 
       (* adjust other rows so they don't depend on [x_j] *)
@@ -701,8 +646,6 @@ module Make(Q : RATIONAL)(Var: VAR)
           Matrix.set m k x_j.idx Q.zero; (* [x_k] doesn't use [x_j] anymore *)
         )
       end;
-
-      update_implied_bounds_ self x_j;
     end;
 
     assert (Var_state.is_basic x_j);
@@ -799,66 +742,6 @@ module Make(Q : RATIONAL)(Var: VAR)
       self.vars;
     !map_res, !bounds
 
-  (* do propagations for basic var [x_i] based on its implied bounds *)
-  let propagate_basic_implied_bounds (self:t) ~on_propagate (x_i:var_state) : unit =
-    assert (Var_state.is_basic x_i);
-
-    let lits_of_row_ ~get_lower : V.lit list =
-      let l, _ =
-        gather_bounds_of_row_ self x_i ~get_lower
-          ~map:(fun _ _ bnd -> bnd.b_lit) in
-      l
-    in
-
-    let process_bount_lit (is_lower, bnd): unit =
-      if is_lower then (
-        if Erat.(bnd.b_val < x_i.l_implied) then (
-          (* implied lower bound subsumes this lower bound *)
-          let reason = lits_of_row_ ~get_lower:true in
-          on_propagate bnd.b_lit ~reason
-        );
-        if Erat.(bnd.b_val > x_i.u_implied) then (
-          (* lower bound is higher than implied upper bound *)
-          match V.not_lit bnd.b_lit with
-          | Some not_lit ->
-            Log.debugf 50
-              (fun k->k"(@[lra.propagate.not@ :lower-bnd-of %a@ :bnd %a :lit %a@ :u-implied %a@])"
-                  Var_state.pp x_i Erat.pp bnd.b_val V.pp_lit bnd.b_lit Erat.pp x_i.u_implied);
-            let reason = lits_of_row_ ~get_lower:false in
-            on_propagate not_lit ~reason
-          | None -> ()
-        )
-      ) else (
-        if Erat.(bnd.b_val > x_i.u_implied) then (
-          (* implied upper bound subsumes this upper bound *)
-          let reason = lits_of_row_ ~get_lower:false in
-          on_propagate bnd.b_lit ~reason
-        );
-        if Erat.(bnd.b_val < x_i.l_implied) then (
-          (* upper bound is lower than implied lower bound *)
-          match V.not_lit bnd.b_lit with
-          | Some not_lit ->
-            let reason = lits_of_row_ ~get_lower:true in
-            on_propagate not_lit ~reason
-          | None -> ()
-        )
-      )
-    in
-
-    List.iter process_bount_lit x_i.all_bound_lits;
-    ()
-
-  let update_implied_bounds_for_nbasic_
-      (self:t) (vs:var_state) ~on_propagate : unit =
-    (* section 3.2.5: update implied bounds on basic variables that
-               depend on [vs] *)
-    Matrix.iter_rows self.matrix begin fun i x_i ->
-      if Q.(Matrix.get self.matrix i vs.idx <> zero) then (
-        update_implied_bounds_ self x_i;
-        propagate_basic_implied_bounds self ~on_propagate x_i;
-      )
-    end
-
   let add_constraint ~on_propagate (self:t) (c:Constraint.t) (lit:V.lit) : unit =
     let open Constraint in
 
@@ -910,7 +793,6 @@ module Make(Q : RATIONAL)(Var: VAR)
              Erat.(vs.value < new_bnd.b_val) then (
             (* line 5: need to update non-basic variable *)
             update_n_basic self vs new_bnd.b_val;
-            update_implied_bounds_for_nbasic_ self vs ~on_propagate;
           )
       end
     ) else (
@@ -947,7 +829,6 @@ module Make(Q : RATIONAL)(Var: VAR)
              Erat.(vs.value > new_bnd.b_val) then (
             (* line 5: need to update non-basic variable *)
             update_n_basic self vs new_bnd.b_val;
-            update_implied_bounds_for_nbasic_ self vs ~on_propagate;
           )
       end
     )
