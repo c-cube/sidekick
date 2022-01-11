@@ -620,17 +620,91 @@ module Make(Plugin : PLUGIN)
       number of clauses by default *)
   let learntsize_factor = 1. /. 3.
 
-  type action =
-    | Propagate_lit of {
-        p: atom;
-        lvl: int;
-        reason: reason;
-      }
-    | Add_clause_learnt of clause
-    | Add_clause_pool of {
-        c: clause;
-        pool: clause_pool;
-      }
+  (** Actions from theories and user, but to be done in specific points
+      of the solving loops. *)
+  module Delayed_actions : sig
+    type t
+    val create: unit -> t
+    val is_empty : t -> bool
+    val clear : t -> unit
+    val clear_on_backtrack : t -> unit
+    val add_clause_learnt : t -> clause -> unit
+    val add_clause_pool : t -> clause -> clause_pool -> unit
+    val propagate_atom : t -> atom -> lvl:int -> clause lazy_t -> unit
+    val add_decision : t -> atom -> unit
+    val iter :
+      decision:(atom -> unit) ->
+      propagate:(atom -> lvl:int -> clause lazy_t -> unit) ->
+      add_clause_learnt:(clause -> unit) ->
+      add_clause_pool:(clause -> clause_pool -> unit) ->
+      t -> unit
+  end = struct
+    type t = {
+      clauses_to_add_learnt : CVec.t;
+      (* Clauses either assumed or pushed by the theory, waiting to be added. *)
+
+      clauses_to_add_in_pool : (clause * clause_pool) Vec.t;
+      (* clauses to add into a pool *)
+
+      mutable prop_level: int;
+      propagate : (atom * int * clause lazy_t) Vec.t;
+
+      decisions: atom Vec.t;
+    }
+
+    let create() : t = {
+      clauses_to_add_learnt=CVec.create();
+      clauses_to_add_in_pool=Vec.create();
+      prop_level= -1;
+      propagate=Vec.create();
+      decisions=Vec.create();
+    }
+
+    let clear self =
+      let {clauses_to_add_learnt; clauses_to_add_in_pool; prop_level=_;
+           propagate; decisions} = self in
+      Vec.clear clauses_to_add_in_pool;
+      CVec.clear clauses_to_add_learnt;
+      Vec.clear propagate;
+      Vec.clear decisions
+
+    let clear_on_backtrack self =
+      let {clauses_to_add_learnt=_; clauses_to_add_in_pool=_;
+           propagate; prop_level=_; decisions} = self in
+      Vec.clear propagate;
+      Vec.clear decisions
+
+    let is_empty self =
+      let {clauses_to_add_learnt; clauses_to_add_in_pool;
+           prop_level=_; propagate; decisions} = self in
+      Vec.is_empty clauses_to_add_in_pool &&
+      CVec.is_empty clauses_to_add_learnt &&
+      Vec.is_empty decisions &&
+      Vec.is_empty propagate
+
+    let add_clause_pool (self:t) c pool = Vec.push self.clauses_to_add_in_pool (c,pool)
+    let add_clause_learnt (self:t) c = CVec.push self.clauses_to_add_learnt c
+    let propagate_atom self p ~lvl c =
+      if not (Vec.is_empty self.propagate) && lvl < self.prop_level then (
+        Vec.clear self.propagate; (* will be immediately backtracked *)
+      );
+      if lvl <= self.prop_level then (
+        self.prop_level <- lvl;
+        Vec.push self.propagate (p,lvl,c)
+      )
+    let add_decision self p = Vec.push self.decisions p
+
+    let iter ~decision ~propagate ~add_clause_learnt ~add_clause_pool self : unit =
+      let {clauses_to_add_learnt; clauses_to_add_in_pool;
+           prop_level=_; propagate=prop; decisions} = self in
+      Vec.iter (fun (c,p) -> add_clause_pool c p) clauses_to_add_in_pool;
+      CVec.iter ~f:add_clause_learnt clauses_to_add_learnt;
+      Vec.iter decision decisions;
+      Vec.iter (fun (p,lvl,c) -> propagate p ~lvl c) prop;
+      clear self;
+      ()
+
+  end
 
   (* Singleton type containing the current state *)
   type t = {
@@ -656,18 +730,14 @@ module Make(Plugin : PLUGIN)
     (* learnt clauses (tautologies true at any time, whatever the user level).
        GC'd regularly. *)
 
-    clauses_to_add_learnt : CVec.t;
-    (* Clauses either assumed or pushed by the theory, waiting to be added. *)
-
-    clauses_to_add_in_pool : (clause * clause_pool) Vec.t;
-    (* clauses to add into a pool *)
-
     clauses_dead : CVec.t;
     (* dead clauses, to be removed at next GC.
        invariant: all satisfy [Clause.dead store c]. *)
 
     clause_pools : clause_pool Vec.t;
     (* custom clause pools *)
+
+    delayed_actions: Delayed_actions.t;
 
     mutable unsat_at_0: clause option;
     (* conflict at level 0, if any *)
@@ -753,10 +823,8 @@ module Make(Plugin : PLUGIN)
       make_gc_clause_pool_
         ~descr:(fun () -> "cp.learnt-clauses")
         ~max_size:max_clauses_learnt ();
-    clauses_to_add_learnt = CVec.create ();
-    clauses_to_add_in_pool = Vec.create();
+    delayed_actions=Delayed_actions.create();
     clauses_dead = CVec.create();
-
     clause_pools = Vec.create();
 
     to_clear=Vec.create();
@@ -1122,6 +1190,7 @@ module Make(Plugin : PLUGIN)
       AVec.shrink self.trail !head;
       VecSmallInt.shrink self.var_levels lvl;
       Plugin.pop_levels self.th n;
+      Delayed_actions.clear_on_backtrack self.delayed_actions;
       (* TODO: for scoped clause pools, backtrack them *)
       self.next_decisions <- [];
     );
@@ -1619,25 +1688,6 @@ module Make(Plugin : PLUGIN)
       Log.debugf 5
         (fun k->k "(@[sat.add-clause@ :ignore-trivial @[%a@]@])" (Clause.debug store) init)
 
-  let[@inline never] flush_clauses_ (self:t) : unit =
-    while not @@ CVec.is_empty self.clauses_to_add_learnt do
-      let c = CVec.pop self.clauses_to_add_learnt in
-      add_clause_ ~pool:self.clauses_learnt self c
-    done;
-    while not @@ Vec.is_empty self.clauses_to_add_in_pool do
-      let c, pool = Vec.pop_exn self.clauses_to_add_in_pool in
-      add_clause_ ~pool self c
-    done;
-    ()
-
-  let[@inline] has_no_new_clauses (self:t) : bool =
-    CVec.is_empty self.clauses_to_add_learnt && Vec.is_empty self.clauses_to_add_in_pool
-
-  let[@inline] flush_clauses self =
-    if not (has_no_new_clauses self) then (
-      flush_clauses_ self
-    )
-
   type watch_res =
     | Watch_kept
     | Watch_removed
@@ -1726,7 +1776,7 @@ module Make(Plugin : PLUGIN)
     let c = Clause.make_l self.store ~removable atoms p in
     Log.debugf 5 (fun k->k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
     (* will be added later, even if we backtrack *)
-    CVec.push self.clauses_to_add_learnt c
+    Delayed_actions.add_clause_learnt self.delayed_actions c
 
   let acts_add_clause_in_pool self ~pool (l:lit list) (p:proof_step): unit =
     let atoms = List.rev_map (make_atom_ self) l in
@@ -1737,44 +1787,15 @@ module Make(Plugin : PLUGIN)
                      (Clause.debug self.store) c
                      (cp_descr_ pool));
     (* will be added later, even if we backtrack *)
-    Vec.push self.clauses_to_add_in_pool (c, pool)
+    Delayed_actions.add_clause_pool self.delayed_actions c pool
 
-  module Th_action = struct
-    type t =
-      | Add_decision of atom
-      | Propagate_atom of {
-          p: atom;
-          lvl: int;
-          reason: clause lazy_t;
-        }
-  end
-
-  module Th_action_queue : sig
-    type t
-    val create: unit -> t
-    val is_empty : t -> bool
-    val clear : t -> unit
-    val pop : t -> Th_action.t
-    val add : t -> Th_action.t -> unit
-  end = struct
-    type t = {
-      st: Th_action.t Vec.t;
-    } [@@unboxed]
-
-    let create() : t = { st=Vec.create() }
-    let clear self = Vec.clear self.st
-    let is_empty self = Vec.is_empty self.st
-    let pop self = Vec.pop_exn self.st
-    let add (self:t) (act:Th_action.t) = Vec.push self.st act
-  end
-
-  let acts_add_decision_lit (self:t) (q:Th_action_queue.t) (f:lit) (sign:bool) : unit =
+  let acts_add_decision_lit (self:t) (f:lit) (sign:bool) : unit =
     let store = self.store in
     let a = make_atom_ self f in
     let a = if sign then a else Atom.neg a in
     if not (Atom.has_value store a) then (
       Log.debugf 10 (fun k->k "(@[sat.th.add-decision-lit@ %a@])" (Atom.debug store) a);
-      Th_action_queue.add q (Th_action.Add_decision a)
+      Delayed_actions.add_decision self.delayed_actions a;
     )
 
   let acts_raise self (l:lit list) (p:proof_step) : 'a =
@@ -1798,7 +1819,7 @@ module Make(Plugin : PLUGIN)
         (Atom.debug store) (Atom.neg a)
     | exception Not_found -> ()
 
-  let acts_propagate (self:t) (q:Th_action_queue.t) f (expl:(_,proof_step) Solver_intf.reason) =
+  let acts_propagate (self:t) f (expl:(_,proof_step) Solver_intf.reason) =
     let store = self.store in
     match expl with
     | Solver_intf.Consequence mk_expl ->
@@ -1835,27 +1856,37 @@ module Make(Plugin : PLUGIN)
           (* delay creating the actual clause. *)
           lazy (Clause.make_l store ~removable:true (p::guard) proof), level
         ) in
-        let act = Th_action.Propagate_atom {p; lvl=level; reason=c} in
-        Th_action_queue.add q act
+        Delayed_actions.propagate_atom self.delayed_actions p ~lvl:level c
       )
 
-  let perform_th_actions_ (self:solver) (acts:Th_action_queue.t) =
-    while not (Th_action_queue.is_empty acts) do
-      let act = Th_action_queue.pop acts in
-      match act with
-      | Th_action.Add_decision a ->
-        self.next_decisions <- a :: self.next_decisions
-      | Th_action.Propagate_atom {p; lvl; reason=c} ->
-        if Atom.is_true self.store p then ()
-        else if Atom.is_false self.store p then (
-          raise_notrace (Th_conflict (Lazy.force c))
-        ) else (
-          (* if we backjump, rest of propagations are moot *)
-          if lvl < decision_level self then Th_action_queue.clear acts;
-          Stat.incr self.n_propagations;
-          enqueue_bool self p ~level:lvl (Bcp_lazy c)
-        )
-    done
+  let[@inline never] perform_delayed_actions_ (self:t) : unit =
+    let add_clause_learnt c =
+      add_clause_ ~pool:self.clauses_learnt self c
+    and add_clause_pool c pool =
+      add_clause_ ~pool self c
+    and decision a =
+      self.next_decisions <- a :: self.next_decisions
+    and propagate p ~lvl c =
+      if Atom.is_true self.store p then ()
+      else if Atom.is_false self.store p then (
+        raise_notrace (Th_conflict (Lazy.force c))
+      ) else (
+        Stat.incr self.n_propagations;
+        enqueue_bool self p ~level:lvl (Bcp_lazy c)
+      )
+    in
+    Delayed_actions.iter self.delayed_actions
+      ~add_clause_learnt
+      ~add_clause_pool ~propagate ~decision;
+    ()
+
+  let[@inline] has_no_delayed_actions (self:t) : bool =
+    Delayed_actions.is_empty self.delayed_actions
+
+  let[@inline] perform_delayed_actions self =
+    if not (has_no_delayed_actions self) then (
+      perform_delayed_actions_ self
+    )
 
   let[@specialise] acts_iter self ~full head f : unit =
     for i = (if full then 0 else head) to AVec.size self.trail-1 do
@@ -1875,7 +1906,7 @@ module Make(Plugin : PLUGIN)
   let[@inline] acts_add_lit self ?default_pol f : unit =
     ignore (make_atom_ ?default_pol self f : atom)
 
-  let[@inline] current_slice st q : _ Solver_intf.acts =
+  let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
@@ -1887,14 +1918,14 @@ module Make(Plugin : PLUGIN)
       let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let add_clause_in_pool = acts_add_clause_in_pool st
-      let propagate = acts_propagate st q
+      let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
-      let add_decision_lit=acts_add_decision_lit st q
+      let add_decision_lit=acts_add_decision_lit st
     end in
     (module M)
 
   (* full slice, for [if_sat] final check *)
-  let[@inline] full_slice st q : _ Solver_intf.acts =
+  let[@inline] full_slice st : _ Solver_intf.acts =
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
@@ -1906,9 +1937,9 @@ module Make(Plugin : PLUGIN)
       let add_lit=acts_add_lit st
       let add_clause = acts_add_clause st
       let add_clause_in_pool = acts_add_clause_in_pool st
-      let propagate = acts_propagate st q
+      let propagate = acts_propagate st
       let raise_conflict c pr=acts_raise st c pr
-      let add_decision_lit=acts_add_decision_lit st q
+      let add_decision_lit=acts_add_decision_lit st
     end in
     (module M)
 
@@ -1928,13 +1959,11 @@ module Make(Plugin : PLUGIN)
     if self.th_head = self.elt_head then (
       None (* fixpoint/no propagation *)
     ) else (
-      let q = Th_action_queue.create() in
-      let slice = current_slice self q in
+      let slice = current_slice self in
       self.th_head <- self.elt_head; (* catch up *)
       match Plugin.partial_check self.th slice with
       | () ->
-        perform_th_actions_ self q;
-        flush_clauses self;
+        perform_delayed_actions self;
         propagate self
       | exception Th_conflict c ->
         check_is_conflict_ self c;
@@ -1945,8 +1974,8 @@ module Make(Plugin : PLUGIN)
   (* fixpoint between boolean propagation and theory propagation
      @return a conflict clause, if any *)
   and propagate (st:t) : clause option =
-    (* First, treat the stack of lemmas added by the theory, if any *)
-    flush_clauses st;
+    (* First, treat the stack of lemmas/actions added by the theory, if any *)
+    perform_delayed_actions st;
     (* Now, check that the situation is sane *)
     assert (st.elt_head <= AVec.size st.trail);
     if st.elt_head = AVec.size st.trail then (
@@ -2222,7 +2251,7 @@ module Make(Plugin : PLUGIN)
     Log.debugf 5 (fun k->k "(@[sat.solve :assms %d@])" (AVec.size self.assumptions));
     check_unsat_ self;
     try
-      flush_clauses self; (* add initial clauses *)
+      perform_delayed_actions self; (* add initial clauses *)
       let max_conflicts = ref (float_of_int restart_first) in
       let max_learnt = ref ((float_of_int (nb_clauses self)) *. learntsize_factor) in
       while true do
@@ -2236,21 +2265,18 @@ module Make(Plugin : PLUGIN)
             max_learnt    := !max_learnt *. learntsize_inc
           | E_sat ->
             assert (self.elt_head = AVec.size self.trail &&
-                    has_no_new_clauses self &&
+                    has_no_delayed_actions self &&
                     self.next_decisions=[]);
-            let q = Th_action_queue.create() in
-            begin match Plugin.final_check self.th (full_slice self q) with
+            begin match Plugin.final_check self.th (full_slice self) with
               | () ->
                 if self.elt_head = AVec.size self.trail &&
-                   has_no_new_clauses self &&
-                   Th_action_queue.is_empty q &&
+                   has_no_delayed_actions self &&
                    self.next_decisions = []
                 then (
                   raise_notrace E_sat
                 );
                 (* otherwise, keep on *)
-                perform_th_actions_ self q;
-                flush_clauses self;
+                perform_delayed_actions self;
               | exception Th_conflict c ->
                 check_is_conflict_ self c;
                 Clause.iter self.store c
@@ -2259,8 +2285,8 @@ module Make(Plugin : PLUGIN)
                                  (Clause.debug self.store) c);
                 Stat.incr self.n_conflicts;
                 (match self.on_conflict with Some f -> f self c | None -> ());
-                CVec.push self.clauses_to_add_learnt c;
-                flush_clauses self;
+                Delayed_actions.add_clause_learnt self.delayed_actions c;
+                perform_delayed_actions self;
             end;
         end
       done
@@ -2274,7 +2300,7 @@ module Make(Plugin : PLUGIN)
          let c = Clause.make_a self.store ~removable:false atoms proof in
          Log.debugf 10 (fun k -> k "(@[sat.assume-clause@ @[<hov 2>%a@]@])"
                            (Clause.debug self.store) c);
-         CVec.push self.clauses_to_add_learnt c)
+         Delayed_actions.add_clause_learnt self.delayed_actions c)
       cnf
 
   let[@inline] theory st = st.th
@@ -2523,7 +2549,7 @@ module Make(Plugin : PLUGIN)
     with_local_assumptions_ self assumptions @@ fun () ->
     try
       check_unsat_ self;
-      flush_clauses self; (* add initial clauses *)
+      perform_delayed_actions self; (* add initial clauses *)
       propagate_under_assumptions self
     with
     | E_unsat us ->
