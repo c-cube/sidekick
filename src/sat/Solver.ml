@@ -1176,6 +1176,10 @@ module Make(Plugin : PLUGIN)
     assert (not (Atom.is_true store a) &&
             Atom.level store a < 0 &&
             Atom.reason store a == None && lvl >= 0);
+    (* backtrack if required *)
+    if lvl < decision_level self then (
+      cancel_until self lvl;
+    );
     Atom.set_is_true store a true;
     Var.set_level store (Atom.var a) lvl;
     Var.set_reason store (Atom.var a) (Some reason);
@@ -1766,8 +1770,7 @@ module Make(Plugin : PLUGIN)
         raise_notrace (Th_conflict c)
       ) else (
         insert_var_order self (Atom.var p);
-        let level = decision_level self in
-        let c = (
+        let c, level = (
           (* Check literals + proof eagerly, as it's safer.
 
              We could check invariants in a [lazy] block,
@@ -1783,11 +1786,13 @@ module Make(Plugin : PLUGIN)
           let lits, proof = mk_expl () in
           let guard = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
           check_consequence_lits_false_ self guard p;
-          assert (List.fold_left (fun l a -> max l (Atom.level store a)) 0 guard = level);
+          let level = List.fold_left (fun l a -> max l (Atom.level store a)) 0 guard in
+          assert (level <= decision_level self);
           (* delay creating the actual clause. *)
-          lazy (Clause.make_l store ~removable:true (p::guard) proof)
+          lazy (Clause.make_l store ~removable:true (p::guard) proof), level
         ) in
         Stat.incr self.n_propagations;
+        Log.debugf 40 (fun k->k "(@[sat.propagation-level %d@])" level);
         enqueue_bool self p ~level (Bcp_lazy c)
       )
 
