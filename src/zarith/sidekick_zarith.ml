@@ -19,6 +19,11 @@ module Rational
   let minus_infinity = Q.minus_inf
   let is_real = Q.is_real
   let is_int q = is_real q && Z.(equal (denum q) one)
+  let as_int q = if is_int q then Some (to_bigint q) else None
+  let floor q = Q.to_bigint q
+  let ceil q =
+    let n = Q.to_bigint q in
+    if is_int q then n else Z.(n + one)
 
   let pp_approx n out q = Format.fprintf out "%*.1f" n (Q.to_float q)
 end

@@ -35,6 +35,7 @@ module type INT = sig
   include NUM
 
   val succ : t -> t
+  val gcd : t -> t -> t
 end
 
 module type RATIONAL = sig
@@ -57,6 +58,15 @@ module type RATIONAL = sig
 
   val is_int : t -> bool
   (** Is this a proper integer? *)
+
+  val as_int : t -> bigint option
+  (** Convert to an integer if it's one, return [None] otherwise *)
+
+  val floor : t -> bigint
+  (** Integer equal or below *)
+
+  val ceil : t -> bigint
+  (** Integer equal or above *)
 
   val pp_approx : int -> Format.formatter -> t -> unit
   (** Pretty print rational with given amount of precision
