@@ -3,4 +3,4 @@
   (public_name sidekick.arith-lia)
   (synopsis "Solver for LIA (integer arithmetic)")
   (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util)
-  (libraries containers sidekick.core sidekick.arith sidekick.arith-lra))
+  (libraries containers sidekick.core sidekick.arith sidekick.simplex))

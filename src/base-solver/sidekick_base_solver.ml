@@ -76,10 +76,29 @@ module Th_bool = Sidekick_th_bool_static.Make(struct
   let lemma_ite_false = Proof.lemma_ite_false
 end)
 
+
+module Gensym = struct
+  type t = {
+    tst: Term.store;
+    mutable fresh: int;
+  }
+
+  let create tst : t = {tst; fresh=0}
+  let tst self = self.tst
+  let copy s = {s with tst=s.tst}
+
+  let fresh_term (self:t) ~pre (ty:Ty.t) : Term.t =
+    let name = Printf.sprintf "_sk_lra_%s%d" pre self.fresh in
+    self.fresh <- 1 + self.fresh;
+    let id = ID.make name in
+    Term.const self.tst @@ Fun.mk_undef_const id ty
+end
+
 (** Theory of Linear Rational Arithmetic *)
 module Th_lra = Sidekick_arith_lra.Make(struct
   module S = Solver
   module T = Term
+  module Z = Sidekick_zarith.Int
   module Q = Sidekick_zarith.Rational
   type term = S.T.Term.t
   type ty = S.T.Ty.t
@@ -120,34 +139,17 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   let has_ty_real t = Ty.equal (T.ty t) (Ty.real())
 
   let lemma_lra = Proof.lemma_lra
-
-  module Gensym = struct
-    type t = {
-      tst: T.store;
-      mutable fresh: int;
-    }
-
-    let create tst : t = {tst; fresh=0}
-    let tst self = self.tst
-    let copy s = {s with tst=s.tst}
-
-    let fresh_term (self:t) ~pre (ty:Ty.t) : T.t =
-      let name = Printf.sprintf "_sk_lra_%s%d" pre self.fresh in
-      self.fresh <- 1 + self.fresh;
-      let id = ID.make name in
-      Term.const self.tst @@ Fun.mk_undef_const id ty
-  end
+  module Gensym = Gensym
 end)
 
 module Th_lia = Sidekick_arith_lia.Make(struct
   module S = Solver
   module T = Term
-  module Q = Sidekick_zarith.Rational
   module Z = Sidekick_zarith.Int
+  module Q = Sidekick_zarith.Rational
   type term = S.T.Term.t
   type ty = S.T.Ty.t
 
-  module LRA = Th_lra
   module LIA = Sidekick_arith_lia
 
   let mk_eq = Form.eq
@@ -184,6 +186,7 @@ module Th_lia = Sidekick_arith_lia.Make(struct
   let has_ty_int t = Ty.equal (T.ty t) (Ty.int())
 
   let lemma_lia = Proof.lemma_lia
+  module Gensym = Gensym
 end)
 
 let th_bool : Solver.theory = Th_bool.theory

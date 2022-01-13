@@ -40,7 +40,8 @@ let map_view f (l:_ lra_view) : _ lra_view =
 
 module type ARG = sig
   module S : Sidekick_core.SOLVER
-  module Q : RATIONAL
+  module Z : INT
+  module Q : RATIONAL with type bigint = Z.t
 
   type term = S.T.Term.t
   type ty = S.T.Ty.t
@@ -154,6 +155,7 @@ module Make(A : ARG) : S with module A = A = struct
   module LE_ = Linear_expr.Make(A.Q)(SimpVar)
   module LE = LE_.Expr
   module SimpSolver = Sidekick_simplex.Make(struct
+      module Z = A.Z
       module Q = A.Q
       module Var = SimpVar
       let mk_lit _ _ _ = assert false

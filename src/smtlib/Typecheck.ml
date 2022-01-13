@@ -135,7 +135,7 @@ let cast_to_real (ctx:Ctx.t) (t:T.t) : T.t =
       T.lra ctx.tst (Arith_const (Q.of_bigint n))
     | T.LIA l ->
       (* try to convert the whole structure to reals *)
-      let l = Base_types.map_arith_view ~f_c:Q.of_bigint conv l in
+      let l = Base_types.map_arith_view ~f_c:Q.of_bigint ~f_real:CCFun.id conv l in
       T.lra ctx.tst l
     | _ ->
       errorf_ctx ctx "cannot cast term to real@ :term %a" T.pp t
