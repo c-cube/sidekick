@@ -17,7 +17,12 @@ module Var = struct
   let not_lit i = Some (- i)
 end
 
-module Spl = Sidekick_arith_lra.Simplex2.Make(Sidekick_zarith.Rational)(Var)
+module Spl = Sidekick_simplex.Make(struct
+    module Q = Sidekick_zarith.Rational
+    module Z = Sidekick_zarith.Int
+    module Var = Var
+    let mk_lit _ _ = assert false
+  end)
 
 let unwrap_opt_ msg = function
   | Some x -> x

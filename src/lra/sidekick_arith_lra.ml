@@ -6,17 +6,17 @@
 
 open Sidekick_core
 
-module Simplex2 = Simplex2
-module Predicate = Predicate
-module Linear_expr = Linear_expr
-module Linear_expr_intf = Linear_expr_intf
+module Predicate = Sidekick_simplex.Predicate
+module Linear_expr = Sidekick_simplex.Linear_expr
+module Linear_expr_intf = Sidekick_simplex.Linear_expr_intf
 
+module type INT = Sidekick_arith.INT
 module type RATIONAL = Sidekick_arith.RATIONAL
 
-module S_op = Simplex2.Op
+module S_op = Sidekick_simplex.Op
 
 type pred = Linear_expr_intf.bool_op = Leq | Geq | Lt | Gt | Eq | Neq
-type op = Plus | Minus
+type op = Linear_expr_intf.op = Plus | Minus
 
 type ('num, 'a) lra_view =
   | LRA_pred of pred * 'a * 'a
@@ -81,13 +81,13 @@ module type S = sig
   module A : ARG
 
   (*
-  module SimpVar : Simplex2.VAR with type lit = A.S.Lit.t
+  module SimpVar : Sidekick_simplex.VAR with type lit = A.S.Lit.t
   module LE_ : Linear_expr_intf.S with module Var = SimpVar
   module LE = LE_.Expr
      *)
 
   (** Simplexe *)
-  module SimpSolver : Simplex2.S
+  module SimpSolver : Sidekick_simplex.S
 
   type state
 
@@ -153,7 +153,11 @@ module Make(A : ARG) : S with module A = A = struct
 
   module LE_ = Linear_expr.Make(A.Q)(SimpVar)
   module LE = LE_.Expr
-  module SimpSolver = Simplex2.Make(A.Q)(SimpVar)
+  module SimpSolver = Sidekick_simplex.Make(struct
+      module Q = A.Q
+      module Var = SimpVar
+      let mk_lit _ _ _ = assert false
+    end)
   module Subst = SimpSolver.Subst
 
   module Comb_map = CCMap.Make(LE_.Comb)
@@ -465,7 +469,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* raise conflict from certificate *)
   let fail_with_cert si acts cert : 'a =
-    Profile.with1 "simplex.check-cert" SimpSolver._check_cert cert;
+    Profile.with1 "lra.simplex.check-cert" SimpSolver._check_cert cert;
     let confl =
       SimpSolver.Unsat_cert.lits cert
       |> CCList.flat_map (Tag.to_lits si)
@@ -488,7 +492,7 @@ module Make(A : ARG) : S with module A = A = struct
   let check_simplex_ self si acts : SimpSolver.Subst.t =
     Log.debug 5 "(lra.check-simplex)";
     let res =
-      Profile.with_ "simplex.solve"
+      Profile.with_ "lra.simplex.solve"
         (fun () ->
            SimpSolver.check self.simplex
              ~on_propagate:(on_propagate_ si acts))
@@ -536,9 +540,9 @@ module Make(A : ARG) : S with module A = A = struct
     let n_th_comb = T.Tbl.keys self.needs_th_combination |> Iter.length in
     if n_th_comb > 0 then (
       Log.debugf 5
-        (fun k->k "(@[LRA.needs-th-combination@ :n-lits %d@])" n_th_comb);
+        (fun k->k "(@[lra.needs-th-combination@ :n-lits %d@])" n_th_comb);
       Log.debugf 50
-        (fun k->k "(@[LRA.needs-th-combination@ :terms [@[%a@]]@])"
+        (fun k->k "(@[lra.needs-th-combination@ :terms [@[%a@]]@])"
             (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
     );
 

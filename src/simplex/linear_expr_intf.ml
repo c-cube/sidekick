@@ -61,6 +61,8 @@ end
 
 type bool_op = Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 
+type op = Binary_op.t = Plus | Minus
+
 (** {2 Linear expressions & formulas} *)
 
 (** Linear expressions & formulas.

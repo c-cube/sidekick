@@ -7,10 +7,16 @@
 
 open CCMonomorphic
 
+module Linear_expr_intf = Linear_expr_intf
+module Linear_expr = Linear_expr
+module Predicate = Predicate
+module Binary_op = Binary_op
+
+module type INT = Sidekick_arith.INT
 module type RATIONAL = Sidekick_arith.RATIONAL
 module type VAR = Linear_expr_intf.VAR
 
-(** {2 Basic operator} *)
+(** Simplex operator *)
 module Op = struct
   type t =
     | Leq
@@ -41,7 +47,8 @@ end
 module type S = sig
   module V : VAR
   module V_map : CCMap.S with type key = V.t
-  module Q : RATIONAL
+  module Z : INT
+  module Q : RATIONAL with type bigint = Z.t
 
   type num = Q.t (** Numbers *)
 
@@ -80,7 +87,7 @@ module type S = sig
 
   val pop_levels : t -> int -> unit
 
-  val define : t -> V.t -> (num * V.t) list -> unit
+  val define : ?is_int:bool -> t -> V.t -> (num * V.t) list -> unit
   (** Define a basic variable in terms of other variables.
       This is useful to "name" a linear expression and get back a variable
       that can be used in a {!Constraint.t} *)
@@ -97,16 +104,18 @@ module type S = sig
 
   type ev_on_propagate = V.lit -> reason:V.lit list -> unit
 
-  val add_var : t -> V.t -> unit
+  val add_var : ?is_int:bool -> t -> V.t -> unit
   (** Make sure the variable exists in the simplex. *)
 
   val add_constraint :
+    ?is_int:bool ->
     on_propagate:ev_on_propagate ->
     t -> Constraint.t -> V.lit -> unit
   (** Add a constraint to the simplex.
+      @param is_int declares whether the constraint's variable is an integer
       @raise Unsat if it's immediately obvious that this is not satisfiable. *)
 
-  val declare_bound : t -> Constraint.t -> V.lit -> unit
+  val declare_bound : ?is_int:bool -> t -> Constraint.t -> V.lit -> unit
   (** Declare that this constraint exists and map it to a literal,
       so we can possibly propagate it later.
       Unlike {!add_constraint} this does {b NOT} assert that the constraint
@@ -127,7 +136,14 @@ module type S = sig
   val check :
     on_propagate:(V.lit -> reason:V.lit list -> unit) ->
     t -> result
-  (** Call {!check_exn} and return a model or a proof of unsat. *)
+  (** Call {!check_exn} and return a model or a proof of unsat.
+      This does {b NOT} enforce that integer variables map to integer values. *)
+
+  val check_branch_and_bound :
+    on_propagate:(V.lit -> reason:V.lit list -> unit) ->
+    max_tree_nodes:int ->
+    t -> result option
+  (** Try to solve and respect the integer constraints. *)
 
   (**/**)
   val _check_invariants : t -> unit
@@ -137,17 +153,30 @@ module type S = sig
   (**/**)
 end
 
+module type ARG = sig
+  module Z:INT
+  module Q : RATIONAL with type bigint = Z.t
+  module Var: VAR
+
+  (** Create new literals *)
+  val mk_lit : Var.t -> Op.t -> Q.t -> Var.lit
+end
+
 (* TODO(optim): page 14, paragraph 2: we could detect which variables occur in no
    atom after preprocessing; then these variables can be "inlined" (removed
    by Gaussian elimination) as a preprocessing proof_rule, and this removes one column
    and maybe one row if it was basic. *)
 
-module Make(Q : RATIONAL)(Var: VAR)
-  : S with module V = Var and module Q = Q
+module Make(Arg: ARG)
+  : S with module V = Arg.Var
+       and module Z = Arg.Z
+       and module Q = Arg.Q
 = struct
-  module V = Var
-  module V_map = CCMap.Make(Var)
-  module Q = Q
+  module V = Arg.Var
+  module V_map = CCMap.Make(V)
+  module Z = Arg.Z
+  module Q = Arg.Q
+  type lit = V.lit
 
   type num = Q.t
   let pp_q_dbg = Q.pp_approx 1
@@ -235,7 +264,7 @@ module Make(Q : RATIONAL)(Var: VAR)
 
   type bound = {
     b_val: erat;
-    b_lit: Var.lit;
+    b_lit: lit;
   }
 
   type is_lower = bool
@@ -248,6 +277,7 @@ module Make(Q : RATIONAL)(Var: VAR)
     mutable u_bound: bound option;
 
     mutable all_bound_lits : (is_lower * bound) list; (* all known literals on this var *)
+    mutable is_int: bool;
   }
 
   (** {2 Matrix}
@@ -415,12 +445,12 @@ module Make(Q : RATIONAL)(Var: VAR)
   }
 
   let push_level self : unit =
-    Log.debug 10 "(simplex2.push-level)";
+    Log.debug 10 "(simplex.push-level)";
     Backtrack_stack.push_level self.bound_stack;
     Backtrack_stack.push_level self.undo_stack
 
   let pop_levels self n : unit =
-    Log.debugf 10 (fun k->k "(simplex2.pop-levels %d)" n);
+    Log.debugf 10 (fun k->k "(simplex.pop-levels %d)" n);
     Backtrack_stack.pop_levels self.bound_stack n
       ~f:(fun (var, kind, bnd) ->
           match kind with
@@ -477,10 +507,10 @@ module Make(Q : RATIONAL)(Var: VAR)
   let[@inline] has_var_ (self:t) x : bool = V_map.mem x self.var_tbl
   let[@inline] find_var_ (self:t) x : var_state =
     try V_map.find x self.var_tbl
-    with Not_found -> Error.errorf "variable is not in the simplex" Var.pp x
+    with Not_found -> Error.errorf "variable is not in the simplex" V.pp x
 
   (* define [x] as a basic variable *)
-  let define (self:t) (x:V.t) (le:_ list) : unit =
+  let define ?(is_int=false) (self:t) (x:V.t) (le:_ list) : unit =
     assert (not (has_var_ self x));
     Stat.incr self.stat_define;
     (* Log.debugf 50 (fun k->k "define-in: %a" pp self); *)
@@ -502,10 +532,11 @@ module Make(Q : RATIONAL)(Var: VAR)
               l_bound=None;
               u_bound=None;
               all_bound_lits=[];
+              is_int;
             })
     in
     Log.debugf 5 (fun k->k "(@[simplex.define@ @[v%d :var %a@]@ :linexpr %a@])"
-                     vs.idx Var.pp x Fmt.(Dump.(list @@ pair pp_q_dbg Var_state.pp_name)) le);
+                     vs.idx V.pp x Fmt.(Dump.(list @@ pair pp_q_dbg Var_state.pp_name)) le);
 
     assert (Var_state.is_basic vs);
     assert Var_state.(Matrix.get_row_var self.matrix vs.basic_idx == vs);
@@ -543,8 +574,11 @@ module Make(Q : RATIONAL)(Var: VAR)
     ()
 
   (* find the state for [x], or add [x] as a non-basic variable *)
-  let find_or_create_n_basic_var_ (self:t) (x:V.t) : var_state =
-    try V_map.find x self.var_tbl
+  let find_or_create_n_basic_var_ ~is_int (self:t) (x:V.t) : var_state =
+    try
+      let v = V_map.find x self.var_tbl in
+      if is_int then v.is_int <- true;
+      v
     with Not_found ->
       Matrix.add_column self.matrix;
       let vs = {
@@ -555,6 +589,7 @@ module Make(Q : RATIONAL)(Var: VAR)
         u_bound=None;
         value=Erat.zero;
         all_bound_lits=[];
+        is_int;
       } in
       assert (Var_state.is_n_basic vs);
       self.var_tbl <- V_map.add x vs self.var_tbl;
@@ -667,29 +702,43 @@ module Make(Q : RATIONAL)(Var: VAR)
         le: (num * V.t) list; (* definition of the basic var *)
         bounds: (Op.t * bound) V_map.t; (* bound for each variable in [le] *)
       }
+    | E_branch_and_bound of {
+        x: var_state; (* is_int: true *)
+        middle: Q.t;
+        low: Z.t; (* floor middle *)
+        high: Z.t; (* floor middle+1 *)
+        pr_low: unsat_cert; (* proof for x <= low *)
+        pr_high: unsat_cert; (* proof for x >= high *)
+      }
 
   module Unsat_cert = struct
     type t = unsat_cert
 
-    let lits = function
+    let rec lits = function
       | E_bounds b -> [b.lower.b_lit; b.upper.b_lit]
       | E_unsat_basic {x_bound=(_,x_bnd); bounds; x=_; le=_;} ->
         V_map.fold (fun _ (_,bnd) l -> bnd.b_lit :: l) bounds [x_bnd.b_lit]
+      | E_branch_and_bound {pr_low; pr_high; _} ->
+        List.rev_append (lits pr_low) (lits pr_high)
 
-    let pp out (self:t) =
+    let rec pp out (self:t) : unit =
       match self with
       | E_bounds {x;lower;upper} ->
         Fmt.fprintf out "(@[cert.unsat-bounds@ %a@ :lower %a@ :upper %a@])"
           Var_state.pp x Erat.pp lower.b_val Erat.pp upper.b_val
       | E_unsat_basic {x; x_bound; le; bounds} ->
         let pp_bnd out (v,(op,bnd)) =
-          Fmt.fprintf out "(@[%a %s %a@])" Var.pp v (Op.to_string op) Erat.pp bnd.b_val
+          Fmt.fprintf out "(@[%a %s %a@])" V.pp v (Op.to_string op) Erat.pp bnd.b_val
         in
         Fmt.fprintf out
           "(@[cert.unsat-basic@ %a@ @[:bound %a@] @[:le %a@]@ @[:le-bounds@ %a@]@])"
           Var_state.pp x pp_bnd (x.var,x_bound)
           Fmt.(Dump.list pp_bnd) (V_map.to_list bounds)
           Fmt.(Dump.list (Dump.pair pp_q_dbg V.pp)) le
+      | E_branch_and_bound {x; middle; pr_low; pr_high; low; high} ->
+        Fmt.fprintf out
+          "(@[cert.unsat.branch-and-bound@ %a@ @[:middle %a@] @[:low %a@ %a@]@ @[:high %a@ %a@]@])"
+          Var_state.pp x Q.pp middle Z.pp low pp pr_low Z.pp high pp pr_high
 
     let bounds x ~lower ~upper : t = E_bounds {x; lower; upper}
     let unsat_basic x x_bound le bounds : t =
@@ -698,10 +747,10 @@ module Make(Q : RATIONAL)(Var: VAR)
 
   exception E_unsat of Unsat_cert.t
 
-  type ev_on_propagate = V.lit -> reason:V.lit list -> unit
+  type ev_on_propagate = lit -> reason:lit list -> unit
 
-  let add_var self (v:V.t) : unit =
-    ignore (find_or_create_n_basic_var_ self v : var_state);
+  let add_var ?(is_int=false) self (v:V.t) : unit =
+    ignore (find_or_create_n_basic_var_ ~is_int self v : var_state);
     ()
 
   (* gather all relevant lower (resp. upper) bounds for the definition
@@ -742,12 +791,12 @@ module Make(Q : RATIONAL)(Var: VAR)
       self.vars;
     !map_res, !bounds
 
-  let add_constraint ~on_propagate (self:t) (c:Constraint.t) (lit:V.lit) : unit =
+  let add_constraint ?(is_int=false) ~on_propagate (self:t) (c:Constraint.t) (lit:lit) : unit =
     let open Constraint in
 
-    let vs = find_or_create_n_basic_var_ self c.lhs in
+    let vs = find_or_create_n_basic_var_ ~is_int self c.lhs in
     Log.debugf 5
-      (fun k->k "(@[simplex2.add-constraint@ :var %a@ :c %a@])"
+      (fun k->k "(@[simplex.add-constraint@ :var %a@ :c %a@])"
           Var_state.pp_name vs Constraint.pp c);
 
     let is_lower_bnd, new_bnd_val =
@@ -833,10 +882,10 @@ module Make(Q : RATIONAL)(Var: VAR)
       end
     )
 
-  let declare_bound (self:t) (c:Constraint.t) (lit:V.lit) : unit =
-    let vs = find_or_create_n_basic_var_ self c.lhs in
+  let declare_bound ?(is_int=false) (self:t) (c:Constraint.t) (lit:lit) : unit =
+    let vs = find_or_create_n_basic_var_ ~is_int self c.lhs in
     Log.debugf 10
-      (fun k->k "(@[simplex2.declare-bound@ %a@ :lit %a@])"
+      (fun k->k "(@[simplex.declare-bound@ %a@ :lit %a@])"
           Constraint.pp c V.pp_lit lit);
 
     let is_lower_bnd, new_bnd_val =
@@ -914,14 +963,14 @@ module Make(Q : RATIONAL)(Var: VAR)
      page 15, figure 3.2 *)
   let check_exn ~on_propagate:_ (self:t) : unit =
     let exception Stop in
-    Log.debugf 20 (fun k->k "(@[simplex2.check@ %a@])" pp_stats self);
+    Log.debugf 20 (fun k->k "(@[simplex.check@ %a@])" pp_stats self);
     Stat.incr self.stat_check;
 
     let m = self.matrix in
     try
       while true do
         _check_invariants_internal self;
-        (* Log.debugf 50 (fun k->k "(@[simplex2.check.iter@ %a@])" pp self); *)
+        (* Log.debugf 50 (fun k->k "(@[simplex.check.iter@ %a@])" pp self); *)
 
         (* basic variable that doesn't respect its bound *)
         let x_i, is_lower, bnd = match find_basic_var_ self with
@@ -950,7 +999,7 @@ module Make(Q : RATIONAL)(Var: VAR)
 
           (* line 9 *)
           Log.debugf 50
-            (fun k->k "(@[simplex2.pivot@ :basic %a@ :n-basic %a@])"
+            (fun k->k "(@[simplex.pivot@ :basic %a@ :n-basic %a@])"
                 Var_state.pp x_i Var_state.pp x_j);
           pivot_and_update self x_i x_j bnd.b_val
         ) else (
@@ -973,13 +1022,13 @@ module Make(Q : RATIONAL)(Var: VAR)
 
           (* line 14 *)
           Log.debugf 50
-            (fun k->k "(@[simplex2.pivot@ :basic %a@ :n-basic %a@])"
+            (fun k->k "(@[simplex.pivot@ :basic %a@ :n-basic %a@])"
                 Var_state.pp x_i Var_state.pp x_j);
           pivot_and_update self x_i x_j bnd.b_val
         )
       done;
     with Stop ->
-      Log.debugf 50 (fun k->k "(@[simplex2.check.done@])");
+      Log.debugf 50 (fun k->k "(@[simplex.check.done@])");
       ()
 
   let create ?(stat=Stat.global) () : t =
@@ -1070,20 +1119,21 @@ module Make(Q : RATIONAL)(Var: VAR)
     in
     if Q.(eps >= one) then Q.one else eps
 
-  let model_ self =
+  let model_ self : Subst.t =
     let eps = solve_epsilon self in
-    Log.debugf 50 (fun k->k "(@[simplex2.model@ :epsilon-val %a@])" pp_q_dbg eps);
+    Log.debugf 50 (fun k->k "(@[simplex.model@ :epsilon-val %a@])" pp_q_dbg eps);
     let subst =
       Vec.to_seq self.vars
       |> Iter.fold
         (fun subst x ->
            let {base;eps_factor} = x.value in
+           (* FIXME: if it's an int, pick an int value *)
            let v = Q.(base + eps * eps_factor) in
            V_map.add x.var v subst)
         V_map.empty
     in
     Log.debugf 10
-      (fun k->k "(@[simplex2.model@ %a@])" Subst.pp subst);
+      (fun k->k "(@[simplex.model@ %a@])" Subst.pp subst);
     subst
 
   let check ~on_propagate (self:t) : result =
@@ -1093,7 +1143,92 @@ module Make(Q : RATIONAL)(Var: VAR)
       Sat m
     with E_unsat c -> Unsat c
 
-  let _check_cert (cert:unsat_cert) : unit =
+  let check_branch_and_bound ~on_propagate:_ ~max_tree_nodes (self:t) : result option =
+    if max_tree_nodes <= 0 then invalid_arg "simplex.check_branch_and_bound";
+    let n = ref max_tree_nodes in
+
+    let exception E_done in
+
+    let cb_prop_ _ ~reason:_ = () in
+
+    let is_valid_model (m:Subst.t) : (unit, var_state * Q.t) Result.t =
+      let exception Found of var_state * Q.t in
+      try
+        Matrix.iter_rows self.matrix
+          (fun _i x_i ->
+             if x_i.is_int then (
+               let n = Subst.eval m x_i.var in
+               if not (Q.is_int n) then (
+                 (* found one! *)
+                 Log.debugf 10
+                   (fun k->k "(@[simplex.int-var-not-rat@ %a := %a@])"
+                       Var_state.pp x_i Q.pp n);
+
+                 raise (Found (x_i, n))
+               )
+             )
+          );
+        Ok()
+      with Found (x,n) -> Error (x,n)
+    in
+
+    let rec loop () : result =
+      if !n < 0 then raise E_done;
+
+      decr n;
+      match check ~on_propagate:cb_prop_ self with
+      | Sat m as res ->
+        begin match is_valid_model m with
+          | Ok () -> res
+
+          | Error (x, val_x) ->
+            Log.debugf 20
+              (fun k->k "(@[simplex.invalid-int-model@ @[:var %a := %a@]@ :subst %a@])"
+                  Var_state.pp x Q.pp val_x Subst.pp m);
+
+            assert x.is_int;
+            let low = Q.floor val_x in
+            let high = Z.(low + one) in
+            begin match
+                loop_with x.var `Leq (Q.of_bigint low),
+                lazy (loop_with x.var `Geq (Q.of_bigint high))
+              with
+              | Sat _ as r, _ -> r
+              | Unsat _, lazy (Sat _ as r) -> r
+              | Unsat c1, lazy (Unsat c2) ->
+                let cert = E_branch_and_bound {x; low; high; middle=val_x; pr_low=c1; pr_high=c2} in
+                Unsat cert
+            end
+        end
+      | Unsat _c as res -> res
+
+    (* loop, but asserting constraint [c] in addition *)
+    and loop_with x op bnd : result =
+      push_level self;
+      let[@inline] cleanup () = pop_levels self 1; in
+
+      try
+        let c, lit = match op with
+          | `Leq ->
+            Constraint.leq x bnd,
+            Arg.mk_lit x Op.Leq bnd
+          | `Geq ->
+            Constraint.geq x bnd,
+            Arg.mk_lit x Op.Geq bnd
+        in
+        add_constraint self c lit ~on_propagate:cb_prop_;
+        let r = loop() in
+        cleanup();
+        r
+      with e ->
+        cleanup();
+        raise e
+    in
+    try Some (loop ())
+    with
+    | E_done -> None (* fast exit *)
+
+  let rec _check_cert (cert:unsat_cert) : unit =
     match cert with
     | E_bounds {x=_; lower; upper} ->
       (* unsat means [lower > upper] *)
@@ -1113,15 +1248,15 @@ module Make(Q : RATIONAL)(Var: VAR)
              match V_map.find x bounds with
              | exception Not_found ->
                Error.errorf "invalid simplex cert:@ %a@ var %a has no bound"
-                 Unsat_cert.pp cert Var.pp x
+                 Unsat_cert.pp cert V.pp x
              | Op.(Geq | Gt), _ when CCBool.equal is_lower Q.(c > zero) ->
                Error.errorf
                  "invalid simplex cert:@ %a@ variable %a has coeff of the wrong sign %a"
-                 Unsat_cert.pp cert Var.pp x pp_q_dbg c
+                 Unsat_cert.pp cert V.pp x pp_q_dbg c
              | Op.(Lt | Leq), _ when CCBool.equal is_lower Q.(c < zero) ->
                Error.errorf
                  "invalid simplex cert:@ %a@ variable %a has coeff of the wrong sign %a"
-                 Unsat_cert.pp cert Var.pp x pp_q_dbg c
+                 Unsat_cert.pp cert V.pp x pp_q_dbg c
              | _, b -> Erat.(sum + c * b.b_val))
           Erat.zero le
       in
@@ -1131,4 +1266,7 @@ module Make(Q : RATIONAL)(Var: VAR)
         Error.errorf "invalid simplex cert:@ %a@ sum of linexpr is %a"
           Unsat_cert.pp cert Erat.pp sum
       )
+    | E_branch_and_bound {pr_low; pr_high; _} ->
+      _check_cert pr_low;
+      _check_cert pr_high
 end
