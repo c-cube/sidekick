@@ -192,10 +192,12 @@ module Make(A : ARG) : S with module A = A = struct
       u
     in
 
+    (* TODO: remove
     if A.has_ty_int t && not (is_int_const t) then (
       Log.debugf 10 (fun k->k "(@[lia.has-int-ty@ %a@])" T.pp t);
-      SI.declare_pb_is_incomplete si; (* TODO: remove *)
+      SI.declare_pb_is_incomplete si;
     );
+       *)
 
     (* tell the CC this term exists *)
     let declare_term_to_cc t =
@@ -411,21 +413,25 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Q_map = CCMap.Make(A.Q)
 
-  let check_simplex_ self si acts : SimpSolver.Subst.t =
-    Log.debug 5 "(lia.check-simplex)";
+  let check_simplex_ ~n self si acts : SimpSolver.Subst.t option =
+    Log.debugf 5 (fun k->k "(lia.check-simplex-bnb@ :n %d)" n);
     let res =
-      Profile.with_ "lia.simplex.solve"
-        (fun () ->
-           SimpSolver.check self.simplex
-             ~on_propagate:(on_propagate_ si acts))
+      Profile.with_ "lia.simplex.solve" @@ fun () ->
+      SimpSolver.check_branch_and_bound self.simplex
+        ~max_tree_nodes:n
+        ~on_propagate:(on_propagate_ si acts)
     in
     begin match res with
-      | SimpSolver.Sat m -> m
-      | SimpSolver.Unsat cert ->
+      | Some (SimpSolver.Sat m) -> Some m
+      | Some (SimpSolver.Unsat cert) ->
         Log.debugf 10
           (fun k->k "(@[lia.check.unsat@ :cert %a@])"
               SimpSolver.Unsat_cert.pp cert);
         fail_with_cert si acts cert
+      | None ->
+        (* TODO: try harder? use a slow-but-complete decision procedure? *)
+        SI.declare_pb_is_incomplete si;
+        None
     end
 
   (* partial checks is where we add literals from the trail to the
@@ -469,7 +475,7 @@ module Make(A : ARG) : S with module A = A = struct
 
     (* incremental check *)
     if !changed then (
-      ignore (check_simplex_ self si acts : SimpSolver.Subst.t);
+      ignore (check_simplex_ ~n:2 self si acts : SimpSolver.Subst.t option);
     );
     ()
 
@@ -567,10 +573,14 @@ module Make(A : ARG) : S with module A = A = struct
 
     (* TODO: jiggle model to reduce the number of variables that
        have the same value *)
-    let model = check_simplex_ self si acts in
-    Log.debugf 20 (fun k->k "(@[lia.model@ %a@])" SimpSolver.Subst.pp model);
-    Log.debug 5 "(lia: solver returns SAT)";
-    do_th_combination self si acts model;
+    begin match check_simplex_ ~n:15 self si acts with
+      | Some model ->
+        Log.debugf 20 (fun k->k "(@[lia.model@ %a@])" SimpSolver.Subst.pp model);
+        Log.debug 5 "(lia: solver returns SAT)";
+        do_th_combination self si acts model;
+      | None ->
+        () (* TODO: find a cut? *)
+    end;
     ()
 
   (* raise conflict from certificate *)
