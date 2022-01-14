@@ -96,10 +96,12 @@ module Make(A : ARG)
     let empty : t = T_map.empty
 
     let pp out (self:t) : unit =
-      let pp_pair out (t,z) = Fmt.fprintf out "%a · %a" Z.pp z A.pp_term t in
+      let pp_pair out (t,z) =
+        if Z.(z = one) then A.pp_term out t
+        else Fmt.fprintf out "%a · %a" Z.pp z A.pp_term t in
       if is_empty self then Fmt.string out "0"
-      else Fmt.fprintf out "(@[+@ %a@])"
-          Fmt.(iter ~sep:(return "@ ") pp_pair) (T_map.to_iter self)
+      else Fmt.fprintf out "(@[%a@])"
+          Fmt.(iter ~sep:(return "@ + ") pp_pair) (T_map.to_iter self)
 
     let iter = T_map.iter
     let return t : t = T_map.add t Z.one empty
@@ -288,8 +290,12 @@ module Make(A : ARG)
           Sat m (* TODO: model *)
 
         | Some (t, _) ->
-          Log.debugf 30 (fun k->k "(@[intsolver.elim-var@ %a@])" A.pp_term t);
-          assert false
+          self.vars <- T_map.remove t self.vars;
+          Log.debugf 30
+            (fun k->k "(@[intsolver.elim-var@ %a@ :remaining %d@])"
+                A.pp_term t (T_map.cardinal self.vars));
+
+          assert false (* TODO *)
 
       end
 

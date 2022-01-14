@@ -1,17 +1,18 @@
 
 let tests : unit Alcotest.test list =
   List.flatten @@ [
-    [Sidekick_test_simplex.tests];
     [Sidekick_test_intsolver.tests];
+    [Sidekick_test_simplex.tests];
     [Sidekick_test_minicc.tests];
     Sidekick_test_util.tests;
   ]
 
 let props =
   List.flatten
-    [ Sidekick_test_simplex.props;
-      Sidekick_test_util.props;
+    [
       Sidekick_test_intsolver.props;
+      Sidekick_test_simplex.props;
+      Sidekick_test_util.props;
     ]
 
 let () =
@@ -21,6 +22,7 @@ let () =
     let argv= Array.of_list (a0::tl) in
     Alcotest.run ~argv ~and_exit:true "arith tests" tests;
   | a0::"qcheck"::tl ->
+    Sidekick_util.Log.set_debug 50;
     let argv= Array.of_list (a0::tl) in
     CCFormat.set_color_default true;
     QCheck_runner.run_tests_main ~argv props
