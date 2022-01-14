@@ -4,7 +4,8 @@
  (modules run_tests)
  (modes native)
  (libraries containers alcotest qcheck sidekick.util
-            sidekick_test_simplex sidekick_test_util sidekick_test_minicc)
+            sidekick_test_simplex sidekick_test_intsolver
+            sidekick_test_util sidekick_test_minicc)
  (flags :standard -warn-error -a+8 -color always))
 
 (alias
