@@ -445,12 +445,12 @@ module Make(Arg: ARG)
   }
 
   let push_level self : unit =
-    Log.debug 10 "(simplex.push-level)";
+    Log.debug 30 "(simplex.push-level)";
     Backtrack_stack.push_level self.bound_stack;
     Backtrack_stack.push_level self.undo_stack
 
   let pop_levels self n : unit =
-    Log.debugf 10 (fun k->k "(simplex.pop-levels %d)" n);
+    Log.debugf 30 (fun k->k "(simplex.pop-levels %d)" n);
     Backtrack_stack.pop_levels self.bound_stack n
       ~f:(fun (var, kind, bnd) ->
           match kind with
@@ -1144,6 +1144,7 @@ module Make(Arg: ARG)
     with E_unsat c -> Unsat c
 
   let check_branch_and_bound ~on_propagate:_ ~max_tree_nodes (self:t) : result option =
+    Log.debugf 50 (fun k->k "(@[simplex.branch-and-bound@ max-nodes %d@])" max_tree_nodes);
     if max_tree_nodes <= 0 then invalid_arg "simplex.check_branch_and_bound";
     let n = ref max_tree_nodes in
 
@@ -1161,7 +1162,7 @@ module Make(Arg: ARG)
                if not (Q.is_int n) then (
                  (* found one! *)
                  Log.debugf 10
-                   (fun k->k "(@[simplex.int-var-not-rat@ %a := %a@])"
+                   (fun k->k "(@[simplex.int-var-assigned-to-non-int@ %a := %a@])"
                        Var_state.pp x_i Q.pp n);
 
                  raise (Found (x_i, n))
@@ -1172,26 +1173,33 @@ module Make(Arg: ARG)
       with Found (x,n) -> Error (x,n)
     in
 
-    let rec loop () : result =
+    let rec loop (depth:int) : result =
+      Log.debugf 30 (fun k->k "(@[simplex.branch-and-bound.loop@ :depth %d@])" depth);
       if !n < 0 then raise E_done;
 
       decr n;
       match check ~on_propagate:cb_prop_ self with
       | Sat m as res ->
         begin match is_valid_model m with
-          | Ok () -> res
+          | Ok () ->
+            Log.debug 30 "(simplex.branch-and-bound.valid-model)";
+            res
 
           | Error (x, val_x) ->
-            Log.debugf 20
-              (fun k->k "(@[simplex.invalid-int-model@ @[:var %a := %a@]@ :subst %a@])"
+            Log.debugf 30
+              (fun k->k "(@[simplex.branch-and-bound.invalid-int-model@ \
+                         @[:var %a := %a@]@ :subst %a@])"
                   Var_state.pp x Q.pp val_x Subst.pp m);
 
             assert x.is_int;
             let low = Q.floor val_x in
             let high = Z.(low + one) in
+            Log.debugf 30
+              (fun k->k "(@[simplex.branch-and-bound.cut@ :x %a@ :low %a@])"
+                  Var_state.pp x Z.pp low);
             begin match
-                loop_with x.var `Leq (Q.of_bigint low),
-                lazy (loop_with x.var `Geq (Q.of_bigint high))
+                loop_with (depth+1) x.var `Leq (Q.of_bigint low),
+                lazy (loop_with (depth+1) x.var `Geq (Q.of_bigint high))
               with
               | Sat _ as r, _ -> r
               | Unsat _, lazy (Sat _ as r) -> r
@@ -1200,10 +1208,12 @@ module Make(Arg: ARG)
                 Unsat cert
             end
         end
-      | Unsat _c as res -> res
+      | Unsat _c as res ->
+        Log.debug 30 "(simplex.branch-and-bound.unsat)";
+        res
 
     (* loop, but asserting constraint [c] in addition *)
-    and loop_with x op bnd : result =
+    and loop_with depth x op bnd : result =
       push_level self;
       let[@inline] cleanup () = pop_levels self 1; in
 
@@ -1217,14 +1227,14 @@ module Make(Arg: ARG)
             Arg.mk_lit x Op.Geq bnd
         in
         add_constraint self c lit ~on_propagate:cb_prop_;
-        let r = loop() in
+        let r = loop depth in
         cleanup();
         r
       with e ->
         cleanup();
         raise e
     in
-    try Some (loop ())
+    try Some (loop 0)
     with
     | E_done -> None (* fast exit *)
 
