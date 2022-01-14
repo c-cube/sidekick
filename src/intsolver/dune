@@ -1,0 +1,6 @@
+(library
+  (name sidekick_intsolver)
+  (public_name sidekick.intsolver)
+  (synopsis "Simple integer solver")
+  (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util)
+  (libraries containers sidekick.core sidekick.arith))
