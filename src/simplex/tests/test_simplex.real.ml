@@ -511,4 +511,4 @@ module Reg = struct
 end
 
 let tests =
-  "simplex2", List.flatten [ Reg.tests ]
+  "simplex", List.flatten [ Reg.tests ]
