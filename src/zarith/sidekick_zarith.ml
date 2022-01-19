@@ -1,9 +1,15 @@
 
 
-module Int : Sidekick_arith.INT with type t = Z.t = struct
+module Int : Sidekick_arith.INT_FULL with type t = Z.t = struct
   include Z
   include Z.Compare
   let pp = pp_print
+  let divexact = divexact
+  let (/) = div
+  let probab_prime x = match probab_prime x 10 with
+    | 0 -> false
+    | 1 | 2 -> true
+    | _ -> assert false
 end
 
 module Rational
