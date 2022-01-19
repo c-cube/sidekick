@@ -38,7 +38,8 @@ let unwrap_opt_ msg = function
 let rand_n low n : Z.t QC.arbitrary =
   QC.map ~rev:ZarithZ.to_int Z.of_int QC.(low -- n)
 
-let rand_z = rand_n (-1000) 30_000
+(* TODO: fudge *)
+let rand_z = rand_n (-50) 100
 
 module Step = struct
   module G = QC.Gen
@@ -98,7 +99,7 @@ module Step = struct
       else (
         let gen_linexp =
           let* vars' = G.shuffle_l vars in
-          let* n = 1 -- List.length vars' in
+          let* n = 1 -- (min 7 @@ List.length vars') in
           let vars' = CCList.take n vars' in
           assert (List.length vars' = n);
           let* coeffs = list_repeat n rand_z.gen in
