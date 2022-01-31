@@ -210,6 +210,16 @@ let solve
       Format.printf "Unknown (:reason %a)" Solver.Unknown.pp reas
   end
 
+let known_logics = [
+  "QF_UF";
+  "QF_LRA";
+  "QF_UFLRA";
+  "QF_DT";
+  "QF_UFDT";
+  "QF_LIA";
+  "QF_UFLIA";
+]
+
 (* process a single statement *)
 let process_stmt
     ?gc ?restarts ?(pp_cnf=false)
@@ -231,10 +241,10 @@ let process_stmt
   in
 
   begin match stmt with
-    | Statement.Stmt_set_logic ("QF_UF"|"QF_LRA"|"QF_UFLRA"|"QF_DT"|"QF_UFDT") ->
-      E.return ()
-    | Statement.Stmt_set_logic s ->
-      Log.debugf 0 (fun k->k "warning: unknown logic `%s`" s);
+    | Statement.Stmt_set_logic logic ->
+      if not @@ List.mem logic known_logics then (
+        Log.debugf 0 (fun k->k "warning: unknown logic `%s`" logic);
+      );
       E.return ()
     | Statement.Stmt_set_option l ->
       Log.debugf 0 (fun k->k "warning: unknown option `%a`" (Util.pp_list Fmt.string) l);
