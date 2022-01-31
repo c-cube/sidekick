@@ -16,8 +16,7 @@ let props =
     ]
 
 let () =
-  (*Sidekick_util.Log.set_debug 50;*)
-  Sidekick_util.Log.set_debug 10;
+  (*Sidekick_util.Log.set_debug 10;*)
   match Array.to_list Sys.argv with
   | a0::"alcotest"::tl ->
     let argv= Array.of_list (a0::tl) in

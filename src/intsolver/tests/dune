@@ -3,13 +3,3 @@
   (name sidekick_test_intsolver)
   (libraries zarith sidekick.intsolver sidekick.util sidekick.zarith
              qcheck alcotest))
-
-;(rule
-;  (targets sidekick_test_intsolver.ml)
-;  (enabled_if (>= %{ocaml_version} 4.08.0))
-;  (action (copy test_intsolver.real.ml %{targets})))
-;
-;(rule
-;  (targets sidekick_test_intsolver.ml)
-;  (enabled_if (< %{ocaml_version} 4.08.0))
-;  (action (with-stdout-to %{targets} (echo "let props=[];; let tests=\"intsolver\",[]"))))
