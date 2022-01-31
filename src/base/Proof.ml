@@ -270,6 +270,7 @@ let lemma_bool_c rule (ts:Term.t list) (self:t) =
 (* TODO *)
 
 let lemma_lra _ _ = dummy_step
+let lemma_relax_to_lra _ _ = dummy_step
 let lemma_lia _ _ = dummy_step
 
 let lemma_bool_equiv _ _ _ = dummy_step

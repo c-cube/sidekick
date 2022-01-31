@@ -31,6 +31,13 @@ module Data = Base_types.Data
 module Select = Base_types.Select
 module Form = Form
 
+module LRA_view = Base_types.LRA_view
+module LRA_pred = Base_types.LRA_pred
+module LRA_op = Base_types.LRA_op
+module LIA_view = Base_types.LIA_view
+module LIA_pred = Base_types.LIA_pred
+module LIA_op = Base_types.LIA_op
+
 module Solver_arg = Solver_arg
 module Lit = Lit
 

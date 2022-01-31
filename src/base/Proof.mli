@@ -45,6 +45,7 @@ include Sidekick_core.PROOF
    and type term = Term.t
 
 val lemma_lra : Lit.t Iter.t -> proof_rule
+val lemma_relax_to_lra : Lit.t Iter.t -> proof_rule
 val lemma_lia : Lit.t Iter.t -> proof_rule
 
 include Sidekick_th_data.PROOF

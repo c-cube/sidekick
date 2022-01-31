@@ -108,28 +108,28 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   let mk_eq = Form.eq
   let mk_lra store l = match l with
     | LRA.LRA_other x -> x
-    | LRA.LRA_pred (p, x, y) -> T.lra store (Arith_pred(p,x,y))
-    | LRA.LRA_op (op, x, y) -> T.lra store (Arith_op(op,x,y))
-    | LRA.LRA_const c -> T.lra store (Arith_const c)
-    | LRA.LRA_mult (c,x) -> T.lra store (Arith_mult (c,x))
-    | LRA.LRA_simplex_var x -> T.lra store (Arith_simplex_var x)
-    | LRA.LRA_simplex_pred (x,p,c) -> T.lra store (Arith_simplex_pred (x,p,c))
+    | LRA.LRA_pred (p, x, y) -> T.lra store (Pred(p,x,y))
+    | LRA.LRA_op (op, x, y) -> T.lra store (Op(op,x,y))
+    | LRA.LRA_const c -> T.lra store (Const c)
+    | LRA.LRA_mult (c,x) -> T.lra store (Mult (c,x))
+    | LRA.LRA_simplex_var x -> T.lra store (Simplex_var x)
+    | LRA.LRA_simplex_pred (x,p,c) -> T.lra store (Simplex_pred (x,p,c))
   let mk_bool = T.bool
 
   let rec view_as_lra t = match T.view t with
-    | T.LIA (Arith_const i) -> LRA.LRA_const (Q.of_bigint i)
+    | T.LIA (Const i) -> LRA.LRA_const (Q.of_bigint i)
     | T.LRA l ->
       let open Base_types in
       let module LRA = Sidekick_arith_lra in
       begin match l with
-        | Arith_const c -> LRA.LRA_const c
-        | Arith_pred (p,a,b) -> LRA.LRA_pred(p,a,b)
-        | Arith_op(op,a,b) -> LRA.LRA_op(op,a,b)
-        | Arith_mult (c,x) -> LRA.LRA_mult (c,x)
-        | Arith_simplex_var x -> LRA.LRA_simplex_var x
-        | Arith_simplex_pred (x,p,c) -> LRA.LRA_simplex_pred(x,p,c)
-        | Arith_to_real x -> view_as_lra x
-        | Arith_var x -> LRA.LRA_other x
+        | Const c -> LRA.LRA_const c
+        | Pred (p,a,b) -> LRA.LRA_pred(p,a,b)
+        | Op(op,a,b) -> LRA.LRA_op(op,a,b)
+        | Mult (c,x) -> LRA.LRA_mult (c,x)
+        | Simplex_var x -> LRA.LRA_simplex_var x
+        | Simplex_pred (x,p,c) -> LRA.LRA_simplex_pred(x,p,c)
+        | To_real x -> view_as_lra x
+        | Var x -> LRA.LRA_other x
       end
     | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.real()) ->
       LRA.LRA_pred (Eq, a, b)
@@ -151,32 +151,28 @@ module Th_lia = Sidekick_arith_lia.Make(struct
   type ty = S.T.Ty.t
 
   module LIA = Sidekick_arith_lia
+  module LRA_solver = Th_lra
 
   let mk_eq = Form.eq
   let mk_lia store l = match l with
     | LIA.LIA_other x -> x
-    | LIA.LIA_pred (p, x, y) -> T.lia store (Arith_pred(p,x,y))
-    | LIA.LIA_op (op, x, y) -> T.lia store (Arith_op(op,x,y))
-    | LIA.LIA_const c -> T.lia store (Arith_const c)
-    | LIA.LIA_mult (c,x) -> T.lia store (Arith_mult (c,x))
-    | LIA.LIA_simplex_var x -> T.lia store (Arith_simplex_var x)
-    | LIA.LIA_simplex_pred (x,p,c) -> T.lia store (Arith_simplex_pred (x,p,c))
+    | LIA.LIA_pred (p, x, y) -> T.lia store (Pred(p,x,y))
+    | LIA.LIA_op (op, x, y) -> T.lia store (Op(op,x,y))
+    | LIA.LIA_const c -> T.lia store (Const c)
+    | LIA.LIA_mult (c,x) -> T.lia store (Mult (c,x))
   let mk_bool = T.bool
-  let mk_to_real store t = T.lra store (Arith_to_real t)
+  let mk_to_real store t = T.lra store (To_real t)
 
   let view_as_lia t = match T.view t with
     | T.LIA l ->
       let open Base_types in
       let module LIA = Sidekick_arith_lia in
       begin match l with
-        | Arith_const c -> LIA.LIA_const c
-        | Arith_pred (p,a,b) -> LIA.LIA_pred(p,a,b)
-        | Arith_op(op,a,b) -> LIA.LIA_op(op,a,b)
-        | Arith_mult (c,x) -> LIA.LIA_mult (c,x)
-        | Arith_simplex_var x -> LIA.LIA_simplex_var x
-        | Arith_simplex_pred (x,p,c) -> LIA.LIA_simplex_pred(x,p,c)
-        | Arith_to_real _ -> LIA.LIA_other t
-        | Arith_var x -> LIA.LIA_other x
+        | Const c -> LIA.LIA_const c
+        | Pred (p,a,b) -> LIA.LIA_pred(p,a,b)
+        | Op(op,a,b) -> LIA.LIA_op(op,a,b)
+        | Mult (c,x) -> LIA.LIA_mult (c,x)
+        | Var x -> LIA.LIA_other x
       end
     | T.Eq (a,b) when Ty.equal (T.ty a) (Ty.int()) ->
       LIA.LIA_pred (Eq, a, b)
@@ -186,6 +182,7 @@ module Th_lia = Sidekick_arith_lia.Make(struct
   let has_ty_int t = Ty.equal (T.ty t) (Ty.int())
 
   let lemma_lia = Proof.lemma_lia
+  let lemma_relax_to_lra = Proof.lemma_relax_to_lra
   module Gensym = Gensym
 end)
 
