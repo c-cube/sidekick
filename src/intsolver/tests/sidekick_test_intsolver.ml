@@ -39,7 +39,7 @@ let rand_n low n : Z.t QC.arbitrary =
   QC.map ~rev:ZarithZ.to_int Z.of_int QC.(low -- n)
 
 (* TODO: fudge *)
-let rand_z = rand_n (-50) 100
+let rand_z = rand_n (-15) 15
 
 module Step = struct
   module G = QC.Gen
@@ -113,7 +113,7 @@ module Step = struct
              | _ ->
                let gen =
                  let+ le = gen_linexp
-                 and+ kind = oneofl [`Leq;`Lt;`Eq]
+                 and+ kind = frequencyl [5, `Leq; 5, `Lt; 3,`Eq]
                  and+ n = rand_z.QC.gen in
                  vars, (match kind with
                      | `Lt -> S_lt(le,n)
@@ -159,7 +159,7 @@ module Step = struct
     let print = Fmt.to_string (Fmt.Dump.list pp_) in
     QC.make ~shrink ~print (gen_for n1 n2)
 
-  let rand : t list QC.arbitrary = rand_for 1 100
+  let rand : t list QC.arbitrary = rand_for 1 15
 end
 
 let on_propagate _ ~reason:_ = ()
@@ -272,7 +272,7 @@ let set_stats_maybe ar =
 
 let check_sound =
   let ar =
-    Step.(rand_for 0 300)
+    Step.(rand_for 0 15)
     |> QC.set_collect (fun pb -> if check_pb_is_sat pb then "sat" else "unsat")
     |> set_stats_maybe
   in
@@ -307,7 +307,7 @@ let prop_backtrack pb =
 
 let check_backtrack =
   let ar =
-    Step.(rand_for 0 300)
+    Step.(rand_for 0 15)
     |> QC.set_collect (fun pb -> if check_pb_is_sat pb then "sat" else "unsat")
     |> set_stats_maybe
   in
@@ -315,25 +315,9 @@ let check_backtrack =
     ~long_factor:10 ~count:200 ~name:"solver2_backtrack"
     ar prop_backtrack
 
-let check_scalable =
-  let prop pb =
-    let solver = Solver.create () in
-    add_steps solver pb;
-    ignore (Solver.check solver : Solver.result);
-    true
-  in
-  let ar =
-    Step.(rand_for 3_000 5_000)
-    |> QC.set_collect (fun pb -> if check_pb_is_sat pb then "sat" else "unsat")
-    |> set_stats_maybe
-  in
-  QC.Test.make ~long_factor:2 ~count:10 ~name:"solver2_scalable"
-     ar prop
-
 let props = [
   check_sound;
   check_backtrack;
-  check_scalable;
 ]
 
 (* regression tests *)
