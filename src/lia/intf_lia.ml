@@ -13,8 +13,6 @@ type ('num, 'real, 'a) lia_view =
   | LIA_op of op * 'a * 'a
   | LIA_mult of 'num * 'a
   | LIA_const of 'num
-  | LIA_simplex_var of 'a (* an opaque variable *)
-  | LIA_simplex_pred of 'a * S_op.t * 'real (* an atomic constraint *)
   | LIA_other of 'a
 
 let map_view f (l:_ lia_view) : _ lia_view =
@@ -23,8 +21,6 @@ let map_view f (l:_ lia_view) : _ lia_view =
     | LIA_op (p, a, b) -> LIA_op (p, f a, f b)
     | LIA_mult (n,a) -> LIA_mult (n, f a)
     | LIA_const q -> LIA_const q
-    | LIA_simplex_var v -> LIA_simplex_var (f v)
-    | LIA_simplex_pred (v, op, q) -> LIA_simplex_pred (f v, op, q)
     | LIA_other x -> LIA_other (f x)
   end
 
@@ -33,6 +29,12 @@ module type ARG = sig
 
   module Z : INT
   module Q : RATIONAL with type bigint = Z.t
+
+  (* pass a LRA solver as parameter *)
+  module LRA_solver :
+    Sidekick_arith_lra.S
+    with type A.Q.t = Q.t
+     and module A.S = S
 
   type term = S.T.Term.t
   type ty = S.T.Ty.t
@@ -58,18 +60,7 @@ module type ARG = sig
 
   val lemma_lia : S.Lit.t Iter.t -> S.P.proof_rule
 
-  module Gensym : sig
-    type t
-
-    val create : S.T.Term.store -> t
-
-    val tst : t -> S.T.Term.store
-
-    val copy : t -> t
-
-    val fresh_term : t -> pre:string -> S.T.Ty.t -> term
-    (** Make a fresh term of the given type *)
-  end
+  val lemma_relax_to_lra : S.Lit.t Iter.t -> S.P.proof_rule
 end
 
 module type S = sig
