@@ -84,6 +84,9 @@ module type INT_FULL = sig
 
   val (/) : t -> t -> t
 
+  val ediv : t -> t -> t
+  (** Euclidian division *)
+
   val rem : t -> t -> t
 
   val probab_prime : t -> bool
