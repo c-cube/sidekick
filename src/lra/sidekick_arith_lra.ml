@@ -175,6 +175,7 @@ module Make(A : ARG) : S with module A = A = struct
     mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
     local_eqs: (N.t * N.t) Backtrack_stack.t; (* inferred by the congruence closure *)
     simplex: SimpSolver.t;
+    mutable last_res: SimpSolver.result option;
     stat_th_comb: int Stat.counter;
   }
 
@@ -188,8 +189,12 @@ module Make(A : ARG) : S with module A = A = struct
       encoded_le=Comb_map.empty;
       local_eqs = Backtrack_stack.create();
       simplex=SimpSolver.create ~stat ();
+      last_res=None;
       stat_th_comb=Stat.mk_int stat "lra.th-comb";
     }
+
+  let[@inline] reset_res_ (self:state) : unit =
+    self.last_res <- None
 
   let push_level self =
     SimpSolver.push_level self.simplex;
@@ -197,6 +202,7 @@ module Make(A : ARG) : S with module A = A = struct
     ()
 
   let pop_levels self n =
+    reset_res_ self;
     SimpSolver.pop_levels self.simplex n;
     Backtrack_stack.pop_levels self.local_eqs n ~f:(fun _ -> ());
     ()
@@ -499,6 +505,7 @@ module Make(A : ARG) : S with module A = A = struct
            SimpSolver.check self.simplex
              ~on_propagate:(on_propagate_ si acts))
     in
+    self.last_res <- Some res;
     begin match res with
       | SimpSolver.Sat m -> m
       | SimpSolver.Unsat cert ->
@@ -512,6 +519,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   let add_local_eq (self:state) si acts n1 n2 : unit =
     Log.debugf 20 (fun k->k "(@[lra.add-local-eq@ %a@ %a@])" N.pp n1 N.pp n2);
+    reset_res_ self;
     let t1 = N.term n1 in
     let t2 = N.term n2 in
     let t1, t2 = if T.compare t1 t2 > 0 then t2, t1 else t1, t2 in
@@ -599,6 +607,7 @@ module Make(A : ARG) : S with module A = A = struct
   let partial_check_ self si acts trail : unit =
     Profile.with_ "lra.partial-check" @@ fun () ->
 
+    reset_res_ self;
     let changed = ref false in
     trail
       (fun lit ->
@@ -640,6 +649,7 @@ module Make(A : ARG) : S with module A = A = struct
   let final_check_ (self:state) si (acts:SI.theory_actions) (_trail:_ Iter.t) : unit =
     Log.debug 5 "(th-lra.final-check)";
     Profile.with_ "lra.final-check" @@ fun () ->
+    reset_res_ self;
 
     (* add congruence closure equalities *)
     Backtrack_stack.iter self.local_eqs
@@ -664,6 +674,17 @@ module Make(A : ARG) : S with module A = A = struct
         T.Tbl.add self.needs_th_combination t ()
       )
 
+  (* help generating model *)
+  let model_gen_ (self:state) ~recurse:_ _si n : _ option =
+    let t = N.term n in
+    begin match self.last_res with
+      | Some (SimpSolver.Sat m) ->
+        Log.debugf 50 (fun k->k "lra: model ask %a" T.pp t);
+        let to_rat q = A.mk_lra self.tst (LRA_const q) in
+        SimpSolver.V_map.get t m |> CCOpt.map to_rat
+      | _ -> None
+    end
+
   let k_state = SI.Registry.create_key ()
 
   let create_and_setup si =
@@ -675,6 +696,7 @@ module Make(A : ARG) : S with module A = A = struct
     SI.on_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
+    SI.on_model_gen si (model_gen_ st);
     SI.on_cc_is_subterm si (on_subterm st);
     SI.on_cc_post_merge si
       (fun _ _ n1 n2 ->
