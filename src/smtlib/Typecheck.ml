@@ -573,10 +573,13 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
         l
     in
     [Stmt.Stmt_check_sat l]
+  | PA.Stmt_get_model -> [Stmt.Stmt_get_model]
+  | PA.Stmt_get_value l ->
+    let l = List.map (conv_term ctx) l in
+    [Stmt.Stmt_get_value l]
   | PA.Stmt_get_assertions
   | PA.Stmt_get_option _
   | PA.Stmt_get_info _
-  | PA.Stmt_get_model
   | PA.Stmt_get_proof
   | PA.Stmt_get_unsat_core
   | PA.Stmt_get_unsat_assumptions
@@ -585,7 +588,6 @@ and conv_statement_aux ctx (stmt:PA.statement) : Stmt.t list =
   | PA.Stmt_reset_assertions
   | PA.Stmt_push _
   | PA.Stmt_pop _
-  | PA.Stmt_get_value _
     ->
     (* TODO: handle more of these *)
     errorf_ctx ctx "cannot handle statement %a" PA.pp_stmt stmt

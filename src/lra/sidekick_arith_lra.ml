@@ -244,11 +244,11 @@ module Make(A : ARG) : S with module A = A = struct
         (* TODO: define proxy *)
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
         Log.debugf 50
-          (fun k->k "(@[lra.encode-le@ `%a`@ :into-var %a@])" LE_.Comb.pp le_comb T.pp proxy);
+          (fun k->k "(@[lra.encode-linexp@ `%a`@ :into-var %a@])" LE_.Comb.pp le_comb T.pp proxy);
 
         (* it's actually 0 *)
         if LE_.Comb.is_empty le_comb then (
-          Log.debug 50 "(lra.encode-le.is-trivially-0)";
+          Log.debug 50 "(lra.encode-linexp.is-trivially-0)";
           SimpSolver.add_constraint self.simplex
             ~on_propagate:(fun _ ~reason:_ -> ())
             (SimpSolver.Constraint.leq proxy A.Q.zero) Tag.By_def;
@@ -409,7 +409,7 @@ module Make(A : ARG) : S with module A = A = struct
           ((A.Q.minus_one, proxy) :: LE_.Comb.to_list le_comb);
 
         Log.debugf 50
-          (fun k->k "(@[lra.encode-le.with-offset@ %a@ :var %a@ :diff-var %a@])"
+          (fun k->k "(@[lra.encode-linexp.with-offset@ %a@ :var %a@ :diff-var %a@])"
               LE_.Comb.pp le_comb T.pp proxy T.pp proxy2);
 
         declare_term_to_cc proxy;

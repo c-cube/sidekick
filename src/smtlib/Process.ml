@@ -147,7 +147,7 @@ let solve
     ?(check=false)
     ?time:_ ?memory:_ ?(progress=false)
     ~assumptions
-    s : unit =
+    s : Solver.res =
   let t1 = Sys.time() in
   let on_progress =
     if progress then Some (mk_progress s) else None in
@@ -208,7 +208,8 @@ let solve
 
     | Solver.Unknown reas ->
       Format.printf "Unknown (:reason %a)" Solver.Unknown.pp reas
-  end
+  end;
+  res
 
 let known_logics = [
   "QF_UF";
@@ -260,11 +261,11 @@ let process_stmt
           (fun (sign,t) -> Solver.mk_lit_t solver ~sign t)
           l
       in
-      solve
+      ignore (solve
         ?gc ?restarts ~check ?pp_model ?proof_file
         ?time ?memory ?progress
         ~assumptions
-        solver;
+        solver : Solver.res);
       E.return()
     | Statement.Stmt_ty_decl (id,n) ->
       decl_sort id n;
@@ -299,6 +300,29 @@ let process_stmt
 
       Solver.add_clause solver (IArray.of_list c) pr;
       E.return()
+
+    | Statement.Stmt_get_model ->
+      begin match Solver.last_res solver with
+        | Some (Solver.Sat m) ->
+          Fmt.printf "(@[model@ %a@])@." Solver.Model.pp m
+        | _ -> Error.errorf "cannot access model"
+      end;
+      E.return ()
+
+    | Statement.Stmt_get_value l ->
+      begin match Solver.last_res solver with
+        | Some (Solver.Sat m) ->
+          let l = List.map
+              (fun t -> match Solver.Model.eval m t with
+                 | None -> Error.errorf "cannot evaluate %a" Term.pp t
+                 | Some u -> t, u)
+              l
+          in
+          let pp_pair out (t,u) = Fmt.fprintf out "(@[%a@ %a@])" Term.pp t Term.pp u in
+          Fmt.printf "(@[%a@])@." (Util.pp_list pp_pair) l
+        | _ -> Error.errorf "cannot access model"
+      end;
+      E.return ()
 
     | Statement.Stmt_data _ ->
       E.return()

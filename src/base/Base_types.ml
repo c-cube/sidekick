@@ -328,6 +328,8 @@ type statement =
   | Stmt_assert of term
   | Stmt_assert_clause of term list
   | Stmt_check_sat of (bool * term) list
+  | Stmt_get_model
+  | Stmt_get_value of term list
   | Stmt_exit
 
 let[@inline] term_equal_ (a:term) b = a==b
@@ -1382,6 +1384,8 @@ module Statement = struct
     | Stmt_assert of term
     | Stmt_assert_clause of term list
     | Stmt_check_sat of (bool * term) list
+    | Stmt_get_model
+    | Stmt_get_value of term list
     | Stmt_exit
 
   (** Pretty print a statement *)
@@ -1404,5 +1408,8 @@ module Statement = struct
     | Stmt_exit -> Fmt.string out "(exit)"
     | Stmt_data l ->
       Fmt.fprintf out "(@[declare-datatypes@ %a@])" (Util.pp_list Data.pp) l
+    | Stmt_get_model -> Fmt.string out "(get-model)"
+    | Stmt_get_value l ->
+      Fmt.fprintf out "(@[get-value@ (@[%a@])@])" (Util.pp_list pp_term) l
     | Stmt_define _ -> assert false (* TODO *)
 end

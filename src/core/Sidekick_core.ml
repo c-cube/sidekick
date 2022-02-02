@@ -1238,6 +1238,9 @@ module type SOLVER = sig
         must stop (returning [Unknown]), [false] if solving can proceed.
       @param on_exit functions to be run before this returns *)
 
+  val last_res : t -> res option
+  (** Last result, if any. Some operations will erase this (e.g. {!assert_term}). *)
+
   val push_assumption : t -> lit -> unit
   (** Pushes an assumption onto the assumption stack. It will remain
       there until it's pop'd by {!pop_assumptions}. *)

@@ -90,10 +90,10 @@ module Make(A : ARG) : S with module A = A = struct
     | LIA_other t when A.has_ty_int t ->
       SI.declare_pb_is_incomplete si;
       None
-    | LIA_const _ | LIA_op _ | LIA_mult _ ->
+    | LIA_op _ | LIA_mult _ ->
       SI.declare_pb_is_incomplete si;
       None (* TODO: theory combination?*)
-    | LIA_other _ ->
+    | LIA_const _ | LIA_other _ ->
       None
 
   let create_and_setup si =

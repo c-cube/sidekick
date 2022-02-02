@@ -674,20 +674,7 @@ module Make(A : ARG)
   (** the parametrized SAT Solver *)
   module Sat_solver = Sidekick_sat.Make_cdcl_t(Solver_internal)
 
-  (* main solver state *)
-  type t = {
-    si: Solver_internal.t;
-    solver: Sat_solver.t;
-    stat: Stat.t;
-    proof: P.t;
-    count_clause: int Stat.counter;
-    count_solve: int Stat.counter;
-    (* config: Config.t *)
-  }
-  type solver = t
-
   module Registry = Solver_internal.Registry
-  let[@inline] registry self = Solver_internal.registry self.si
 
   module type THEORY = sig
     type t
@@ -699,93 +686,6 @@ module Make(A : ARG)
 
   type theory = (module THEORY)
   type 'a theory_p = (module THEORY with type t = 'a)
-
-  (** {2 Main} *)
-
-  let add_theory_p (type a) (self:t) (th:a theory_p) : a =
-    let (module Th) = th in
-    Log.debugf 2
-      (fun k-> k "(@[smt-solver.add-theory@ :name %S@])" Th.name);
-    let st = Th.create_and_setup self.si in
-    (* add push/pop to the internal solver *)
-    begin
-      let open Solver_internal in
-      self.si.th_states <- Ths_cons {
-          st;
-          push_level=Th.push_level;
-          pop_levels=Th.pop_levels;
-          next=self.si.th_states;
-        };
-    end;
-    st
-
-  let add_theory (self:t) (th:theory) : unit =
-    let (module Th) = th in
-    ignore (add_theory_p self (module Th))
-
-  let add_theory_l self = List.iter (add_theory self)
-
-  (* create a new solver *)
-  let create ?(stat=Stat.global) ?size ~proof ~theories tst ty_st () : t =
-    Log.debug 5 "smt-solver.create";
-    let si = Solver_internal.create ~stat ~proof tst ty_st () in
-    let self = {
-      si; proof;
-      solver=Sat_solver.create ~proof ?size ~stat si;
-      stat;
-      count_clause=Stat.mk_int stat "solver.add-clause";
-      count_solve=Stat.mk_int stat "solver.solve";
-    } in
-    add_theory_l self theories;
-    (* assert [true] and [not false] *)
-    begin
-      let tst = Solver_internal.tst self.si in
-      let t_true = Term.bool tst true in
-      Sat_solver.add_clause self.solver
-        [Lit.atom tst t_true]
-        (P.lemma_true t_true self.proof)
-    end;
-    self
-
-  let[@inline] solver self = self.solver
-  let[@inline] cc self = Solver_internal.cc self.si
-  let[@inline] stats self = self.stat
-  let[@inline] tst self = Solver_internal.tst self.si
-  let[@inline] ty_st self = Solver_internal.ty_st self.si
-  let[@inline] proof self = self.si.proof
-
-  let preprocess_acts_of_solver_
-      (self:t) : (module Solver_internal.PREPROCESS_ACTS) =
-    (module struct
-      let proof = self.proof
-      let mk_lit_nopreproc ?sign t = Lit.atom ?sign self.si.tst t
-      let mk_lit ?sign t = Lit.atom ?sign self.si.tst t, None
-      let add_lit ?default_pol lit =
-        Sat_solver.add_lit self.solver ?default_pol lit
-      let add_clause c pr =
-        Sat_solver.add_clause self.solver c pr
-    end)
-
-  (* preprocess literal *)
-  let preprocess_lit_ ~steps (self:t) (lit:lit) : lit =
-    let pacts = preprocess_acts_of_solver_ self in
-    Solver_internal.preprocess_lit_ ~steps self.si pacts lit
-
-  (* preprocess clause, return new proof *)
-  let preprocess_clause_ (self:t)
-      (c:lit IArray.t) (pr:proof_step) : lit IArray.t * proof_step =
-    let steps = ref [] in
-    let c = IArray.map (preprocess_lit_ self ~steps) c in
-    let pr =
-      P.lemma_rw_clause pr
-        ~res:(IArray.to_iter c) ~using:(Iter.of_list !steps) self.proof
-    in
-    c, pr
-
-  (* make a literal from a term, ensuring it is properly preprocessed *)
-  let mk_lit_t (self:t) ?sign (t:term) : lit =
-    let pacts = preprocess_acts_of_solver_ self in
-    Solver_internal.mk_plit self.si pacts ?sign t
 
   (** {2 Result} *)
 
@@ -837,6 +737,110 @@ module Make(A : ARG)
     | Unknown of Unknown.t
     (** Result of solving for the current set of clauses *)
 
+  (* main solver state *)
+  type t = {
+    si: Solver_internal.t;
+    solver: Sat_solver.t;
+    mutable last_res: res option;
+    stat: Stat.t;
+    proof: P.t;
+    count_clause: int Stat.counter;
+    count_solve: int Stat.counter;
+    (* config: Config.t *)
+  }
+  type solver = t
+
+  (** {2 Main} *)
+
+  let add_theory_p (type a) (self:t) (th:a theory_p) : a =
+    let (module Th) = th in
+    Log.debugf 2
+      (fun k-> k "(@[smt-solver.add-theory@ :name %S@])" Th.name);
+    let st = Th.create_and_setup self.si in
+    (* add push/pop to the internal solver *)
+    begin
+      let open Solver_internal in
+      self.si.th_states <- Ths_cons {
+          st;
+          push_level=Th.push_level;
+          pop_levels=Th.pop_levels;
+          next=self.si.th_states;
+        };
+    end;
+    st
+
+  let add_theory (self:t) (th:theory) : unit =
+    let (module Th) = th in
+    ignore (add_theory_p self (module Th))
+
+  let add_theory_l self = List.iter (add_theory self)
+
+  (* create a new solver *)
+  let create ?(stat=Stat.global) ?size ~proof ~theories tst ty_st () : t =
+    Log.debug 5 "smt-solver.create";
+    let si = Solver_internal.create ~stat ~proof tst ty_st () in
+    let self = {
+      si; proof; last_res=None;
+      solver=Sat_solver.create ~proof ?size ~stat si;
+      stat;
+      count_clause=Stat.mk_int stat "solver.add-clause";
+      count_solve=Stat.mk_int stat "solver.solve";
+    } in
+    add_theory_l self theories;
+    (* assert [true] and [not false] *)
+    begin
+      let tst = Solver_internal.tst self.si in
+      let t_true = Term.bool tst true in
+      Sat_solver.add_clause self.solver
+        [Lit.atom tst t_true]
+        (P.lemma_true t_true self.proof)
+    end;
+    self
+
+  let[@inline] solver self = self.solver
+  let[@inline] cc self = Solver_internal.cc self.si
+  let[@inline] stats self = self.stat
+  let[@inline] tst self = Solver_internal.tst self.si
+  let[@inline] ty_st self = Solver_internal.ty_st self.si
+  let[@inline] proof self = self.si.proof
+  let[@inline] last_res self = self.last_res
+  let[@inline] registry self = Solver_internal.registry self.si
+
+  let reset_last_res_ self = self.last_res <- None
+
+  let preprocess_acts_of_solver_
+      (self:t) : (module Solver_internal.PREPROCESS_ACTS) =
+    (module struct
+      let proof = self.proof
+      let mk_lit_nopreproc ?sign t = Lit.atom ?sign self.si.tst t
+      let mk_lit ?sign t = Lit.atom ?sign self.si.tst t, None
+      let add_lit ?default_pol lit =
+        Sat_solver.add_lit self.solver ?default_pol lit
+      let add_clause c pr =
+        Sat_solver.add_clause self.solver c pr
+    end)
+
+  (* preprocess literal *)
+  let preprocess_lit_ ~steps (self:t) (lit:lit) : lit =
+    let pacts = preprocess_acts_of_solver_ self in
+    Solver_internal.preprocess_lit_ ~steps self.si pacts lit
+
+  (* preprocess clause, return new proof *)
+  let preprocess_clause_ (self:t)
+      (c:lit IArray.t) (pr:proof_step) : lit IArray.t * proof_step =
+    let steps = ref [] in
+    let c = IArray.map (preprocess_lit_ self ~steps) c in
+    let pr =
+      P.lemma_rw_clause pr
+        ~res:(IArray.to_iter c) ~using:(Iter.of_list !steps) self.proof
+    in
+    c, pr
+
+  (* make a literal from a term, ensuring it is properly preprocessed *)
+  let mk_lit_t (self:t) ?sign (t:term) : lit =
+    let pacts = preprocess_acts_of_solver_ self in
+    Solver_internal.mk_plit self.si pacts ?sign t
+
   (** {2 Main} *)
 
   let pp_stats out (self:t) : unit =
@@ -845,6 +849,7 @@ module Make(A : ARG)
   (* add [c], without preprocessing its literals *)
   let add_clause_nopreproc_ (self:t) (c:lit IArray.t) (proof:proof_step) : unit =
     Stat.incr self.count_clause;
+    reset_last_res_ self;
     Log.debugf 50 (fun k->
         k "(@[solver.add-clause@ %a@])"
           (Util.pp_iarray Lit.pp) c);
@@ -944,42 +949,51 @@ module Make(A : ARG)
     in
     self.si.on_progress <- on_progress;
 
-    match
-      Stat.incr self.count_solve;
-      Sat_solver.solve ~on_progress ~assumptions (solver self)
-    with
-    | Sat_solver.Sat _ when not self.si.complete ->
-      Log.debugf 1
-        (fun k->k "(@[sidekick.smt-solver: SAT@ actual: UNKNOWN@ :reason incomplete-fragment@])");
-      Unknown Unknown.U_incomplete
+    let res =
+      match
+        Stat.incr self.count_solve;
+        Sat_solver.solve ~on_progress ~assumptions (solver self)
+      with
+      | Sat_solver.Sat _ when not self.si.complete ->
+        Log.debugf 1
+          (fun k->k "(@[sidekick.smt-solver: SAT@ actual: UNKNOWN@ :reason incomplete-fragment@])");
+        Unknown Unknown.U_incomplete
 
-    | Sat_solver.Sat (module SAT) ->
-      Log.debug 1 "(sidekick.smt-solver: SAT)";
+      | Sat_solver.Sat (module SAT) ->
+        Log.debug 1 "(sidekick.smt-solver: SAT)";
 
-      Log.debugf 50
-        (fun k->
-           let ppc out n =
-             Fmt.fprintf out "{@[<hv>class@ %a@]}" (Util.pp_iter N.pp) (N.iter_class n) in
-           k "(@[sidekick.smt-solver.classes@ (@[%a@])@])"
-            (Util.pp_iter ppc) (CC.all_classes @@ Solver_internal.cc self.si));
+        Log.debugf 50
+          (fun k->
+             let ppc out n =
+               Fmt.fprintf out "{@[<hv>class@ %a@]}" (Util.pp_iter N.pp) (N.iter_class n) in
+             k "(@[sidekick.smt-solver.classes@ (@[%a@])@])"
+              (Util.pp_iter ppc) (CC.all_classes @@ Solver_internal.cc self.si));
 
-      let _lits f = SAT.iter_trail f in
-      let m = mk_model self _lits in
-      (* TODO: check model *)
-      let _ = check in
+        let _lits f = SAT.iter_trail f in
+        let m = mk_model self _lits in
+        (* TODO: check model *)
+        let _ = check in
 
-      do_on_exit ();
-      Sat m
+        do_on_exit ();
+        Sat m
 
-    | Sat_solver.Unsat (module UNSAT) ->
-      let unsat_core () = UNSAT.unsat_assumptions () in
-      let unsat_proof_step () = Some (UNSAT.unsat_proof()) in
-      do_on_exit ();
-      Unsat {unsat_core; unsat_proof_step}
-    | exception Should_stop -> Unknown Unknown.U_asked_to_stop
+      | Sat_solver.Unsat (module UNSAT) ->
+        let unsat_core () = UNSAT.unsat_assumptions () in
+        let unsat_proof_step () = Some (UNSAT.unsat_proof()) in
+        do_on_exit ();
+        Unsat {unsat_core; unsat_proof_step}
+      | exception Should_stop -> Unknown Unknown.U_asked_to_stop
+    in
+    self.last_res <- Some res;
+    res
 
-  let push_assumption self a = Sat_solver.push_assumption self.solver a
-  let pop_assumptions self n = Sat_solver.pop_assumptions self.solver n
+  let push_assumption self a =
+    reset_last_res_ self;
+    Sat_solver.push_assumption self.solver a
+
+  let pop_assumptions self n =
+    reset_last_res_ self;
+    Sat_solver.pop_assumptions self.solver n
 
   type propagation_result =
     | PR_sat
@@ -991,6 +1005,7 @@ module Make(A : ARG)
       }
 
   let check_sat_propagations_only ~assumptions self : propagation_result =
+    reset_last_res_ self;
     match
       Sat_solver.check_sat_propagations_only ~assumptions self.solver
     with
