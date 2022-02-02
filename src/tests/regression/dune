@@ -1,0 +1,11 @@
+
+(rule
+  (targets reg_model_lra1.out)
+  (deps reg_model_lra1.smt2)
+  (action (with-stdout-to %{targets} (bash "../../main/main.exe %{deps} | tail -n +2"))))
+
+(alias
+  (name runtest)
+  (locks /test)
+  (package sidekick-bin)
+  (action (diff reg_model_lra1.out.expected reg_model_lra1.out)))

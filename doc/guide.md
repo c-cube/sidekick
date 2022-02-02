@@ -344,7 +344,7 @@ Sidekick_base_solver.Solver.Sat
  (model
   (true := true)
   (false := false)
-  (_sk_lra__le0 := _sk_lra__le0)
+  (_sk_lra__le0 := 0)
   ((_sk_lra__le0 <= 0) := true))
 
 

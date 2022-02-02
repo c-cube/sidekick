@@ -1,0 +1,11 @@
+(model
+ (true := true) 
+ (false := false) 
+ (a := 5/3) 
+ (_sk_lra__le0 := 5) 
+ ((to_real _sk_lra__le0) := 5) 
+ ((= 5 (to_real _sk_lra__le0)) := true) 
+ (((to_real _sk_lra__le0) >= 5) := true) 
+ (((to_real _sk_lra__le0) <= 5) := true) 
+ ((a <= 5/3) := true) 
+ ((a >= 5/3) := true))
