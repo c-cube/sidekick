@@ -20,7 +20,7 @@ let parse_file () : unit =
     CS.Reader.next reader
       ~finish:(fun () -> ())
       ~yield:(fun b i _len ->
-          let decode = {Proof_ser.Bare.Decode.bs=b; off=i} in
+          let decode = Proof_ser.Bare.Decode.of_bytes b ~off:i in
           let step = Proof_ser.Step.decode decode in
           incr n;
           if not !quiet then (

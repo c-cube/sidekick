@@ -48,6 +48,7 @@ type t = {
   mutable enabled : bool;
   config: Config.t;
   buf: Buffer.t;
+  out: Proof_ser.Bare.Encode.t;
   mutable storage: Storage.t;
   mutable dispose: unit -> unit;
   mutable steps_writer: CS.Writer.t;
@@ -90,10 +91,12 @@ let create ?(config=Config.default) () : t =
       let dispose () = close_out oc in
       Storage.On_disk (file, oc), w, dispose
   in
+  let buf = Buffer.create 1_024 in
+  let out = Proof_ser.Bare.Encode.of_buffer buf in
   { enabled=config.Config.enabled;
     config;
     next_id=1;
-    buf=Buffer.create 1_024;
+    buf; out;
     map_term=Term.Tbl.create 32;
     map_fun=Fun.Tbl.create 32;
     steps_writer; storage; dispose;
@@ -118,7 +121,7 @@ let[@inline] alloc_id (self:t) : Proof_ser.ID.t =
 let emit_step_ (self:t) (step:Proof_ser.Step.t) : unit =
   if enabled self then (
     Buffer.clear self.buf;
-    Proof_ser.Step.encode self.buf step;
+    Proof_ser.Step.encode self.out step;
     Chunk_stack.Writer.add_buffer self.steps_writer self.buf;
   )
 
