@@ -24,7 +24,7 @@ clean:
 	@dune clean
 
 test:
-	@dune runtest --force --no-buffer
+	@dune runtest $(OPTS) --force --no-buffer
 
 TESTOPTS ?= -j $(J) -c tests/benchpress.sexp --progress
 TESTTOOL=benchpress
