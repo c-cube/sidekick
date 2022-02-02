@@ -21,6 +21,7 @@ depends: [
 ]
 depopts: [
   "mtime"   # for profiling stuff
+  "memtrace" # memory profiling
   "zarith" # for arithmetic
 ]
 conflicts: [
