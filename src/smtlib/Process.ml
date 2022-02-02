@@ -304,7 +304,7 @@ let process_stmt
     | Statement.Stmt_get_model ->
       begin match Solver.last_res solver with
         | Some (Solver.Sat m) ->
-          Fmt.printf "(@[model@ %a@])@." Solver.Model.pp m
+          Fmt.printf "%a@." Solver.Model.pp m
         | _ -> Error.errorf "cannot access model"
       end;
       E.return ()
