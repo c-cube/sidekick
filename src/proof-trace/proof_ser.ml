@@ -1,4 +1,3 @@
-(* generated from "proof_ser.bare" using bare-codegen *)
 [@@@ocaml.warning "-26-27"]
 
 (* embedded runtime library *)
@@ -259,40 +258,17 @@ let of_string dec s = of_bytes dec (Bytes.unsafe_of_string s)
   1 (let s = to_s Encode.int (-1209433446454112432L) in 0x1 land (Char.code s.[0]))
 *)
 
-(*$Q & ~count:1000
+(*$Q
   Q.(int64) (fun s -> \
     s = (of_s Decode.uint (to_s Encode.uint s)))
-  Q.(small_nat) (fun n -> \
-    let n = Int64.of_int n in \
-    n = (of_s Decode.uint (to_s Encode.uint n)))
 *)
 
-(*$Q & ~count:1000
+(*$Q
   Q.(int64) (fun s -> \
     s = (of_s Decode.int (to_s Encode.int s)))
-  Q.(small_signed_int) (fun n -> \
-    let n = Int64.of_int n in \
-    n = (of_s Decode.int (to_s Encode.int n)))
 *)
 
-(*$R
-    for i=0 to 1_000 do
-      let i = Int64.of_int i in
-      assert_equal ~printer:Int64.to_string i (of_s Decode.int (to_s Encode.int i))
-    done
-*)
-
-(*$R
-    for i=0 to 1_000 do
-      let i = Int64.of_int i in
-      assert_equal ~printer:Int64.to_string i (of_s Decode.uint (to_s Encode.uint i))
-    done
-*)
-
-(*$Q & ~count:1000
-  Q.(string) (fun s -> \
-    s = (of_s Decode.string (to_s Encode.string s)))
-*)
+(* TODO: some tests with qtest *)
 
 end
 

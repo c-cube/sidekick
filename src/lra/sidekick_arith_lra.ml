@@ -693,9 +693,10 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* help generating model *)
   let model_complete_ (self:state) _si ~add : unit =
+    Log.debugf 30 (fun k->k "lra: model complete");
     begin match self.last_res with
-      | Some (SimpSolver.Sat m) ->
-        Log.debugf 50 (fun k->k "lra: model complete");
+      | Some (SimpSolver.Sat m) when not (Vec.is_empty self.in_model) ->
+        Log.debugf 50 (fun k->k "(@[lra.in_model@ %a@])" (Vec.pp T.pp) self.in_model);
 
         let add_t t =
           match SimpSolver.V_map.get t m with
