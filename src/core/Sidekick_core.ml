@@ -997,10 +997,12 @@ module type SOLVER_INTERNAL = sig
 
   (** {3 Model production} *)
 
-  type model_hook =
+  type model_ask_hook =
     recurse:(t -> CC.N.t -> term) ->
     t -> CC.N.t -> term option
-  (** A model-production hook. It takes the solver, a class, and returns
+  (** A model-production hook to query values from a theory.
+
+      It takes the solver, a class, and returns
       a term for this class. For example, an arithmetic theory
       might detect that a class contains a numeric constant, and return
       this constant as a model value.
@@ -1008,8 +1010,15 @@ module type SOLVER_INTERNAL = sig
       If no hook assigns a value to a class, a fake value is created for it.
   *)
 
-  val on_model_gen : t -> model_hook -> unit
-  (** Add a hook that will be called when a model is being produced *)
+  type model_completion_hook =
+    t -> add:(term -> term -> unit) -> unit
+  (** A model production hook, for the theory to add values.
+      The hook is given a [add] function to add bindings to the model. *)
+
+  val on_model :
+    ?ask:model_ask_hook -> ?complete:model_completion_hook ->
+    t -> unit
+  (** Add model production/completion hooks. *)
 end
 
 (** User facing view of the solver.

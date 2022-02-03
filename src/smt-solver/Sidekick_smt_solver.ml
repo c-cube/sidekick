@@ -255,7 +255,8 @@ module Make(A : ARG)
       mutable on_progress: unit -> unit;
       simp: Simplify.t;
       mutable preprocess: preprocess_hook list;
-      mutable mk_model: model_hook list;
+      mutable model_ask: model_ask_hook list;
+      mutable model_complete: model_completion_hook list;
       preprocess_cache: (Term.t * proof_step Bag.t) Term.Tbl.t;
       mutable t_defs : (term*term) list; (* term definitions *)
       mutable th_states : th_states; (** Set of theories *)
@@ -270,9 +271,12 @@ module Make(A : ARG)
       preprocess_actions ->
       term -> (term * proof_step Iter.t) option
 
-    and model_hook =
+    and model_ask_hook =
       recurse:(t -> CC.N.t -> term) ->
       t -> CC.N.t -> term option
+
+    and model_completion_hook =
+      t -> add:(term -> term -> unit) -> unit
 
     type solver = t
 
@@ -292,7 +296,10 @@ module Make(A : ARG)
     let add_simplifier (self:t) f : unit = Simplify.add_hook self.simp f
 
     let on_preprocess self f = self.preprocess <- f :: self.preprocess
-    let on_model_gen self f = self.mk_model <- f :: self.mk_model
+    let on_model ?ask ?complete self =
+      CCOpt.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
+      CCOpt.iter (fun f -> self.model_complete <- f :: self.model_complete) complete;
+      ()
 
     let push_decision (_self:t) (acts:theory_actions) (lit:lit) : unit =
       let (module A) = acts in
@@ -654,7 +661,8 @@ module Make(A : ARG)
         simp=Simplify.create tst ty_st ~proof;
         on_progress=(fun () -> ());
         preprocess=[];
-        mk_model=[];
+        model_ask=[];
+        model_complete=[];
         registry=Registry.create();
         preprocess_cache=Term.Tbl.create 32;
         count_axiom = Stat.mk_int stat "solver.th-axioms";
@@ -883,7 +891,7 @@ module Make(A : ARG)
     Profile.with_ "smt-solver.mk-model" @@ fun () ->
     let module M = Term.Tbl in
     let model = M.create 128 in
-    let {Solver_internal.tst; cc=lazy cc; mk_model=model_hooks; _} = self.si in
+    let {Solver_internal.tst; cc=lazy cc; model_ask; model_complete; _} = self.si in
 
     (* first, add all literals to the model using the given propositional model
        [lits]. *)
@@ -891,6 +899,16 @@ module Make(A : ARG)
       (fun lit ->
          let t, sign = Lit.signed_term lit in
          M.replace model t (Term.bool tst sign));
+
+    (* complete model with theory specific values *)
+    let complete_with f =
+      f self.si
+        ~add:(fun t u ->
+          if not (M.mem model t) then (
+            M.replace model t u
+          ));
+    in
+    List.iter complete_with model_complete;
 
     (* compute a value for [n]. *)
     let rec val_for_class (n:N.t) : term =
@@ -911,7 +929,7 @@ module Make(A : ARG)
             end
         in
 
-        let t_val = aux model_hooks in
+        let t_val = aux model_ask in
         M.replace model (N.term repr) t_val; (* be sure to cache the value *)
         t_val
     in

@@ -716,7 +716,7 @@ module Make(A : ARG) : S with module A = A = struct
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_final_check solver (on_final_check self);
-    SI.on_model_gen solver (on_model_gen self);
+    SI.on_model solver ~ask:(on_model_gen self);
     self
 
   let theory =

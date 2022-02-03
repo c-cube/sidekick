@@ -170,6 +170,7 @@ module Make(A : ARG) : S with module A = A = struct
     proof: SI.P.t;
     simps: T.t T.Tbl.t; (* cache *)
     gensym: A.Gensym.t;
+    in_model: T.t Vec.t; (* terms to add to model *)
     encoded_eqs: unit T.Tbl.t; (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
     needs_th_combination: unit T.Tbl.t; (* terms that require theory combination *)
     mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
@@ -182,6 +183,7 @@ module Make(A : ARG) : S with module A = A = struct
   let create ?(stat=Stat.create()) proof tst ty_st : state =
     { tst; ty_st;
       proof;
+      in_model=Vec.create();
       simps=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
       encoded_eqs=T.Tbl.create 8;
@@ -283,6 +285,9 @@ module Make(A : ARG) : S with module A = A = struct
     (* preprocess subterm *)
     let preproc_t ~steps t =
       let u, pr = SI.preprocess_term si (module PA) t in
+      if t != u then (
+        Vec.push self.in_model t;
+      );
       CCOpt.iter (fun s -> steps := s :: !steps) pr;
       u
     in
@@ -674,15 +679,32 @@ module Make(A : ARG) : S with module A = A = struct
         T.Tbl.add self.needs_th_combination t ()
       )
 
+  let to_rat_t_ self q = A.mk_lra self.tst (LRA_const q)
+
   (* help generating model *)
   let model_gen_ (self:state) ~recurse:_ _si n : _ option =
     let t = N.term n in
     begin match self.last_res with
       | Some (SimpSolver.Sat m) ->
         Log.debugf 50 (fun k->k "lra: model ask %a" T.pp t);
-        let to_rat q = A.mk_lra self.tst (LRA_const q) in
-        SimpSolver.V_map.get t m |> CCOpt.map to_rat
+        SimpSolver.V_map.get t m |> CCOpt.map (to_rat_t_ self)
       | _ -> None
+    end
+
+  (* help generating model *)
+  let model_complete_ (self:state) _si ~add : unit =
+    begin match self.last_res with
+      | Some (SimpSolver.Sat m) ->
+        Log.debugf 50 (fun k->k "lra: model complete");
+
+        let add_t t =
+          match SimpSolver.V_map.get t m with
+          | None -> ()
+          | Some u -> add t (to_rat_t_ self u)
+        in
+        Vec.iter add_t self.in_model
+
+      | _ -> ()
     end
 
   let k_state = SI.Registry.create_key ()
@@ -696,7 +718,7 @@ module Make(A : ARG) : S with module A = A = struct
     SI.on_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
-    SI.on_model_gen si (model_gen_ st);
+    SI.on_model si ~ask:(model_gen_ st) ~complete:(model_complete_ st);
     SI.on_cc_is_subterm si (on_subterm st);
     SI.on_cc_post_merge si
       (fun _ _ n1 n2 ->
