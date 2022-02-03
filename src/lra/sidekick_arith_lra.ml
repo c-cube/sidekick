@@ -170,7 +170,7 @@ module Make(A : ARG) : S with module A = A = struct
     proof: SI.P.t;
     simps: T.t T.Tbl.t; (* cache *)
     gensym: A.Gensym.t;
-    in_model: T.t Vec.t; (* terms to add to model *)
+    in_model: unit T.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit T.Tbl.t; (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
     needs_th_combination: unit T.Tbl.t; (* terms that require theory combination *)
     mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
@@ -183,7 +183,7 @@ module Make(A : ARG) : S with module A = A = struct
   let create ?(stat=Stat.create()) proof tst ty_st : state =
     { tst; ty_st;
       proof;
-      in_model=Vec.create();
+      in_model=T.Tbl.create 8;
       simps=T.Tbl.create 128;
       gensym=A.Gensym.create tst;
       encoded_eqs=T.Tbl.create 8;
@@ -285,9 +285,7 @@ module Make(A : ARG) : S with module A = A = struct
     (* preprocess subterm *)
     let preproc_t ~steps t =
       let u, pr = SI.preprocess_term si (module PA) t in
-      if t != u then (
-        Vec.push self.in_model t;
-      );
+      T.Tbl.replace self.in_model t ();
       CCOpt.iter (fun s -> steps := s :: !steps) pr;
       u
     in
@@ -695,15 +693,16 @@ module Make(A : ARG) : S with module A = A = struct
   let model_complete_ (self:state) _si ~add : unit =
     Log.debugf 30 (fun k->k "lra: model complete");
     begin match self.last_res with
-      | Some (SimpSolver.Sat m) when not (Vec.is_empty self.in_model) ->
-        Log.debugf 50 (fun k->k "(@[lra.in_model@ %a@])" (Vec.pp T.pp) self.in_model);
+      | Some (SimpSolver.Sat m) when T.Tbl.length self.in_model > 0 ->
+        Log.debugf 50 (fun k->k "(@[lra.in_model@ %a@])"
+                          (Util.pp_iter T.pp) (T.Tbl.keys self.in_model));
 
-        let add_t t =
+        let add_t t () =
           match SimpSolver.V_map.get t m with
           | None -> ()
           | Some u -> add t (to_rat_t_ self u)
         in
-        Vec.iter add_t self.in_model
+        T.Tbl.iter add_t self.in_model
 
       | _ -> ()
     end
