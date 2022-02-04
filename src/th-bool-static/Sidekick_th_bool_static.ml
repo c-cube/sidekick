@@ -115,11 +115,13 @@ module Make(A : ARG) : S with module A = A = struct
   type state = {
     tst: T.store;
     ty_st: Ty.store;
+    preprocessed: (T.t * SI.proof_step Iter.t) option T.Tbl.t;
     gensym: A.Gensym.t;
   }
 
   let create tst ty_st : state =
     { tst; ty_st;
+      preprocessed=T.Tbl.create 64;
       gensym=A.Gensym.create tst;
     }
 
@@ -218,14 +220,18 @@ module Make(A : ARG) : S with module A = A = struct
   let pr_p1_opt p s1 s2 : SI.proof_step =
     CCOpt.map_or ~default:s2 (fun s1 -> SI.P.proof_p1 s1 s2 p) s1
 
-  (* preprocess "ite" away *)
-  let preproc_ite self si (module PA:SI.PREPROCESS_ACTS)
+  let preprocess_uncached_ self si (module PA:SI.PREPROCESS_ACTS)
       (t:T.t) : (T.t * SI.proof_step Iter.t) option =
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
 
-    let ret t = Some (t, Iter.of_list !steps) in
+    let ret u =
+      if t==u then None
+      else Some (u, Iter.of_list !steps)
+    in
 
+    (* FIXME: make sure add-clause is delayed… perhaps return a vector of actions
+       or something like that *)
     let add_clause_rw lits ~using ~c0 : unit =
       PA.add_clause lits @@
       SI.P.lemma_rw_clause c0 ~res:(Iter.of_list lits) ~using PA.proof
@@ -249,18 +255,29 @@ module Make(A : ARG) : S with module A = A = struct
           ret c
 
         | _ ->
-          let t_ite = fresh_term self ~for_t:t ~pre:"ite" (T.ty b) in
-          let pr_def = SI.P.define_term t_ite t PA.proof in
+          let b', pr_b = SI.simp_t si b in
+          CCOpt.iter add_step_ pr_b;
+          let c', pr_c = SI.simp_t si c in
+          CCOpt.iter add_step_ pr_c;
+          let t_ite = A.mk_bool self.tst (B_ite (a', b', c')) in
           let lit_a = PA.mk_lit_nopreproc a' in
-          add_clause_rw [Lit.neg lit_a; PA.mk_lit_nopreproc (eq self.tst t_ite b)]
-            ~using:Iter.(append (return pr_def) (of_opt pr_a))
+          add_clause_rw [Lit.neg lit_a; PA.mk_lit_nopreproc (eq self.tst t_ite b')]
+            ~using:Iter.(of_opt pr_a)
             ~c0:(A.lemma_ite_true ~ite:t PA.proof);
-          add_clause_rw [lit_a; PA.mk_lit_nopreproc (eq self.tst t_ite c)]
-            ~using:Iter.(append (return pr_def) (of_opt pr_a))
+          add_clause_rw [lit_a; PA.mk_lit_nopreproc (eq self.tst t_ite c')]
+            ~using:Iter.(of_opt pr_a)
             ~c0:(A.lemma_ite_false ~ite:t PA.proof);
           ret t_ite
       end
     | _ -> None
+
+  let preprocess self si pa t =
+    match T.Tbl.find_opt self.preprocessed t with
+    | None ->
+      let res = preprocess_uncached_ self si pa t in
+      T.Tbl.add self.preprocessed t res;
+      res
+    | Some r -> r
 
   (* TODO: polarity? *)
   let cnf (self:state) (si:SI.t) (module PA:SI.PREPROCESS_ACTS)
@@ -423,7 +440,7 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debug 2 "(th-bool.setup)";
     let st = create (SI.tst si) (SI.ty_st si) in
     SI.add_simplifier si (simplify st);
-    SI.on_preprocess si (preproc_ite st);
+    SI.on_preprocess si (preprocess st);
     SI.on_preprocess si (cnf st);
     if A.check_congruence_classes then (
       Log.debug 5 "(th-bool.add-final-check)";
