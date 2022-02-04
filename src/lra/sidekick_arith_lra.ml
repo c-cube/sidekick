@@ -365,6 +365,9 @@ module Make(A : ARG) : S with module A = A = struct
     | LRA_op _ | LRA_mult _ ->
       let steps = ref [] in
       let le = as_linexp t in
+
+      (* [t] is [le_comb + le_const], where [le_comb] is a linear expression
+         without constant. *)
       let le_comb, le_const = LE.comb le, LE.const le in
 
       if A.Q.(le_const = zero) then (
@@ -372,39 +375,35 @@ module Make(A : ARG) : S with module A = A = struct
         declare_term_to_cc t;
       ) else (
         (* a bit more complicated: we cannot just define [t := le_comb]
-           because of the coefficient.
-           Instead we assert [t - le_comb = le_const] using a secondary
-           variable [proxy2 := t - le_comb]
-           and asserting [proxy2 = le_const] *)
+           because of the coefficient, and the simplex doesn't like offsets.
+           Instead we assert [t := le_comb + proxy2] using a secondary
+           variable [proxy2] and asserting [proxy2 = le_const] *)
         let proxy2 = fresh_term self ~pre:"_le_diff" (T.ty t) in
-        (* TODO
         let pr_def2 =
-          SI.P.define_term proxy2
-            (A.mk_lra tst (LRA_op (Minus, t, A.mk_lra tst (LRA_const le_const)))) PA.proof
+          SI.P.define_term proxy2 (A.mk_lra tst (LRA_const le_const)) PA.proof
         in
 
-        SimpSolver.add_var self.simplex proxy;
+        SimpSolver.add_var self.simplex proxy2;
         LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
 
-        SimpSolver.define self.simplex proxy2
-          ((A.Q.minus_one, proxy) :: LE_.Comb.to_list le_comb);
+        SimpSolver.define self.simplex t
+          ((A.Q.one, proxy2) :: LE_.Comb.to_list le_comb);
 
         Log.debugf 50
-          (fun k->k "(@[lra.encode-linexp.with-offset@ %a@ :var %a@ :diff-var %a@])"
-              LE_.Comb.pp le_comb T.pp proxy T.pp proxy2);
+          (fun k->k "(@[lra.encode-linexp.with-offset@ %a@ :var %a@ :const-var %a@])"
+              LE_.Comb.pp le_comb T.pp t T.pp proxy2);
 
-        declare_term_to_cc proxy;
+        declare_term_to_cc t;
         declare_term_to_cc proxy2;
 
+        (* now assert [proxy2 = le_const] *)
         add_clause_lra_ ~using:Iter.(return pr_def2) (module PA) [
-          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, A.Q.neg le_const)))
+          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, le_const)))
         ];
         add_clause_lra_ ~using:Iter.(return pr_def2) (module PA) [
-          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Geq, A.Q.neg le_const)))
+          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Geq, le_const)))
         ];
 
-        Some (proxy, Iter.of_list !steps)
-           *)
         ()
       )
 
