@@ -218,26 +218,24 @@ module Make(A : ARG) : S with module A = A = struct
     Fmt.fprintf out "(@[%a@ :l1 %a@ :l2 %a@])" Predicate.pp p LE.pp l1 LE.pp l2
 
   (* turn the term into a linear expression. Apply [f] on leaves. *)
-  let rec as_linexp ~f (t:T.t) : LE.t =
+  let rec as_linexp (t:T.t) : LE.t =
     let open LE.Infix in
     match A.view_as_lra t with
-    | LRA_other _ -> LE.monomial1 (f t)
+    | LRA_other _ -> LE.monomial1 t
     | LRA_pred _ | LRA_simplex_pred _ ->
       Error.errorf "type error: in linexp, LRA predicate %a" T.pp t
     | LRA_op (op, t1, t2) ->
-      let t1 = as_linexp ~f t1 in
-      let t2 = as_linexp ~f t2 in
+      let t1 = as_linexp t1 in
+      let t2 = as_linexp t2 in
       begin match op with
         | Plus -> t1 + t2
         | Minus -> t1 - t2
       end
     | LRA_mult (n, x) ->
-      let t = as_linexp ~f x in
+      let t = as_linexp x in
       LE.( n * t )
     | LRA_simplex_var v -> LE.monomial1 v
     | LRA_const q -> LE.of_const q
-
-  let as_linexp_id = as_linexp ~f:CCFun.id
 
   (* return a variable that is equal to [le_comb] in the simplex. *)
   let var_encoding_comb ~pre self (le_comb:LE_.Comb.t) : T.t =
@@ -277,18 +275,10 @@ module Make(A : ARG) : S with module A = A = struct
     PA.add_clause lits pr
 
   (* preprocess linear expressions away *)
-  let preproc_lra (self:state) si (module PA:SI.PREPROCESS_ACTS)
-      (t:T.t) : (T.t * SI.proof_step Iter.t) option =
+  let preproc_lra (self:state) si
+      (module PA:SI.PREPROCESS_ACTS) (t:T.t) : unit =
     Log.debugf 50 (fun k->k "(@[lra.preprocess@ %a@])" T.pp t);
     let tst = SI.tst si in
-
-    (* preprocess subterm *)
-    let preproc_t ~steps t =
-      let u, pr = SI.preprocess_term si (module PA) t in
-      T.Tbl.replace self.in_model t ();
-      CCOpt.iter (fun s -> steps := s :: !steps) pr;
-      u
-    in
 
     (* tell the CC this term exists *)
     let declare_term_to_cc t =
@@ -307,20 +297,18 @@ module Make(A : ARG) : S with module A = A = struct
         T.Tbl.add self.encoded_eqs t ();
 
         (* encode [t <=> (u1 /\ u2)] *)
-        let lit_t = PA.mk_lit_nopreproc t in
-        let lit_u1 = PA.mk_lit_nopreproc u1 in
-        let lit_u2 = PA.mk_lit_nopreproc u2 in
+        let lit_t = PA.mk_lit t in
+        let lit_u1 = PA.mk_lit u1 in
+        let lit_u2 = PA.mk_lit u2 in
         add_clause_lra_ (module PA) [SI.Lit.neg lit_t; lit_u1];
         add_clause_lra_ (module PA) [SI.Lit.neg lit_t; lit_u2];
         add_clause_lra_ (module PA)
           [SI.Lit.neg lit_u1; SI.Lit.neg lit_u2; lit_t];
       );
-      None
 
     | LRA_pred (pred, t1, t2) ->
-      let steps = ref [] in
-      let l1 = as_linexp ~f:(preproc_t ~steps) t1 in
-      let l2 = as_linexp ~f:(preproc_t ~steps) t2 in
+      let l1 = as_linexp t1 in
+      let l2 = as_linexp t2 in
       let le = LE.(l1 - l2) in
       let le_comb, le_const = LE.comb le, LE.const le in
       let le_const = A.Q.neg le_const in
@@ -329,10 +317,7 @@ module Make(A : ARG) : S with module A = A = struct
       begin match LE_.Comb.as_singleton le_comb, pred with
         | None, _ ->
           (* non trivial linexp, give it a fresh name in the simplex *)
-          let proxy = var_encoding_comb self ~pre:"_le" le_comb in
-          let pr_def = SI.P.define_term proxy t PA.proof in
-          steps := pr_def :: !steps;
-          declare_term_to_cc proxy;
+          declare_term_to_cc t;
 
           let op =
             match pred with
@@ -343,15 +328,14 @@ module Make(A : ARG) : S with module A = A = struct
             | Gt -> S_op.Gt
           in
 
-          let new_t = A.mk_lra tst (LRA_simplex_pred (proxy, op, le_const)) in
+          let new_t = A.mk_lra tst (LRA_simplex_pred (t, op, le_const)) in
           begin
-            let lit = PA.mk_lit_nopreproc new_t in
-            let constr = SimpSolver.Constraint.mk proxy op le_const in
+            let lit = PA.mk_lit new_t in
+            let constr = SimpSolver.Constraint.mk t op le_const in
             SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
           end;
 
           Log.debugf 10 (fun k->k "(@[lra.preprocess:@ %a@ :into %a@])" T.pp t T.pp new_t);
-          Some (new_t, Iter.of_list !steps)
 
         | Some (coeff, v), pred ->
           (* [c . v <= const] becomes a direct simplex constraint [v <= const/c] *)
@@ -370,45 +354,33 @@ module Make(A : ARG) : S with module A = A = struct
 
           let new_t = A.mk_lra tst (LRA_simplex_pred (v, op, q)) in
           begin
-            let lit = PA.mk_lit_nopreproc new_t in
+            let lit = PA.mk_lit new_t in
             let constr = SimpSolver.Constraint.mk v op q in
             SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
           end;
 
           Log.debugf 10 (fun k->k "lra.preprocess@ :%a@ :into %a" T.pp t T.pp new_t);
-          Some (new_t, Iter.of_list !steps)
       end
 
     | LRA_op _ | LRA_mult _ ->
       let steps = ref [] in
-      let le = as_linexp ~f:(preproc_t ~steps) t in
+      let le = as_linexp t in
       let le_comb, le_const = LE.comb le, LE.const le in
 
       if A.Q.(le_const = zero) then (
-        (* if there is no constant, define [proxy] as [proxy := le_comb] and
-           return [proxy] *)
-        let proxy = var_encoding_comb self ~pre:"_le" le_comb in
-        begin
-          let pr_def = SI.P.define_term proxy t PA.proof in
-          steps := pr_def :: !steps;
-        end;
-        declare_term_to_cc proxy;
-
-        Some (proxy, Iter.of_list !steps)
+        (* if there is no constant, define [t] as [t := le_comb] *)
+        declare_term_to_cc t;
       ) else (
-        (* a bit more complicated: we cannot just define [proxy := le_comb]
+        (* a bit more complicated: we cannot just define [t := le_comb]
            because of the coefficient.
-           Instead we assert [proxy - le_comb = le_const] using a secondary
-           variable [proxy2 := le_comb - proxy]
-           and asserting [proxy2 = -le_const] *)
-        let proxy = fresh_term self ~pre:"_le" (T.ty t) in
-        begin
-          let pr_def = SI.P.define_term proxy t PA.proof in
-          steps := pr_def :: !steps;
-        end;
+           Instead we assert [t - le_comb = le_const] using a secondary
+           variable [proxy2 := t - le_comb]
+           and asserting [proxy2 = le_const] *)
         let proxy2 = fresh_term self ~pre:"_le_diff" (T.ty t) in
+        (* TODO
         let pr_def2 =
-          SI.P.define_term proxy (A.mk_lra tst (LRA_op (Minus, t, proxy))) PA.proof
+          SI.P.define_term proxy2
+            (A.mk_lra tst (LRA_op (Minus, t, A.mk_lra tst (LRA_const le_const)))) PA.proof
         in
 
         SimpSolver.add_var self.simplex proxy;
@@ -425,21 +397,22 @@ module Make(A : ARG) : S with module A = A = struct
         declare_term_to_cc proxy2;
 
         add_clause_lra_ ~using:Iter.(return pr_def2) (module PA) [
-          PA.mk_lit_nopreproc (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, A.Q.neg le_const)))
+          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, A.Q.neg le_const)))
         ];
         add_clause_lra_ ~using:Iter.(return pr_def2) (module PA) [
-          PA.mk_lit_nopreproc (A.mk_lra tst (LRA_simplex_pred (proxy2, Geq, A.Q.neg le_const)))
+          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Geq, A.Q.neg le_const)))
         ];
 
         Some (proxy, Iter.of_list !steps)
+           *)
+        ()
       )
 
-    | LRA_other t when A.has_ty_real t -> None
+    | LRA_other t when A.has_ty_real t -> ()
     | LRA_const _ | LRA_simplex_pred _ | LRA_simplex_var _ | LRA_other _ ->
-      None
+      ()
 
   let simplify (self:state) (_recurse:_) (t:T.t) : (T.t * SI.proof_step Iter.t) option =
-
     let proof_eq t u =
       A.lemma_lra
         (Iter.return (SI.Lit.atom self.tst (A.mk_eq self.tst t u))) self.proof
@@ -451,7 +424,7 @@ module Make(A : ARG) : S with module A = A = struct
 
     match A.view_as_lra t with
     | LRA_op _ | LRA_mult _ ->
-      let le = as_linexp_id t in
+      let le = as_linexp t in
       if LE.is_const le then (
         let c = LE.const le in
         let u = A.mk_lra self.tst (LRA_const c) in
@@ -459,7 +432,7 @@ module Make(A : ARG) : S with module A = A = struct
         Some (u, Iter.return pr)
       ) else None
     | LRA_pred (pred, l1, l2) ->
-      let le = LE.(as_linexp_id l1 - as_linexp_id l2) in
+      let le = LE.(as_linexp l1 - as_linexp l2) in
       if LE.is_const le then (
         let c = LE.const le in
         let is_true = match pred with
@@ -527,7 +500,7 @@ module Make(A : ARG) : S with module A = A = struct
     let t2 = N.term n2 in
     let t1, t2 = if T.compare t1 t2 > 0 then t2, t1 else t1, t2 in
 
-    let le = LE.(as_linexp_id t1 - as_linexp_id t2) in
+    let le = LE.(as_linexp t1 - as_linexp t2) in
     let le_comb, le_const = LE.comb le, LE.const le in
     let le_const = A.Q.neg le_const in
 

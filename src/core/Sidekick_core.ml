@@ -119,6 +119,9 @@ module type TERM = sig
     val map_shallow : store -> (t -> t) -> t -> t
     (** Map function on immediate subterms. This should not be recursive. *)
 
+    val iter_shallow : store -> (t -> unit) -> t -> unit
+    (** Iterate function on immediate subterms. This should not be recursive. *)
+
     val iter_dag : t -> (t -> unit) -> unit
     (** [iter_dag t f] calls [f] once on each subterm of [t], [t] included.
         It must {b not} traverse [t] as a tree, but rather as a
@@ -809,7 +812,11 @@ module type SOLVER_INTERNAL = sig
 
         A simple example could be a hook that takes a term [t],
         and if [t] is [app "+" (const x) (const y)] where [x] and [y] are number,
-        returns [Some (const (x+y))], and [None] otherwise. *)
+        returns [Some (const (x+y))], and [None] otherwise.
+
+        The simplifier will take care of simplifying the resulting term further,
+        caching (so that work is not duplicated in subterms), etc.
+    *)
 
     val normalize : t -> term -> (term * proof_step) option
     (** Normalize a term using all the hooks. This performs
@@ -845,13 +852,8 @@ module type SOLVER_INTERNAL = sig
   module type PREPROCESS_ACTS = sig
     val proof : proof
 
-    val mk_lit_nopreproc : ?sign:bool -> term -> lit
+    val mk_lit : ?sign:bool -> term -> lit
     (** [mk_lit t] creates a new literal for a boolean term [t]. *)
-
-    val mk_lit : ?sign:bool -> term -> lit * proof_step option
-    (** [mk_lit t] creates a new literal for a boolean term [t].
-        Also returns an optional proof of preprocessing, which if present
-        is the proof of [|- t = lit] with [lit] the result. *)
 
     val add_clause : lit list -> proof_step -> unit
     (** pushes a new clause into the SAT solver. *)
@@ -866,23 +868,19 @@ module type SOLVER_INTERNAL = sig
   type preprocess_hook =
     t ->
     preprocess_actions ->
-    term -> (term * proof_step Iter.t) option
-  (** Given a term, try to preprocess it. Return [None] if it didn't change,
-      or [Some (u)] if [t=u].
-      Can also add clauses to define new terms.
+    term -> unit
+  (** Given a term, preprocess it.
 
-      Preprocessing might transform terms to make them more amenable
-      to reasoning, e.g. by removing boolean formulas via Tseitin encoding,
-      adding clauses that encode their meaning in the same move.
+      The idea is to add literals and clauses to help define the meaning of
+      the term, if needed. For example for boolean formulas, clauses
+      for their Tseitin encoding can be added, with the formula acting
+      as its own proxy symbol.
 
       @param preprocess_actions actions available during preprocessing.
   *)
 
   val on_preprocess : t -> preprocess_hook -> unit
   (** Add a hook that will be called when terms are preprocessed *)
-
-  val preprocess_acts_of_acts : t -> theory_actions -> preprocess_actions
-  (** Obtain preprocessor actions, from theory actions *)
 
   (** {3 hooks for the theory} *)
 
@@ -913,9 +911,6 @@ module type SOLVER_INTERNAL = sig
 
   val mk_lit : t -> theory_actions -> ?sign:bool -> term -> lit
   (** Create a literal. This automatically preprocesses the term. *)
-
-  val preprocess_term : t -> preprocess_actions -> term -> term * proof_step option
-  (** Preprocess a term. *)
 
   val add_lit : t -> theory_actions -> ?default_pol:bool -> lit -> unit
   (** Add the given literal to the SAT solver, so it gets assigned

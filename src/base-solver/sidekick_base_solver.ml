@@ -119,7 +119,6 @@ module Th_lra = Sidekick_arith_lra.Make(struct
   let rec view_as_lra t = match T.view t with
     | T.LIA (Const i) -> LRA.LRA_const (Q.of_bigint i)
     | T.LRA l ->
-      let open Base_types in
       let module LRA = Sidekick_arith_lra in
       begin match l with
         | Const c -> LRA.LRA_const c
@@ -165,7 +164,6 @@ module Th_lia = Sidekick_arith_lia.Make(struct
 
   let view_as_lia t = match T.view t with
     | T.LIA l ->
-      let open Base_types in
       let module LIA = Sidekick_arith_lia in
       begin match l with
         | Const c -> LIA.LIA_const c
@@ -183,7 +181,6 @@ module Th_lia = Sidekick_arith_lia.Make(struct
 
   let lemma_lia = Proof.lemma_lia
   let lemma_relax_to_lra = Proof.lemma_relax_to_lra
-  module Gensym = Gensym
 end)
 
 let th_bool : Solver.theory = Th_bool.theory

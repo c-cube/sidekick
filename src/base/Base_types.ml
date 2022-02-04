@@ -992,6 +992,7 @@ module Term : sig
   val iter_dag : t -> t Iter.t
 
   val map_shallow : store -> (t -> t) -> t -> t
+  val iter_shallow : store -> (t -> unit) -> t -> unit
 
   val pp : t Fmt.printer
 
@@ -1209,6 +1210,9 @@ end = struct
     | _ -> None
 
   let pp = pp_term
+
+  let[@inline] iter_shallow _tst f (t:t) : unit =
+    Term_cell.iter f (view t)
 
   module Iter_dag = struct
     type t = unit Tbl.t

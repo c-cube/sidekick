@@ -309,10 +309,10 @@ module Make(A : ARG) : S with module A = A = struct
     N_tbl.pop_levels self.to_decide n;
     ()
 
-  let preprocess (self:t) si (acts:SI.preprocess_actions) (t:T.t) : _ option =
+  let preprocess (self:t) si (acts:SI.preprocess_actions) (t:T.t) : unit =
     let ty = T.ty t in
     match A.view_as_data t, A.as_datatype ty with
-    | T_cstor _, _ -> None
+    | T_cstor _, _ -> ()
     | _, Ty_data {cstors; _} ->
       begin match Iter.take 2 cstors |> Iter.to_rev_list with
         | [cstor] when not (T.Tbl.mem self.single_cstor_preproc_done t) ->
@@ -338,7 +338,7 @@ module Make(A : ARG) : S with module A = A = struct
           let proof =
             let pr_isa =
               A.P.lemma_isa_split t
-                (Iter.return @@ Act.mk_lit_nopreproc (A.mk_is_a self.tst cstor t))
+                (Iter.return @@ Act.mk_lit (A.mk_is_a self.tst cstor t))
                 self.proof
             and pr_eq_sel =
               A.P.lemma_select_cstor ~cstor_t:u t self.proof
@@ -349,12 +349,11 @@ module Make(A : ARG) : S with module A = A = struct
           T.Tbl.add self.single_cstor_preproc_done t (); (* avoid loops *)
           T.Tbl.add self.case_split_done t (); (* no need to decide *)
 
-          Act.add_clause [Act.mk_lit_nopreproc (A.mk_eq self.tst t u)] proof;
-          None
+          Act.add_clause [Act.mk_lit (A.mk_eq self.tst t u)] proof;
 
-        | _ -> None
+        | _ -> ()
       end
-    | _ -> None
+    | _ -> ()
 
   (* remember terms of a datatype *)
   let on_new_term_look_at_ty (self:t) n (t:T.t) : unit =

@@ -188,6 +188,3 @@ module Gensym = struct
     let id = ID.make name in
     T.const self.tst @@ Fun.mk_undef_const id ty
 end
-
-(* NOTE: no plugin produces new boolean formulas *)
-let check_congruence_classes = false

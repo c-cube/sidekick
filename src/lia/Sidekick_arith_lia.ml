@@ -74,7 +74,7 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* preprocess linear expressions away *)
   let preproc_lia (self:state) si (module PA:SI.PREPROCESS_ACTS)
-      (t:T.t) : (T.t * SI.proof_step Iter.t) option =
+      (t:T.t) : unit =
     Log.debugf 50 (fun k->k "(@[lia.preprocess@ %a@])" T.pp t);
 
     match A.view_as_lia t with
@@ -85,16 +85,17 @@ module Make(A : ARG) : S with module A = A = struct
         let lits = [Lit.atom ~sign:false self.tst t; Lit.atom self.tst u] in
         A.lemma_relax_to_lra Iter.(of_list lits) self.proof
       in
-      Some (u, Iter.return pr)
+
+      (* add [t => u] *)
+      let cl = [PA.mk_lit ~sign:false t; PA.mk_lit u] in
+      PA.add_clause cl pr;
 
     | LIA_other t when A.has_ty_int t ->
       SI.declare_pb_is_incomplete si;
-      None
     | LIA_op _ | LIA_mult _ ->
+      (* TODO: theory combination?*)
       SI.declare_pb_is_incomplete si;
-      None (* TODO: theory combination?*)
-    | LIA_const _ | LIA_other _ ->
-      None
+    | LIA_const _ | LIA_other _ -> ()
 
   let create_and_setup si =
     Log.debug 2 "(th-lia.setup)";
