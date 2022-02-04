@@ -304,6 +304,7 @@ module Make(A : ARG)
     let[@inline] ty_st t = t.ty_st
     let[@inline] proof self = self.proof
     let stats t = t.stat
+    let[@inline] has_delayed_actions self = not (Queue.is_empty self.delayed_actions)
 
     let registry self = self.registry
     let simplifier self = self.simp
@@ -543,8 +544,6 @@ module Make(A : ARG)
       CC.pop_levels (cc self) n;
       pop_lvls_ n self.th_states
 
-    exception E_loop_exit
-
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:theory_actions) (lits:Lit.t Iter.t) : unit =
       Log.debugf 2
@@ -558,19 +557,23 @@ module Make(A : ARG)
       (* transmit to theories. *)
       CC.check cc acts;
       if final then (
-        try
-          while true do
+        let continue = ref true in
+        while !continue do
+          let fcheck = ref true in
+          while !fcheck do
             (* TODO: theory combination *)
             List.iter (fun f -> f self acts lits) self.on_final_check;
-            Perform_delayed_th.top self acts;
-            CC.check cc acts;
-            Perform_delayed_th.top self acts;
-            if not @@ CC.new_merges cc then (
-              raise_notrace E_loop_exit
-            );
+            if has_delayed_actions self then (
+              Perform_delayed_th.top self acts;
+            ) else (
+              fcheck := false
+            )
           done;
-        with E_loop_exit ->
-          ()
+          CC.check cc acts;
+          if not (CC.new_merges cc) && not (has_delayed_actions self) then (
+            continue := false;
+          );
+        done;
       ) else (
         List.iter (fun f -> f self acts lits) self.on_partial_check;
         Perform_delayed_th.top self acts;

@@ -363,7 +363,6 @@ module Make(A : ARG) : S with module A = A = struct
       end
 
     | LRA_op _ | LRA_mult _ ->
-      let steps = ref [] in
       let le = as_linexp t in
 
       (* [t] is [le_comb + le_const], where [le_comb] is a linear expression
