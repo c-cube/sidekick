@@ -651,18 +651,18 @@ module Make(A : ARG) : S with module A = A = struct
   let to_rat_t_ self q = A.mk_lra self.tst (LRA_const q)
 
   (* help generating model *)
-  let model_gen_ (self:state) ~recurse:_ _si n : _ option =
+  let model_ask_ (self:state) ~recurse:_ _si n : _ option =
     let t = N.term n in
     begin match self.last_res with
       | Some (SimpSolver.Sat m) ->
-        Log.debugf 50 (fun k->k "lra: model ask %a" T.pp t);
+        Log.debugf 50 (fun k->k "(@[lra.model-ask@ %a@])" T.pp t);
         SimpSolver.V_map.get t m |> CCOpt.map (to_rat_t_ self)
       | _ -> None
     end
 
   (* help generating model *)
   let model_complete_ (self:state) _si ~add : unit =
-    Log.debugf 30 (fun k->k "lra: model complete");
+    Log.debugf 30 (fun k->k "(lra.model-complete)");
     begin match self.last_res with
       | Some (SimpSolver.Sat m) when T.Tbl.length self.in_model > 0 ->
         Log.debugf 50 (fun k->k "(@[lra.in_model@ %a@])"
@@ -689,7 +689,7 @@ module Make(A : ARG) : S with module A = A = struct
     SI.on_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
-    SI.on_model si ~ask:(model_gen_ st) ~complete:(model_complete_ st);
+    SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
     SI.on_cc_is_subterm si (on_subterm st);
     SI.on_cc_post_merge si
       (fun _ _ n1 n2 ->
