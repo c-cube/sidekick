@@ -108,12 +108,18 @@ module type S = sig
   (** Make sure the variable exists in the simplex. *)
 
   val add_constraint :
+    ?keep_on_backtracking:bool ->
     ?is_int:bool ->
     on_propagate:ev_on_propagate ->
     t -> Constraint.t -> V.lit -> unit
   (** Add a constraint to the simplex.
+
+      This is removed upon backtracking by default.
       @param is_int declares whether the constraint's variable is an integer
-      @raise Unsat if it's immediately obvious that this is not satisfiable. *)
+      @raise Unsat if it's immediately obvious that this is not satisfiable.
+      @param keep_on_backtracking if true (default false), the bound is not
+      backtrackable
+  *)
 
   val declare_bound : ?is_int:bool -> t -> Constraint.t -> V.lit -> unit
   (** Declare that this constraint exists and map it to a literal,
@@ -432,11 +438,13 @@ module Make(Arg: ARG)
         V.pp self.var
   end
 
+  type bound_assertion = var_state * [`Upper|`Lower] * bound option
   type t = {
     matrix: Matrix.t;
     vars: var_state Vec.t; (* index -> var with this index *)
     mutable var_tbl: var_state V_map.t; (* var -> its state *)
-    bound_stack: (var_state * [`Upper|`Lower] * bound option) Backtrack_stack.t;
+    bound_stack: bound_assertion Backtrack_stack.t;
+    bound_lvl0: bound_assertion Vec.t;
     undo_stack: (unit -> unit) Backtrack_stack.t;
     stat_check: int Stat.counter;
     stat_unsat: int Stat.counter;
@@ -507,11 +515,13 @@ module Make(Arg: ARG)
   let[@inline] has_var_ (self:t) x : bool = V_map.mem x self.var_tbl
   let[@inline] find_var_ (self:t) x : var_state =
     try V_map.find x self.var_tbl
-    with Not_found -> Error.errorf "variable is not in the simplex" V.pp x
+    with Not_found -> Error.errorf "variable `%a`@ is not in the simplex" V.pp x
 
   (* define [x] as a basic variable *)
   let define ?(is_int=false) (self:t) (x:V.t) (le:_ list) : unit =
-    assert (not (has_var_ self x));
+    if has_var_ self x then (
+      Error.errorf "Simplex: cannot define `%a`,@ already a variable" V.pp x
+    );
     Stat.incr self.stat_define;
     (* Log.debugf 50 (fun k->k "define-in: %a" pp self); *)
     let le = List.map (fun (q,v) -> q, find_var_ self v) le in
@@ -791,7 +801,8 @@ module Make(Arg: ARG)
       self.vars;
     !map_res, !bounds
 
-  let add_constraint ?(is_int=false) ~on_propagate (self:t) (c:Constraint.t) (lit:lit) : unit =
+  let add_constraint ?(keep_on_backtracking=false) ?(is_int=false)
+      ~on_propagate (self:t) (c:Constraint.t) (lit:lit) : unit =
     let open Constraint in
 
     let vs = find_or_create_n_basic_var_ ~is_int self c.lhs in
@@ -1037,6 +1048,7 @@ module Make(Arg: ARG)
       vars=Vec.create();
       var_tbl=V_map.empty;
       bound_stack=Backtrack_stack.create();
+      bound_lvl0=Vec.create();
       undo_stack=Backtrack_stack.create();
       stat_check=Stat.mk_int stat "simplex.check";
       stat_unsat=Stat.mk_int stat "simplex.conflicts";

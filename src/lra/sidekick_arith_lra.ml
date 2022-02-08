@@ -23,8 +23,6 @@ type ('num, 'a) lra_view =
   | LRA_op of op * 'a * 'a
   | LRA_mult of 'num * 'a
   | LRA_const of 'num
-  | LRA_simplex_var of 'a (* an opaque variable *)
-  | LRA_simplex_pred of 'a * S_op.t * 'num (* an atomic constraint *)
   | LRA_other of 'a
 
 let map_view f (l:_ lra_view) : _ lra_view =
@@ -33,8 +31,6 @@ let map_view f (l:_ lra_view) : _ lra_view =
     | LRA_op (p, a, b) -> LRA_op (p, f a, f b)
     | LRA_mult (n,a) -> LRA_mult (n, f a)
     | LRA_const q -> LRA_const q
-    | LRA_simplex_var v -> LRA_simplex_var (f v)
-    | LRA_simplex_pred (v, op, q) -> LRA_simplex_pred (f v, op, q)
     | LRA_other x -> LRA_other (f x)
   end
 
@@ -93,9 +89,7 @@ module type S = sig
   type state
 
   val create : ?stat:Stat.t ->
-    A.S.P.t ->
-    A.S.T.Term.store ->
-    A.S.T.Ty.store ->
+    A.S.Solver_internal.t ->
     state
 
   (* TODO: be able to declare some variables as ints *)
@@ -164,65 +158,12 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Comb_map = CCMap.Make(LE_.Comb)
 
-  type state = {
-    tst: T.store;
-    ty_st: Ty.store;
-    proof: SI.P.t;
-    simps: T.t T.Tbl.t; (* cache *)
-    gensym: A.Gensym.t;
-    in_model: unit T.Tbl.t; (* terms to add to model *)
-    encoded_eqs: unit T.Tbl.t; (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
-    needs_th_combination: unit T.Tbl.t; (* terms that require theory combination *)
-    mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
-    local_eqs: (N.t * N.t) Backtrack_stack.t; (* inferred by the congruence closure *)
-    simplex: SimpSolver.t;
-    mutable last_res: SimpSolver.result option;
-    stat_th_comb: int Stat.counter;
-  }
-
-  let create ?(stat=Stat.create()) proof tst ty_st : state =
-    { tst; ty_st;
-      proof;
-      in_model=T.Tbl.create 8;
-      simps=T.Tbl.create 128;
-      gensym=A.Gensym.create tst;
-      encoded_eqs=T.Tbl.create 8;
-      needs_th_combination=T.Tbl.create 8;
-      encoded_le=Comb_map.empty;
-      local_eqs = Backtrack_stack.create();
-      simplex=SimpSolver.create ~stat ();
-      last_res=None;
-      stat_th_comb=Stat.mk_int stat "lra.th-comb";
-    }
-
-  let[@inline] reset_res_ (self:state) : unit =
-    self.last_res <- None
-
-  let push_level self =
-    SimpSolver.push_level self.simplex;
-    Backtrack_stack.push_level self.local_eqs;
-    ()
-
-  let pop_levels self n =
-    reset_res_ self;
-    SimpSolver.pop_levels self.simplex n;
-    Backtrack_stack.pop_levels self.local_eqs n ~f:(fun _ -> ());
-    ()
-
-  let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
-  let fresh_lit (self:state) ~mk_lit ~pre : Lit.t =
-    let t = fresh_term ~pre self (Ty.bool self.ty_st) in
-    mk_lit t
-
-  let pp_pred_def out (p,l1,l2) : unit =
-    Fmt.fprintf out "(@[%a@ :l1 %a@ :l2 %a@])" Predicate.pp p LE.pp l1 LE.pp l2
-
   (* turn the term into a linear expression. Apply [f] on leaves. *)
   let rec as_linexp (t:T.t) : LE.t =
     let open LE.Infix in
     match A.view_as_lra t with
     | LRA_other _ -> LE.monomial1 t
-    | LRA_pred _ | LRA_simplex_pred _ ->
+    | LRA_pred _ ->
       Error.errorf "type error: in linexp, LRA predicate %a" T.pp t
     | LRA_op (op, t1, t2) ->
       let t1 = as_linexp t1 in
@@ -234,11 +175,144 @@ module Make(A : ARG) : S with module A = A = struct
     | LRA_mult (n, x) ->
       let t = as_linexp x in
       LE.( n * t )
-    | LRA_simplex_var v -> LE.monomial1 v
     | LRA_const q -> LE.of_const q
+
+  (* monoid to track linear expressions in congruence classes, to clash on merge *)
+  module Monoid_exprs = struct
+    module SI = SI
+    let name = "lra.const"
+    type single = {
+      le: LE.t;
+      n: N.t;
+    }
+    type t = single list
+
+    let pp_single out {le=_;n} = N.pp out n
+
+    let pp out self =
+      match self with
+      | [] -> ()
+      | [x] -> pp_single out x
+      | _ -> Fmt.fprintf out "(@[exprs@ %a@])" (Util.pp_list pp_single) self
+
+    let of_term _cc n t = match A.view_as_lra t with
+      | LRA_const _ | LRA_op _ | LRA_mult _ ->
+        let le = as_linexp t in
+        Some [{n; le}], []
+      | LRA_other _ | LRA_pred _ ->
+        None, []
+
+    exception Confl of SI.CC.Expl.t
+
+    (* merge lists. If two linear expressions equal up to a constant are
+       merged, conflict. *)
+    let merge _cc n1 l1 n2 l2 expl_12 : _ result =
+      try
+        let i = Iter.(product (of_list l1) (of_list l2)) in
+        i (fun (s1,s2) ->
+            let le = LE.(s1.le - s2.le) in
+            if LE.is_const le && not (LE.is_zero le) then (
+              (* conflict: [le+c = le + d] is impossible *)
+              let expl =
+                let open SI.CC.Expl in
+                mk_list
+                  [mk_merge s1.n n1; mk_merge s2.n n2; expl_12] in
+              raise (Confl expl)
+            ));
+        Ok (List.rev_append l1 l2)
+      with
+      Confl expl -> Error expl
+  end
+
+  module ST_exprs = Sidekick_core.Monoid_of_repr(Monoid_exprs)
+
+  type state = {
+    tst: T.store;
+    ty_st: Ty.store;
+    proof: SI.P.t;
+    gensym: A.Gensym.t;
+    in_model: unit T.Tbl.t; (* terms to add to model *)
+    encoded_eqs: unit T.Tbl.t; (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
+    needs_th_combination: unit T.Tbl.t; (* terms that require theory combination *)
+    simp_preds: (T.t * S_op.t * A.Q.t) T.Tbl.t; (* term -> its simplex meaning *)
+    st_exprs : ST_exprs.t;
+    mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
+    simplex: SimpSolver.t;
+    mutable last_res: SimpSolver.result option;
+    stat_th_comb: int Stat.counter;
+  }
+
+  let create ?(stat=Stat.create()) (si:SI.t) : state =
+    let proof = SI.proof si in
+    let tst = SI.tst si in
+    let ty_st = SI.ty_st si in
+    { tst; ty_st;
+      proof;
+      in_model=T.Tbl.create 8;
+      st_exprs=ST_exprs.create_and_setup si;
+      gensym=A.Gensym.create tst;
+      simp_preds=T.Tbl.create 32;
+      encoded_eqs=T.Tbl.create 8;
+      needs_th_combination=T.Tbl.create 8;
+      encoded_le=Comb_map.empty;
+      simplex=SimpSolver.create ~stat ();
+      last_res=None;
+      stat_th_comb=Stat.mk_int stat "lra.th-comb";
+    }
+
+  let[@inline] reset_res_ (self:state) : unit =
+    self.last_res <- None
+
+  let[@inline] n_levels self : int = ST_exprs.n_levels self.st_exprs
+  let push_level self =
+    ST_exprs.push_level self.st_exprs;
+    SimpSolver.push_level self.simplex;
+    ()
+
+  let pop_levels self n =
+    reset_res_ self;
+    ST_exprs.pop_levels self.st_exprs n;
+    SimpSolver.pop_levels self.simplex n;
+    ()
+
+  let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
+  let fresh_lit (self:state) ~mk_lit ~pre : Lit.t =
+    let t = fresh_term ~pre self (Ty.bool self.ty_st) in
+    mk_lit t
+
+  let pp_pred_def out (p,l1,l2) : unit =
+    Fmt.fprintf out "(@[%a@ :l1 %a@ :l2 %a@])" Predicate.pp p LE.pp l1 LE.pp l2
+
+  let[@inline] t_const self n : T.t = A.mk_lra self.tst (LRA_const n)
+  let[@inline] t_zero self : T.t = t_const self A.Q.zero
+
+  let[@inline] is_const_ t = match A.view_as_lra t with LRA_const _ -> true | _ -> false
+  let[@inline] as_const_ t = match A.view_as_lra t with LRA_const n -> Some n | _ -> None
+  let[@inline] is_zero t = match A.view_as_lra t with LRA_const n -> A.Q.(n = zero) | _ -> false
+
+
+  let t_of_comb (self:state) (comb:LE_.Comb.t) ~(init:T.t) : T.t =
+    let[@inline] (+) a b = A.mk_lra self.tst (LRA_op (Plus, a, b)) in
+    let[@inline] ( * ) a b = A.mk_lra self.tst (LRA_mult (a, b)) in
+
+    let cur = ref init in
+    LE_.Comb.iter
+      (fun t c ->
+         let tc = if A.Q.(c = of_int 1) then t else c * t in
+         cur := if is_zero !cur then tc else !cur + tc
+      )
+      comb;
+    !cur
+
+  (* encode back into a term *)
+  let t_of_linexp (self:state) (le:LE.t) : T.t =
+    let comb = LE.comb le in
+    let const = LE.const le in
+    t_of_comb self comb ~init:(A.mk_lra self.tst (LRA_const const))
 
   (* return a variable that is equal to [le_comb] in the simplex. *)
   let var_encoding_comb ~pre self (le_comb:LE_.Comb.t) : T.t =
+    assert (not (LE_.Comb.is_empty le_comb));
     match LE_.Comb.as_singleton le_comb with
     | Some (c, x) when A.Q.(c = one) -> x (* trivial linexp *)
     | _ ->
@@ -250,21 +324,10 @@ module Make(A : ARG) : S with module A = A = struct
         (* TODO: define proxy *)
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
         Log.debugf 50
-          (fun k->k "(@[lra.encode-linexp@ `%a`@ :into-var %a@])" LE_.Comb.pp le_comb T.pp proxy);
+          (fun k->k "(@[lra.encode-linexp@ `@[%a@]`@ :into-var %a@])" LE_.Comb.pp le_comb T.pp proxy);
 
-        (* it's actually 0 *)
-        if LE_.Comb.is_empty le_comb then (
-          Log.debug 50 "(lra.encode-linexp.is-trivially-0)";
-          SimpSolver.add_constraint self.simplex
-            ~on_propagate:(fun _ ~reason:_ -> ())
-            (SimpSolver.Constraint.leq proxy A.Q.zero) Tag.By_def;
-          SimpSolver.add_constraint self.simplex
-            ~on_propagate:(fun _ ~reason:_ -> ())
-            (SimpSolver.Constraint.geq proxy A.Q.zero) Tag.By_def;
-        ) else (
-          LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
-          SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
-        );
+        LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
+        SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
         proxy
 
   let add_clause_lra_ ?using (module PA:SI.PREPROCESS_ACTS) lits =
@@ -274,6 +337,52 @@ module Make(A : ARG) : S with module A = A = struct
       | Some using -> SI.P.lemma_rw_clause pr ~res:(Iter.of_list lits) ~using PA.proof in
     PA.add_clause lits pr
 
+  let s_op_of_pred pred : S_op.t =
+    match pred with
+    | Eq | Neq -> assert false (* unreachable *)
+    | Leq -> S_op.Leq
+    | Lt -> S_op.Lt
+    | Geq -> S_op.Geq
+    | Gt -> S_op.Gt
+
+  (* TODO: refactor that and {!var_encoding_comb} *)
+  (* turn a linear expression into a single constant and a coeff.
+     This might define a side variable in the simplex. *)
+  let le_comb_to_singleton_ (self:state) (le_comb:LE_.Comb.t) : T.t * A.Q.t =
+    begin match LE_.Comb.as_singleton le_comb with
+      | Some (coeff, v) -> v, coeff
+
+      | None ->
+        (* non trivial linexp, give it a fresh name in the simplex *)
+        match Comb_map.get le_comb self.encoded_le with
+        | Some x -> x, A.Q.one (* already encoded that *)
+        | None ->
+
+          let proxy = fresh_term self ~pre:"_le_comb" (A.ty_lra self.tst) in
+
+          self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
+          LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
+          SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
+
+          Log.debugf 50
+            (fun k->k "(@[lra.encode-linexp.to-term@ `@[%a@]`@ :new-t %a@])"
+                LE_.Comb.pp le_comb T.pp proxy);
+
+          proxy, A.Q.one
+    end
+
+  (* look for subterms of type Real, for they will need theory combination *)
+  let on_subterm (self:state) _ (t:T.t) : unit =
+    Log.debugf 50 (fun k->k "(@[lra.cc-on-subterm@ %a@])" T.pp t);
+    match A.view_as_lra t with
+    | LRA_other _ when not (A.has_ty_real t) -> ()
+    | LRA_pred _ -> ()
+    | LRA_op _ | LRA_const _ | LRA_other _ | LRA_mult _ ->
+      if not (T.Tbl.mem self.needs_th_combination t) then (
+        Log.debugf 5 (fun k->k "(@[lra.needs-th-combination@ %a@])" T.pp t);
+        T.Tbl.add self.needs_th_combination t ()
+      )
+
   (* preprocess linear expressions away *)
   let preproc_lra (self:state) si
       (module PA:SI.PREPROCESS_ACTS) (t:T.t) : unit =
@@ -281,14 +390,29 @@ module Make(A : ARG) : S with module A = A = struct
     let tst = SI.tst si in
 
     (* tell the CC this term exists *)
-    let declare_term_to_cc t =
-      Log.debugf 50 (fun k->k "(@[simplex2.declare-term-to-cc@ %a@])" T.pp t);
+    let declare_term_to_cc ~sub t =
+      Log.debugf 50 (fun k->k "(@[lra.declare-term-to-cc@ %a@])" T.pp t);
       ignore (SI.CC.add_term (SI.cc si) t : SI.CC.N.t);
+      if sub then on_subterm self () t;
     in
 
     match A.view_as_lra t with
+    | _ when T.Tbl.mem self.simp_preds t ->
+      () (* already turned into a simplex predicate *)
+
+    | LRA_pred ((Eq | Neq) as pred, t1, t2) when is_const_ t1 && is_const_ t2 ->
+      (* comparison of constants: can decide right now *)
+      begin match A.view_as_lra t1, A.view_as_lra t2 with
+        | LRA_const n1, LRA_const n2 ->
+          let is_eq = pred = Eq in
+          let t_is_true = is_eq = (A.Q.equal n1 n2) in
+          let lit = PA.mk_lit ~sign:t_is_true t in
+          add_clause_lra_ (module PA) [lit]
+        | _ -> assert false
+      end
+
     | LRA_pred ((Eq | Neq), t1, t2) ->
-      (* the equality side. *)
+      (* equality: just punt to [t1 = t2 <=> (t1 <= t2 /\ t1 >= t2)] *)
       let t, _ = T.abs tst t in
       if not (T.Tbl.mem self.encoded_eqs t) then (
         let u1 = A.mk_lra tst (LRA_pred (Leq, t1, t2)) in
@@ -312,102 +436,97 @@ module Make(A : ARG) : S with module A = A = struct
       let le = LE.(l1 - l2) in
       let le_comb, le_const = LE.comb le, LE.const le in
       let le_const = A.Q.neg le_const in
-      (* now we have [le_comb <pred> le_const] *)
+      let op = s_op_of_pred pred in
+      (* now we have [le_comb op le_const] *)
 
-      begin match LE_.Comb.as_singleton le_comb, pred with
-        | None, _ ->
-          (* non trivial linexp, give it a fresh name in the simplex *)
-          declare_term_to_cc t;
+      (* obtain a single variable for the linear combination *)
+      let v, c_v = le_comb_to_singleton_ self le_comb in
+      declare_term_to_cc ~sub:false v;
+      LE_.Comb.iter (fun v _ -> declare_term_to_cc ~sub:true v) le_comb;
 
-          let op =
-            match pred with
-            | Eq | Neq -> assert false (* unreachable *)
-            | Leq -> S_op.Leq
-            | Lt -> S_op.Lt
-            | Geq -> S_op.Geq
-            | Gt -> S_op.Gt
-          in
+      (* turn into simplex constraint. For example,
+         [c . v <= const] becomes a direct simplex constraint [v <= const/c]
+         (beware the sign) *)
 
-          let new_t = A.mk_lra tst (LRA_simplex_pred (t, op, le_const)) in
-          begin
-            let lit = PA.mk_lit new_t in
-            let constr = SimpSolver.Constraint.mk t op le_const in
-            SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
-          end;
+      (* make sure to swap sides if multiplying with a negative coeff *)
+      let q = A.Q.( le_const / c_v ) in
+      let op = if A.Q.(c_v < zero) then S_op.neg_sign op else op in
 
-          Log.debugf 10 (fun k->k "(@[lra.preprocess:@ %a@ :into %a@])" T.pp t T.pp new_t);
+      let lit = PA.mk_lit t in
+      let constr = SimpSolver.Constraint.mk v op q in
+      SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
+      T.Tbl.add self.simp_preds t (v, op, q);
 
-        | Some (coeff, v), pred ->
-          (* [c . v <= const] becomes a direct simplex constraint [v <= const/c] *)
-          let q = A.Q.( le_const / coeff ) in
-          declare_term_to_cc v;
+      Log.debugf 50 (fun k->k "(@[lra.preproc@ :t %a@ :to-constr %a@])"
+                        T.pp t SimpSolver.Constraint.pp constr);
 
-          let op = match pred with
-            | Leq -> S_op.Leq
-            | Lt -> S_op.Lt
-            | Geq -> S_op.Geq
-            | Gt -> S_op.Gt
-            | Eq | Neq -> assert false
-          in
-          (* make sure to swap sides if multiplying with a negative coeff *)
-          let op = if A.Q.(coeff < zero) then S_op.neg_sign op else op in
+    | LRA_op _ | LRA_mult _ -> ()
+      (*
+      NOTE: we don't need to do anything for rational subterms, at least
+         not at first. Only when theory combination mandates we compare
+         two terms (by deciding [t1 = t2]) do they impact the simplex; and
+         then they're moved into an equation, which means
 
-          let new_t = A.mk_lra tst (LRA_simplex_pred (v, op, q)) in
-          begin
-            let lit = PA.mk_lit new_t in
-            let constr = SimpSolver.Constraint.mk v op q in
-            SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
-          end;
-
-          Log.debugf 10 (fun k->k "lra.preprocess@ :%a@ :into %a" T.pp t T.pp new_t);
-      end
-
-    | LRA_op _ | LRA_mult _ ->
       let le = as_linexp t in
 
       (* [t] is [le_comb + le_const], where [le_comb] is a linear expression
          without constant. *)
       let le_comb, le_const = LE.comb le, LE.const le in
+      LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
 
       if A.Q.(le_const = zero) then (
         (* if there is no constant, define [t] as [t := le_comb] *)
-        declare_term_to_cc t;
+        declare_term_to_cc ~sub:false t;
+        SimpSolver.define self.simplex t (LE_.Comb.to_list le_comb);
+
       ) else (
         (* a bit more complicated: we cannot just define [t := le_comb]
            because of the coefficient, and the simplex doesn't like offsets.
+
            Instead we assert [t := le_comb + proxy2] using a secondary
-           variable [proxy2] and asserting [proxy2 = le_const] *)
+           variable [proxy2], and assert [proxy2 = le_const] in
+           the simplex *)
+
         let proxy2 = fresh_term self ~pre:"_le_diff" (T.ty t) in
-        let pr_def2 =
-          SI.P.define_term proxy2 (A.mk_lra tst (LRA_const le_const)) PA.proof
-        in
 
         SimpSolver.add_var self.simplex proxy2;
-        LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
-
+        LE_.Comb.iter (fun v _ ->
+            declare_term_to_cc ~sub:true v;
+            SimpSolver.add_var self.simplex v;
+          ) le_comb;
         SimpSolver.define self.simplex t
           ((A.Q.one, proxy2) :: LE_.Comb.to_list le_comb);
 
         Log.debugf 50
-          (fun k->k "(@[lra.encode-linexp.with-offset@ %a@ :var %a@ :const-var %a@])"
+          (fun k->k "(@[lra.encode-linexp.with-offset@ `@[%a@]`@ :var %a@ :const-var %a@])"
               LE_.Comb.pp le_comb T.pp t T.pp proxy2);
 
-        declare_term_to_cc t;
-        declare_term_to_cc proxy2;
+        declare_term_to_cc ~sub:false t;
+        declare_term_to_cc ~sub:true proxy2;
 
-        (* now assert [proxy2 = le_const] *)
-        add_clause_lra_ ~using:Iter.(return pr_def2) (module PA) [
-          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Leq, le_const)))
-        ];
-        add_clause_lra_ ~using:Iter.(return pr_def2) (module PA) [
-          PA.mk_lit (A.mk_lra tst (LRA_simplex_pred (proxy2, Geq, le_const)))
-        ];
+        (* can only work at level 0 *)
+        assert (Backtrack_stack.n_levels self.local_eqs = 0);
+        SimpSolver.declare_bound self.simplex
+          (SimpSolver.Constraint.mk proxy2 Leq le_const) Tag.By_def;
+        SimpSolver.declare_bound self.simplex
+          (SimpSolver.Constraint.mk proxy2 Geq le_const) Tag.By_def;
 
         ()
       )
+      *)
+
+    | LRA_const n ->
+      (* add to simplex, make sure it's always itself *)
+      SimpSolver.add_var self.simplex t;
+
+      assert (n_levels self=0); (* otherwise this will be backtracked but not re-done *)
+      SimpSolver.declare_bound self.simplex
+        (SimpSolver.Constraint.mk t Leq n) Tag.By_def;
+      SimpSolver.declare_bound self.simplex
+        (SimpSolver.Constraint.mk t Geq n) Tag.By_def;
 
     | LRA_other t when A.has_ty_real t -> ()
-    | LRA_const _ | LRA_simplex_pred _ | LRA_simplex_var _ | LRA_other _ ->
+    | LRA_other _ ->
       ()
 
   let simplify (self:state) (_recurse:_) (t:T.t) : (T.t * SI.proof_step Iter.t) option =
@@ -428,9 +547,21 @@ module Make(A : ARG) : S with module A = A = struct
         let u = A.mk_lra self.tst (LRA_const c) in
         let pr = proof_eq t u in
         Some (u, Iter.return pr)
-      ) else None
+      ) else (
+        let u = t_of_linexp self le in
+        if t != u then (
+          let pr = proof_eq t u in
+          Some (u, Iter.return pr)
+        ) else None
+      )
+
+    | LRA_pred ((Eq | Neq), _, _) ->
+      (* never change equalities, it can affect theory combination *)
+      None
+
     | LRA_pred (pred, l1, l2) ->
       let le = LE.(as_linexp l1 - as_linexp l2) in
+
       if LE.is_const le then (
         let c = LE.const le in
         let is_true = match pred with
@@ -444,7 +575,18 @@ module Make(A : ARG) : S with module A = A = struct
         let u = A.mk_bool self.tst is_true in
         let pr = proof_bool t ~sign:is_true in
         Some (u, Iter.return pr)
-      ) else None
+
+      ) else (
+        (* le <= const *)
+        let u = A.mk_lra self.tst
+            (LRA_pred (pred, t_of_comb self (LE.comb le) ~init:(t_zero self),
+                       t_const self (A.Q.neg @@ LE.const le))) in
+
+        if t != u then (
+          let pr = proof_eq t u in
+          Some (u, Iter.return pr)
+        ) else None
+      )
     | _ -> None
 
   module Q_map = CCMap.Make(A.Q)
@@ -491,36 +633,47 @@ module Make(A : ARG) : S with module A = A = struct
 
   (* TODO: trivial propagations *)
 
-  let add_local_eq (self:state) si acts n1 n2 : unit =
-    Log.debugf 20 (fun k->k "(@[lra.add-local-eq@ %a@ %a@])" N.pp n1 N.pp n2);
+  let add_local_eq_t (self:state) si acts t1 t2 ~tag : unit =
+    Log.debugf 20 (fun k->k "(@[lra.add-local-eq@ %a@ %a@])" T.pp t1 T.pp t2);
     reset_res_ self;
-    let t1 = N.term n1 in
-    let t2 = N.term n2 in
     let t1, t2 = if T.compare t1 t2 > 0 then t2, t1 else t1, t2 in
 
     let le = LE.(as_linexp t1 - as_linexp t2) in
     let le_comb, le_const = LE.comb le, LE.const le in
     let le_const = A.Q.neg le_const in
 
-    let v = var_encoding_comb ~pre:"le_local_eq" self le_comb in
-    let lit = Tag.CC_eq (n1,n2) in
-    begin
-      try
-        let c1 = SimpSolver.Constraint.geq v le_const in
-        SimpSolver.add_constraint self.simplex c1 lit
-          ~on_propagate:(on_propagate_ si acts);
-        let c2 = SimpSolver.Constraint.leq v le_const in
-        SimpSolver.add_constraint self.simplex c2 lit
-          ~on_propagate:(on_propagate_ si acts);
-      with SimpSolver.E_unsat cert ->
-        fail_with_cert si acts cert
-    end;
-    ()
+    if LE_.Comb.is_empty le_comb then (
+      if A.Q.(le_const <> zero) then (
+        (* [c=0] when [c] is not 0 *)
+        let lit = SI.Lit.neg @@ SI.mk_lit si acts @@ A.mk_eq self.tst t1 t2 in
+        let pr = A.lemma_lra (Iter.return lit) self.proof in
+        SI.add_clause_permanent si acts [lit] pr
+      )
+    ) else (
+
+      let v = var_encoding_comb ~pre:"le_local_eq" self le_comb in
+      begin
+        try
+          let c1 = SimpSolver.Constraint.geq v le_const in
+          SimpSolver.add_constraint self.simplex c1 tag
+            ~on_propagate:(on_propagate_ si acts);
+          let c2 = SimpSolver.Constraint.leq v le_const in
+          SimpSolver.add_constraint self.simplex c2 tag
+            ~on_propagate:(on_propagate_ si acts);
+        with SimpSolver.E_unsat cert ->
+          fail_with_cert si acts cert
+      end;
+    )
+
+  let add_local_eq (self:state) si acts n1 n2 : unit =
+    let t1 = N.term n1 in
+    let t2 = N.term n2 in
+    add_local_eq_t self si acts t1 t2 ~tag:(Tag.CC_eq (n1, n2))
 
   (* theory combination: add decisions [t=u] whenever [t] and [u]
      have the same value in [subst] and both occur under function symbols *)
   let do_th_combination (self:state) si acts (subst:Subst.t) : unit =
-    Log.debug 5 "(lra.do-th-combinations)";
+    Log.debug 1 "(lra.do-th-combinations)";
     let n_th_comb = T.Tbl.keys self.needs_th_combination |> Iter.length in
     if n_th_comb > 0 then (
       Log.debugf 5
@@ -530,6 +683,7 @@ module Make(A : ARG) : S with module A = A = struct
             (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
     );
 
+    let n = ref 0 in
     (* theory combination: for [t1,t2] terms in [self.needs_th_combination]
        that have same value, but are not provably equal, push
        decision [t1=t2] into the SAT solver. *)
@@ -561,12 +715,15 @@ module Make(A : ARG) : S with module A = A = struct
                        closure, and are not equal in it yet, add [t1=t2] as
                        the next decision to do *)
                     if not (SI.cc_are_equal si t1 t2) then (
-                      Log.debug 50 "LRA.th-comb.must-decide-equal";
+                      Log.debugf 50
+                        (fun k->k
+                            "(@[lra.th-comb.must-decide-equal@ :t1 %a@ :t2 %a@])" T.pp t1 T.pp t2);
                       Stat.incr self.stat_th_comb;
                       Profile.instant "lra.th-comb-assert-eq";
 
                       let t = A.mk_eq (SI.tst si) t1 t2 in
                       let lit = SI.mk_lit si acts t in
+                      incr n;
                       SI.push_decision si acts lit
                     )
                  )
@@ -574,6 +731,7 @@ module Make(A : ARG) : S with module A = A = struct
         by_val;
       ()
     end;
+    Log.debugf 1 (fun k->k "(@[lra.do-th-combinations.done@ :new-lits %d@])" !n);
     ()
 
   (* partial checks is where we add literals from the trail to the
@@ -583,36 +741,48 @@ module Make(A : ARG) : S with module A = A = struct
 
     reset_res_ self;
     let changed = ref false in
-    trail
-      (fun lit ->
-         let sign = SI.Lit.sign lit in
-         let lit_t = SI.Lit.term lit in
-         Log.debugf 50 (fun k->k "(@[lra.partial-check.add@ :lit %a@ :lit-t %a@])"
-                           SI.Lit.pp lit T.pp lit_t);
-         match A.view_as_lra lit_t with
-         | LRA_simplex_pred (v, op, q) ->
 
-           (* need to account for the literal's sign *)
-           let op = if sign then op else S_op.not_ op in
+    let examine_lit lit =
+      let sign = SI.Lit.sign lit in
+      let lit_t = SI.Lit.term lit in
+      match T.Tbl.get self.simp_preds lit_t, A.view_as_lra lit_t with
+      | Some (v,op,q), _ ->
 
-           (* assert new constraint to Simplex *)
-           let constr = SimpSolver.Constraint.mk v op q in
-           Log.debugf 10
-             (fun k->k "(@[lra.partial-check.assert@ %a@])"
-                 SimpSolver.Constraint.pp constr);
-           begin
-             changed := true;
-             try
-               SimpSolver.add_var self.simplex v;
-               SimpSolver.add_constraint self.simplex constr (Tag.Lit lit)
-                 ~on_propagate:(on_propagate_ si acts);
-             with SimpSolver.E_unsat cert ->
-               Log.debugf 10
-                 (fun k->k "(@[lra.partial-check.unsat@ :cert %a@])"
-                     SimpSolver.Unsat_cert.pp cert);
-               fail_with_cert si acts cert
-           end
-         | _ -> ());
+        Log.debugf 50
+          (fun k->k "(@[lra.partial-check.add@ :lit %a@ :lit-t %a@])"
+                          SI.Lit.pp lit T.pp lit_t);
+
+        (* need to account for the literal's sign *)
+        let op = if sign then op else S_op.not_ op in
+
+        (* assert new constraint to Simplex *)
+        let constr = SimpSolver.Constraint.mk v op q in
+        Log.debugf 10
+          (fun k->k "(@[lra.partial-check.assert@ %a@])"
+              SimpSolver.Constraint.pp constr);
+        begin
+          changed := true;
+          try
+            SimpSolver.add_var self.simplex v;
+            SimpSolver.add_constraint self.simplex constr (Tag.Lit lit)
+              ~on_propagate:(on_propagate_ si acts);
+          with SimpSolver.E_unsat cert ->
+            Log.debugf 10
+              (fun k->k "(@[lra.partial-check.unsat@ :cert %a@])"
+                  SimpSolver.Unsat_cert.pp cert);
+            fail_with_cert si acts cert
+        end
+
+      | None, LRA_pred (Eq, t1, t2) when sign ->
+        add_local_eq_t self si acts t1 t2 ~tag:(Tag.Lit lit);
+
+      | None, LRA_pred (Neq, t1, t2) when not sign ->
+        add_local_eq_t self si acts t1 t2 ~tag:(Tag.Lit lit);
+
+      | None, _ -> ()
+    in
+
+    Iter.iter examine_lit trail;
 
     (* incremental check *)
     if !changed then (
@@ -625,9 +795,12 @@ module Make(A : ARG) : S with module A = A = struct
     Profile.with_ "lra.final-check" @@ fun () ->
     reset_res_ self;
 
-    (* add congruence closure equalities *)
-    Backtrack_stack.iter self.local_eqs
-      ~f:(fun (n1,n2) -> add_local_eq self si acts n1 n2);
+    (* add equalities between linear-expressions merged in the congruence closure *)
+    ST_exprs.iter_all self.st_exprs
+      (fun (_,l) ->
+         Iter.diagonal_l l
+           (fun (s1, s2) ->
+              add_local_eq self si acts s1.n s2.n));
 
     (* TODO: jiggle model to reduce the number of variables that
        have the same value *)
@@ -637,26 +810,13 @@ module Make(A : ARG) : S with module A = A = struct
     do_th_combination self si acts model;
     ()
 
-  (* look for subterms of type Real, for they will need theory combination *)
-  let on_subterm (self:state) _ (t:T.t) : unit =
-    Log.debugf 50 (fun k->k "(@[lra.cc-on-subterm@ %a@])" T.pp t);
-    match A.view_as_lra t with
-    | LRA_other _ when not (A.has_ty_real t) -> ()
-    | _ ->
-      if not (T.Tbl.mem self.needs_th_combination t) then (
-        Log.debugf 5 (fun k->k "(@[lra.needs-th-combination@ %a@])" T.pp t);
-        T.Tbl.add self.needs_th_combination t ()
-      )
-
-  let to_rat_t_ self q = A.mk_lra self.tst (LRA_const q)
-
   (* help generating model *)
   let model_ask_ (self:state) ~recurse:_ _si n : _ option =
     let t = N.term n in
     begin match self.last_res with
       | Some (SimpSolver.Sat m) ->
         Log.debugf 50 (fun k->k "(@[lra.model-ask@ %a@])" T.pp t);
-        SimpSolver.V_map.get t m |> CCOpt.map (to_rat_t_ self)
+        SimpSolver.V_map.get t m |> CCOpt.map (t_const self)
       | _ -> None
     end
 
@@ -671,7 +831,7 @@ module Make(A : ARG) : S with module A = A = struct
         let add_t t () =
           match SimpSolver.V_map.get t m with
           | None -> ()
-          | Some u -> add t (to_rat_t_ self u)
+          | Some u -> add t (t_const self u)
         in
         T.Tbl.iter add_t self.in_model
 
@@ -683,7 +843,7 @@ module Make(A : ARG) : S with module A = A = struct
   let create_and_setup si =
     Log.debug 2 "(th-lra.setup)";
     let stat = SI.stats si in
-    let st = create ~stat (SI.proof si) (SI.tst si) (SI.ty_st si) in
+    let st = create ~stat si in
     SI.Registry.set (SI.registry si) k_state st;
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (preproc_lra st);
@@ -691,11 +851,14 @@ module Make(A : ARG) : S with module A = A = struct
     SI.on_partial_check si (partial_check_ st);
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
     SI.on_cc_is_subterm si (on_subterm st);
-    SI.on_cc_post_merge si
-      (fun _ _ n1 n2 ->
-         if A.has_ty_real (N.term n1) then (
-           Backtrack_stack.push st.local_eqs (n1, n2)
-         ));
+    SI.on_cc_pre_merge si
+      (fun si acts n1 n2 expl ->
+         match as_const_ (N.term n1), as_const_ (N.term n2) with
+         | Some q1, Some q2 when A.Q.(q1 <> q2) ->
+           (* classes with incompatible constants *)
+           Log.debugf 30 (fun k->k "(@[lra.merge-incompatible-consts@ %a@ %a@])" N.pp n1 N.pp n2);
+           SI.CC.raise_conflict_from_expl si acts expl
+         | _ -> ());
     st
 
   let theory =
