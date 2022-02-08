@@ -1,0 +1,12 @@
+(set-logic QF_LRA)
+(set-info :status unsat)
+(declare-fun a () Real)
+(declare-fun b () Real)
+(declare-fun p1 () Bool)
+(declare-fun p2 () Bool)
+
+(assert (<= a b))
+(assert (= p1 (>= a 1)))
+(assert (= p2 (<= b (/ 1 2))))
+(check-sat-assuming (p1 p2))
+(exit)
