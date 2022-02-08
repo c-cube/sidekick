@@ -1353,6 +1353,8 @@ module Monoid_of_repr(M : MONOID_ARG) : sig
   val pop_levels : t -> int -> unit
   (** Pop [n] backtracking points *)
 
+  val n_levels : t -> int
+
   val mem : t -> M.SI.CC.N.t -> bool
   (** Does the CC node have a monoid value? *)
 
@@ -1377,6 +1379,7 @@ end = struct
 
   let push_level self = N_tbl.push_level self.values
   let pop_levels self n = N_tbl.pop_levels self.values n
+  let n_levels self = N_tbl.n_levels self.values
 
   let mem self n =
     let res = CC.get_bitfield self.cc self.field_has_value n in
