@@ -19,7 +19,7 @@ module Rational
   include Q
   let denum = den
   let pp = pp_print
-  let hash a = Hashtbl.hash (Z.hash (num a), Z.hash (den a))
+  let hash a = CCHash.combine2 (Z.hash (num a)) (Z.hash (den a))
 
   let infinity = Q.inf
   let minus_infinity = Q.minus_inf

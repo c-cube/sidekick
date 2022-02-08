@@ -18,6 +18,7 @@ module type S = sig
   val remove : _ t -> key -> unit
   val push_level : _ t -> unit
   val pop_levels : _ t -> int -> unit
+  val n_levels : _ t -> int
 end
 
 module type ARG = sig

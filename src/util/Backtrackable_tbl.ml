@@ -16,6 +16,7 @@ module type S = sig
   val remove : _ t -> key -> unit
   val push_level : _ t -> unit
   val pop_levels : _ t -> int -> unit
+  val n_levels : _ t -> int
 end
 
 module type ARG = sig
@@ -49,6 +50,7 @@ module Make(A : ARG) = struct
   let[@inline] iter f self = M.iter f self.tbl
   let[@inline] push_level self = BS.push_level self.undo
   let[@inline] pop_levels self n = BS.pop_levels self.undo n ~f:(apply_undo self)
+  let[@inline] n_levels self = BS.n_levels self.undo
 
   let add self k v : unit =
     if BS.n_levels self.undo > 0 then (
