@@ -13,6 +13,8 @@ type 'a or_error = ('a, string) CCResult.t
 
 module Ctx : sig
   type t
+  val set_default_num_real : t -> unit
+  val set_default_num_int : t -> unit
   val create: T.store -> t
 end
 
