@@ -319,11 +319,6 @@ module Make(A : ARG)
       CCOpt.iter (fun f -> self.model_complete <- f :: self.model_complete) complete;
       ()
 
-    let push_decision (_self:t) (acts:theory_actions) (lit:lit) : unit =
-      let (module A) = acts in
-      let sign = Lit.sign lit in
-      A.add_decision_lit (Lit.abs lit) sign
-
     let[@inline] raise_conflict self (acts:theory_actions) c proof : 'a =
       let (module A) = acts in
       Stat.incr self.count_conflict;
@@ -371,6 +366,10 @@ module Make(A : ARG)
       let rec preproc_rec_ t =
         if not (Term.Tbl.mem self.preprocessed t) then (
           Term.Tbl.add self.preprocessed t ();
+
+          (* process sub-terms first *)
+          Term.iter_shallow self.tst preproc_rec_ t;
+
           Log.debugf 50 (fun k->k "(@[smt.preprocess@ %a@])" Term.pp t);
 
           (* signal boolean subterms, so as to decide them
@@ -391,14 +390,12 @@ module Make(A : ARG)
 
           List.iter
             (fun f -> f self acts t) self.preprocess;
-
-          (* process sub-terms *)
-          Term.iter_shallow self.tst preproc_rec_ t;
         )
       in
       preproc_rec_ t0
 
-    let simplify_lit_ (self:t) (lit:Lit.t) : Lit.t * proof_step option =
+    (* simplify literal, then preprocess the result *)
+    let simplify_and_preproc_lit_ (self:t) (lit:Lit.t) : Lit.t * proof_step option =
       let t = Lit.term lit in
       let sign = Lit.sign lit in
       let u, pr = match simplify_t self t with
@@ -411,6 +408,13 @@ module Make(A : ARG)
       in
       preprocess_term_ self u;
       Lit.atom self.tst ~sign u, pr
+
+    let push_decision (self:t) (acts:theory_actions) (lit:lit) : unit =
+      let (module A) = acts in
+      (* make sure the literal is preprocessed *)
+      let lit, _ = simplify_and_preproc_lit_ self lit in
+      let sign = Lit.sign lit in
+      A.add_decision_lit (Lit.abs lit) sign
 
     module type ARR = sig
       type 'a t
@@ -428,7 +432,7 @@ module Make(A : ARG)
 
         (* simplify a literal, then preprocess it *)
         let[@inline] simp_lit lit =
-          let lit, pr = simplify_lit_ self lit in
+          let lit, pr = simplify_and_preproc_lit_ self lit in
           CCOpt.iter (fun pr -> steps := pr :: !steps) pr;
           lit
         in
@@ -499,7 +503,7 @@ module Make(A : ARG)
 
     let add_lit_t self _acts ?sign t =
       let lit = Lit.atom self.tst ?sign t in
-      let lit, _ = simplify_lit_ self lit in
+      let lit, _ = simplify_and_preproc_lit_ self lit in
       delayed_add_lit self lit
 
     let on_final_check self f = self.on_final_check <- f :: self.on_final_check
