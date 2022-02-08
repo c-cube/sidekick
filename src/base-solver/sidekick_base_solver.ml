@@ -112,12 +112,9 @@ module Th_lra = Sidekick_arith_lra.Make(struct
     | LRA.LRA_op (op, x, y) -> T.lra store (Op(op,x,y))
     | LRA.LRA_const c -> T.lra store (Const c)
     | LRA.LRA_mult (c,x) -> T.lra store (Mult (c,x))
-    | LRA.LRA_simplex_var x -> T.lra store (Simplex_var x)
-    | LRA.LRA_simplex_pred (x,p,c) -> T.lra store (Simplex_pred (x,p,c))
   let mk_bool = T.bool
 
   let rec view_as_lra t = match T.view t with
-    | T.LIA (Const i) -> LRA.LRA_const (Q.of_bigint i)
     | T.LRA l ->
       let module LRA = Sidekick_arith_lra in
       begin match l with
@@ -125,8 +122,6 @@ module Th_lra = Sidekick_arith_lra.Make(struct
         | Pred (p,a,b) -> LRA.LRA_pred(p,a,b)
         | Op(op,a,b) -> LRA.LRA_op(op,a,b)
         | Mult (c,x) -> LRA.LRA_mult (c,x)
-        | Simplex_var x -> LRA.LRA_simplex_var x
-        | Simplex_pred (x,p,c) -> LRA.LRA_simplex_pred(x,p,c)
         | To_real x -> view_as_lra x
         | Var x -> LRA.LRA_other x
       end

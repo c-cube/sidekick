@@ -41,10 +41,6 @@ module LRA_view = struct
     | Var of 'a
     | To_real of 'a
 
-    (* after preprocessing *)
-    | Simplex_pred of 'a * Sidekick_arith_lra.S_op.t * Q.t
-    | Simplex_var of 'a
-
   let map ~f_c f (l:_ t) : _ t =
     begin match l with
       | Pred (p, a, b) -> Pred (p, f a, f b)
@@ -53,16 +49,12 @@ module LRA_view = struct
       | Const c -> Const (f_c c)
       | Var x -> Var (f x)
       | To_real x -> To_real (f x)
-      | Simplex_var v -> Simplex_var (f v)
-      | Simplex_pred (v, op, c) -> Simplex_pred (f v, op, f_c c)
     end
 
   let iter f l : unit =
     begin match l with
       | Pred (_, a, b) | Op (_, a, b) -> f a; f b
       | Mult (_,x) | Var x | To_real x -> f x
-      | Simplex_var x -> f x
-      | Simplex_pred (x,_,_) -> f x
       | Const _ -> ()
     end
 
@@ -76,10 +68,6 @@ module LRA_view = struct
     | Const q -> Q.pp_print out q
     | Var x -> pp_t out x
     | To_real x -> Fmt.fprintf out "(@[to_real@ %a@])" pp_t x
-    | Simplex_var v -> pp_t out v
-    | Simplex_pred (v, op, c) ->
-      Fmt.fprintf out "(@[%a@ %s %a@])"
-        pp_t v (Sidekick_arith_lra.S_op.to_string op) Q.pp_print c
 
   let hash ~sub_hash = function
     | Pred (p, a, b) ->
@@ -91,9 +79,6 @@ module LRA_view = struct
     | Const q -> Hash.combine2 84 (hash_q q)
     | Var x -> sub_hash x
     | To_real x -> Hash.combine2 85 (sub_hash x)
-    | Simplex_var v -> Hash.combine2 99 (sub_hash v)
-    | Simplex_pred (v,op,q) ->
-      Hash.combine4 120 (sub_hash v) (Hash.poly op) (hash_q q)
 
   let equal ~sub_eq l1 l2 =
     begin match l1, l2 with
@@ -106,12 +91,8 @@ module LRA_view = struct
       | Var x1, Var x2
       | To_real x1, To_real x2
         -> sub_eq x1 x2
-      | Simplex_var v1, Simplex_var v2 -> sub_eq v1 v2
-      | Simplex_pred (v1,op1,q1), Simplex_pred (v2,op2,q2) ->
-        sub_eq v1 v2 && (op1==op2) && Q.equal q1 q2
-      | (Pred _ | Op _ | Const _ | Simplex_var _
-        | Mult _ | Var _
-        | To_real _ | Simplex_pred _), _ -> false
+      | (Pred _ | Op _ | Const _ | Mult _ | Var _
+        | To_real _), _ -> false
     end
 end
 
@@ -402,13 +383,14 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
   | Not u -> Fmt.fprintf out "(@[not@ %a@])" pp_t u
   | Ite (a,b,c) -> Fmt.fprintf out "(@[ite@ %a@ %a@ %a@])" pp_t a pp_t b pp_t c
   | LRA l -> LRA_view.pp ~pp_t out l
-  | LIA l -> LIA_view.pp ~pp_t out l
+  | LIA l -> LIA_view.pp ~pp_t out l; Fmt.string out "/ℤ"
 
 let pp_term_top ~ids out t =
   let rec pp out t =
     pp_rec out t;
-    (* FIXME if Config.pp_hashcons then Format.fprintf out "/%d" t.term_id; *)
-  and pp_rec out t = pp_term_view_gen ~pp_id ~pp_t:pp_rec out t.term_view
+    (* FIXME Fmt.fprintf out "/%d" t.term_id; *)
+  and pp_rec out t =
+    pp_term_view_gen ~pp_id ~pp_t:pp_rec out t.term_view;
   and pp_id = if ids then ID.pp else ID.pp_name in
   pp out t
 
@@ -871,9 +853,9 @@ end = struct
       end
     | LRA l ->
       LRA_view.(match l with
-        | Pred _ | Simplex_pred _ -> Ty.bool ()
+        | Pred _ -> Ty.bool ()
         | Op _ | Const _ | Mult _
-        | Simplex_var _ | To_real _ -> Ty.real ()
+        | To_real _ -> Ty.real ()
         | Var x -> x.term_ty
         )
     | LIA l ->
@@ -972,10 +954,7 @@ module Term : sig
     val neq : store -> t -> t -> t
   end
 
-  module LRA : sig
-    include ARITH_HELPER with type num := Q.t
-    val var : store -> t -> t
-  end
+  module LRA : ARITH_HELPER with type num := Q.t
   module LIA : ARITH_HELPER with type num := Z.t
 
   (** Obtain unsigned version of [t], + the sign as a boolean *)
@@ -1132,7 +1111,6 @@ end = struct
     let gt st a b : t = lra st (V.Pred (Gt, a, b))
     let eq st a b : t = lra st (V.Pred (Eq, a, b))
     let neq st a b : t = lra st (V.Pred (Neq, a, b))
-    let var st a : t = lra st (V.Simplex_var a)
   end
 
   module LIA = struct
