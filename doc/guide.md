@@ -329,7 +329,7 @@ val b : Term.t = b
 # Term.ty a;;
 - : Ty.t = Real
 
-# let a_leq_b = Term.LRA.(leq tstore (var tstore a) (var tstore b));;
+# let a_leq_b = Term.LRA.(leq tstore a b);;
 val a_leq_b : Term.t = (<= a b)
 ```
 
@@ -367,7 +367,10 @@ val res : Solver.res =
 
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
 The junk assumption `p` was not used during the proof
-and therefore doesn't appear in the unsat core we extract from `res`.
+and therefore doesn't appear in the unsat core we extract from `res`;
+the assertion `a<=b` isn't in the core either because it was asserted
+using `(assert …)` rather than passed as a local assumption,
+so it's "background" knowledge.
 
 ## Functions and congruence closure
 

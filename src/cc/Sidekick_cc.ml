@@ -679,7 +679,7 @@ module Make (A: CC_ARG)
         if same_class a b then (
           let expl = Expl.mk_merge a b in
           Log.debugf 5
-            (fun k->k "(@[pending.eq@ %a@ :r1 %a@ :r2 %a@])" N.pp n N.pp a N.pp b);
+            (fun k->k "(@[cc.pending.eq@ %a@ :r1 %a@ :r2 %a@])" N.pp n N.pp a N.pp b);
           merge_classes cc n (n_true cc) expl
         )
       | Some (Not u) ->

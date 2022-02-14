@@ -787,8 +787,10 @@ module Make(A : ARG)
       (c:lit IArray.t) (pr:proof_step) : lit IArray.t * proof_step =
     Solver_internal.preprocess_clause_iarray_ self.si c pr
 
-  let[@inline] mk_lit_t (self:t) ?sign (t:term) : lit =
-    Lit.atom self.si.tst ?sign t
+  let mk_lit_t (self:t) ?sign (t:term) : lit =
+    let lit = Lit.atom self.si.tst ?sign t in
+    let lit, _ = Solver_internal.simplify_and_preproc_lit_ self.si lit in
+    lit
 
   (** {2 Main} *)
 

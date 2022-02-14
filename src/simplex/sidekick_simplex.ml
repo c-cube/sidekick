@@ -73,7 +73,7 @@ module type S = sig
 
   module Subst : sig
     type t = num V_map.t
-    val eval : t -> V.t -> Q.t
+    val eval : t -> V.t -> Q.t option
     val pp : t Fmt.printer
     val to_string : t -> string
   end
@@ -210,7 +210,7 @@ module Make(Arg: ARG)
 
   module Subst = struct
     type t = num V_map.t
-    let eval self t = try V_map.find t self with Not_found -> Q.zero
+    let eval self t = V_map.get t self
     let pp out (self:t) : unit =
       let pp_pair out (v,n) =
         Fmt.fprintf out "(@[%a := %a@])" V.pp v pp_q_dbg n in
@@ -1170,15 +1170,17 @@ module Make(Arg: ARG)
         Matrix.iter_rows self.matrix
           (fun _i x_i ->
              if x_i.is_int then (
-               let n = Subst.eval m x_i.var in
-               if not (Q.is_int n) then (
-                 (* found one! *)
-                 Log.debugf 10
-                   (fun k->k "(@[simplex.int-var-assigned-to-non-int@ %a := %a@])"
-                       Var_state.pp x_i Q.pp n);
+               begin match Subst.eval m x_i.var with
+                 | Some n when not (Q.is_int n) ->
+                   (* found one! *)
+                   Log.debugf 10
+                     (fun k->k "(@[simplex.int-var-assigned-to-non-int@ %a := %a@])"
+                         Var_state.pp x_i Q.pp n);
 
-                 raise (Found (x_i, n))
-               )
+                   raise (Found (x_i, n))
+
+                 | _ -> ()
+               end
              )
           );
         Ok()

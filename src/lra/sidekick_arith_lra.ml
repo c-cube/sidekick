@@ -460,70 +460,15 @@ module Make(A : ARG) : S with module A = A = struct
       Log.debugf 50 (fun k->k "(@[lra.preproc@ :t %a@ :to-constr %a@])"
                         T.pp t SimpSolver.Constraint.pp constr);
 
-    | LRA_op _ | LRA_mult _ -> ()
-      (*
-      NOTE: we don't need to do anything for rational subterms, at least
+    | LRA_op _ | LRA_mult _ ->
+      (* NOTE: we don't need to do anything for rational subterms, at least
          not at first. Only when theory combination mandates we compare
          two terms (by deciding [t1 = t2]) do they impact the simplex; and
-         then they're moved into an equation, which means
+         then they're moved into an equation, which means they are
+         preprocessed in the LRA_pred case above. *)
+      ()
 
-      let le = as_linexp t in
-
-      (* [t] is [le_comb + le_const], where [le_comb] is a linear expression
-         without constant. *)
-      let le_comb, le_const = LE.comb le, LE.const le in
-      LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
-
-      if A.Q.(le_const = zero) then (
-        (* if there is no constant, define [t] as [t := le_comb] *)
-        declare_term_to_cc ~sub:false t;
-        SimpSolver.define self.simplex t (LE_.Comb.to_list le_comb);
-
-      ) else (
-        (* a bit more complicated: we cannot just define [t := le_comb]
-           because of the coefficient, and the simplex doesn't like offsets.
-
-           Instead we assert [t := le_comb + proxy2] using a secondary
-           variable [proxy2], and assert [proxy2 = le_const] in
-           the simplex *)
-
-        let proxy2 = fresh_term self ~pre:"_le_diff" (T.ty t) in
-
-        SimpSolver.add_var self.simplex proxy2;
-        LE_.Comb.iter (fun v _ ->
-            declare_term_to_cc ~sub:true v;
-            SimpSolver.add_var self.simplex v;
-          ) le_comb;
-        SimpSolver.define self.simplex t
-          ((A.Q.one, proxy2) :: LE_.Comb.to_list le_comb);
-
-        Log.debugf 50
-          (fun k->k "(@[lra.encode-linexp.with-offset@ `@[%a@]`@ :var %a@ :const-var %a@])"
-              LE_.Comb.pp le_comb T.pp t T.pp proxy2);
-
-        declare_term_to_cc ~sub:false t;
-        declare_term_to_cc ~sub:true proxy2;
-
-        (* can only work at level 0 *)
-        assert (Backtrack_stack.n_levels self.local_eqs = 0);
-        SimpSolver.declare_bound self.simplex
-          (SimpSolver.Constraint.mk proxy2 Leq le_const) Tag.By_def;
-        SimpSolver.declare_bound self.simplex
-          (SimpSolver.Constraint.mk proxy2 Geq le_const) Tag.By_def;
-
-        ()
-      )
-      *)
-
-    | LRA_const n ->
-      (* add to simplex, make sure it's always itself *)
-      SimpSolver.add_var self.simplex t;
-
-      assert (n_levels self=0); (* otherwise this will be backtracked but not re-done *)
-      SimpSolver.declare_bound self.simplex
-        (SimpSolver.Constraint.mk t Leq n) Tag.By_def;
-      SimpSolver.declare_bound self.simplex
-        (SimpSolver.Constraint.mk t Geq n) Tag.By_def;
+    | LRA_const _n -> ()
 
     | LRA_other t when A.has_ty_real t -> ()
     | LRA_other _ ->
@@ -683,6 +628,11 @@ module Make(A : ARG) : S with module A = A = struct
             (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
     );
 
+    let eval_in_subst_ subst t = match A.view_as_lra t with
+      | LRA_const n -> n
+      | _ -> Subst.eval subst t |> CCOpt.get_or ~default:A.Q.zero
+    in
+
     let n = ref 0 in
     (* theory combination: for [t1,t2] terms in [self.needs_th_combination]
        that have same value, but are not provably equal, push
@@ -690,7 +640,7 @@ module Make(A : ARG) : S with module A = A = struct
     begin
       let by_val: T.t list Q_map.t =
         T.Tbl.keys self.needs_th_combination
-        |> Iter.map (fun t -> Subst.eval subst t, t)
+        |> Iter.map (fun t -> eval_in_subst_ subst t, t)
         |> Iter.fold
           (fun m (q,t) ->
              let l = Q_map.get_or ~default:[] q m in
@@ -816,7 +766,10 @@ module Make(A : ARG) : S with module A = A = struct
     begin match self.last_res with
       | Some (SimpSolver.Sat m) ->
         Log.debugf 50 (fun k->k "(@[lra.model-ask@ %a@])" T.pp t);
-        SimpSolver.V_map.get t m |> CCOpt.map (t_const self)
+        begin match A.view_as_lra t with
+          | LRA_const n -> Some n (* always eval constants to themselves *)
+          | _ -> SimpSolver.V_map.get t m
+        end |> CCOpt.map (t_const self)
       | _ -> None
     end
 

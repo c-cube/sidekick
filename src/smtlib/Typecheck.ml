@@ -127,10 +127,7 @@ let t_as_z t = match Term.view t with
   | T.LIA (Const n) -> Some n
   | _ -> None
 
-let is_real t =
-  match T.view t with
-  | T.LRA _ -> true
-  | _ -> Ty.equal (T.ty t) (Ty.real())
+let[@inline] is_real t = Ty.equal (T.ty t) (Ty.real())
 
 (* convert [t] to a real term *)
 let cast_to_real (ctx:Ctx.t) (t:T.t) : T.t =
