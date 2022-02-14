@@ -224,7 +224,7 @@ Sidekick_base_solver.Solver.Sat
   (false := false)
   (p := true)
   (q := true)
-  (_tseitin_equiv_0 := true))
+  ((= p q) := true))
 ```
 
 It is satisfiable, and we got a model where "p" and "q" are both false.
@@ -261,7 +261,7 @@ Sidekick_base_solver.Solver.Sat
   (false := false)
   (p := true)
   (q := true)
-  (_tseitin_equiv_0 := true))
+  ((= p q) := true))
 ```
 
 We can therefore add more formulas and see where it leads us.
@@ -280,8 +280,8 @@ Sidekick_base_solver.Solver.Sat
   (p := true)
   (q := true)
   (r := true)
-  (_tseitin_equiv_0 := true)
-  (_tseitin_implies_1 := true))
+  ((= p q) := true)
+  ((=> p r) := true))
 ```
 
 Still satisfiable, but now we see `r` in the model, too. And now:
@@ -344,8 +344,12 @@ Sidekick_base_solver.Solver.Sat
  (model
   (true := true)
   (false := false)
-  (_sk_lra__le0 := 0)
-  ((_sk_lra__le0 <= 0) := true))
+  (a := 0)
+  (b := 0)
+  ((<= (+ a (* -1 b)) 0) := true)
+  (_sk_lra__le_comb0 := 0)
+  ((= a b) := true)
+  ((>= (+ a (* -1 b)) 0) := true))
 
 
 # let a_geq_1 = Term.LRA.(geq tstore a (const tstore (Q.of_int 1)));;
@@ -362,7 +366,7 @@ val res : Solver.res =
    {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
 
 # match res with Solver.Unsat {unsat_core=us; _} -> us() |> Iter.to_list | _ -> assert false;;
-- : Proof.lit list = [(a >= 1); (b <= 1/2)]
+- : Proof.lit list = [(>= a 1); (<= b 1/2)]
 ```
 
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
@@ -379,7 +383,7 @@ an uninterpreted type.
 
 ```ocaml
 # let u = Ty.atomic_uninterpreted (ID.make "u");;
-val u : Ty.t = u/12
+val u : Ty.t = u/9
 
 # let u1 = Term.const_undefined tstore (ID.make "u1") u;;
 val u1 : Term.t = u1
@@ -389,19 +393,19 @@ val u2 : Term.t = u2
 val u3 : Term.t = u3
 
 # let f1 = Fun.mk_undef' (ID.make "f1") [u] u;;
-val f1 : Fun.t = f1/16
+val f1 : Fun.t = f1/13
 # Fun.view f1;;
 - : Fun.view =
 Sidekick_base.Fun.Fun_undef
- {Sidekick_base.Base_types.fun_ty_args = [u/12]; fun_ty_ret = u/12}
+ {Sidekick_base.Base_types.fun_ty_args = [u/9]; fun_ty_ret = u/9}
 
 # let f1_u1 = Term.app_fun_l tstore f1 [u1];;
 val f1_u1 : Term.t = (f1 u1)
 
 # Term.ty f1_u1;;
-- : Ty.t = u/12
+- : Ty.t = u/9
 # Term.view f1_u1;;
-- : Term.t Term.view = Sidekick_base.Term.App_fun (f1/16, [|u1|])
+- : Term.t Term.view = Sidekick_base.Term.App_fun (f1/13, [|u1|])
 ```
 
 Anyway, Sidekick knows how to reason about functions.
