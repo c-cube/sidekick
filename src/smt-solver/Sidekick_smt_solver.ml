@@ -853,6 +853,7 @@ module Make(A : ARG)
       f self.si
         ~add:(fun t u ->
           if not (M.mem model t) then (
+            Log.debugf 20 (fun k->k "(@[smt.model-complete@ %a@ :with-val %a@])" Term.pp t Term.pp u);
             M.replace model t u
           ));
     in
@@ -869,7 +870,10 @@ module Make(A : ARG)
 
         (* try each model hook *)
         let rec try_hooks_ = function
-          | [] -> N.term repr
+          | [] ->
+            let t = N.term repr in
+            Log.debugf 20 (fun k->k "(@[smt.model.default-to-repr@ %a@])" Term.pp t);
+            t
           | h :: hooks ->
             begin match h ~recurse:(fun _ n -> val_for_class n) self.si repr with
               | None -> try_hooks_ hooks
