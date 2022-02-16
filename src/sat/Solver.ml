@@ -2184,7 +2184,7 @@ module Make(Plugin : PLUGIN)
 
   (* do some amount of search, until the number of conflicts or clause learnt
      reaches the given parameters *)
-  let search (st:t) ~(max_conflicts:int) : unit =
+  let search (st:t) ~on_progress ~(max_conflicts:int) : unit =
     Log.debugf 3
       (fun k->k "(@[sat.search@ :max-conflicts %d@ :max-learnt %d@])"
           max_conflicts !(st.max_clauses_learnt));
@@ -2224,6 +2224,7 @@ module Make(Plugin : PLUGIN)
         in
         if do_gc then (
           reduce_clause_db st;
+          on_progress();
         );
 
         let decided = pick_branch_lit ~full:true st in
@@ -2258,7 +2259,7 @@ module Make(Plugin : PLUGIN)
         on_progress();
         begin try
             self.max_clauses_learnt := int_of_float !max_learnt ;
-            search self ~max_conflicts:(int_of_float !max_conflicts)
+            search self ~on_progress ~max_conflicts:(int_of_float !max_conflicts)
           with
           | Restart ->
             max_conflicts := !max_conflicts *. restart_inc;
@@ -2267,6 +2268,7 @@ module Make(Plugin : PLUGIN)
             assert (self.elt_head = AVec.size self.trail &&
                     has_no_delayed_actions self &&
                     self.next_decisions=[]);
+            on_progress();
             begin match Plugin.final_check self.th (full_slice self) with
               | () ->
                 if self.elt_head = AVec.size self.trail &&
@@ -2287,6 +2289,7 @@ module Make(Plugin : PLUGIN)
                 (match self.on_conflict with Some f -> f self c | None -> ());
                 Delayed_actions.add_clause_learnt self.delayed_actions c;
                 perform_delayed_actions self;
+                on_progress();
             end;
         end
       done

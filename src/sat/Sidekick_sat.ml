@@ -28,6 +28,7 @@ let pp_lbool out = function
   | L_undefined -> Format.fprintf out "undefined"
 
 exception No_proof = Solver_intf.No_proof
+exception Resource_exhausted = Solver_intf.Resource_exhausted
 
 module Solver = Solver
 module Make_cdcl_t = Solver.Make_cdcl_t

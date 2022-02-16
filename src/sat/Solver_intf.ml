@@ -230,6 +230,9 @@ module type PLUGIN_SAT = sig
      and type proof_step = proof_step
 end
 
+exception Resource_exhausted
+(** Can be raised in a progress handler *)
+
 (** The external interface implemented by safe solvers, such as the one
     created by the {!Solver.Make} and {!Mcsolver.Make} functors. *)
 module type S = sig
@@ -377,7 +380,7 @@ module type S = sig
   val add_clause_a_in_pool : t -> pool:clause_pool_id -> lit array -> proof_step -> unit
   (** Like {!add_clause_a} but using a specific clause pool *)
 
-(** {2 Solving} *)
+  (** {2 Solving} *)
 
   val solve :
     ?on_progress:(unit -> unit) ->
@@ -387,7 +390,11 @@ module type S = sig
       @param assumptions additional atomic assumptions to be temporarily added.
         The assumptions are just used for this call to [solve], they are
         not saved in the solver's state.
-      @param on_progress regularly called during solving
+      @param on_progress regularly called during solving.
+        Can raise {!Resource_exhausted}
+        to stop solving.
+
+      @raise Resource_exhausted if the on_progress handler raised it to stop
   *)
 
   (** {2 Evaluating and adding literals} *)

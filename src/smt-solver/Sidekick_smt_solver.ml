@@ -907,7 +907,7 @@ module Make(A : ARG)
               )));
     Model.Map model
 
-  exception Should_stop
+  exception Resource_exhausted = Sidekick_sat.Resource_exhausted
 
   let solve
       ?(on_exit=[]) ?(check=true)
@@ -924,7 +924,7 @@ module Make(A : ARG)
       fun() ->
         incr resource_counter;
         on_progress self;
-        if should_stop self !resource_counter then raise_notrace Should_stop
+        if should_stop self !resource_counter then raise_notrace Resource_exhausted
     in
     self.si.on_progress <- on_progress;
 
@@ -961,7 +961,7 @@ module Make(A : ARG)
         let unsat_proof_step () = Some (UNSAT.unsat_proof()) in
         do_on_exit ();
         Unsat {unsat_core; unsat_proof_step}
-      | exception Should_stop -> Unknown Unknown.U_asked_to_stop
+      | exception Resource_exhausted -> Unknown Unknown.U_asked_to_stop
     in
     self.last_res <- Some res;
     res
