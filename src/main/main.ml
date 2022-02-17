@@ -33,6 +33,8 @@ let proof_file = ref ""
 let proof_store_memory = ref false
 let proof_store_file = ref ""
 
+let reset_line = "\x1b[2K\r"
+
 (* Arguments parsing *)
 let int_arg r arg =
   let l = String.length arg in
@@ -149,6 +151,13 @@ let main_smt () : _ result =
     Process.Solver.create ~proof ~theories tst () ()
   in
 
+  let finally() =
+    if !p_stat then (
+      Format.printf "%s%a@." reset_line Solver.pp_stats solver;
+    );
+  in
+  CCFun.protect ~finally @@ fun () ->
+
   (* FIXME: emit an actual proof *)
   let proof_file = if !proof_file ="" then None else Some !proof_file in
   if !check then (
@@ -174,9 +183,6 @@ let main_smt () : _ result =
     with Exit ->
       E.return()
   in
-  if !p_stat then (
-    Format.printf "%a@." Solver.pp_stats solver;
-  );
   res
 
 let main_cnf () : _ result =
@@ -195,18 +201,21 @@ let main_cnf () : _ result =
   in
 
   let stat = Stat.create () in
+
+  let finally() =
+    if !p_stat then (
+      Fmt.printf "%a@." Stat.pp_all (Stat.all stat);
+    );
+    Proof.close proof;
+  in
+  CCFun.protect ~finally @@ fun () ->
+
   let solver = S.SAT.create ~size:`Big ~proof ~stat () in
 
   S.Dimacs.parse_file solver !file >>= fun () ->
   let r = S.solve ~check:!check ?in_memory_proof solver in
-
   (* FIXME: if in memory proof and !proof_file<>"",
      then dump proof into file now *)
-
-  Proof.close proof;
-  if !p_stat then (
-    Fmt.printf "%a@." Stat.pp_all (Stat.all stat);
-  );
   r
 
 let main () =
@@ -225,6 +234,14 @@ let main () =
   let al = Gc.create_alarm check_limits in
   Util.setup_gc();
   let is_cnf = Filename.check_suffix !file ".cnf" in
+
+  let finally() =
+    if !p_gc_stat then (
+      Printf.printf "(gc_stats\n%t)\n" Gc.print_stat;
+    )
+  in
+  CCFun.protect ~finally @@ fun () ->
+
   let res =
     if is_cnf then (
       main_cnf ()
@@ -232,9 +249,6 @@ let main () =
       main_smt ()
     )
   in
-  if !p_gc_stat then (
-    Printf.printf "(gc_stats\n%t)\n" Gc.print_stat;
-  );
   Gc.delete_alarm al;
   res
 

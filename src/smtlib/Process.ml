@@ -111,6 +111,8 @@ let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : un
   Vec.iter check_c hyps
    *)
 
+let reset_line = "\x1b[2K\r"
+
 let mk_progress (_s:Solver.t) : _ -> unit =
   let start = Sys.time() in
   let n = ref 0 in
@@ -124,7 +126,7 @@ let mk_progress (_s:Solver.t) : _ -> unit =
     (* limit frequency *)
     if float !n > 6. *. diff then (
       let sym = String.get syms (!n mod String.length syms) in
-      Printf.printf "\r[%.2fs %c]" diff sym;
+      Printf.printf "%s[%.2fs %c]" reset_line diff sym;
       n := 0;
       flush stdout
     )
@@ -219,7 +221,11 @@ let solve
       Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2-.t1) t3;
 
     | Solver.Unknown reas ->
-      Format.printf "Unknown (:reason %a)" Solver.Unknown.pp reas
+      Format.printf "Unknown (:reason %a)@." Solver.Unknown.pp reas
+
+    | exception exn ->
+      Printf.printf "%s%!" reset_line;
+      raise exn
   end;
   res
 
