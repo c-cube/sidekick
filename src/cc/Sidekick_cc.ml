@@ -299,6 +299,7 @@ module Make (A: CC_ARG)
     field_marked_explain: Bits.field; (* used to mark traversed nodes when looking for a common ancestor *)
     true_ : node lazy_t;
     false_ : node lazy_t;
+    mutable model_mode: bool;
 
     mutable on_pre_merge: ev_on_pre_merge list;
     mutable on_post_merge: ev_on_post_merge list;
@@ -642,7 +643,9 @@ module Make (A: CC_ARG)
       (* [n] might be merged with other equiv classes *)
       push_pending cc n;
     );
-    List.iter (fun f -> f cc n t) cc.on_new_term;
+    if not cc.model_mode then (
+      List.iter (fun f -> f cc n t) cc.on_new_term;
+    );
     n
 
   (* compute the initial signature of the given node *)
@@ -656,7 +659,7 @@ module Make (A: CC_ARG)
       begin
         let sub_r = find_ sub in
         let old_parents = sub_r.n_parents in
-        if Bag.is_empty old_parents then (
+        if Bag.is_empty old_parents && not self.model_mode then (
           (* first time it has parents: tell watchers that this is a subterm *)
           List.iter (fun f -> f sub u) self.on_is_subterm;
         );
@@ -785,7 +788,7 @@ module Make (A: CC_ARG)
           List.rev_map (fun (t,u) -> true, t.n_term, u.n_term) expl_st.same_val
         in
         let tuples = (false, n.n_term, n'.n_term) :: tuples in
-        Log.debugf 20
+        Log.debugf 5
           (fun k->k "(@[cc.semantic-conflict.set-val@ (@[set-val %a@ := %a@])@ \
                      (@[existing-val %a@ := %a@])@])"
               N.pp n Term.pp v N.pp n' Term.pp v');
@@ -872,18 +875,21 @@ module Make (A: CC_ARG)
           propagate_bools cc acts r2 t2 r1 t1 e_ab false
         )
       in
-      merge_bool ra a rb b;
-      merge_bool rb b ra a;
+
+      if not cc.model_mode then (
+        merge_bool ra a rb b;
+        merge_bool rb b ra a;
+      );
 
       (* perform [union r_from r_into] *)
       Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" N.pp r_from N.pp r_into);
 
       (* call [on_pre_merge] functions, and merge theory data items *)
-      begin
+      if not cc.model_mode then (
         (* explanation is [a=ra & e_ab & b=rb] *)
         let expl = Expl.mk_list [e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb] in
         List.iter (fun f -> f cc acts r_into r_from expl) cc.on_pre_merge;
-      end;
+      );
 
       begin
         (* parents might have a different signature, check for collisions *)
@@ -944,7 +950,7 @@ module Make (A: CC_ARG)
               in
               let tuples = (false, n_from.n_term, n_into.n_term) :: tuples in
 
-              Log.debugf 20
+              Log.debugf 5
                 (fun k->k "(@[cc.semantic-conflict.post-merge@ \
                            (@[n-from %a@ := %a@])@ (@[n-into %a@ := %a@])@])"
                     N.pp n_from Term.pp v_from N.pp n_into Term.pp v_into);
@@ -973,9 +979,9 @@ module Make (A: CC_ARG)
         a.n_expl <- FL_some {next=b; expl=e_ab};
       end;
       (* call [on_post_merge] *)
-      begin
+      if not cc.model_mode then (
         List.iter (fun f -> f cc acts r_into r_from) cc.on_post_merge;
-      end;
+      );
     )
 
   (* we are merging [r1] with [r2==Bool(sign)], so propagate each term [u1]
@@ -1043,9 +1049,19 @@ module Make (A: CC_ARG)
     Backtrack_stack.pop_levels self.undo n ~f:(fun f -> f());
     ()
 
-  (* TODO:
-      CC.set_as_lit cc n (Lit.abs lit);
-     *)
+
+  (* run [f] in a local congruence closure level *)
+  let with_model_mode cc f =
+    assert (not cc.model_mode);
+    assert (not cc.new_merges);
+    cc.model_mode <- true;
+    push_level cc;
+    CCFun.protect f
+      ~finally:(fun() ->
+          pop_levels cc 1;
+          cc.model_mode <- false;
+          cc.new_merges <- false;
+        )
 
   (* assert that this boolean literal holds.
      if a lit is [= a b], merge [a] and [b];
@@ -1096,6 +1112,7 @@ module Make (A: CC_ARG)
     merge cc (add_term cc t1) (add_term cc t2) expl
 
   let set_model_value (self:t) (t:term) (v:value) : unit =
+    assert (self.model_mode); (* only valid there *)
     let n = add_term self t in
     Vec.push self.combine (CT_set_val (n,v))
 
@@ -1127,6 +1144,7 @@ module Make (A: CC_ARG)
       bitgen;
       t_to_val=T_tbl.create 32;
       val_to_t=T_tbl.create 32;
+      model_mode=false;
       on_pre_merge;
       on_post_merge;
       on_new_term;

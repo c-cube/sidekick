@@ -732,6 +732,9 @@ module type CC_S = sig
   val set_model_value : t -> term -> value -> unit
   (** Set the value of a term in the model. *)
 
+  val with_model_mode : t -> (unit -> 'a) -> 'a
+  (** Enter model combination mode. *)
+
   val check : t -> actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
       Will use the {!actions} to propagate literals, declare conflicts, etc. *)

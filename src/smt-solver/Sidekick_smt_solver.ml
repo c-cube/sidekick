@@ -564,17 +564,13 @@ module Make(A : ARG)
       CC.pop_levels (cc self) n;
       pop_lvls_ n self.th_states
 
-    (* run [f] in a local congruence closure level *)
-    let with_cc_level_ cc f =
-      CC.push_level cc;
-      CCFun.protect ~finally:(fun() -> CC.pop_levels cc 1) f
-
     (* do theory combination using the congruence closure. Each theory
        can merge classes, *)
     let check_th_combination_
         (self:t) (acts:theory_actions) : (unit, th_combination_conflict) result =
       let cc = cc self in
-      with_cc_level_ cc @@ fun () ->
+      (* entier model mode, disabling most of congruence closure *)
+      CC.with_model_mode cc @@ fun () ->
 
       let set_val (t,v) : unit =
         Log.debugf 50
@@ -622,13 +618,16 @@ module Make(A : ARG)
           done;
 
           CC.check cc acts;
-          let new_merges_in_cc = CC.new_merges cc in
+          let more_work_to_do = CC.new_merges cc || has_delayed_actions self in
 
-          begin match check_th_combination_ self acts with
-            | Ok () -> ()
+          if not more_work_to_do then (
+            match check_th_combination_ self acts with
+            | Ok () ->
+              continue := false;
+
             | Error {lits; semantic} ->
               (* bad model, we add a clause to remove it *)
-              Log.debugf 10
+              Log.debugf 5
                 (fun k->k "(@[solver.th-comb.conflict@ :lits (@[%a@])@ \
                            :same-val (@[%a@])@])"
                     (Util.pp_list Lit.pp) lits
@@ -639,7 +638,11 @@ module Make(A : ARG)
                 semantic
                 |> List.rev_map
                   (fun (sign,t,u) ->
-                     Lit.atom ~sign:(not sign) self.tst @@ A.mk_eq self.tst t u)
+                     let eqn = A.mk_eq self.tst t u in
+                     let lit = Lit.atom ~sign:(not sign) self.tst eqn in
+                     (* make sure to consider the new lit *)
+                     add_lit self acts lit;
+                     lit)
               in
 
               let c = List.rev_append c1 c2 in
@@ -650,11 +653,12 @@ module Make(A : ARG)
                     (Util.pp_list Lit.pp) c);
               (* will add a delayed action *)
               add_clause_temp self acts c pr;
-          end;
 
-          if not new_merges_in_cc && not (has_delayed_actions self) then (
-            continue := false;
+              continue := false; (* FIXME *)
           );
+
+          Perform_delayed_th.top self acts;
+          (* FIXME: give a chance to the SAT solver to run again? *)
         done;
       ) else (
         List.iter (fun f -> f self acts lits) self.on_partial_check;
