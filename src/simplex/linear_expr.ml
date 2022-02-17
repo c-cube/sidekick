@@ -15,7 +15,7 @@ module Make(C : COEFF)(Var : VAR) = struct
   module Var = Var
 
   type var = Var.t
-  type subst = C.t Var_map.t
+  type subst = (Var.t -> C.t)
 
   (** Linear combination of variables. *)
   module Comb = struct
@@ -87,7 +87,7 @@ module Make(C : COEFF)(Var : VAR) = struct
 
     let eval (subst : subst) (e:t) : C.t =
       Var_map.fold
-        (fun x c acc -> C.(acc + c * (Var_map.find x subst)))
+        (fun x c acc -> C.(acc + c * subst x))
         e C.zero
   end
 

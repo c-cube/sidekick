@@ -332,11 +332,13 @@ module type CC_ACTIONS = sig
       exception).
       @param pr the proof of [c] being a tautology *)
 
-  val raise_semantic_conflict : t -> Lit.t list -> (T.Term.t * T.Term.t) list -> 'a
+  val raise_semantic_conflict : t -> Lit.t list -> (bool * T.Term.t * T.Term.t) list -> 'a
   (** [raise_semantic_conflict acts lits same_val] declares that
-      the conjunction of all [lits] (literals true in current trail)
-      and pairs [t_i = u_i] (which are pairs of terms with the same value
-      in the current model), implies false.
+      the conjunction of all [lits] (literals true in current trail) and tuples
+      [{=,≠}, t_i, u_i] implies false.
+
+      The [{=,≠}, t_i, u_i] are pairs of terms with the same value (if [=] / true)
+      or distinct value (if [≠] / false)) in the current model.
 
       This does not return. It should raise an exception.
   *)
@@ -410,6 +412,7 @@ module type CC_S = sig
     and type proof_step = proof_step
   type term_store = T.Term.store
   type term = T.Term.t
+  type value = term
   type fun_ = T.Fun.t
   type lit = Lit.t
   type actions = Actions.t
@@ -726,11 +729,8 @@ module type CC_S = sig
   val merge_t : t -> term -> term -> Expl.t -> unit
   (** Shortcut for adding + merging *)
 
-  val merge_same_value : t -> N.t -> N.t -> unit
-  (** Merge these two nodes because they have the same value
-      in the model. The explanation will be {!Expl.mk_same_value}. *)
-
-  val merge_same_value_t : t -> term -> term -> unit
+  val set_model_value : t -> term -> value -> unit
+  (** Set the value of a term in the model. *)
 
   val check : t -> actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
@@ -783,6 +783,7 @@ module type SOLVER_INTERNAL = sig
 
   type ty = T.Ty.t
   type term = T.Term.t
+  type value = T.Term.t
   type term_store = T.Term.store
   type ty_store = T.Ty.store
   type clause_pool
@@ -1029,11 +1030,14 @@ module type SOLVER_INTERNAL = sig
       is given the whole trail.
   *)
 
-  val on_th_combination : t -> (t -> theory_actions -> term list Iter.t) -> unit
+  val on_th_combination : t -> (t -> theory_actions -> (term * value) Iter.t) -> unit
   (** Add a hook called during theory combination.
-      The hook must return an iterator of lists, each list [t1…tn]
-      is a set of terms that have the same value in the model
-      (and therefore must be merged). *)
+      The hook must return an iterator of pairs [(t, v)]
+      which mean that term [t] has value [v] in the model.
+
+      Terms with the same value (according to {!Term.equal}) will be
+      merged in the CC; if two terms with different values are merged,
+      we get a semantic conflict and must pick another model. *)
 
   val declare_pb_is_incomplete : t -> unit
   (** Declare that, in some theory, the problem is outside the logic fragment

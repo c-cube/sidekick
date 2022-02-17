@@ -24,6 +24,7 @@ module Make (A: CC_ARG)
   module Actions = A.Actions
   module P = Actions.P
   type term = T.Term.t
+  type value = term
   type term_store = T.Term.store
   type lit = Lit.t
   type fun_ = T.Fun.t
@@ -267,12 +268,15 @@ module Make (A: CC_ARG)
 
   type combine_task =
     | CT_merge of node * node * explanation
+    | CT_set_val of node * value
 
   type t = {
     tst: term_store;
-    tbl: node T_tbl.t;
     proof: proof;
+
+    tbl: node T_tbl.t;
     (* internalization [term -> node] *)
+
     signatures_tbl : node Sig_tbl.t;
     (* map a signature to the corresponding node in some equivalence class.
        A signature is a [term_cell] in which every immediate subterm
@@ -281,9 +285,21 @@ module Make (A: CC_ARG)
        The critical property is that all members of an equivalence class
        that have the same "shape" (including head symbol)
        have the same signature *)
+
     pending: node Vec.t;
     combine: combine_task Vec.t;
+
+    t_to_val: (node*value) T_tbl.t;
+    (* [repr -> (t,val)] where [repr = t]
+        and [t := val] in the model *)
+    val_to_t: node T_tbl.t; (* [val -> t] where [t := val] in the model *)
+
     undo: (unit -> unit) Backtrack_stack.t;
+    bitgen: Bits.bitfield_gen;
+    field_marked_explain: Bits.field; (* used to mark traversed nodes when looking for a common ancestor *)
+    true_ : node lazy_t;
+    false_ : node lazy_t;
+
     mutable on_pre_merge: ev_on_pre_merge list;
     mutable on_post_merge: ev_on_post_merge list;
     mutable on_new_term: ev_on_new_term list;
@@ -291,10 +307,6 @@ module Make (A: CC_ARG)
     mutable on_propagate: ev_on_propagate list;
     mutable on_is_subterm : ev_on_is_subterm list;
     mutable new_merges: bool;
-    bitgen: Bits.bitfield_gen;
-    field_marked_explain: Bits.field; (* used to mark traversed nodes when looking for a common ancestor *)
-    true_ : node lazy_t;
-    false_ : node lazy_t;
     stat: Stat.t;
     count_conflict: int Stat.counter;
     count_props: int Stat.counter;
@@ -622,7 +634,7 @@ module Make (A: CC_ARG)
     (* remove term when we backtrack *)
     on_backtrack cc
       (fun () ->
-         Log.debugf 15 (fun k->k "(@[cc.remove-term@ %a@])" Term.pp t);
+         Log.debugf 30 (fun k->k "(@[cc.remove-term@ %a@])" Term.pp t);
          T_tbl.remove cc.tbl t);
     (* add term to the table *)
     T_tbl.add cc.tbl t n;
@@ -755,6 +767,51 @@ module Make (A: CC_ARG)
       cc.new_merges <- true;
       task_merge_ cc acts a b e_ab
 
+    | CT_set_val (n, v) ->
+      task_set_val_ cc acts n v
+
+  and task_set_val_ cc acts n v =
+    let repr_n = find_ n in
+    (* - if repr(n) has value [v], do nothing
+       - else if repr(n) has value [v'], semantic conflict
+       - else add [repr(n) -> (n,v)] to cc.t_to_val *)
+    begin match T_tbl.find_opt cc.t_to_val repr_n.n_term with
+      | Some (n', v') when not (Term.equal v v') ->
+        (* semantic conflict *)
+        let expl = [Expl.mk_merge n n'] in
+        let expl_st = explain_expls cc expl in
+        let lits = expl_st.lits in
+        let tuples =
+          List.rev_map (fun (t,u) -> true, t.n_term, u.n_term) expl_st.same_val
+        in
+        let tuples = (false, n.n_term, n'.n_term) :: tuples in
+        Log.debugf 20
+          (fun k->k "(@[cc.semantic-conflict.set-val@ (@[set-val %a@ := %a@])@ \
+                     (@[existing-val %a@ := %a@])@])"
+              N.pp n Term.pp v N.pp n' Term.pp v');
+
+        Stat.incr cc.count_semantic_conflict;
+        Actions.raise_semantic_conflict acts lits tuples
+
+      | Some _ -> ()
+      | None ->
+        T_tbl.add cc.t_to_val repr_n.n_term (n, v);
+        on_backtrack cc (fun () -> T_tbl.remove cc.t_to_val repr_n.n_term);
+    end;
+    (* now for the reverse map, look in self.val_to_t for [v].
+       - if present, push a merge command with Expl.mk_same_value
+       - if not, add [v -> n] *)
+    begin match T_tbl.find_opt cc.val_to_t v with
+      | None ->
+        T_tbl.add cc.val_to_t v n;
+        on_backtrack cc (fun () -> T_tbl.remove cc.val_to_t v);
+
+      | Some n' when not (same_class n n') ->
+        merge_classes cc n n' (Expl.mk_same_value n n')
+
+      | Some _ -> ()
+    end
+
   (* main CC algo: merge equivalence classes in [st.combine].
      @raise Exn_unsat if merge fails *)
   and task_merge_ cc acts a b e_ab : unit =
@@ -787,7 +844,7 @@ module Make (A: CC_ARG)
           let lits = expl_st.lits in
           let same_val =
             expl_st.same_val
-            |> List.rev_map (fun (t,u) -> N.term t, N.term u) in
+            |> List.rev_map (fun (t,u) -> true, N.term t, N.term u) in
           assert (same_val <> []);
           Stat.incr cc.count_semantic_conflict;
           Actions.raise_semantic_conflict acts lits same_val
@@ -817,14 +874,17 @@ module Make (A: CC_ARG)
       in
       merge_bool ra a rb b;
       merge_bool rb b ra a;
+
       (* perform [union r_from r_into] *)
       Log.debugf 15 (fun k->k "(@[cc.merge@ :from %a@ :into %a@])" N.pp r_from N.pp r_into);
+
       (* call [on_pre_merge] functions, and merge theory data items *)
       begin
         (* explanation is [a=ra & e_ab & b=rb] *)
         let expl = Expl.mk_list [e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb] in
         List.iter (fun f -> f cc acts r_into r_from expl) cc.on_pre_merge;
       end;
+
       begin
         (* parents might have a different signature, check for collisions *)
         N.iter_parents r_from
@@ -848,8 +908,8 @@ module Make (A: CC_ARG)
         (* on backtrack, unmerge classes and restore the pointers to [r_from] *)
         on_backtrack cc
           (fun () ->
-             Log.debugf 15
-               (fun k->k "(@[cc.undo_merge@ :from %a :into %a@])"
+             Log.debugf 30
+               (fun k->k "(@[cc.undo_merge@ :from %a@ :into %a@])"
                    N.pp r_from N.pp r_into);
              r_into.n_bits <- r_into_old_bits;
              r_into.n_next <- r_into_old_next;
@@ -861,6 +921,42 @@ module Make (A: CC_ARG)
              r_into.n_size <- r_into.n_size - r_from.n_size;
           );
       end;
+
+      (* check for semantic values, update the one of [r_into]
+         if [r_from] has a value *)
+      begin match T_tbl.find_opt cc.t_to_val r_from.n_term with
+        | None -> ()
+        | Some (n_from, v_from) ->
+          begin match T_tbl.find_opt cc.t_to_val r_into.n_term with
+            | None ->
+              T_tbl.add cc.t_to_val r_into.n_term (n_from,v_from);
+              on_backtrack cc (fun () -> T_tbl.remove cc.t_to_val r_into.n_term);
+
+            | Some (n_into,v_into) when not (Term.equal v_from v_into) ->
+              (* semantic conflict, including [n_from != n_into] in model *)
+              let expl = [
+                e_ab; Expl.mk_merge r_from n_from;
+                Expl.mk_merge r_into n_into] in
+              let expl_st = explain_expls cc expl in
+              let lits = expl_st.lits in
+              let tuples =
+                List.rev_map (fun (t,u) -> true, t.n_term, u.n_term) expl_st.same_val
+              in
+              let tuples = (false, n_from.n_term, n_into.n_term) :: tuples in
+
+              Log.debugf 20
+                (fun k->k "(@[cc.semantic-conflict.post-merge@ \
+                           (@[n-from %a@ := %a@])@ (@[n-into %a@ := %a@])@])"
+                    N.pp n_from Term.pp v_from N.pp n_into Term.pp v_into);
+
+              Stat.incr cc.count_semantic_conflict;
+              Actions.raise_semantic_conflict acts
+                lits tuples
+
+            | Some _ -> ()
+          end
+      end;
+
       (* update explanations (a -> b), arbitrarily.
          Note that here we merge the classes by adding a bridge between [a]
          and [b], not their roots. *)
@@ -908,23 +1004,24 @@ module Make (A: CC_ARG)
            let lit = if sign then lit else Lit.neg lit in (* apply sign *)
            Log.debugf 5 (fun k->k "(@[cc.bool_propagate@ %a@])" Lit.pp lit);
            (* complete explanation with the [u1=t1] chunk *)
-           let reason =
-             let e = lazy (
-               let lazy st = half_expl_and_pr in
-               explain_equal_rec_ cc st u1 t1;
+           let lazy st = half_expl_and_pr in
+           let st = Expl_state.copy st in (* do not modify shared st *)
+           explain_equal_rec_ cc st u1 t1;
+
+           (* propagate only if this doesn't depend on some semantic values *)
+           if not (Expl_state.is_semantic st) then (
+             let reason () =
                (* true literals explaining why t1=t2 *)
                let guard = st.lits in
                (* get a proof of [guard /\ ¬lit] being absurd, to propagate [lit] *)
-               let st = Expl_state.copy st in (* do not modify shared st *)
                Expl_state.add_lit st (Lit.neg lit);
                let _, pr = lits_and_proof_of_expl cc st in
                guard, pr
-             ) in
-             fun () -> Lazy.force e
-           in
-           List.iter (fun f -> f cc lit reason) cc.on_propagate;
-           Stat.incr cc.count_props;
-           Actions.propagate acts lit ~reason
+             in
+             List.iter (fun f -> f cc lit reason) cc.on_propagate;
+             Stat.incr cc.count_props;
+             Actions.propagate acts lit ~reason
+           )
          | _ -> ())
 
   module Debug_ = struct
@@ -998,8 +1095,9 @@ module Make (A: CC_ARG)
   let[@inline] merge_t cc t1 t2 expl =
     merge cc (add_term cc t1) (add_term cc t2) expl
 
-  let merge_same_value cc n1 n2 = merge cc n1 n2 (Expl.mk_same_value n1 n2)
-  let merge_same_value_t cc t1 t2 = merge_same_value cc (add_term cc t1) (add_term cc t2)
+  let set_model_value (self:t) (t:term) (v:value) : unit =
+    let n = add_term self t in
+    Vec.push self.combine (CT_set_val (n,v))
 
   let explain_eq cc n1 n2 : Resolved_expl.t =
     let st = Expl_state.create() in
@@ -1027,6 +1125,8 @@ module Make (A: CC_ARG)
       tbl = T_tbl.create size;
       signatures_tbl = Sig_tbl.create size;
       bitgen;
+      t_to_val=T_tbl.create 32;
+      val_to_t=T_tbl.create 32;
       on_pre_merge;
       on_post_merge;
       on_new_term;

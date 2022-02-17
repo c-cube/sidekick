@@ -88,6 +88,7 @@ module Make(A : ARG)
   module Term = T.Term
   module Lit = A.Lit
   type term = Term.t
+  type value = term
   type ty = Ty.t
   type proof = A.proof
   type proof_step = A.proof_step
@@ -101,7 +102,8 @@ module Make(A : ARG)
       and doesn't need to kill the current trail. *)
   type th_combination_conflict = {
     lits: lit list;
-    same_val: (term*term) list;
+    semantic: (bool*term*term) list;
+    (* set of semantic eqns/diseqns (ie true only in current model) *)
   }
   exception Semantic_conflict of th_combination_conflict
 
@@ -128,8 +130,8 @@ module Make(A : ARG)
       let[@inline] raise_conflict (a:t) lits (pr:proof_step) =
         let (module A) = a in
         A.raise_conflict lits pr
-      let[@inline] raise_semantic_conflict (_:t) lits same_val =
-        raise (Semantic_conflict {lits; same_val})
+      let[@inline] raise_semantic_conflict (_:t) lits semantic =
+        raise (Semantic_conflict {lits; semantic})
       let[@inline] propagate (a:t) lit ~reason =
         let (module A) = a in
         let reason = Sidekick_sat.Consequence reason in
@@ -163,6 +165,7 @@ module Make(A : ARG)
     type nonrec proof = proof
     type nonrec proof_step = proof_step
     type term = Term.t
+    type value = term
     type ty = Ty.t
     type lit = Lit.t
     type term_store = Term.store
@@ -274,7 +277,7 @@ module Make(A : ARG)
       mutable on_progress: unit -> unit;
       mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
-      mutable on_th_combination: (t -> theory_actions -> term list Iter.t) list;
+      mutable on_th_combination: (t -> theory_actions -> (term*value) Iter.t) list;
       mutable preprocess: preprocess_hook list;
       mutable model_ask: model_ask_hook list;
       mutable model_complete: model_completion_hook list;
@@ -573,23 +576,17 @@ module Make(A : ARG)
       let cc = cc self in
       with_cc_level_ cc @@ fun () ->
 
-      (* merge all terms in the class *)
-      let merge_cls (cls:term list) : unit =
-        match cls with
-        | [] -> assert false
-        | [_] -> ()
-        | t :: ts ->
-          Log.debugf 50
-            (fun k->k "(@[solver.th-comb.merge-cls@ %a@])"
-                (Util.pp_list Term.pp) cls);
-
-          List.iter (fun u -> CC.merge_same_value_t cc t u) ts
+      let set_val (t,v) : unit =
+        Log.debugf 50
+          (fun k->k "(@[solver.th-comb.cc-set-term-value@ %a@ :val %a@])"
+              Term.pp t Term.pp v);
+        CC.set_model_value cc t v
       in
 
       (* obtain classes of equal terms from the hook, and merge them *)
       let add_th_equalities f : unit =
-        let cls = f self acts in
-        Iter.iter merge_cls cls
+        let vals = f self acts in
+        Iter.iter set_val vals
       in
 
       try
@@ -624,33 +621,38 @@ module Make(A : ARG)
             )
           done;
 
+          CC.check cc acts;
+          let new_merges_in_cc = CC.new_merges cc in
+
           begin match check_th_combination_ self acts with
             | Ok () -> ()
-            | Error {lits; same_val} ->
+            | Error {lits; semantic} ->
               (* bad model, we add a clause to remove it *)
               Log.debugf 10
                 (fun k->k "(@[solver.th-comb.conflict@ :lits (@[%a@])@ \
                            :same-val (@[%a@])@])"
                     (Util.pp_list Lit.pp) lits
-                    (Util.pp_list @@ Fmt.Dump.pair Term.pp Term.pp) same_val);
+                    (Util.pp_list @@ Fmt.Dump.(triple bool Term.pp Term.pp)) semantic);
 
               let c1 = List.rev_map Lit.neg lits in
               let c2 =
-                List.rev_map (fun (t,u) ->
-                    Lit.atom ~sign:false self.tst @@ A.mk_eq self.tst t u) same_val
+                semantic
+                |> List.rev_map
+                  (fun (sign,t,u) ->
+                     Lit.atom ~sign:(not sign) self.tst @@ A.mk_eq self.tst t u)
               in
 
               let c = List.rev_append c1 c2 in
               let pr = P.lemma_cc (Iter.of_list c) self.proof in
 
               Log.debugf 20
-                (fun k->k "(@[solver.th-comb.add-clause@ %a@])"
+                (fun k->k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
                     (Util.pp_list Lit.pp) c);
+              (* will add a delayed action *)
               add_clause_temp self acts c pr;
           end;
 
-          CC.check cc acts;
-          if not (CC.new_merges cc) && not (has_delayed_actions self) then (
+          if not new_merges_in_cc && not (has_delayed_actions self) then (
             continue := false;
           );
         done;

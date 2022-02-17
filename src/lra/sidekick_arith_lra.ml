@@ -238,6 +238,7 @@ module Make(A : ARG) : S with module A = A = struct
     encoded_eqs: unit T.Tbl.t; (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
     needs_th_combination: unit T.Tbl.t; (* terms that require theory combination *)
     simp_preds: (T.t * S_op.t * A.Q.t) T.Tbl.t; (* term -> its simplex meaning *)
+    simp_defined: LE.t T.Tbl.t; (* (rational) terms that are equal to a linexp *)
     st_exprs : ST_exprs.t;
     mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
     simplex: SimpSolver.t;
@@ -255,6 +256,7 @@ module Make(A : ARG) : S with module A = A = struct
       st_exprs=ST_exprs.create_and_setup si;
       gensym=A.Gensym.create tst;
       simp_preds=T.Tbl.create 32;
+      simp_defined=T.Tbl.create 16;
       encoded_eqs=T.Tbl.create 8;
       needs_th_combination=T.Tbl.create 8;
       encoded_le=Comb_map.empty;
@@ -292,7 +294,6 @@ module Make(A : ARG) : S with module A = A = struct
   let[@inline] is_const_ t = match A.view_as_lra t with LRA_const _ -> true | _ -> false
   let[@inline] as_const_ t = match A.view_as_lra t with LRA_const n -> Some n | _ -> None
   let[@inline] is_zero t = match A.view_as_lra t with LRA_const n -> A.Q.(n = zero) | _ -> false
-
 
   let t_of_comb (self:state) (comb:LE_.Comb.t) ~(init:T.t) : T.t =
     let[@inline] (+) a b = A.mk_lra self.tst (LRA_op (Plus, a, b)) in
@@ -379,11 +380,11 @@ module Make(A : ARG) : S with module A = A = struct
     Log.debugf 50 (fun k->k "(@[lra.cc-on-subterm@ %a@])" T.pp t);
     match A.view_as_lra t with
     | LRA_other _ when not (A.has_ty_real t) -> ()
-    | LRA_pred _ -> ()
-    | LRA_op _ | LRA_const _ | LRA_other _ | LRA_mult _ ->
+    | LRA_pred _ | LRA_const _ -> ()
+    | LRA_op _ | LRA_other _ | LRA_mult _ ->
       if not (T.Tbl.mem self.needs_th_combination t) then (
         Log.debugf 5 (fun k->k "(@[lra.needs-th-combination@ %a@])" T.pp t);
-        T.Tbl.add self.needs_th_combination t ()
+        T.Tbl.add self.needs_th_combination t ();
       )
 
   (* preprocess linear expressions away *)
@@ -464,12 +465,11 @@ module Make(A : ARG) : S with module A = A = struct
                         T.pp t SimpSolver.Constraint.pp constr);
 
     | LRA_op _ | LRA_mult _ ->
-      (* NOTE: we don't need to do anything for rational subterms, at least
-         not at first. Only when theory combination mandates we compare
-         two terms (by deciding [t1 = t2]) do they impact the simplex; and
-         then they're moved into an equation, which means they are
-         preprocessed in the LRA_pred case above. *)
-      ()
+      if not (T.Tbl.mem self.simp_defined t) then (
+        (* we define these terms so their value in the model make sense *)
+        let le = as_linexp t in
+        T.Tbl.add self.simp_defined t le;
+      );
 
     | LRA_const _n -> ()
 
@@ -619,98 +619,54 @@ module Make(A : ARG) : S with module A = A = struct
     let t2 = N.term n2 in
     add_local_eq_t self si acts t1 t2 ~tag:(Tag.CC_eq (n1, n2))
 
-  (*
-  (* theory combination: add decisions [t=u] whenever [t] and [u]
-     have the same value in [subst] and both occur under function symbols *)
-  let do_th_combination (self:state) si acts (subst:Subst.t) : unit =
-    Log.debug 1 "(lra.do-th-combinations)";
-    let n_th_comb = T.Tbl.keys self.needs_th_combination |> Iter.length in
-    if n_th_comb > 0 then (
-      Log.debugf 5
-        (fun k->k "(@[lra.needs-th-combination@ :n-lits %d@])" n_th_comb);
-      Log.debugf 50
-        (fun k->k "(@[lra.needs-th-combination@ :terms [@[%a@]]@])"
-            (Util.pp_iter @@ Fmt.within "`" "`" T.pp) (T.Tbl.keys self.needs_th_combination));
-    );
+  (* evaluate a term directly, as a variable *)
+  let eval_in_subst_ subst t = match A.view_as_lra t with
+    | LRA_const n -> n
+    | _ -> Subst.eval subst t |> CCOpt.get_or ~default:A.Q.zero
 
-    let eval_in_subst_ subst t = match A.view_as_lra t with
-      | LRA_const n -> n
-      | _ -> Subst.eval subst t |> CCOpt.get_or ~default:A.Q.zero
-    in
+  (* evaluate a linear expression *)
+  let eval_le_in_subst_ subst (le:LE.t) =
+    LE.eval (eval_in_subst_ subst) le
 
-    let n = ref 0 in
-    (* theory combination: for [t1,t2] terms in [self.needs_th_combination]
-       that have same value, but are not provably equal, push
-       decision [t1=t2] into the SAT solver. *)
-    begin
-      let by_val: T.t list Q_map.t =
-        T.Tbl.keys self.needs_th_combination
-        |> Iter.map (fun t -> eval_in_subst_ subst t, t)
-        |> Iter.fold
-          (fun m (q,t) ->
-             let l = Q_map.get_or ~default:[] q m in
-             Q_map.add q (t::l) m)
-          Q_map.empty
-      in
-      Q_map.iter
-        (fun _q ts ->
-           begin match ts with
-             | [] | [_] -> ()
-             | ts ->
-               (* several terms! see if they are already equal *)
-               CCList.diagonal ts
-               |> List.iter
-                 (fun (t1,t2) ->
-                    Log.debugf 50
-                      (fun k->k "(@[LRA.th-comb.check-pair[val=%a]@ %a@ %a@])"
-                          A.Q.pp _q T.pp t1 T.pp t2);
-                    assert(SI.cc_mem_term si t1);
-                    assert(SI.cc_mem_term si t2);
-                    (* if both [t1] and [t2] are relevant to the congruence
-                       closure, and are not equal in it yet, add [t1=t2] as
-                       the next decision to do *)
-                    if not (SI.cc_are_equal si t1 t2) then (
-                      Log.debugf 50
-                        (fun k->k
-                            "(@[lra.th-comb.must-decide-equal@ :t1 %a@ :t2 %a@])" T.pp t1 T.pp t2);
-                      Stat.incr self.stat_th_comb;
-                      Profile.instant "lra.th-comb-assert-eq";
-
-                      let t = A.mk_eq (SI.tst si) t1 t2 in
-                      let lit = SI.mk_lit si acts t in
-                      incr n;
-                      SI.push_decision si acts lit
-                    )
-                 )
-           end)
-        by_val;
-      ()
-    end;
-    Log.debugf 1 (fun k->k "(@[lra.do-th-combinations.done@ :new-lits %d@])" !n);
-    ()
-     *)
-
-  let do_th_combination (self:state) _si _acts : A.term list Iter.t =
+  (* FIXME: rename, this is more "provide_model_to_cc" *)
+  let do_th_combination (self:state) _si _acts : _ Iter.t =
     Log.debug 1 "(lra.do-th-combinations)";
     let model = match self.last_res with
       | Some (SimpSolver.Sat m) -> m
       | _ -> assert false
     in
 
-    (* gather terms by their model value *)
-    let tbl = Q_tbl.create 32 in
-    Subst.to_iter model
-      (fun (t,q) ->
-         let l = Q_tbl.get_or ~default:[] tbl q in
-         Q_tbl.replace tbl q (t :: l));
+    let vals =
+      Subst.to_iter model |> T.Tbl.of_iter
+    in
 
-    (* now return classes of terms *)
-    Q_tbl.to_iter tbl
-    |> Iter.filter_map
-      (fun (_q, l) ->
-         match l with
-         | [] | [_] -> None
-         | l -> Some l)
+    (* also include terms that occur under function symbols, if they're
+       not in the model already *)
+    T.Tbl.iter
+      (fun t () ->
+         if not (T.Tbl.mem vals t) then (
+           let v = eval_in_subst_ model t in
+           T.Tbl.add vals t v;
+         ))
+      self.needs_th_combination;
+
+    (* also consider subterms that are linear expressions,
+       and evaluate them using the value of each variable
+       in that linear expression. For example a term [a + 2b]
+       is evaluated as [eval(a) + 2 × eval(b)]. *)
+    T.Tbl.iter
+      (fun t le ->
+         if not (T.Tbl.mem vals t) then (
+           let v = eval_le_in_subst_ model le in
+           T.Tbl.add vals t v
+         ))
+      self.simp_defined;
+
+    (* return whole model *)
+    begin
+      T.Tbl.to_iter vals
+      |> Iter.map (fun (t,v) -> t, t_const self v)
+    end
 
   (* partial checks is where we add literals from the trail to the
      simplex. *)

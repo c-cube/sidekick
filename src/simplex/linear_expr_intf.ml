@@ -84,7 +84,7 @@ module type S = sig
   module Var_map : CCMap.S with type key = var
   (** Maps from variables, used for expressions as well as substitutions. *)
 
-  type subst = C.t Var_map.t
+  type subst = Var.t -> C.t
   (** Type for substitutions. *)
 
   (** Combinations.
