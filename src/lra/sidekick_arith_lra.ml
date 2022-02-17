@@ -128,7 +128,9 @@ module Make(A : ARG) : S with module A = A = struct
       | By_def -> []
       | Lit l -> [l]
       | CC_eq (n1,n2) ->
-        SI.CC.explain_eq (SI.cc si) n1 n2
+        let r = SI.CC.explain_eq (SI.cc si) n1 n2 in
+        assert (not (SI.CC.Resolved_expl.is_semantic r));
+        r.lits
   end
 
   module SimpVar
@@ -155,6 +157,7 @@ module Make(A : ARG) : S with module A = A = struct
       let mk_lit _ _ _ = assert false
     end)
   module Subst = SimpSolver.Subst
+  module Q_tbl = CCHashtbl.Make(A.Q)
 
   module Comb_map = CCMap.Make(LE_.Comb)
 
@@ -558,6 +561,7 @@ module Make(A : ARG) : S with module A = A = struct
            CCList.flat_map (Tag.to_lits si) reason, pr)
     | _ -> ()
 
+  (** Check satisfiability of simplex, and sets [self.last_res] *)
   let check_simplex_ self si acts : SimpSolver.Subst.t =
     Log.debug 5 "(lra.check-simplex)";
     let res =
@@ -615,6 +619,7 @@ module Make(A : ARG) : S with module A = A = struct
     let t2 = N.term n2 in
     add_local_eq_t self si acts t1 t2 ~tag:(Tag.CC_eq (n1, n2))
 
+  (*
   (* theory combination: add decisions [t=u] whenever [t] and [u]
      have the same value in [subst] and both occur under function symbols *)
   let do_th_combination (self:state) si acts (subst:Subst.t) : unit =
@@ -683,6 +688,29 @@ module Make(A : ARG) : S with module A = A = struct
     end;
     Log.debugf 1 (fun k->k "(@[lra.do-th-combinations.done@ :new-lits %d@])" !n);
     ()
+     *)
+
+  let do_th_combination (self:state) _si _acts : A.term list Iter.t =
+    Log.debug 1 "(lra.do-th-combinations)";
+    let model = match self.last_res with
+      | Some (SimpSolver.Sat m) -> m
+      | _ -> assert false
+    in
+
+    (* gather terms by their model value *)
+    let tbl = Q_tbl.create 32 in
+    Subst.to_iter model
+      (fun (t,q) ->
+         let l = Q_tbl.get_or ~default:[] tbl q in
+         Q_tbl.replace tbl q (t :: l));
+
+    (* now return classes of terms *)
+    Q_tbl.to_iter tbl
+    |> Iter.filter_map
+      (fun (_q, l) ->
+         match l with
+         | [] | [_] -> None
+         | l -> Some l)
 
   (* partial checks is where we add literals from the trail to the
      simplex. *)
@@ -757,7 +785,6 @@ module Make(A : ARG) : S with module A = A = struct
     let model = check_simplex_ self si acts in
     Log.debugf 20 (fun k->k "(@[lra.model@ %a@])" SimpSolver.Subst.pp model);
     Log.debug 5 "(lra: solver returns SAT)";
-    do_th_combination self si acts model;
     ()
 
   (* help generating model *)
@@ -812,6 +839,7 @@ module Make(A : ARG) : S with module A = A = struct
            Log.debugf 30 (fun k->k "(@[lra.merge-incompatible-consts@ %a@ %a@])" N.pp n1 N.pp n2);
            SI.CC.raise_conflict_from_expl si acts expl
          | _ -> ());
+    SI.on_th_combination si (do_th_combination st);
     st
 
   let theory =

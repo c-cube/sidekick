@@ -332,6 +332,15 @@ module type CC_ACTIONS = sig
       exception).
       @param pr the proof of [c] being a tautology *)
 
+  val raise_semantic_conflict : t -> Lit.t list -> (T.Term.t * T.Term.t) list -> 'a
+  (** [raise_semantic_conflict acts lits same_val] declares that
+      the conjunction of all [lits] (literals true in current trail)
+      and pairs [t_i = u_i] (which are pairs of terms with the same value
+      in the current model), implies false.
+
+      This does not return. It should raise an exception.
+  *)
+
   val propagate : t -> Lit.t -> reason:(unit -> Lit.t list * proof_step) -> unit
   (** [propagate acts lit ~reason pr] declares that [reason() => lit]
       is a tautology.
@@ -484,6 +493,7 @@ module type CC_S = sig
     val pp : t Fmt.printer
 
     val mk_merge : N.t -> N.t -> t
+    (** Explanation: the nodes were explicitly merged *)
 
     val mk_merge_t : term -> term -> t
     (** Explanation: the terms were explicitly merged *)
@@ -492,6 +502,8 @@ module type CC_S = sig
     (** Explanation: we merged [t] and [u] because of literal [t=u],
         or we merged [t] and [true] because of literal [t],
         or [t] and [false] because of literal [¬t] *)
+
+    val mk_same_value : N.t -> N.t -> t
 
     val mk_list : t list -> t
     (** Conjunction of explanations *)
@@ -518,6 +530,31 @@ module type CC_S = sig
         [a, b, [Some a, Some b, mk_merge_t (Some a)(Some b)], pr]
         where [pr] is the injectivity lemma [Some a=Some b |- a=b].
     *)
+  end
+
+  (** Resolved explanations.
+
+      The congruence closure keeps explanations for why terms are in the same
+      class. However these are represented in a compact, cheap form.
+      To use these explanations we need to {b resolve} them into a
+      resolved explanation, typically a list of
+      literals that are true in the current trail and are responsible for
+      merges.
+
+      However, we can also have merged classes because they have the same value
+      in the current model. *)
+  module Resolved_expl : sig
+    type t = {
+      lits: lit list;
+      same_value: (N.t * N.t) list;
+      pr: proof -> proof_step;
+    }
+
+    val is_semantic : t -> bool
+    (** [is_semantic expl] is [true] if there's at least one
+        pair in [expl.same_value]. *)
+
+    val pp : t Fmt.printer
   end
 
   type node = N.t
@@ -660,16 +697,17 @@ module type CC_S = sig
   val assert_lits : t -> lit Iter.t -> unit
   (** Addition of many literals *)
 
-  (* FIXME: this needs to return [lit list * (term*term*P.t) list].
-     the explanation is [/\_i lit_i /\ /\_j (|- t_j=u_j) |- n1=n2] *)
-  val explain_eq : t -> N.t -> N.t -> lit list
+  val explain_eq : t -> N.t -> N.t -> Resolved_expl.t
   (** Explain why the two nodes are equal.
-      Fails if they are not, in an unspecified way *)
+      Fails if they are not, in an unspecified way. *)
 
   val raise_conflict_from_expl : t -> actions -> Expl.t -> 'a
-  (** Raise a conflict with the given explanation
-      it must be a theory tautology that [expl ==> absurd].
-      To be used in theories. *)
+  (** Raise a conflict with the given explanation.
+      It must be a theory tautology that [expl ==> absurd].
+      To be used in theories.
+
+      This fails in an unspecified way if the explanation, once resolved,
+      satisfies {!Resolved_expl.is_semantic}. *)
 
   val n_true : t -> N.t
   (** Node for [true] *)
@@ -687,6 +725,12 @@ module type CC_S = sig
 
   val merge_t : t -> term -> term -> Expl.t -> unit
   (** Shortcut for adding + merging *)
+
+  val merge_same_value : t -> N.t -> N.t -> unit
+  (** Merge these two nodes because they have the same value
+      in the model. The explanation will be {!Expl.mk_same_value}. *)
+
+  val merge_same_value_t : t -> term -> term -> unit
 
   val check : t -> actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
@@ -984,6 +1028,12 @@ module type SOLVER_INTERNAL = sig
       not satisfiable) and can be expensive. The function
       is given the whole trail.
   *)
+
+  val on_th_combination : t -> (t -> theory_actions -> term list Iter.t) -> unit
+  (** Add a hook called during theory combination.
+      The hook must return an iterator of lists, each list [t1…tn]
+      is a set of terms that have the same value in the model
+      (and therefore must be merged). *)
 
   val declare_pb_is_incomplete : t -> unit
   (** Declare that, in some theory, the problem is outside the logic fragment

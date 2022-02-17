@@ -90,13 +90,14 @@ module Make (A: CC_ARG)
 
   (* atomic explanation in the congruence closure *)
   and explanation =
-    | E_reduction (* by pure reduction, tautologically equal *)
+    | E_trivial (* by pure reduction, tautologically equal *)
     | E_lit of lit (* because of this literal *)
     | E_merge of node * node
     | E_merge_t of term * term
     | E_congruence of node * node (* caused by normal congruence *)
     | E_and of explanation * explanation
     | E_theory of term * term * (term * term * explanation list) list * proof_step
+    | E_same_val of node * node
 
   type repr = node
 
@@ -162,7 +163,7 @@ module Make (A: CC_ARG)
     type t = explanation
 
     let rec pp out (e:explanation) = match e with
-      | E_reduction -> Fmt.string out "reduction"
+      | E_trivial -> Fmt.string out "reduction"
       | E_lit lit -> Lit.pp out lit
       | E_congruence (n1,n2) -> Fmt.fprintf out "(@[congruence@ %a@ %a@])" N.pp n1 N.pp n2
       | E_merge (a,b) -> Fmt.fprintf out "(@[merge@ %a@ %a@])" N.pp a N.pp b
@@ -174,23 +175,47 @@ module Make (A: CC_ARG)
           (Util.pp_list @@ Fmt.Dump.triple Term.pp Term.pp (Fmt.Dump.list pp)) es
       | E_and (a,b) ->
         Format.fprintf out "(@[<hv1>and@ %a@ %a@])" pp a pp b
+      | E_same_val (n1,n2) ->
+        Fmt.fprintf out "(@[same-value@ %a@ %a@])" N.pp n1 N.pp n2
 
-    let mk_reduction : t = E_reduction
+    let mk_trivial : t = E_trivial
     let[@inline] mk_congruence n1 n2 : t = E_congruence (n1,n2)
-    let[@inline] mk_merge a b : t = if N.equal a b then mk_reduction else E_merge (a,b)
-    let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_reduction else E_merge_t (a,b)
+    let[@inline] mk_merge a b : t = if N.equal a b then mk_trivial else E_merge (a,b)
+    let[@inline] mk_merge_t a b : t = if Term.equal a b then mk_trivial else E_merge_t (a,b)
     let[@inline] mk_lit l : t = E_lit l
     let[@inline] mk_theory t u es pr = E_theory (t,u,es,pr)
+    let[@inline] mk_same_value t u = if N.equal t u then mk_trivial else E_same_val (t,u)
 
     let rec mk_list l =
       match l with
-      | [] -> mk_reduction
+      | [] -> mk_trivial
       | [x] -> x
-      | E_reduction :: tl -> mk_list tl
+      | E_trivial :: tl -> mk_list tl
       | x :: y ->
         match mk_list y with
-        | E_reduction -> x
+        | E_trivial -> x
         | y' -> E_and (x,y')
+  end
+
+  module Resolved_expl = struct
+    type t = {
+      lits: lit list;
+      same_value: (N.t * N.t) list;
+      pr: proof -> proof_step;
+    }
+
+    let[@inline] is_semantic (self:t) : bool =
+      match self.same_value with [] -> false | _::_ -> true
+
+    let pp out (self:t) =
+      if not (is_semantic self) then (
+        Fmt.fprintf out "(@[resolved-expl@ %a@])" (Util.pp_list Lit.pp) self.lits
+      ) else (
+        let {lits; same_value; pr=_} = self in
+        Fmt.fprintf out "(@[resolved-expl@ (@[%a@])@ :same-val (@[%a@])@])"
+          (Util.pp_list Lit.pp) lits
+          (Util.pp_list @@ Fmt.Dump.pair N.pp N.pp) same_value
+      )
   end
 
   (** A signature is a shallow term shape where immediate subterms
@@ -274,6 +299,7 @@ module Make (A: CC_ARG)
     count_conflict: int Stat.counter;
     count_props: int Stat.counter;
     count_merge: int Stat.counter;
+    count_semantic_conflict: int Stat.counter;
   }
   (* TODO: an additional union-find to keep track, for each term,
      of the terms they are known to be equal to, according
@@ -443,28 +469,71 @@ module Make (A: CC_ARG)
   module Expl_state = struct
     type t = {
       mutable lits: Lit.t list;
+      mutable same_val: (N.t * N.t) list;
       mutable th_lemmas:
         (Lit.t * (Lit.t * Lit.t list) list * proof_step) list;
     }
 
-    let create(): t = { lits=[]; th_lemmas=[] }
+    let create(): t = { lits=[]; same_val=[]; th_lemmas=[] }
 
     let[@inline] copy self : t = {self with lits=self.lits}
     let[@inline] add_lit (self:t) lit = self.lits <- lit :: self.lits
     let[@inline] add_th (self:t) lit hyps pr : unit =
       self.th_lemmas <- (lit,hyps,pr) :: self.th_lemmas
+    let[@inline] add_same_val (self:t) n1 n2 : unit =
+      self.same_val <- (n1,n2) :: self.same_val
+
+    (** Does this explanation contain at least one merge caused by
+        "same value"? *)
+    let[@inline] is_semantic (self:t): bool = self.same_val <> []
 
     let merge self other =
-      let {lits=o_lits; th_lemmas=o_lemmas} = other in
+      let {lits=o_lits; th_lemmas=o_lemmas;same_val=o_same_val} = other in
       self.lits <- List.rev_append o_lits self.lits;
-      self.th_lemmas <- List.rev_append o_lemmas self.th_lemmas
+      self.th_lemmas <- List.rev_append o_lemmas self.th_lemmas;
+      self.same_val <- List.rev_append o_same_val self.same_val;
+      ()
+
+    (* proof of [\/_i ¬lits[i]] *)
+    let proof_of_th_lemmas (self:t) (proof:proof) : proof_step =
+      let p_lits1 = Iter.of_list self.lits |> Iter.map Lit.neg in
+      let p_lits2 =
+        Iter.of_list self.th_lemmas
+        |> Iter.map (fun (lit_t_u,_,_) -> Lit.neg lit_t_u)
+      in
+      let p_cc = P.lemma_cc (Iter.append p_lits1 p_lits2) proof in
+      let resolve_with_th_proof pr (lit_t_u,sub_proofs,pr_th) =
+        (* pr_th: [sub_proofs |- t=u].
+              now resolve away [sub_proofs] to get literals that were
+              asserted in the congruence closure *)
+        let pr_th = List.fold_left
+            (fun pr_th (lit_i,hyps_i) ->
+               (* [hyps_i |- lit_i] *)
+               let lemma_i =
+                 P.lemma_cc Iter.(cons lit_i (of_list hyps_i |> map Lit.neg)) proof
+               in
+               (* resolve [lit_i] away. *)
+               P.proof_res ~pivot:(Lit.term lit_i) lemma_i pr_th proof)
+            pr_th sub_proofs
+        in
+        P.proof_res ~pivot:(Lit.term lit_t_u) pr_th pr proof
+      in
+      (* resolve with theory proofs responsible for some merges, if any. *)
+      List.fold_left resolve_with_th_proof p_cc self.th_lemmas
+
+    let to_resolved_expl (self:t) : Resolved_expl.t =
+      (* FIXME: package the th lemmas too *)
+      let {lits; same_val; th_lemmas=_} = self in
+      let s2 = copy self in
+      let pr proof = proof_of_th_lemmas s2 proof in
+      {Resolved_expl.lits; same_value=same_val; pr}
   end
 
   (* decompose explanation [e] into a list of literals added to [acc] *)
   let rec explain_decompose_expl cc (st:Expl_state.t) (e:explanation) : unit =
     Log.debugf 5 (fun k->k "(@[cc.decompose_expl@ %a@])" Expl.pp e);
     match e with
-    | E_reduction -> ()
+    | E_trivial -> ()
     | E_congruence (n1, n2) ->
       begin match n1.n_sig0, n2.n_sig0 with
         | Some (App_fun (f1, a1)), Some (App_fun (f2, a2)) ->
@@ -482,6 +551,7 @@ module Make (A: CC_ARG)
           assert false
       end
     | E_lit lit -> Expl_state.add_lit st lit
+    | E_same_val (n1, n2) -> Expl_state.add_same_val st n1 n2
     | E_theory (t, u, expl_sets, pr) ->
       let sub_proofs =
         List.map
@@ -625,37 +695,9 @@ module Make (A: CC_ARG)
      merges. *)
   let lits_and_proof_of_expl
       (self:t) (st:Expl_state.t) : Lit.t list * proof_step =
-    let {Expl_state.lits; th_lemmas} = st in
-    let proof = self.proof in
-    (* proof of [\/_i ¬lits[i]] *)
-    let pr =
-      let p_lits1 = Iter.of_list lits |> Iter.map Lit.neg in
-      let p_lits2 =
-        Iter.of_list th_lemmas
-        |> Iter.map (fun (lit_t_u,_,_) -> Lit.neg lit_t_u)
-      in
-      let p_cc = P.lemma_cc (Iter.append p_lits1 p_lits2) proof in
-      let resolve_with_th_proof pr (lit_t_u,sub_proofs,pr_th) =
-        (* pr_th: [sub_proofs |- t=u].
-              now resolve away [sub_proofs] to get literals that were
-              asserted in the congruence closure *)
-        let pr_th = List.fold_left
-            (fun pr_th (lit_i,hyps_i) ->
-               (* [hyps_i |- lit_i] *)
-               let lemma_i =
-                 P.lemma_cc Iter.(cons lit_i (of_list hyps_i |> map Lit.neg)) proof
-               in
-               (* resolve [lit_i] away. *)
-               P.proof_res ~pivot:(Lit.term lit_i) lemma_i pr_th proof)
-            pr_th sub_proofs
-        in
-        P.proof_res ~pivot:(Lit.term lit_t_u) pr_th pr proof
-      in
-
-
-      (* resolve with theory proofs responsible for some merges, if any. *)
-      List.fold_left resolve_with_th_proof p_cc th_lemmas
-    in
+    let {Expl_state.lits; th_lemmas=_; same_val} = st in
+    assert (same_val = []);
+    let pr = Expl_state.proof_of_th_lemmas st self.proof in
     lits, pr
 
   (* main CC algo: add terms from [pending] to the signature table,
@@ -740,8 +782,21 @@ module Make (A: CC_ARG)
         explain_equal_rec_ cc expl_st a ra;
         explain_equal_rec_ cc expl_st b rb;
 
-        let lits, pr = lits_and_proof_of_expl cc expl_st in
-        raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) pr
+        if Expl_state.is_semantic expl_st then (
+          (* conflict involving some semantic values *)
+          let lits = expl_st.lits in
+          let same_val =
+            expl_st.same_val
+            |> List.rev_map (fun (t,u) -> N.term t, N.term u) in
+          assert (same_val <> []);
+          Stat.incr cc.count_semantic_conflict;
+          Actions.raise_semantic_conflict acts lits same_val
+
+        ) else (
+          (* regular conflict *)
+          let lits, pr = lits_and_proof_of_expl cc expl_st in
+          raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) pr
+        )
       );
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, but always
@@ -943,11 +998,14 @@ module Make (A: CC_ARG)
   let[@inline] merge_t cc t1 t2 expl =
     merge cc (add_term cc t1) (add_term cc t2) expl
 
-  let explain_eq cc n1 n2 : lit list =
+  let merge_same_value cc n1 n2 = merge cc n1 n2 (Expl.mk_same_value n1 n2)
+  let merge_same_value_t cc t1 t2 = merge_same_value cc (add_term cc t1) (add_term cc t2)
+
+  let explain_eq cc n1 n2 : Resolved_expl.t =
     let st = Expl_state.create() in
     explain_equal_rec_ cc st n1 n2;
     (* FIXME: also need to return the proof? *)
-    st.lits
+    Expl_state.to_resolved_expl st
 
   let on_pre_merge cc f = cc.on_pre_merge <- f :: cc.on_pre_merge
   let on_post_merge cc f = cc.on_post_merge <- f :: cc.on_post_merge
@@ -986,6 +1044,7 @@ module Make (A: CC_ARG)
       count_conflict=Stat.mk_int stat "cc.conflicts";
       count_props=Stat.mk_int stat "cc.propagations";
       count_merge=Stat.mk_int stat "cc.merges";
+      count_semantic_conflict=Stat.mk_int stat "cc.semantic-conflicts";
     } and true_ = lazy (
         add_term cc (Term.bool tst true)
       ) and false_ = lazy (

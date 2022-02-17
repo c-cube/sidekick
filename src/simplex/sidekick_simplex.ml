@@ -74,6 +74,7 @@ module type S = sig
   module Subst : sig
     type t = num V_map.t
     val eval : t -> V.t -> Q.t option
+    val to_iter : t -> (V.t * Q.t) Iter.t
     val pp : t Fmt.printer
     val to_string : t -> string
   end
@@ -211,6 +212,7 @@ module Make(Arg: ARG)
   module Subst = struct
     type t = num V_map.t
     let eval self t = V_map.get t self
+    let to_iter self f = V_map.iter (fun k v -> f (k,v)) self
     let pp out (self:t) : unit =
       let pp_pair out (v,n) =
         Fmt.fprintf out "(@[%a := %a@])" V.pp v pp_q_dbg n in

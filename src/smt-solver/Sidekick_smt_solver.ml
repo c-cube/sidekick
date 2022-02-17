@@ -96,6 +96,15 @@ module Make(A : ARG)
   (* actions from the sat solver *)
   type sat_acts = (lit, proof, proof_step) Sidekick_sat.acts
 
+  (** Conflict obtained during theory combination. It involves equalities
+      merged because of the current model so it's not a "true" conflict
+      and doesn't need to kill the current trail. *)
+  type th_combination_conflict = {
+    lits: lit list;
+    same_val: (term*term) list;
+  }
+  exception Semantic_conflict of th_combination_conflict
+
   (* the full argument to the congruence closure *)
   module CC_actions = struct
     module T = T
@@ -119,6 +128,8 @@ module Make(A : ARG)
       let[@inline] raise_conflict (a:t) lits (pr:proof_step) =
         let (module A) = a in
         A.raise_conflict lits pr
+      let[@inline] raise_semantic_conflict (_:t) lits same_val =
+        raise (Semantic_conflict {lits; same_val})
       let[@inline] propagate (a:t) lit ~reason =
         let (module A) = a in
         let reason = Sidekick_sat.Consequence reason in
@@ -263,6 +274,7 @@ module Make(A : ARG)
       mutable on_progress: unit -> unit;
       mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
       mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
+      mutable on_th_combination: (t -> theory_actions -> term list Iter.t) list;
       mutable preprocess: preprocess_hook list;
       mutable model_ask: model_ask_hook list;
       mutable model_complete: model_completion_hook list;
@@ -313,6 +325,7 @@ module Make(A : ARG)
 
     let add_simplifier (self:t) f : unit = Simplify.add_hook self.simp f
 
+    let on_th_combination self f = self.on_th_combination <- f :: self.on_th_combination
     let on_preprocess self f = self.preprocess <- f :: self.preprocess
     let on_model ?ask ?complete self =
       CCOpt.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
@@ -548,6 +561,43 @@ module Make(A : ARG)
       CC.pop_levels (cc self) n;
       pop_lvls_ n self.th_states
 
+    (* run [f] in a local congruence closure level *)
+    let with_cc_level_ cc f =
+      CC.push_level cc;
+      CCFun.protect ~finally:(fun() -> CC.pop_levels cc 1) f
+
+    (* do theory combination using the congruence closure. Each theory
+       can merge classes, *)
+    let check_th_combination_
+        (self:t) (acts:theory_actions) : (unit, th_combination_conflict) result =
+      let cc = cc self in
+      with_cc_level_ cc @@ fun () ->
+
+      (* merge all terms in the class *)
+      let merge_cls (cls:term list) : unit =
+        match cls with
+        | [] -> assert false
+        | [_] -> ()
+        | t :: ts ->
+          Log.debugf 50
+            (fun k->k "(@[solver.th-comb.merge-cls@ %a@])"
+                (Util.pp_list Term.pp) cls);
+
+          List.iter (fun u -> CC.merge_same_value_t cc t u) ts
+      in
+
+      (* obtain classes of equal terms from the hook, and merge them *)
+      let add_th_equalities f : unit =
+        let cls = f self acts in
+        Iter.iter merge_cls cls
+      in
+
+      try
+        List.iter add_th_equalities self.on_th_combination;
+        CC.check cc acts;
+        Ok ()
+      with Semantic_conflict c -> Error c
+
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self:t) (acts:theory_actions) (lits:Lit.t Iter.t) : unit =
       Log.debugf 2
@@ -563,9 +613,9 @@ module Make(A : ARG)
       if final then (
         let continue = ref true in
         while !continue do
+          (* do final checks in a loop *)
           let fcheck = ref true in
           while !fcheck do
-            (* TODO: theory combination *)
             List.iter (fun f -> f self acts lits) self.on_final_check;
             if has_delayed_actions self then (
               Perform_delayed_th.top self acts;
@@ -573,6 +623,32 @@ module Make(A : ARG)
               fcheck := false
             )
           done;
+
+          begin match check_th_combination_ self acts with
+            | Ok () -> ()
+            | Error {lits; same_val} ->
+              (* bad model, we add a clause to remove it *)
+              Log.debugf 10
+                (fun k->k "(@[solver.th-comb.conflict@ :lits (@[%a@])@ \
+                           :same-val (@[%a@])@])"
+                    (Util.pp_list Lit.pp) lits
+                    (Util.pp_list @@ Fmt.Dump.pair Term.pp Term.pp) same_val);
+
+              let c1 = List.rev_map Lit.neg lits in
+              let c2 =
+                List.rev_map (fun (t,u) ->
+                    Lit.atom ~sign:false self.tst @@ A.mk_eq self.tst t u) same_val
+              in
+
+              let c = List.rev_append c1 c2 in
+              let pr = P.lemma_cc (Iter.of_list c) self.proof in
+
+              Log.debugf 20
+                (fun k->k "(@[solver.th-comb.add-clause@ %a@])"
+                    (Util.pp_list Lit.pp) c);
+              add_clause_temp self acts c pr;
+          end;
+
           CC.check cc acts;
           if not (CC.new_merges cc) && not (has_delayed_actions self) then (
             continue := false;
@@ -638,6 +714,7 @@ module Make(A : ARG)
         t_defs=[];
         on_partial_check=[];
         on_final_check=[];
+        on_th_combination=[];
         level=0;
         complete=true;
       } in
