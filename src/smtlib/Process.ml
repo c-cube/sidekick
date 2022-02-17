@@ -145,15 +145,27 @@ let solve
     ?proof_file
     ?(pp_model=false)
     ?(check=false)
-    ?time:_ ?memory:_ ?(progress=false)
+    ?time ?memory ?(progress=false)
     ~assumptions
     s : Solver.res =
   let t1 = Sys.time() in
-  let on_progress =
-    if progress then Some (mk_progress s) else None in
+  let on_progress = if progress then Some (mk_progress s) else None in
+
+  let should_stop = match time, memory with
+    | None, None -> None
+    | _ ->
+      let time = CCOpt.get_or ~default:3600. time in (* default: 1 hour *)
+      let memory = CCOpt.get_or ~default:4e9 memory in (* default: 4 GB *)
+      let stop _ _ =
+        Sys.time () -. t1 > time ||
+        (Gc.quick_stat()).Gc.major_words *. 8. > memory
+      in
+      Some stop
+  in
+
   let res =
     Profile.with_ "solve" begin fun () ->
-      Solver.solve ~assumptions ?on_progress s
+      Solver.solve ~assumptions ?on_progress ?should_stop s
     (* ?gc ?restarts ?time ?memory ?progress *)
     end
   in
