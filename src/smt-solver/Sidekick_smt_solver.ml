@@ -604,62 +604,47 @@ module Make(A : ARG)
       (* transmit to theories. *)
       CC.check cc acts;
       if final then (
-        let continue = ref true in
-        while !continue do
-          (* do final checks in a loop *)
-          let fcheck = ref true in
-          while !fcheck do
-            List.iter (fun f -> f self acts lits) self.on_final_check;
-            if has_delayed_actions self then (
-              Perform_delayed_th.top self acts;
-            ) else (
-              fcheck := false
-            )
-          done;
 
-          CC.check cc acts;
-          let more_work_to_do = CC.new_merges cc || has_delayed_actions self in
+        List.iter (fun f -> f self acts lits) self.on_final_check;
+        CC.check cc acts;
 
-          if not more_work_to_do then (
-            match check_th_combination_ self acts with
-            | Ok () ->
-              continue := false;
+        let new_work = CC.new_merges cc || has_delayed_actions self in
+        (* do actual theory combination if nothing changed by pure "final check" *)
+        if not new_work then (
+          match check_th_combination_ self acts with
+          | Ok () -> ()
 
-            | Error {lits; semantic} ->
-              (* bad model, we add a clause to remove it *)
-              Log.debugf 5
-                (fun k->k "(@[solver.th-comb.conflict@ :lits (@[%a@])@ \
-                           :same-val (@[%a@])@])"
-                    (Util.pp_list Lit.pp) lits
-                    (Util.pp_list @@ Fmt.Dump.(triple bool Term.pp Term.pp)) semantic);
+          | Error {lits; semantic} ->
+            (* bad model, we add a clause to remove it *)
+            Log.debugf 5
+              (fun k->k "(@[solver.th-comb.conflict@ :lits (@[%a@])@ \
+                         :same-val (@[%a@])@])"
+                  (Util.pp_list Lit.pp) lits
+                  (Util.pp_list @@ Fmt.Dump.(triple bool Term.pp Term.pp)) semantic);
 
-              let c1 = List.rev_map Lit.neg lits in
-              let c2 =
-                semantic
-                |> List.rev_map
-                  (fun (sign,t,u) ->
-                     let eqn = A.mk_eq self.tst t u in
-                     let lit = Lit.atom ~sign:(not sign) self.tst eqn in
-                     (* make sure to consider the new lit *)
-                     add_lit self acts lit;
-                     lit)
-              in
+            let c1 = List.rev_map Lit.neg lits in
+            let c2 =
+              semantic
+              |> List.rev_map
+                (fun (sign,t,u) ->
+                   let eqn = A.mk_eq self.tst t u in
+                   let lit = Lit.atom ~sign:(not sign) self.tst eqn in
+                   (* make sure to consider the new lit *)
+                   add_lit self acts lit;
+                   lit)
+            in
 
-              let c = List.rev_append c1 c2 in
-              let pr = P.lemma_cc (Iter.of_list c) self.proof in
+            let c = List.rev_append c1 c2 in
+            let pr = P.lemma_cc (Iter.of_list c) self.proof in
 
-              Log.debugf 20
-                (fun k->k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
-                    (Util.pp_list Lit.pp) c);
-              (* will add a delayed action *)
-              add_clause_temp self acts c pr;
+            Log.debugf 20
+              (fun k->k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
+                  (Util.pp_list Lit.pp) c);
+            (* will add a delayed action *)
+            add_clause_temp self acts c pr;
+        );
 
-              continue := false; (* FIXME *)
-          );
-
-          Perform_delayed_th.top self acts;
-          (* FIXME: give a chance to the SAT solver to run again? *)
-        done;
+        Perform_delayed_th.top self acts;
       ) else (
         List.iter (fun f -> f self acts lits) self.on_partial_check;
         Perform_delayed_th.top self acts;
@@ -754,10 +739,10 @@ module Make(A : ARG)
       | U_asked_to_stop
 
     let pp out = function
-      | U_timeout -> Fmt.string out "timeout"
-      | U_max_depth -> Fmt.string out "max depth reached"
-      | U_incomplete -> Fmt.string out "incomplete fragment"
-      | U_asked_to_stop -> Fmt.string out "asked to stop by callback"
+      | U_timeout -> Fmt.string out {|"timeout"|}
+      | U_max_depth -> Fmt.string out {|"max depth reached"|}
+      | U_incomplete -> Fmt.string out {|"incomplete fragment"|}
+      | U_asked_to_stop -> Fmt.string out {|"asked to stop by callback"|}
   end [@@ocaml.warning "-37"]
 
   module Model = struct
@@ -944,19 +929,20 @@ module Make(A : ARG)
 
     (* compute a value for [n]. *)
     let rec val_for_class (n:N.t) : term =
+      Log.debugf 5 (fun k->k "val-for-term %a" N.pp n);
       let repr = CC.find cc n in
+      Log.debugf 5 (fun k->k "val-for-term.repr %a" N.pp repr);
 
       (* see if a value is found already (always the case if it's a boolean) *)
       match M.get model (N.term repr) with
-      | Some t_val -> t_val
+      | Some t_val ->
+        Log.debugf 5 (fun k->k "cached val is %a" Term.pp t_val);
+        t_val
       | None ->
 
         (* try each model hook *)
         let rec try_hooks_ = function
-          | [] ->
-            let t = N.term repr in
-            Log.debugf 20 (fun k->k "(@[smt.model.default-to-repr@ %a@])" Term.pp t);
-            t
+          | [] -> N.term repr
           | h :: hooks ->
             begin match h ~recurse:(fun _ n -> val_for_class n) self.si repr with
               | None -> try_hooks_ hooks
@@ -975,6 +961,7 @@ module Make(A : ARG)
         in
 
         M.replace model (N.term repr) t_val; (* be sure to cache the value *)
+        Log.debugf 5 (fun k->k "val is %a" Term.pp t_val);
         t_val
     in
 
