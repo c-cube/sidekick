@@ -608,7 +608,7 @@ module Make(A : ARG)
         List.iter (fun f -> f self acts lits) self.on_final_check;
         CC.check cc acts;
 
-        let new_work = CC.new_merges cc || has_delayed_actions self in
+        let new_work = has_delayed_actions self in
         (* do actual theory combination if nothing changed by pure "final check" *)
         if not new_work then (
           match check_th_combination_ self acts with

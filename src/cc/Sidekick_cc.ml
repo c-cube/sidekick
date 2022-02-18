@@ -308,7 +308,6 @@ module Make (A: CC_ARG)
     mutable on_conflict: ev_on_conflict list;
     mutable on_propagate: ev_on_propagate list;
     mutable on_is_subterm : ev_on_is_subterm list;
-    mutable new_merges: bool;
     stat: Stat.t;
     count_conflict: int Stat.counter;
     count_props: int Stat.counter;
@@ -768,7 +767,6 @@ module Make (A: CC_ARG)
 
   and[@inline] task_combine_ cc acts = function
     | CT_merge (a,b,e_ab) ->
-      cc.new_merges <- true;
       task_merge_ cc acts a b e_ab
 
     | CT_set_val (n, v) ->
@@ -1055,14 +1053,12 @@ module Make (A: CC_ARG)
   (* run [f] in a local congruence closure level *)
   let with_model_mode cc f =
     assert (not cc.model_mode);
-    assert (not cc.new_merges);
     cc.model_mode <- true;
     push_level cc;
     CCFun.protect f
       ~finally:(fun() ->
           pop_levels cc 1;
           cc.model_mode <- false;
-          cc.new_merges <- false;
         )
 
   (* assert that this boolean literal holds.
@@ -1160,7 +1156,6 @@ module Make (A: CC_ARG)
       true_;
       false_;
       stat;
-      new_merges=false;
       field_marked_explain;
       count_conflict=Stat.mk_int stat "cc.conflicts";
       count_props=Stat.mk_int stat "cc.propagations";
@@ -1182,10 +1177,7 @@ module Make (A: CC_ARG)
 
   let[@inline] check cc acts : unit =
     Log.debug 5 "(cc.check)";
-    cc.new_merges <- false;
     update_tasks cc acts
-
-  let new_merges cc = cc.new_merges
 
   let check_inv_enabled_ = true (* XXX NUDGE *)
 

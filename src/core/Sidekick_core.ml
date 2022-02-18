@@ -739,10 +739,6 @@ module type CC_S = sig
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
       Will use the {!actions} to propagate literals, declare conflicts, etc. *)
 
-  val new_merges : t -> bool
-  (** Called after {!check}, returns [true] if some pairs of classes
-      were merged. *)
-
   val push_level : t -> unit
   (** Push backtracking level *)
 
