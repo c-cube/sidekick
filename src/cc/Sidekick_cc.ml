@@ -1112,9 +1112,10 @@ module Make (A: CC_ARG)
     merge cc (add_term cc t1) (add_term cc t2) expl
 
   let set_model_value (self:t) (t:term) (v:value) : unit =
-    assert (self.model_mode); (* only valid there *)
-    let n = add_term self t in
-    Vec.push self.combine (CT_set_val (n,v))
+    assert (self.model_mode); (* only valid in model mode *)
+    match T_tbl.find_opt self.tbl t with
+    | None -> () (* ignore, th combination not needed *)
+    | Some n -> Vec.push self.combine (CT_set_val (n,v))
 
   let explain_eq cc n1 n2 : Resolved_expl.t =
     let st = Expl_state.create() in
