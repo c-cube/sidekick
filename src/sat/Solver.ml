@@ -2275,6 +2275,8 @@ module Make(Plugin : PLUGIN)
                    has_no_delayed_actions self &&
                    self.next_decisions = []
                 then (
+                  (* nothing more to do, that means the plugin is satisfied
+                     with the trail *)
                   raise_notrace E_sat
                 );
                 (* otherwise, keep on *)

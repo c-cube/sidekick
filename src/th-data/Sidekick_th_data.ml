@@ -692,7 +692,7 @@ module Make(A : ARG) : S with module A = A = struct
     match ST_cstors.get self.cstors repr with
     | None -> None
     | Some c ->
-      Log.debugf 20 (fun k->k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
+      Log.debugf 5 (fun k->k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
       let args = IArray.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t
