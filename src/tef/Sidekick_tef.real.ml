@@ -25,7 +25,7 @@ module Make()
 
   (* connection to subprocess writing into the file *)
   let oc =
-    let oc = Unix.open_process_out "gzip - --stdout > trace.json.gz" in
+    let oc = open_out_bin "trace.json" in
     output_char oc '[';
     at_exit (fun () -> teardown_ oc);
     oc
