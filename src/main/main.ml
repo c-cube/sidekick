@@ -219,6 +219,7 @@ let main_cnf () : _ result =
   r
 
 let main () =
+  Sys.catch_break true;
 
   (* instrumentation and tracing *)
   Sidekick_tef.with_setup @@ fun () ->
@@ -278,6 +279,9 @@ let () = match main() with
       | Invalid_argument e ->
         Format.printf "invalid argument:\n%s@." e;
         exit_ 127
+      | Sys.Break ->
+        Printf.printf "interrupted.\n%!";
+        exit_ 1;
       | _ -> raise e
     end
 
