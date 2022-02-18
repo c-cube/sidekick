@@ -735,6 +735,9 @@ module type CC_S = sig
   val with_model_mode : t -> (unit -> 'a) -> 'a
   (** Enter model combination mode. *)
 
+  val get_model_for_each_class : t -> (repr * N.t Iter.t * value) Iter.t
+  (** In model combination mode, obtain classes with their values. *)
+
   val check : t -> actions -> unit
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
       Will use the {!actions} to propagate literals, declare conflicts, etc. *)

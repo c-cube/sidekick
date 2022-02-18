@@ -1061,6 +1061,15 @@ module Make (A: CC_ARG)
           cc.model_mode <- false;
         )
 
+  let get_model_for_each_class self : _ Iter.t =
+    assert self.model_mode;
+    all_classes self
+    |> Iter.filter_map
+      (fun repr ->
+         match T_b_tbl.get self.t_to_val repr.n_term with
+         | Some (_,v) -> Some (repr, N.iter_class repr, v)
+         | None -> None)
+
   (* assert that this boolean literal holds.
      if a lit is [= a b], merge [a] and [b];
      otherwise merge the atom with true/false *)
