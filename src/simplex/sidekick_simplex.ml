@@ -152,6 +152,9 @@ module type S = sig
     t -> result option
   (** Try to solve and respect the integer constraints. *)
 
+  val n_vars: t -> int
+  val n_rows: t -> int
+
   (**/**)
   val _check_invariants : t -> unit
   (* check internal invariants *)
@@ -469,6 +472,9 @@ module Make(Arg: ARG)
     Backtrack_stack.pop_levels self.undo_stack n
       ~f:(fun f -> f());
     ()
+
+  let n_vars self = Vec.size self.vars
+  let n_rows self = Matrix.n_rows self.matrix
 
   let pp_stats out (self:t) : unit =
     Fmt.fprintf out "(@[simplex@ :n-vars %d@ :n-rows %d@])"

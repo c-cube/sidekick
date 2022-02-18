@@ -563,13 +563,15 @@ module Make(A : ARG) : S with module A = A = struct
 
   (** Check satisfiability of simplex, and sets [self.last_res] *)
   let check_simplex_ self si acts : SimpSolver.Subst.t =
-    Log.debug 5 "(lra.check-simplex)";
+    Log.debugf 5
+      (fun k->k "(@[lra.check-simplex@ :n-vars %d :n-rows %d@])"
+          (SimpSolver.n_vars self.simplex) (SimpSolver.n_rows self.simplex));
     let res =
-      Profile.with_ "lra.simplex.solve"
-        (fun () ->
-           SimpSolver.check self.simplex
-             ~on_propagate:(on_propagate_ si acts))
+      Profile.with_ "lra.simplex.solve" @@ fun () ->
+      SimpSolver.check self.simplex
+        ~on_propagate:(on_propagate_ si acts)
     in
+    Log.debug 5 "(lra.check-simplex.done)";
     self.last_res <- Some res;
     begin match res with
       | SimpSolver.Sat m -> m
