@@ -1,10 +1,12 @@
 (rule
  (targets reg_model_lra1.out)
- (deps reg_model_lra1.smt2)
+ (deps
+  (:file reg_model_lra1.smt2)
+  ../../main/main.exe)
  (action
   (with-stdout-to
    %{targets}
-   (bash "../../main/main.exe %{deps} | tail -n +2"))))
+   (bash "../../main/main.exe %{file} | tail -n +2"))))
 
 (rule
  (alias runtest)

@@ -178,8 +178,6 @@ end = struct
     let make sign x y (c : Cell.t) : t = sign, x, y, c
   end
 
-  type lit = F.t
-
   module Theory = struct
     type proof = unit
     type proof_step = unit
