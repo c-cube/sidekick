@@ -1,12 +1,15 @@
-
 (library
-  (name sidekick_tef)
-  (public_name sidekick.tef)
-  (synopsis "profiling backend based on TEF")
-  (flags :standard -warn-error -a+8)
-  (libraries
-    sidekick.util unix threads
-    (select Sidekick_tef.ml from
-      (mtime mtime.clock.os -> Sidekick_tef.real.ml)
-      (-> Sidekick_tef.dummy.ml)))
-  (optional))
+ (name sidekick_tef)
+ (public_name sidekick.tef)
+ (synopsis "profiling backend based on TEF")
+ (flags :standard -warn-error -a+8)
+ (libraries
+  sidekick.util
+  unix
+  threads
+  (select
+   Sidekick_tef.ml
+   from
+   (mtime mtime.clock.os -> Sidekick_tef.real.ml)
+   (-> Sidekick_tef.dummy.ml)))
+ (optional))

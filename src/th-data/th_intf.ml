@@ -1,10 +1,9 @@
-
 (** Datatype-oriented view of terms.
 
     - ['c] is the representation of constructors
     - ['t] is the representation of terms
 *)
-type ('c,'t) data_view =
+type ('c, 't) data_view =
   | T_cstor of 'c * 't IArray.t
   | T_select of 'c * int * 't
   | T_is_a of 'c * 't
@@ -13,12 +12,8 @@ type ('c,'t) data_view =
 (** View of types in a way that is directly useful for the theory of datatypes *)
 type ('c, 'ty) data_ty_view =
   | Ty_arrow of 'ty Iter.t * 'ty
-  | Ty_app of {
-      args: 'ty Iter.t;
-    }
-  | Ty_data of {
-      cstors: 'c;
-    }
+  | Ty_app of { args: 'ty Iter.t }
+  | Ty_data of { cstors: 'c }
   | Ty_other
 
 module type PROOF = sig
@@ -76,6 +71,7 @@ module type ARG = sig
     (** Type arguments, for a polymorphic constructor *)
 
     val pp : t Fmt.printer
+
     val equal : t -> t -> bool
     (** Comparison *)
   end
@@ -89,7 +85,7 @@ module type ARG = sig
   val mk_cstor : S.T.Term.store -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
   (** Make a constructor application term *)
 
-  val mk_is_a: S.T.Term.store -> Cstor.t -> S.T.Term.t -> S.T.Term.t
+  val mk_is_a : S.T.Term.store -> Cstor.t -> S.T.Term.t -> S.T.Term.t
   (** Make a [is-a] term *)
 
   val mk_sel : S.T.Term.store -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
@@ -105,9 +101,10 @@ module type ARG = sig
   val ty_set_is_finite : S.T.Ty.t -> bool -> unit
   (** Modify the "finite" field (see {!ty_is_finite}) *)
 
-  module P : PROOF
-    with type proof := S.P.t
-     and type proof_step := S.P.proof_step
-     and type term := S.T.Term.t
-     and type lit := S.Lit.t
+  module P :
+    PROOF
+      with type proof := S.P.t
+       and type proof_step := S.P.proof_step
+       and type term := S.T.Term.t
+       and type lit := S.Lit.t
 end

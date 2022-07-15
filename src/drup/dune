@@ -1,7 +1,6 @@
-
 (library
-  (name sidekick_drup)
-  (public_name sidekick.drup)
-  (synopsis "Checker for DRUP (propositional) proofs")
-  (libraries sidekick.util containers iter)
-  (flags :standard -warn-error -a+8 -open Sidekick_util))
+ (name sidekick_drup)
+ (public_name sidekick.drup)
+ (synopsis "Checker for DRUP (propositional) proofs")
+ (libraries sidekick.util containers iter)
+ (flags :standard -warn-error -a+8 -open Sidekick_util))

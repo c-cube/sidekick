@@ -10,17 +10,14 @@ type 'a counter
 
 val mk_int : t -> string -> int counter
 val mk_float : t -> string -> float counter
-
 val incr : int counter -> unit
 val incr_f : float counter -> float -> unit
-
 val set : 'a counter -> 'a -> unit
 
-(** Existential counter *)
 type ex_counter
+(** Existential counter *)
 
 val all : t -> ex_counter Iter.t
-
 val pp_all : ex_counter Iter.t Fmt.printer
 
 val global : t

@@ -1,26 +1,16 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 type 'a t = 'a array
 
-let empty = [| |]
-
+let empty = [||]
 let is_empty a = Array.length a = 0
-
 let length = Array.length
-
 let singleton x = [| x |]
-
 let doubleton x y = [| x; y |]
-
 let make n x = Array.make n x
-
 let init n f = Array.init n f
-
 let sub = Array.sub
-
 let get = Array.get
-
 let unsafe_get = Array.unsafe_get
 
 let set a n x =
@@ -29,18 +19,20 @@ let set a n x =
   a'
 
 let map = Array.map
-
 let mapi = Array.mapi
 
 let append a b =
   let na = length a in
-  Array.init (na + length b)
-    (fun i -> if i < na then a.(i) else b.(i-na))
+  Array.init
+    (na + length b)
+    (fun i ->
+      if i < na then
+        a.(i)
+      else
+        b.(i - na))
 
 let iter = Array.iter
-
 let iteri = Array.iteri
-
 let fold = Array.fold_left
 
 let foldi f acc a =
@@ -72,7 +64,6 @@ type 'a iter = ('a -> unit) -> unit
 type 'a gen = unit -> 'a option
 
 let of_list = Array.of_list
-
 let to_list = Array.to_list
 
 let of_list_map f l =
@@ -83,18 +74,16 @@ let of_list_map f l =
     List.iteri (fun i x -> Array.unsafe_set arr i (f x)) l;
     arr
 
-let to_list_map f a =
-  CCArray.fold_right (fun x acc -> f x :: acc) a []
-
+let to_list_map f a = CCArray.fold_right (fun x acc -> f x :: acc) a []
 let of_array_map = Array.map
 let to_array_map = Array.map
-
 let of_array_unsafe a = a (* careful with that axe, Eugene *)
 
 let to_iter a k = iter k a
+
 let to_iter_sub a i len k =
-  if i<0 || i+len > Array.length a then invalid_arg "IArray.iter_sub";
-  for j=i to i+len-1 do
+  if i < 0 || i + len > Array.length a then invalid_arg "IArray.iter_sub";
+  for j = i to i + len - 1 do
     k (Array.unsafe_get a j)
   done
 
@@ -109,9 +98,10 @@ let of_iter s =
     of_iter g |> to_iter |> Iter.to_list = l)
 *)
 
-let rec gen_to_list_ acc g = match g() with
+let rec gen_to_list_ acc g =
+  match g () with
   | None -> List.rev acc
-  | Some x -> gen_to_list_ (x::acc) g
+  | Some x -> gen_to_list_ (x :: acc) g
 
 let of_gen g =
   let l = gen_to_list_ [] g in
@@ -124,7 +114,8 @@ let to_gen a =
       let x = a.(!i) in
       incr i;
       Some x
-    ) else None
+    ) else
+      None
 
 (*$Q
   Q.(list int) (fun l -> \
@@ -136,7 +127,7 @@ let to_gen a =
 
 type 'a printer = Format.formatter -> 'a -> unit
 
-let print ?(start="[|") ?(stop="|]") ?(sep=";") pp_item out a =
+let print ?(start = "[|") ?(stop = "|]") ?(sep = ";") pp_item out a =
   Format.pp_print_string out start;
   for k = 0 to Array.length a - 1 do
     if k > 0 then (
@@ -161,22 +152,24 @@ let map2 f a b =
 
 let iter2 f a b =
   if length a <> length b then invalid_arg "iter2";
-  for i = 0 to length a-1 do
+  for i = 0 to length a - 1 do
     f (unsafe_get a i) (unsafe_get b i)
   done
 
 let iteri2 f a b =
   if length a <> length b then invalid_arg "iteri2";
-  for i = 0 to length a-1 do
+  for i = 0 to length a - 1 do
     f i (unsafe_get a i) (unsafe_get b i)
   done
 
 let fold2 f acc a b =
   if length a <> length b then invalid_arg "fold2";
   let rec aux acc i =
-    if i=length a then acc
-    else
+    if i = length a then
+      acc
+    else (
       let acc = f acc (unsafe_get a i) (unsafe_get b i) in
-      aux acc (i+1)
+      aux acc (i + 1)
+    )
   in
   aux acc 0

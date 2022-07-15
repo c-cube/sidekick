@@ -16,7 +16,6 @@
 
     *)
 
-
 module Base_types = Base_types
 module ID = ID
 module Fun = Base_types.Fun
@@ -30,17 +29,14 @@ module Statement = Base_types.Statement
 module Data = Base_types.Data
 module Select = Base_types.Select
 module Form = Form
-
 module LRA_view = Base_types.LRA_view
 module LRA_pred = Base_types.LRA_pred
 module LRA_op = Base_types.LRA_op
 module LIA_view = Base_types.LIA_view
 module LIA_pred = Base_types.LIA_pred
 module LIA_op = Base_types.LIA_op
-
 module Solver_arg = Solver_arg
 module Lit = Lit
-
 module Proof_dummy = Proof_dummy
 module Proof = Proof
 module Proof_quip = Proof_quip

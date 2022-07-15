@@ -15,6 +15,7 @@ open Base_types
 module Val_map : sig
   type key = Value.t list
   type 'a t
+
   val empty : 'a t
   val is_empty : _ t -> bool
   val cardinal : _ t -> int
@@ -31,39 +32,25 @@ end
     [lambda x y. if (x=vx1,y=vy1) then v1 else if … then … else vdefault]
 *)
 module Fun_interpretation : sig
-  type t = {
-    cases: Value.t Val_map.t;
-    default: Value.t;
-  }
+  type t = { cases: Value.t Val_map.t; default: Value.t }
 
   val default : t -> Value.t
   val cases_list : t -> (Value.t list * Value.t) list
-
-  val make :
-    default:Value.t ->
-    (Value.t list * Value.t) list ->
-    t
+  val make : default:Value.t -> (Value.t list * Value.t) list -> t
 end
 
+type t = { values: Value.t Term.Map.t; funs: Fun_interpretation.t Fun.Map.t }
 (** Model *)
-type t = {
-  values: Value.t Term.Map.t;
-  funs: Fun_interpretation.t Fun.Map.t;
-}
 
-(** Empty model *)
 val empty : t
+(** Empty model *)
 
 val add : Term.t -> Value.t -> t -> t
-
 val mem : Term.t -> t -> bool
-
 val find : Term.t -> t -> Value.t option
-
 val merge : t -> t -> t
-
 val pp : t CCFormat.printer
 
+val eval : t -> Term.t -> Value.t option
 (** [eval m t] tries to evaluate term [t] in the model.
     If it succeeds, the value is returned, otherwise [None] is. *)
-val eval : t -> Term.t -> Value.t option

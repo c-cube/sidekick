@@ -1,4 +1,3 @@
-
 (** Logging function, for debugging *)
 
 val enabled : bool
@@ -10,9 +9,7 @@ val get_debug : unit -> int
 (** Current debug level *)
 
 val debugf :
-  int ->
-  ((('a, Format.formatter, unit, unit) format4 -> 'a) -> unit) ->
-  unit
+  int -> ((('a, Format.formatter, unit, unit) format4 -> 'a) -> unit) -> unit
 (** Emit a debug message at the given level. If the level is lower
     than [get_debug ()], the message will indeed be emitted *)
 
@@ -21,4 +18,3 @@ val debug : int -> string -> unit
 
 val set_debug_out : Format.formatter -> unit
 (** Change the output formatter. *)
-

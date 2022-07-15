@@ -1,5 +1,4 @@
-
 (library
-  (name sidekick_test_util)
-  (flags :standard -warn-error -a+8 -open Sidekick_util)
-  (libraries qcheck alcotest sidekick.util))
+ (name sidekick_test_util)
+ (flags :standard -warn-error -a+8 -open Sidekick_util)
+ (libraries qcheck alcotest sidekick.util))

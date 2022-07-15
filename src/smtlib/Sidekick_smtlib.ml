@@ -11,7 +11,7 @@ module Proof = Sidekick_base.Proof
 type 'a or_error = ('a, string) CCResult.t
 
 module Parse = struct
-  let parse_chan_exn ?(filename="<no name>") ic =
+  let parse_chan_exn ?(filename = "<no name>") ic =
     let lexbuf = Lexing.from_channel ic in
     Loc.set_file lexbuf filename;
     Smtlib_utils.V_2_6.(Parser.parse_list Lexer.token) lexbuf
@@ -21,8 +21,7 @@ module Parse = struct
 
   let parse_file_exn ctx file : Stmt.t list =
     (* delegate parsing to [Tip_parser] *)
-    parse_file_exn file
-    |> CCList.flat_map (Typecheck.conv_statement ctx)
+    parse_file_exn file |> CCList.flat_map (Typecheck.conv_statement ctx)
 
   let parse tst file =
     let ctx = Typecheck.Ctx.create tst in

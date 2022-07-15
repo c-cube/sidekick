@@ -1,4 +1,3 @@
-
 (** Proof trace with serialization
 
     This library is useful to serialize a series of reasoning steps

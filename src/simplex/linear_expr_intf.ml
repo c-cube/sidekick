@@ -1,4 +1,3 @@
-
 (*
   copyright (c) 2014-2018, Guillaume Bury, Simon Cruanes
   *)
@@ -31,8 +30,9 @@ module type COEFF = sig
   val neg : t -> t
   (** Unary negation *)
 
-  val (+) : t -> t -> t
-  val (-) : t -> t -> t
+  val ( + ) : t -> t -> t
+  val ( - ) : t -> t -> t
+
   val ( * ) : t -> t -> t
   (** Standard operations on coefficients. *)
 end
@@ -55,12 +55,10 @@ module type VAR = sig
   type lit
 
   val pp_lit : lit Fmt.printer
-
   val not_lit : lit -> lit option
 end
 
 type bool_op = Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
-
 type op = Binary_op.t = Plus | Minus
 
 (** {2 Linear expressions & formulas} *)
@@ -127,27 +125,26 @@ module type S = sig
         This module defines usual operations on linear combinations,
         as infix operators to ease reading of complex computations. *)
     module Infix : sig
-      val (+) : t -> t -> t
+      val ( + ) : t -> t -> t
       (** Addition between combinations. *)
 
-      val (-) : t -> t -> t
+      val ( - ) : t -> t -> t
       (** Substraction between combinations. *)
 
       val ( * ) : C.t -> t -> t
       (** Multiplication by a constant. *)
     end
+
     include module type of Infix
     (** Include the previous module. *)
 
     val iter : (var -> C.t -> unit) -> t -> unit
-
     val of_list : (C.t * var) list -> t
 
     val to_list : t -> (C.t * var) list
     (** Converters to and from lists of monomes. *)
 
     val of_map : C.t Var_map.t -> t
-
     val to_map : t -> C.t Var_map.t
 
     (** {5 Semantics} *)
@@ -167,7 +164,6 @@ module type S = sig
 
     val comb : t -> Comb.t
     val const : t -> C.t
-
     val is_zero : t -> bool
     val is_const : t -> bool
 
@@ -192,7 +188,6 @@ module type S = sig
     (** [make c n] makes the linear expression [c + n]. *)
 
     val monomial : C.t -> var -> t
-
     val monomial1 : var -> t
 
     (** Infix operations on expressions
@@ -200,15 +195,16 @@ module type S = sig
         This module defines usual operations on linear expressions,
         as infix operators to ease reading of complex computations. *)
     module Infix : sig
-      val (+) : t -> t -> t
+      val ( + ) : t -> t -> t
       (** Addition between expressions. *)
 
-      val (-) : t -> t -> t
+      val ( - ) : t -> t -> t
       (** Substraction between expressions. *)
 
       val ( * ) : C.t -> t -> t
       (** Multiplication by a constant. *)
     end
+
     include module type of Infix
     (** Include the previous module. *)
 
@@ -226,10 +222,7 @@ module type S = sig
     type op = bool_op
     (** Arithmetic comparison operators. *)
 
-    type t = {
-      expr: Expr.t;
-      op: op;
-    }
+    type t = { expr: Expr.t; op: op }
     (** Linear constraints. Expressions are implicitly compared to zero. *)
 
     val compare : t -> t -> int
@@ -239,24 +232,24 @@ module type S = sig
     (** Standard printing function. *)
 
     val of_expr : Expr.t -> bool_op -> t
+
     val make : Comb.t -> bool_op -> C.t -> t
     (** Create a constraint from a linear expression/combination and a constant. *)
 
     val geq : Comb.t -> C.t -> t
     val leq : Comb.t -> C.t -> t
-    val gt: Comb.t -> C.t -> t
+    val gt : Comb.t -> C.t -> t
     val lt : Comb.t -> C.t -> t
     val eq : Comb.t -> C.t -> t
     val neq : Comb.t -> C.t -> t
-
     val geq0 : Expr.t -> t
     val leq0 : Expr.t -> t
     val gt0 : Expr.t -> t
     val lt0 : Expr.t -> t
     val eq0 : Expr.t -> t
     val neq0 : Expr.t -> t
-
     val op : t -> bool_op
+
     val expr : t -> Expr.t
     (** Extract the given part from a constraint. *)
 
@@ -267,4 +260,3 @@ module type S = sig
     (** Evaluate the given constraint under a substitution. *)
   end
 end
-

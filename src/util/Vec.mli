@@ -1,4 +1,3 @@
-
 (** Vectors
 
     A resizable array, workhorse of imperative programming :-).
@@ -20,9 +19,7 @@ val to_list : 'a t -> 'a list
 (** Returns the list of elements of the vector *)
 
 val to_array : 'a t -> 'a array
-
 val of_list : 'a list -> 'a t
-
 val to_seq : 'a t -> 'a Iter.t
 
 val clear : 'a t -> unit
@@ -43,9 +40,7 @@ val pop_exn : 'a t -> 'a
     @raise Invalid_argument if the vector is empty *)
 
 val pop : 'a t -> 'a option
-
 val size : 'a t -> int
-
 val is_empty : 'a t -> bool
 
 val is_full : 'a t -> bool
@@ -104,4 +99,6 @@ val for_all : ('a -> bool) -> 'a t -> bool
 val pp :
   ?sep:string ->
   (Format.formatter -> 'a -> unit) ->
-  Format.formatter -> 'a t -> unit
+  Format.formatter ->
+  'a t ->
+  unit

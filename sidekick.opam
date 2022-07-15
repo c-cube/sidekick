@@ -6,6 +6,7 @@ version: "dev"
 author: ["Simon Cruanes" "Guillaume Bury"]
 maintainer: ["simon.cruanes.2007@m4x.org"]
 build: [
+  ["dune" "subst"] {dev}
   ["dune" "build" "@install" "-p" name "-j" jobs]
   ["dune" "build" "@doc" "-p" name "-j" jobs ] {with-doc}
   ["dune" "runtest" "-p" name "-j" jobs] {with-test}

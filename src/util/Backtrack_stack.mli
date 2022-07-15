@@ -1,4 +1,3 @@
-
 (** {1 A backtracking stack} *)
 
 type 'a t

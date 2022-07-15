@@ -1,4 +1,3 @@
-
 (** DRUP trace checker.
 
     This module provides a checker for DRUP traces, including proof_rule-by-proof_rule
@@ -16,6 +15,7 @@ module VecSmallInt = VecSmallInt
 module type S = sig
   module Atom : sig
     type t = private int
+
     val equal : t -> t -> bool
     val compare : t -> t -> int
     val hash : t -> int
@@ -30,148 +30,178 @@ module type S = sig
         positive atoms, and [-i] is [neg (of_int i)].
         @raise Invalid_argument if the argument is 0 *)
   end
+
   type atom = Atom.t
 
-
   module Clause : sig
-
     type store
+
     val create : unit -> store
 
     type t
 
     val size : t -> int
-
     val get : t -> int -> atom
-
     val iter : f:(atom -> unit) -> t -> unit
-
     val pp : t Fmt.printer
-
     val of_list : store -> atom list -> t
     val of_iter : store -> atom Iter.t -> t
   end
+
   type clause = Clause.t
 
   module Checker : sig
     type t
 
     val create : Clause.store -> t
-
     val add_clause : t -> Clause.t -> unit
-
     val is_valid_drup : t -> Clause.t -> bool
-
     val del_clause : t -> Clause.t -> unit
   end
 end
 
-module Make() : S = struct
+module Make () : S = struct
   (** Boolean atoms *)
   module Atom = struct
     type t = int
     type atom = t
+
     let hash = CCHash.int
-    let equal : t -> t -> bool = (=)
+    let equal : t -> t -> bool = ( = )
     let compare : t -> t -> int = compare
     let[@inline] neg x = x lxor 1
+
     let[@inline] of_int_dimacs x =
-      if x=0 then invalid_arg "Atom.of_int_dimacs: 0 is not acceptable";
+      if x = 0 then invalid_arg "Atom.of_int_dimacs: 0 is not acceptable";
       let v = abs x lsl 1 in
-      if x < 0 then neg v else v
-    let[@inline] sign x = (x land 1) = 0
-    let[@inline] to_int x = (if sign x then 1 else -1) * (x lsr 1)
+      if x < 0 then
+        neg v
+      else
+        v
+
+    let[@inline] sign x = x land 1 = 0
+
+    let[@inline] to_int x =
+      (if sign x then
+        1
+      else
+        -1)
+      * (x lsr 1)
+
     let pp out x =
-      Fmt.fprintf out "%s%d" (if sign x then "+" else "-") (x lsr 1)
+      Fmt.fprintf out "%s%d"
+        (if sign x then
+          "+"
+        else
+          "-")
+        (x lsr 1)
+
     let[@inline] of_int_unsafe i = i
     let dummy = 0
+
     module Assign = struct
       type t = Bitvec.t
+
       let create = Bitvec.create
       let ensure_size = Bitvec.ensure_size
       let is_true = Bitvec.get
-      let[@inline] is_false self (a:atom) : bool =
-        is_true self (neg a)
+      let[@inline] is_false self (a : atom) : bool = is_true self (neg a)
+
       let[@inline] is_unassigned self a =
-        not (is_true self a) && not (is_false self a)
+        (not (is_true self a)) && not (is_false self a)
+
       let set = Bitvec.set
     end
-    module Set = CCSet.Make(CCInt)
+
+    module Set = CCSet.Make (CCInt)
+
     module Map = struct
       type 'a t = 'a Vec.t
+
       let create () = Vec.create ()
-      let[@inline] ensure_has (self:_ t) a mk : unit =
+
+      let[@inline] ensure_has (self : _ t) a mk : unit =
         (* size: 2+atom, because: 1+atom makes atom valid, and if it's positive,
            2+atom is (¬atom)+1 *)
-        Vec.ensure_size_with self mk (2+(a:atom:>int))
+        Vec.ensure_size_with self mk (2 + (a : atom :> int))
+
       let get = Vec.get
       let set = Vec.set
     end
+
     module Stack = struct
       include VecSmallInt
-      let create()=create()
+
+      let create () = create ()
     end
   end
+
   type atom = Atom.t
 
   (** Boolean clauses *)
   module Clause : sig
     type store
+
     val create : unit -> store
+
     type t
+
     val size : t -> int
     val id : t -> int
     val get : t -> int -> atom
     val iter : f:(atom -> unit) -> t -> unit
-    val watches: t -> atom * atom
+    val watches : t -> atom * atom
     val set_watches : t -> atom * atom -> unit
     val pp : t Fmt.printer
     val of_list : store -> atom list -> t
     val of_iter : store -> atom Iter.t -> t
+
     module Tbl : CCHashtbl.S with type key = t
   end = struct
-    type t = {
-      id: int;
-      atoms: atom array;
-      mutable watches: atom * atom;
-    }
-    type store = {
-      mutable n: int;
-    }
-    let create(): store =
-      { n=0; }
+    type t = { id: int; atoms: atom array; mutable watches: atom * atom }
+    type store = { mutable n: int }
+
+    let create () : store = { n = 0 }
     let[@inline] id self = self.id
     let[@inline] size self = Array.length self.atoms
     let[@inline] get self i = Array.get self.atoms i
     let[@inline] watches self = self.watches
     let[@inline] set_watches self w = self.watches <- w
+
     let[@inline] iter ~f self =
-      for i=0 to Array.length self.atoms-1 do
+      for i = 0 to Array.length self.atoms - 1 do
         f (Array.unsafe_get self.atoms i)
       done
-    let pp out (self:t) =
+
+    let pp out (self : t) =
       let pp_watches out = function
-        | (p,q) when p=Atom.dummy || q=Atom.dummy -> ()
-        | (p,q) -> Fmt.fprintf out "@ :watches (%a,%a)" Atom.pp p Atom.pp q in
-      Fmt.fprintf out "(@[cl[%d]@ %a%a])"
-        self.id (Fmt.Dump.array Atom.pp) self.atoms pp_watches self.watches
-    let of_iter self (atoms:atom Iter.t) : t =
+        | p, q when p = Atom.dummy || q = Atom.dummy -> ()
+        | p, q -> Fmt.fprintf out "@ :watches (%a,%a)" Atom.pp p Atom.pp q
+      in
+      Fmt.fprintf out "(@[cl[%d]@ %a%a])" self.id (Fmt.Dump.array Atom.pp)
+        self.atoms pp_watches self.watches
+
+    let of_iter self (atoms : atom Iter.t) : t =
       (* normalize + find in table *)
-      let atoms = Atom.Set.of_iter atoms |> Atom.Set.to_iter |> Iter.to_array  in
+      let atoms = Atom.Set.of_iter atoms |> Atom.Set.to_iter |> Iter.to_array in
       let id = self.n in
       self.n <- 1 + self.n;
-      let c = {atoms; id; watches=Atom.dummy, Atom.dummy} in
+      let c = { atoms; id; watches = Atom.dummy, Atom.dummy } in
       c
+
     let of_list self atoms : t = of_iter self (Iter.of_list atoms)
 
     module As_key = struct
-      type nonrec t=t
+      type nonrec t = t
+
       let[@inline] hash a = CCHash.int a.id
       let[@inline] equal a b = a.id = b.id
       let[@inline] compare a b = compare a.id b.id
     end
-    module Tbl = CCHashtbl.Make(As_key)
+
+    module Tbl = CCHashtbl.Make (As_key)
   end
+
   type clause = Clause.t
 
   (** Forward proof checker.
@@ -179,6 +209,7 @@ module Make() : S = struct
       Each event is checked by reverse-unit propagation on previous events. *)
   module Checker : sig
     type t
+
     val create : Clause.store -> t
     val add_clause : t -> Clause.t -> unit
     val is_valid_drup : t -> Clause.t -> bool
@@ -187,51 +218,55 @@ module Make() : S = struct
     type t = {
       assign: Atom.Assign.t; (* atom -> is_true(atom) *)
       trail: Atom.Stack.t; (* current assignment *)
-      mutable trail_ptr : int; (* offset in trail for propagation *)
+      mutable trail_ptr: int; (* offset in trail for propagation *)
       active_clauses: unit Clause.Tbl.t;
       watches: Clause.t Vec.t Atom.Map.t; (* atom -> clauses it watches *)
     }
 
     let create _cstore : t =
-      { trail=Atom.Stack.create();
+      {
+        trail = Atom.Stack.create ();
         trail_ptr = 0;
-        active_clauses=Clause.Tbl.create 32;
-        assign=Atom.Assign.create();
-        watches=Atom.Map.create();
+        active_clauses = Clause.Tbl.create 32;
+        assign = Atom.Assign.create ();
+        watches = Atom.Map.create ();
       }
 
     (* ensure data structures are big enough to handle [a] *)
-    let ensure_atom_ self (a:atom) =
+    let ensure_atom_ self (a : atom) =
       Atom.Assign.ensure_size self.assign a;
       (* size: 2+atom, because: 1+atom makes atom valid, and if it's positive,
          2+atom is (¬atom)+1 *)
       Atom.Map.ensure_has self.watches a (fun _ -> Vec.create ());
       ()
 
-    let[@inline] is_true self (a:atom) : bool =
+    let[@inline] is_true self (a : atom) : bool =
       Atom.Assign.is_true self.assign a
-    let[@inline] is_false self (a:atom) : bool =
-      Atom.Assign.is_false self.assign a
-    let[@inline] is_unassigned self a =
-      Atom.Assign.is_unassigned self.assign a
 
-    let add_watch_ self (a:atom) (c:clause) =
+    let[@inline] is_false self (a : atom) : bool =
+      Atom.Assign.is_false self.assign a
+
+    let[@inline] is_unassigned self a = Atom.Assign.is_unassigned self.assign a
+
+    let add_watch_ self (a : atom) (c : clause) =
       Vec.push (Atom.Map.get self.watches a) c
 
-    let remove_watch_ self (a:atom) idx =
+    let remove_watch_ self (a : atom) idx =
       let v = Atom.Map.get self.watches a in
       Vec.fast_remove v idx
 
     exception Conflict
 
     let raise_conflict_ _self a =
-      Log.debugf 5 (fun k->k"conflict on atom %a" Atom.pp a);
+      Log.debugf 5 (fun k -> k "conflict on atom %a" Atom.pp a);
       raise Conflict
 
     (* set atom to true *)
-    let[@inline] set_atom_true (self:t) (a:atom) : unit =
-      if is_true self a then ()
-      else if is_false self a then raise_conflict_ self a
+    let[@inline] set_atom_true (self : t) (a : atom) : unit =
+      if is_true self a then
+        ()
+      else if is_false self a then
+        raise_conflict_ self a
       else (
         Atom.Assign.set self.assign a true;
         Atom.Stack.push self.trail a
@@ -239,58 +274,71 @@ module Make() : S = struct
 
     (* print the trail *)
     let pp_trail_ out self =
-      Fmt.fprintf out "(@[%a@])" (Fmt.iter Atom.pp) (Atom.Stack.to_iter self.trail)
+      Fmt.fprintf out "(@[%a@])" (Fmt.iter Atom.pp)
+        (Atom.Stack.to_iter self.trail)
 
     exception Is_sat
     exception Is_undecided
 
     (* check if [c] is false in current trail *)
     let c_is_false_ self c =
-      try Clause.iter c ~f:(fun a -> if not (is_false self a) then raise Exit); true
+      try
+        Clause.iter c ~f:(fun a -> if not (is_false self a) then raise Exit);
+        true
       with Exit -> false
 
-    type propagation_res =
-      | Keep
-      | Remove
+    type propagation_res = Keep | Remove
 
     (* do boolean propagation in [c], which is watched by the true literal [a] *)
-    let propagate_in_clause_ (self:t) (a:atom) (c:clause) : propagation_res =
+    let propagate_in_clause_ (self : t) (a : atom) (c : clause) :
+        propagation_res =
       assert (is_true self a);
       let a1, a2 = Clause.watches c in
       let na = Atom.neg a in
       (* [q] is the other literal in [c] such that [¬q] watches [c]. *)
-      let q = if Atom.equal a1 na then a2 else (assert(a2==na); a1) in
+      let q =
+        if Atom.equal a1 na then
+          a2
+        else (
+          assert (a2 == na);
+          a1
+        )
+      in
       try
-        if is_true self q then Keep (* clause is satisfied *)
+        if is_true self q then
+          Keep
+        (* clause is satisfied *)
         else (
           let n_unassigned = ref 0 in
-          let unassigned_a = ref a in (* an unassigned atom, if [!n_unassigned > 0] *)
+          let unassigned_a = ref a in
+          (* an unassigned atom, if [!n_unassigned > 0] *)
           if not (is_false self q) then unassigned_a := q;
-          begin
-            try
-              Clause.iter c
-                ~f:(fun ai ->
-                    if is_true self ai then raise Is_sat (* no watch update *)
-                    else if is_unassigned self ai then (
-                      incr n_unassigned;
-                      if q <> ai then unassigned_a := ai;
-                      if !n_unassigned >= 2 then raise Is_undecided; (* early exit *)
-                    );
-                  )
-            with Is_undecided -> ()
-          end;
+          (try
+             Clause.iter c ~f:(fun ai ->
+                 if is_true self ai then
+                   raise Is_sat
+                 (* no watch update *)
+                 else if is_unassigned self ai then (
+                   incr n_unassigned;
+                   if q <> ai then unassigned_a := ai;
+                   if !n_unassigned >= 2 then
+                     raise Is_undecided
+                   (* early exit *)
+                 ))
+           with Is_undecided -> ());
 
           if !n_unassigned = 0 then (
             (* if we reach this point it means no literal is true, and none is
                unassigned. So they're all false and we have a conflict. *)
             assert (is_false self q);
-            raise_conflict_ self a;
+            raise_conflict_ self a
           ) else if !n_unassigned = 1 then (
             (* no lit is true, only one is unassigned: propagate it.
                no need to update the watches as the clause is satisfied. *)
             assert (is_unassigned self !unassigned_a);
             let p = !unassigned_a in
-            Log.debugf 30 (fun k->k"(@[propagate@ :atom %a@ :reason %a@])" Atom.pp p Clause.pp c);
+            Log.debugf 30 (fun k ->
+                k "(@[propagate@ :atom %a@ :reason %a@])" Atom.pp p Clause.pp c);
             set_atom_true self p;
             Keep
           ) else (
@@ -300,30 +348,28 @@ module Make() : S = struct
             Clause.set_watches c (q, p);
             add_watch_ self (Atom.neg p) c;
             Remove
-          );
+          )
         )
-      with
-      | Is_sat -> Keep
+      with Is_sat -> Keep
 
-    let propagate_atom_ self (a:atom) : unit =
+    let propagate_atom_ self (a : atom) : unit =
       let v = Atom.Map.get self.watches a in
       let i = ref 0 in
       while !i < Vec.size v do
         match propagate_in_clause_ self a (Vec.get v !i) with
-        | Keep -> incr i;
-        | Remove ->
-          remove_watch_ self a !i
+        | Keep -> incr i
+        | Remove -> remove_watch_ self a !i
       done
 
     (* perform boolean propagation in a fixpoint
        @raise Conflict if a clause is false *)
-    let bcp_fixpoint_ (self:t) : unit =
-      Profile.with_ "bcp-fixpoint" @@ fun() ->
+    let bcp_fixpoint_ (self : t) : unit =
+      Profile.with_ "bcp-fixpoint" @@ fun () ->
       while self.trail_ptr < Atom.Stack.size self.trail do
         let a = Atom.Stack.get self.trail self.trail_ptr in
-        Log.debugf 50 (fun k->k"(@[bcp@ :atom %a@])" Atom.pp a);
+        Log.debugf 50 (fun k -> k "(@[bcp@ :atom %a@])" Atom.pp a);
         self.trail_ptr <- 1 + self.trail_ptr;
-        propagate_atom_ self a;
+        propagate_atom_ self a
       done
 
     (* calls [f] and then restore trail to what it was *)
@@ -333,10 +379,10 @@ module Make() : S = struct
 
       let restore () =
         (* unassign new literals *)
-        for i=trail_size0 to Atom.Stack.size self.trail - 1 do
+        for i = trail_size0 to Atom.Stack.size self.trail - 1 do
           let a = Atom.Stack.get self.trail i in
           assert (is_true self a);
-          Atom.Assign.set self.assign a false;
+          Atom.Assign.set self.assign a false
         done;
 
         (* remove literals from trail *)
@@ -347,53 +393,50 @@ module Make() : S = struct
       CCFun.finally ~h:restore ~f
 
     (* add clause to the state *)
-    let add_clause (self:t) (c:Clause.t) =
-      Log.debugf 50 (fun k->k"(@[add-clause@ %a@])" Clause.pp c);
+    let add_clause (self : t) (c : Clause.t) =
+      Log.debugf 50 (fun k -> k "(@[add-clause@ %a@])" Clause.pp c);
       Clause.iter c ~f:(ensure_atom_ self);
       Clause.Tbl.add self.active_clauses c ();
 
-      begin match Clause.size c with
-        | 0 -> ()
-        | 1 ->
-          set_atom_true self (Clause.get c 0);
-        | _ ->
-          let c0 = Clause.get c 0 in
-          let c1 = Clause.get c 1 in
-          assert (c0 <> c1);
-          Clause.set_watches c (c0,c1);
-          (* make sure watches are valid *)
-          if is_false self c0 then (
-            match propagate_in_clause_ self (Atom.neg c0) c with
-            | Keep -> add_watch_ self (Atom.neg c0) c;
-            | Remove -> ()
-          ) else (
-            add_watch_ self (Atom.neg c0) c
-          );
-          if is_false self c1 then (
-            match propagate_in_clause_ self (Atom.neg c1) c with
-            | Keep -> add_watch_ self (Atom.neg c1) c;
-            | Remove -> ()
-          ) else (
-            add_watch_ self (Atom.neg c1) c
-          )
-      end;
+      (match Clause.size c with
+      | 0 -> ()
+      | 1 -> set_atom_true self (Clause.get c 0)
+      | _ ->
+        let c0 = Clause.get c 0 in
+        let c1 = Clause.get c 1 in
+        assert (c0 <> c1);
+        Clause.set_watches c (c0, c1);
+        (* make sure watches are valid *)
+        if is_false self c0 then (
+          match propagate_in_clause_ self (Atom.neg c0) c with
+          | Keep -> add_watch_ self (Atom.neg c0) c
+          | Remove -> ()
+        ) else
+          add_watch_ self (Atom.neg c0) c;
+        if is_false self c1 then (
+          match propagate_in_clause_ self (Atom.neg c1) c with
+          | Keep -> add_watch_ self (Atom.neg c1) c
+          | Remove -> ()
+        ) else
+          add_watch_ self (Atom.neg c1) c);
       ()
 
-    let is_valid_drup (self:t) (c:Clause.t) : bool =
+    let is_valid_drup (self : t) (c : Clause.t) : bool =
       (* negate [c], pushing each atom on trail, and see if we get [Conflict]
          by pure propagation *)
       try
         with_restore_trail_ self @@ fun () ->
-        Clause.iter c
-          ~f:(fun a ->
-              if is_true self a then raise_notrace Conflict; (* tautology *)
-              let a' = Atom.neg a in
-              if is_true self a' then () else (
-                set_atom_true self a'
-              ));
+        Clause.iter c ~f:(fun a ->
+            if is_true self a then raise_notrace Conflict;
+            (* tautology *)
+            let a' = Atom.neg a in
+            if is_true self a' then
+              ()
+            else
+              set_atom_true self a');
         bcp_fixpoint_ self;
 
-      (*
+        (*
       (* slow sanity check *)
       Clause.Tbl.iter
         (fun c () ->
@@ -401,14 +444,9 @@ module Make() : S = struct
             Log.debugf 0 (fun k->k"clause is false: %a" Clause.pp c))
         self.active_clauses;
          *)
-
         false
-      with Conflict ->
-        true
+      with Conflict -> true
 
-    let del_clause (_self:t) (_c:Clause.t) : unit =
-      () (* TODO *)
+    let del_clause (_self : t) (_c : Clause.t) : unit = () (* TODO *)
   end
-
 end
-

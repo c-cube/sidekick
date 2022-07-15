@@ -1,4 +1,3 @@
-
 (* This file is free software. See file "license" for more details. *)
 
 (** Unique Identifiers *)
@@ -48,4 +47,3 @@ val pp_name : t CCFormat.printer
 module Map : CCMap.S with type key = t
 module Set : CCSet.S with type elt = t
 module Tbl : CCHashtbl.S with type key = t
-

@@ -1,6 +1,5 @@
 (** Main API *)
 
-
 module Solver_intf = Solver_intf
 
 module type S = Solver_intf.S
@@ -11,13 +10,17 @@ module type PROOF = Solver_intf.PROOF
 type lbool = Solver_intf.lbool = L_true | L_false | L_undefined
 
 module type SAT_STATE = Solver_intf.SAT_STATE
+
 type 'form sat_state = 'form Solver_intf.sat_state
 
 type ('lit, 'proof) reason = ('lit, 'proof) Solver_intf.reason =
-  | Consequence of (unit -> 'lit list * 'proof) [@@unboxed]
+  | Consequence of (unit -> 'lit list * 'proof)
+[@@unboxed]
 
 module type ACTS = Solver_intf.ACTS
-type ('lit, 'proof, 'proof_step) acts = ('lit, 'proof, 'proof_step) Solver_intf.acts
+
+type ('lit, 'proof, 'proof_step) acts =
+  ('lit, 'proof, 'proof_step) Solver_intf.acts
 
 type negated = bool
 
@@ -34,5 +37,5 @@ module Solver = Solver
 module Make_cdcl_t = Solver.Make_cdcl_t
 module Make_pure_sat = Solver.Make_pure_sat
 
-(** Module for dummy proofs based on unit *)
 module Proof_dummy = Proof_dummy
+(** Module for dummy proofs based on unit *)

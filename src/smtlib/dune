@@ -1,7 +1,6 @@
 (library
  (name sidekick_smtlib)
  (public_name sidekick-bin.smtlib)
- (libraries containers zarith sidekick.core sidekick.util
-            sidekick-base sidekick-base.solver
-            smtlib-utils sidekick.tef)
+ (libraries containers zarith sidekick.core sidekick.util sidekick-base
+   sidekick-base.solver smtlib-utils sidekick.tef)
  (flags :standard -warn-error -a+8 -open Sidekick_util))

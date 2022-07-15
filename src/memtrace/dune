@@ -1,10 +1,10 @@
-
 (library
-  (name sidekick_memtrace)
-  (public_name sidekick.memtrace)
-  (libraries
-    (select sidekick_memtrace.ml from
-            (memtrace -> sidekick_memtrace.real.ml)
-            (-> sidekick_memtrace.dummy.ml)))
-  (flags :standard -warn-error -a+8))
-
+ (name sidekick_memtrace)
+ (public_name sidekick.memtrace)
+ (libraries
+  (select
+   sidekick_memtrace.ml
+   from
+   (memtrace -> sidekick_memtrace.real.ml)
+   (-> sidekick_memtrace.dummy.ml)))
+ (flags :standard -warn-error -a+8))

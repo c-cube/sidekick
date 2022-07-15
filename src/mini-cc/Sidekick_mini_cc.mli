@@ -46,7 +46,8 @@ module type S = sig
 end
 
 (** Instantiate the congruence closure for the given term structure. *)
-module Make(A: ARG)
-  : S with type term = A.T.Term.t
-       and type fun_ = A.T.Fun.t
-       and type term_store = A.T.Term.store
+module Make (A : ARG) :
+  S
+    with type term = A.T.Term.t
+     and type fun_ = A.T.Fun.t
+     and type term_store = A.T.Term.store

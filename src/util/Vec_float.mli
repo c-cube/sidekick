@@ -1,4 +1,3 @@
-
 (** Vectors of floats
 
     These vectors are more optimized than {!Vec}. *)

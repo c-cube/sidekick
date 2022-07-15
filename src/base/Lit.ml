@@ -1,2 +1,1 @@
-
-include Sidekick_lit.Make(Solver_arg)
+include Sidekick_lit.Make (Solver_arg)

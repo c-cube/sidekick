@@ -1,4 +1,3 @@
-
 (** Manage a list of chunks.
 
     A chunk is used for serializing proof traces, possibly on disk.
@@ -14,15 +13,10 @@
 
 (** A hand made buffer *)
 module Buf : sig
-  type t = {
-    mutable b: bytes;
-    mutable len: int;
-  }
+  type t = { mutable b: bytes; mutable len: int }
 
   val create : ?cap:int -> unit -> t
-
   val clear : t -> unit
-
   val contents : t -> string
 end
 
@@ -31,17 +25,11 @@ module Writer : sig
   type t
 
   val dummy : t
-
   val into_buf : Buf.t -> t
-
-  val into_channel: out_channel -> t
-
+  val into_channel : out_channel -> t
   val add_buf : t -> Buf.t -> unit
-
   val add_bytes : t -> bytes -> int -> int -> unit
-
   val add_string : t -> string -> unit
-
   val add_buffer : t -> Buffer.t -> unit
 end
 
@@ -55,7 +43,6 @@ module Reader : sig
   (** Read next chunk as a string *)
 
   val empty : t
-
   val from_buf : Buf.t -> t
 
   val from_channel_backward : ?close_at_end:bool -> in_channel -> t

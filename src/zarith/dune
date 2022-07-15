@@ -1,6 +1,6 @@
 (library
-  (name sidekick_zarith)
-  (public_name sidekick.zarith)
-  (optional) ; dep on zarith
-  (flags :standard -warn-error -a+8)
-  (libraries sidekick.core sidekick.arith zarith))
+ (name sidekick_zarith)
+ (public_name sidekick.zarith)
+ (optional) ; dep on zarith
+ (flags :standard -warn-error -a+8)
+ (libraries sidekick.core sidekick.arith zarith))

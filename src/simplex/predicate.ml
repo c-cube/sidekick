@@ -1,4 +1,3 @@
-
 type t = Leq | Geq | Lt | Gt | Eq | Neq
 
 let neg = function
@@ -18,8 +17,11 @@ let neg_sign = function
   | Eq -> Eq
 
 let to_string = function
-  | Leq -> "=<" | Geq -> ">=" | Lt -> "<"
-  | Gt -> ">" | Eq -> "=" | Neq -> "!="
+  | Leq -> "=<"
+  | Geq -> ">="
+  | Lt -> "<"
+  | Gt -> ">"
+  | Eq -> "="
+  | Neq -> "!="
 
-let pp out (self:t) = Fmt.string out (to_string self)
-
+let pp out (self : t) = Fmt.string out (to_string self)

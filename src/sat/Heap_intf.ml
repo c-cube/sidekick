@@ -1,4 +1,3 @@
-
 module type RANKED = sig
   type store
   type t = private int

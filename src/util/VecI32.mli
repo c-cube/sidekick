@@ -1,4 +1,3 @@
-
 (** Vectors of int32 integers
 
     These vectors are more optimized than {!Vec}. *)

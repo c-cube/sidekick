@@ -1,6 +1,5 @@
-
 (library
-  (name sidekick_quip)
-  (public_name sidekick.quip)
-  (libraries sidekick.util)
-  (flags :standard -warn-error -a+8 -w -37 -open Sidekick_util))
+ (name sidekick_quip)
+ (public_name sidekick.quip)
+ (libraries sidekick.util)
+ (flags :standard -warn-error -a+8 -w -37 -open Sidekick_util))

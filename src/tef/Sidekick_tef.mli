@@ -1,4 +1,3 @@
-
 (** {1 Tracing Event Format}
 
     A nice profiling format based on json, useful for visualizing what goes on.
@@ -22,5 +21,4 @@ val setup : unit -> unit
 (** Install the TEF logger as a profiling backend. *)
 
 val teardown : unit -> unit
-
-val with_setup: (unit -> 'a) -> 'a
+val with_setup : (unit -> 'a) -> 'a

@@ -1,4 +1,3 @@
-
 (** Proof representation *)
 
 open Base_types
@@ -38,27 +37,30 @@ type proof_step
     The proof will store all steps, and at the end when we find the empty clause
     we can filter them to keep only the relevant ones. *)
 
-include Sidekick_core.PROOF
-  with type t := t
-   and type proof_step := proof_step
-   and type lit = Lit.t
-   and type term = Term.t
+include
+  Sidekick_core.PROOF
+    with type t := t
+     and type proof_step := proof_step
+     and type lit = Lit.t
+     and type term = Term.t
 
 val lemma_lra : Lit.t Iter.t -> proof_rule
 val lemma_relax_to_lra : Lit.t Iter.t -> proof_rule
 val lemma_lia : Lit.t Iter.t -> proof_rule
 
-include Sidekick_th_data.PROOF
-  with type proof := t
-   and type proof_step := proof_step
-   and type lit := Lit.t
-   and type term := Term.t
+include
+  Sidekick_th_data.PROOF
+    with type proof := t
+     and type proof_step := proof_step
+     and type lit := Lit.t
+     and type term := Term.t
 
-include Sidekick_th_bool_static.PROOF
-  with type proof := t
-   and type proof_step := proof_step
-   and type lit := Lit.t
-   and type term := Term.t
+include
+  Sidekick_th_bool_static.PROOF
+    with type proof := t
+     and type proof_step := proof_step
+     and type lit := Lit.t
+     and type term := Term.t
 
 (** {2 Creation} *)
 
@@ -79,7 +81,6 @@ val iter_steps_backward : t -> Proof_ser.Step.t Iter.t
 
     This will yield nothing if the proof was disabled or used
     a dummy backend. *)
-
 
 module Unsafe_ : sig
   val id_of_proof_step_ : proof_step -> Proof_ser.ID.t

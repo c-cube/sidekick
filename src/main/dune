@@ -6,16 +6,6 @@
  (package sidekick-bin)
  (modes native)
  (libraries containers iter result sidekick.sat sidekick.core sidekick-base
-            sidekick.smt-solver sidekick-bin.smtlib sidekick.tef
-            sidekick.drup
-            sidekick.memtrace sidekick-bin.lib)
+   sidekick.smt-solver sidekick-bin.smtlib sidekick.tef sidekick.drup
+   sidekick.memtrace sidekick-bin.lib)
  (flags :standard -safe-string -color always -open Sidekick_util))
-
-(rule
-  (targets sidekick_version.ml)
-  (deps (universe))
-  (mode promote)
-  (action
-    (with-stdout-to %{targets}
-       (echo "let version = {git|%{version:sidekick}|git}"))))
-

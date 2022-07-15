@@ -1,7 +1,6 @@
-
 (library
-  (name sidekick_simplex)
-  (public_name sidekick.simplex)
-  (synopsis "Simplex algorithm")
-  (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util)
-  (libraries containers sidekick.core sidekick.arith))
+ (name sidekick_simplex)
+ (public_name sidekick.simplex)
+ (synopsis "Simplex algorithm")
+ (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util)
+ (libraries containers sidekick.core sidekick.arith))

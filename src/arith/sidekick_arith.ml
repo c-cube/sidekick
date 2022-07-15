@@ -1,35 +1,31 @@
-
 module type NUM = sig
   type t
 
   val zero : t
   val one : t
   val minus_one : t
-
   val abs : t -> t
   val sign : t -> int
-
   val of_int : int -> t
+
   include Sidekick_sigs.EQ with type t := t
   include Sidekick_sigs.ORD with type t := t
   include Sidekick_sigs.HASH with type t := t
   include Sidekick_sigs.PRINT with type t := t
 
-  val (+) : t -> t -> t
-  val (-) : t -> t -> t
+  val ( + ) : t -> t -> t
+  val ( - ) : t -> t -> t
   val ( * ) : t -> t -> t
-  val (~-) : t -> t
-
+  val ( ~- ) : t -> t
   val neg : t -> t
   val min : t -> t -> t
   val max : t -> t -> t
-
-  val (=) : t -> t -> bool
-  val (<>) : t -> t -> bool
-  val (>) : t -> t -> bool
-  val (>=) : t -> t -> bool
-  val (<) : t -> t -> bool
-  val (<=) : t -> t -> bool
+  val ( = ) : t -> t -> bool
+  val ( <> ) : t -> t -> bool
+  val ( > ) : t -> t -> bool
+  val ( >= ) : t -> t -> bool
+  val ( < ) : t -> t -> bool
+  val ( <= ) : t -> t -> bool
 end
 
 module type INT = sig
@@ -42,9 +38,10 @@ end
 
 module type RATIONAL = sig
   include NUM
+
   type bigint
 
-  val (/) : t -> t -> t
+  val ( / ) : t -> t -> t
   val num : t -> bigint
   val denum : t -> bigint
 
@@ -52,7 +49,6 @@ module type RATIONAL = sig
   (** +infinity *)
 
   val minus_infinity : t
-
   val of_bigint : bigint -> t
 
   val is_real : t -> bool
@@ -79,17 +75,13 @@ module type INT_FULL = sig
   include INT
 
   val sqrt : t -> t
-
   val divexact : t -> t -> t
-
-  val (/) : t -> t -> t
+  val ( / ) : t -> t -> t
 
   val ediv : t -> t -> t
   (** Euclidian division *)
 
   val rem : t -> t -> t
-
   val probab_prime : t -> bool
-
   val pow : t -> int -> t
 end

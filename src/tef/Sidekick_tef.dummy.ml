@@ -1,4 +1,3 @@
-
-let setup() = ()
-let teardown() = ()
-let with_setup f = f()
+let setup () = ()
+let teardown () = ()
+let with_setup f = f ()

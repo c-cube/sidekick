@@ -23,8 +23,9 @@ end
 
 module type ARG = sig
   type t
+
   val equal : t -> t -> bool
   val hash : t -> int
 end
 
-module Make(A : ARG) : S with type key = A.t
+module Make (A : ARG) : S with type key = A.t

@@ -1,41 +1,37 @@
-
 module A = Bigarray.Array1
 
 type float_arr = (float, Bigarray.float64_elt, Bigarray.c_layout) A.t
-
-type t = {
-  mutable data: float_arr;
-  mutable sz: int;
-}
+type t = { mutable data: float_arr; mutable sz: int }
 
 let mk_arr_ sz : float_arr = A.create Bigarray.float64 Bigarray.c_layout sz
-
-let create ?(cap=16) () : t =
-  { sz=0; data=mk_arr_ cap }
-
+let create ?(cap = 16) () : t = { sz = 0; data = mk_arr_ cap }
 let[@inline] clear self = self.sz <- 0
 let[@inline] shrink self n = if n < self.sz then self.sz <- n
 let[@inline] size self = self.sz
 let[@inline] is_empty self = self.sz = 0
 
 let copy self =
-  if size self=0 then create ~cap:0 ()
+  if size self = 0 then
+    create ~cap:0 ()
   else (
     (* copy bigarray *)
     let data = mk_arr_ (size self) in
     A.blit (A.sub self.data 0 (size self)) data;
-    {sz=self.sz; data}
+    { sz = self.sz; data }
   )
 
 let[@inline] fast_remove t i =
-  assert (i>= 0 && i < t.sz);
+  assert (i >= 0 && i < t.sz);
   A.unsafe_set t.data i @@ A.unsafe_get t.data (t.sz - 1);
   t.sz <- t.sz - 1
 
 let filter_in_place f vec =
   let i = ref 0 in
   while !i < size vec do
-    if f (A.unsafe_get vec.data !i) then incr i else fast_remove vec !i
+    if f (A.unsafe_get vec.data !i) then
+      incr i
+    else
+      fast_remove vec !i
   done
 
 (* ensure capacity is [new_cap] *)
@@ -45,10 +41,10 @@ let resize_cap_ self new_cap =
   A.blit self.data (A.sub new_data 0 (A.dim self.data));
   self.data <- new_data
 
-let ensure_cap self (n:int) =
+let ensure_cap self (n : int) =
   if n > A.dim self.data then (
-    let new_cap = max n (A.dim self.data * 2 + 10) in
-    resize_cap_ self new_cap;
+    let new_cap = max n ((A.dim self.data * 2) + 10) in
+    resize_cap_ self new_cap
   )
 
 let ensure_size self n =
@@ -57,17 +53,18 @@ let ensure_size self n =
     self.sz <- n
   )
 
-let[@inline] push (self:t) x : unit =
-  ensure_cap self (self.sz+1);
+let[@inline] push (self : t) x : unit =
+  ensure_cap self (self.sz + 1);
   self.data.{self.sz} <- x;
   self.sz <- 1 + self.sz
 
 let[@inline] pop self =
   if self.sz > 0 then (
-    let x = self.data.{self.sz-1} in
+    let x = self.data.{self.sz - 1} in
     self.sz <- self.sz - 1;
     x
-  ) else failwith "vec_float.pop: empty"
+  ) else
+    failwith "vec_float.pop: empty"
 
 let[@inline] get self i : float =
   assert (i >= 0 && i < self.sz);
@@ -78,20 +75,21 @@ let[@inline] set self i x : unit =
   A.unsafe_set self.data i x
 
 let[@inline] iter ~f self =
-  for i=0 to self.sz - 1 do
+  for i = 0 to self.sz - 1 do
     f self.data.{i}
   done
 
 let[@inline] iteri ~f self =
-  for i=0 to self.sz - 1 do
+  for i = 0 to self.sz - 1 do
     f i self.data.{i}
   done
 
-include Vec_sig.Make_extensions(struct
-    type nonrec elt = float
-    type nonrec t = t
-    let get = get
-    let size = size
-    let iter = iter
-    let iteri = iteri
-  end)
+include Vec_sig.Make_extensions (struct
+  type nonrec elt = float
+  type nonrec t = t
+
+  let get = get
+  let size = size
+  let iter = iter
+  let iteri = iteri
+end)

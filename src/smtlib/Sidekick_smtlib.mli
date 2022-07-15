@@ -13,5 +13,4 @@ module Solver = Process.Solver
 module Proof = Sidekick_base.Proof
 
 val parse : Term.store -> string -> Stmt.t list or_error
-
 val parse_stdin : Term.store -> Stmt.t list or_error

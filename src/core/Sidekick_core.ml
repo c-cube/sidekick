@@ -29,29 +29,39 @@ module CC_view = struct
     | If of 't * 't * 't
     | Eq of 't * 't
     | Not of 't
-    | Opaque of 't (* do not enter *)
+    | Opaque of 't
+  (* do not enter *)
 
-(** Map function over a view, one level deep.
+  (** Map function over a view, one level deep.
     Each function maps over a different type, e.g. [f_t] maps over terms *)
-  let map_view ~f_f ~f_t ~f_ts (v:_ t) : _ t =
+  let map_view ~f_f ~f_t ~f_ts (v : _ t) : _ t =
     match v with
     | Bool b -> Bool b
     | App_fun (f, args) -> App_fun (f_f f, f_ts args)
     | App_ho (f, a) -> App_ho (f_t f, f_t a)
     | Not t -> Not (f_t t)
-    | If (a,b,c) -> If (f_t a, f_t b, f_t c)
-    | Eq (a,b) -> Eq (f_t a, f_t b)
+    | If (a, b, c) -> If (f_t a, f_t b, f_t c)
+    | Eq (a, b) -> Eq (f_t a, f_t b)
     | Opaque t -> Opaque (f_t t)
 
   (** Iterate over a view, one level deep. *)
-  let iter_view ~f_f ~f_t ~f_ts (v:_ t) : unit =
+  let iter_view ~f_f ~f_t ~f_ts (v : _ t) : unit =
     match v with
     | Bool _ -> ()
-    | App_fun (f, args) -> f_f f; f_ts args
-    | App_ho (f, a) -> f_t f; f_t a
+    | App_fun (f, args) ->
+      f_f f;
+      f_ts args
+    | App_ho (f, a) ->
+      f_t f;
+      f_t a
     | Not t -> f_t t
-    | If (a,b,c) -> f_t a; f_t b; f_t c;
-    | Eq (a,b) -> f_t a; f_t b
+    | If (a, b, c) ->
+      f_t a;
+      f_t b;
+      f_t c
+    | Eq (a, b) ->
+      f_t a;
+      f_t b
     | Opaque t -> f_t t
 end
 
@@ -60,6 +70,7 @@ module type TERM = sig
   (** A function symbol, like "f" or "plus" or "is_human" or "socrates" *)
   module Fun : sig
     type t
+
     val equal : t -> t -> bool
     val hash : t -> int
     val pp : t Fmt.printer
@@ -89,18 +100,20 @@ module type TERM = sig
   *)
   module Term : sig
     type t
+
     val equal : t -> t -> bool
     val compare : t -> t -> int
     val hash : t -> int
     val pp : t Fmt.printer
 
+    type store
     (** A store used to create new terms. It is where the hashconsing
         table should live, along with other all-terms related store. *)
-    type store
 
     val ty : t -> Ty.t
 
-    val bool : store -> bool -> t (** build true/false *)
+    val bool : store -> bool -> t
+    (** build true/false *)
 
     val as_bool : t -> bool option
     (** [as_bool t] is [Some true] if [t] is the term [true], and similarly
@@ -201,11 +214,12 @@ module type PROOF = sig
   type lit
   type proof_rule = t -> proof_step
 
-  include SAT_PROOF
-    with type t := t
-     and type lit := lit
-     and type proof_step := proof_step
-     and type proof_rule := proof_rule
+  include
+    SAT_PROOF
+      with type t := t
+       and type lit := lit
+       and type proof_step := proof_step
+       and type proof_rule := proof_rule
 
   val lemma_cc : lit Iter.t -> proof_rule
   (** [lemma_cc proof lits] asserts that [lits] form a tautology for the theory
@@ -249,7 +263,8 @@ module type PROOF = sig
       From now on, [t] and [u] will be used interchangeably.
       @return a proof_rule ID for the clause [(t=u)]. *)
 
-  val lemma_rw_clause : proof_step -> res:lit Iter.t -> using:proof_step Iter.t -> proof_rule
+  val lemma_rw_clause :
+    proof_step -> res:lit Iter.t -> using:proof_step Iter.t -> proof_rule
   (** [lemma_rw_clause prc ~res ~using], where [prc] is the proof of [|- c],
       uses the equations [|- p_i = q_i] from [using]
       to rewrite some literals of [c] into [res]. This is used to preprocess
@@ -313,11 +328,13 @@ module type CC_ACTIONS = sig
 
   type proof
   type proof_step
-  module P : PROOF
-    with type lit = Lit.t
-     and type t = proof
-     and type term = T.Term.t
-     and type proof_step = proof_step
+
+  module P :
+    PROOF
+      with type lit = Lit.t
+       and type t = proof
+       and type term = T.Term.t
+       and type proof_step = proof_step
 
   type t
   (** An action handle. It is used by the congruence closure
@@ -332,7 +349,8 @@ module type CC_ACTIONS = sig
       exception).
       @param pr the proof of [c] being a tautology *)
 
-  val raise_semantic_conflict : t -> Lit.t list -> (bool * T.Term.t * T.Term.t) list -> 'a
+  val raise_semantic_conflict :
+    t -> Lit.t list -> (bool * T.Term.t * T.Term.t) list -> 'a
   (** [raise_semantic_conflict acts lits same_val] declares that
       the conjunction of all [lits] (literals true in current trail) and tuples
       [{=,≠}, t_i, u_i] implies false.
@@ -358,18 +376,23 @@ end
 module type CC_ARG = sig
   module T : TERM
   module Lit : LIT with module T = T
+
   type proof
   type proof_step
-  module P : PROOF
-    with type lit = Lit.t
-     and type t = proof
-     and type term = T.Term.t
-     and type proof_step = proof_step
-  module Actions : CC_ACTIONS
-    with module T=T
-     and module Lit = Lit
-     and type proof = proof
-     and type proof_step = proof_step
+
+  module P :
+    PROOF
+      with type lit = Lit.t
+       and type t = proof
+       and type term = T.Term.t
+       and type proof_step = proof_step
+
+  module Actions :
+    CC_ACTIONS
+      with module T = T
+       and module Lit = Lit
+       and type proof = proof
+       and type proof_step = proof_step
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
   (** View the term through the lens of the congruence closure *)
@@ -394,22 +417,27 @@ end
     assert (dis)equalities as needed.
 *)
 module type CC_S = sig
-
   (** first, some aliases. *)
 
   module T : TERM
   module Lit : LIT with module T = T
+
   type proof
   type proof_step
-  module P : PROOF
-    with type lit = Lit.t
-     and type t = proof
-     and type proof_step = proof_step
-  module Actions : CC_ACTIONS
-    with module T = T
-    and module Lit = Lit
-    and type proof = proof
-    and type proof_step = proof_step
+
+  module P :
+    PROOF
+      with type lit = Lit.t
+       and type t = proof
+       and type proof_step = proof_step
+
+  module Actions :
+    CC_ACTIONS
+      with module T = T
+       and module Lit = Lit
+       and type proof = proof
+       and type proof_step = proof_step
+
   type term_store = T.Term.store
   type term = T.Term.t
   type value = term
@@ -493,6 +521,7 @@ module type CC_S = sig
       when asked to justify why 2 terms are equal. *)
   module Expl : sig
     type t
+
     val pp : t Fmt.printer
 
     val mk_merge : N.t -> N.t -> t
@@ -512,9 +541,7 @@ module type CC_S = sig
     (** Conjunction of explanations *)
 
     val mk_theory :
-      term -> term ->
-      (term * term * t list) list ->
-      proof_step -> t
+      term -> term -> (term * term * t list) list -> proof_step -> t
     (** [mk_theory t u expl_sets pr] builds a theory explanation for
         why [|- t=u]. It depends on sub-explanations [expl_sets] which
         are tuples [ (t_i, u_i, expls_i) ] where [expls_i] are
@@ -571,7 +598,6 @@ module type CC_S = sig
   (** {3 Accessors} *)
 
   val term_store : t -> term_store
-
   val proof : t -> proof
 
   val find : t -> node -> repr
@@ -628,7 +654,7 @@ module type CC_S = sig
     ?on_conflict:ev_on_conflict list ->
     ?on_propagate:ev_on_propagate list ->
     ?on_is_subterm:ev_on_is_subterm list ->
-    ?size:[`Small | `Big] ->
+    ?size:[ `Small | `Big ] ->
     term_store ->
     proof ->
     t
@@ -752,16 +778,17 @@ module type CC_S = sig
   (** get all the equivalence classes so they can be merged in the model *)
 
   (**/**)
+
   module Debug_ : sig
     val pp : t Fmt.printer
   end
+
   (**/**)
 end
 
 (** Registry to extract values *)
 module type REGISTRY = sig
   type t
-
   type 'a key
 
   val create_key : unit -> 'a key
@@ -769,9 +796,7 @@ module type REGISTRY = sig
       each distinct key. *)
 
   val create : unit -> t
-
   val get : t -> 'a key -> 'a option
-
   val set : t -> 'a key -> 'a -> unit
 end
 
@@ -793,14 +818,16 @@ module type SOLVER_INTERNAL = sig
   type proof_step
 
   (** {3 Proofs} *)
-  module P : PROOF
-    with type lit = Lit.t
-     and type term = term
-     and type t = proof
-     and type proof_step = proof_step
+  module P :
+    PROOF
+      with type lit = Lit.t
+       and type term = term
+       and type t = proof
+       and type proof_step = proof_step
 
-  (** {3 Main type for a solver} *)
   type t
+  (** {3 Main type for a solver} *)
+
   type solver = t
 
   val tst : t -> term_store
@@ -827,14 +854,15 @@ module type SOLVER_INTERNAL = sig
   (** {3 Congruence Closure} *)
 
   (** Congruence closure instance *)
-  module CC : CC_S
-    with module T = T
-     and module Lit = Lit
-     and type proof = proof
-     and type proof_step = proof_step
-     and type P.t = proof
-     and type P.lit = lit
-     and type Actions.t = theory_actions
+  module CC :
+    CC_S
+      with module T = T
+       and module Lit = Lit
+       and type proof = proof
+       and type proof_step = proof_step
+       and type P.t = proof
+       and type P.lit = lit
+       and type Actions.t = theory_actions
 
   val cc : t -> CC.t
   (** Congruence closure for this solver *)
@@ -912,10 +940,7 @@ module type SOLVER_INTERNAL = sig
   type preprocess_actions = (module PREPROCESS_ACTS)
   (** Actions available to the preprocessor *)
 
-  type preprocess_hook =
-    t ->
-    preprocess_actions ->
-    term -> unit
+  type preprocess_hook = t -> preprocess_actions -> term -> unit
   (** Given a term, preprocess it.
 
       The idea is to add literals and clauses to help define the meaning of
@@ -940,11 +965,12 @@ module type SOLVER_INTERNAL = sig
       If the SAT solver backtracks, this (potential) decision is removed
       and forgotten. *)
 
-  val propagate: t -> theory_actions -> lit -> reason:(unit -> lit list * proof_step) -> unit
+  val propagate :
+    t -> theory_actions -> lit -> reason:(unit -> lit list * proof_step) -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-  val propagate_l: t -> theory_actions -> lit -> lit list -> proof_step -> unit
+  val propagate_l : t -> theory_actions -> lit -> lit list -> proof_step -> unit
   (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
@@ -952,7 +978,8 @@ module type SOLVER_INTERNAL = sig
   (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
-  val add_clause_permanent : t -> theory_actions -> lit list -> proof_step -> unit
+  val add_clause_permanent :
+    t -> theory_actions -> lit list -> proof_step -> unit
   (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
@@ -996,10 +1023,14 @@ module type SOLVER_INTERNAL = sig
   (** Return [true] if the term is explicitly in the congruence closure.
       To be used in theories *)
 
-  val on_cc_pre_merge : t -> (CC.t -> theory_actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) -> unit
+  val on_cc_pre_merge :
+    t ->
+    (CC.t -> theory_actions -> CC.N.t -> CC.N.t -> CC.Expl.t -> unit) ->
+    unit
   (** Callback for when two classes containing data for this key are merged (called before) *)
 
-  val on_cc_post_merge : t -> (CC.t -> theory_actions -> CC.N.t -> CC.N.t -> unit) -> unit
+  val on_cc_post_merge :
+    t -> (CC.t -> theory_actions -> CC.N.t -> CC.N.t -> unit) -> unit
   (** Callback for when two classes containing data for this key are merged (called after)*)
 
   val on_cc_new_term : t -> (CC.t -> CC.N.t -> term -> unit) -> unit
@@ -1013,10 +1044,12 @@ module type SOLVER_INTERNAL = sig
   val on_cc_conflict : t -> (CC.t -> th:bool -> lit list -> unit) -> unit
   (** Callback called on every CC conflict *)
 
-  val on_cc_propagate : t -> (CC.t -> lit -> (unit -> lit list * proof_step) -> unit) -> unit
+  val on_cc_propagate :
+    t -> (CC.t -> lit -> (unit -> lit list * proof_step) -> unit) -> unit
   (** Callback called on every CC propagation *)
 
-  val on_partial_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
+  val on_partial_check :
+    t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
   (** Register callbacked to be called with the slice of literals
       newly added on the trail.
 
@@ -1024,7 +1057,7 @@ module type SOLVER_INTERNAL = sig
       to be complete, only correct. It's given only the slice of
       the trail consisting in new literals. *)
 
-  val on_final_check: t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
+  val on_final_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
   (** Register callback to be called during the final check.
 
       Must be complete (i.e. must raise a conflict if the set of literals is
@@ -1032,7 +1065,8 @@ module type SOLVER_INTERNAL = sig
       is given the whole trail.
   *)
 
-  val on_th_combination : t -> (t -> theory_actions -> (term * value) Iter.t) -> unit
+  val on_th_combination :
+    t -> (t -> theory_actions -> (term * value) Iter.t) -> unit
   (** Add a hook called during theory combination.
       The hook must return an iterator of pairs [(t, v)]
       which mean that term [t] has value [v] in the model.
@@ -1049,8 +1083,7 @@ module type SOLVER_INTERNAL = sig
   (** {3 Model production} *)
 
   type model_ask_hook =
-    recurse:(t -> CC.N.t -> term) ->
-    t -> CC.N.t -> term option
+    recurse:(t -> CC.N.t -> term) -> t -> CC.N.t -> term option
   (** A model-production hook to query values from a theory.
 
       It takes the solver, a class, and returns
@@ -1061,14 +1094,12 @@ module type SOLVER_INTERNAL = sig
       If no hook assigns a value to a class, a fake value is created for it.
   *)
 
-  type model_completion_hook =
-    t -> add:(term -> term -> unit) -> unit
+  type model_completion_hook = t -> add:(term -> term -> unit) -> unit
   (** A model production hook, for the theory to add values.
       The hook is given a [add] function to add bindings to the model. *)
 
   val on_model :
-    ?ask:model_ask_hook -> ?complete:model_completion_hook ->
-    t -> unit
+    ?ask:model_ask_hook -> ?complete:model_completion_hook -> t -> unit
   (** Add model production/completion hooks. *)
 end
 
@@ -1082,22 +1113,25 @@ end
 module type SOLVER = sig
   module T : TERM
   module Lit : LIT with module T = T
+
   type proof
   type proof_step
-  module P : PROOF
-    with type lit = Lit.t
-     and type t = proof
-     and type proof_step = proof_step
-     and type term = T.Term.t
 
-  module Solver_internal
-    : SOLVER_INTERNAL
+  module P :
+    PROOF
+      with type lit = Lit.t
+       and type t = proof
+       and type proof_step = proof_step
+       and type term = T.Term.t
+
+  (** Internal solver, available to theories.  *)
+  module Solver_internal :
+    SOLVER_INTERNAL
       with module T = T
        and module Lit = Lit
        and type proof = proof
        and type proof_step = proof_step
        and module P = P
-  (** Internal solver, available to theories.  *)
 
   type t
   (** The solver's state. *)
@@ -1179,19 +1213,16 @@ module type SOLVER = sig
     type t
 
     val empty : t
-
     val mem : t -> term -> bool
-
     val find : t -> term -> term option
-
     val eval : t -> term -> term option
-
     val pp : t Fmt.printer
   end
 
   (* TODO *)
   module Unknown : sig
     type t
+
     val pp : t CCFormat.printer
 
     (*
@@ -1210,7 +1241,7 @@ module type SOLVER = sig
 
   val create :
     ?stat:Stat.t ->
-    ?size:[`Big | `Tiny | `Small] ->
+    ?size:[ `Big | `Tiny | `Small ] ->
     (* TODO? ?config:Config.t -> *)
     proof:proof ->
     theories:theory list ->
@@ -1265,16 +1296,15 @@ module type SOLVER = sig
 
   (** Result of solving for the current set of clauses *)
   type res =
-    | Sat of Model.t (** Satisfiable *)
+    | Sat of Model.t  (** Satisfiable *)
     | Unsat of {
         unsat_core: unit -> lit Iter.t;
-        (** Unsat core (subset of assumptions), or empty *)
-
-        unsat_proof_step : unit -> proof_step option;
-        (** Proof step for the empty clause *)
-      } (** Unsatisfiable *)
+            (** Unsat core (subset of assumptions), or empty *)
+        unsat_proof_step: unit -> proof_step option;
+            (** Proof step for the empty clause *)
+      }  (** Unsatisfiable *)
     | Unknown of Unknown.t
-    (** Unknown, obtained after a timeout, memory limit, etc. *)
+        (** Unknown, obtained after a timeout, memory limit, etc. *)
 
   (* TODO: API to push/pop/clear assumptions, in addition to ~assumptions param *)
 
@@ -1314,17 +1344,11 @@ module type SOLVER = sig
 
   type propagation_result =
     | PR_sat
-    | PR_conflict of {
-        backtracked: int;
-      }
-    | PR_unsat of {
-        unsat_core: unit -> lit Iter.t;
-      }
+    | PR_conflict of { backtracked: int }
+    | PR_unsat of { unsat_core: unit -> lit Iter.t }
 
   val check_sat_propagations_only :
-    assumptions:lit list ->
-    t ->
-    propagation_result
+    assumptions:lit list -> t -> propagation_result
   (** [check_sat_propagations_only solver] uses assumptions (including
       the [assumptions] parameter, and atoms previously added via {!push_assumptions})
       and boolean+theory propagation to quickly assess satisfiability.
@@ -1363,8 +1387,7 @@ module type MONOID_ARG = sig
   (** name of the monoid structure (short) *)
 
   val of_term :
-    SI.CC.t -> SI.CC.N.t -> SI.T.Term.t ->
-    (t option * (SI.CC.N.t * t) list)
+    SI.CC.t -> SI.CC.N.t -> SI.T.Term.t -> t option * (SI.CC.N.t * t) list
   (** [of_term n t], where [t] is the term annotating node [n],
       must return [maybe_m, l], where:
       - [maybe_m = Some m] if [t] has monoid value [m];
@@ -1376,7 +1399,10 @@ module type MONOID_ARG = sig
 
   val merge :
     SI.CC.t ->
-    SI.CC.N.t -> t -> SI.CC.N.t -> t ->
+    SI.CC.N.t ->
+    t ->
+    SI.CC.N.t ->
+    t ->
     SI.CC.Expl.t ->
     (t, SI.CC.Expl.t) result
   (** Monoidal combination of two values.
@@ -1398,8 +1424,9 @@ end
     aggregate some theory-specific state over all terms, with
     the information of what terms are already known to be equal
     potentially saving work for the theory. *)
-module Monoid_of_repr(M : MONOID_ARG) : sig
+module Monoid_of_repr (M : MONOID_ARG) : sig
   type t
+
   val create_and_setup : ?size:int -> M.SI.t -> t
   (** Create a new monoid state *)
 
@@ -1424,13 +1451,14 @@ end = struct
   module T = SI.T.Term
   module N = SI.CC.N
   module CC = SI.CC
-  module N_tbl = Backtrackable_tbl.Make(N)
+  module N_tbl = Backtrackable_tbl.Make (N)
   module Expl = SI.CC.Expl
 
   type t = {
     cc: CC.t;
     values: M.t N_tbl.t; (* repr -> value for the class *)
-    field_has_value: N.bitfield; (* bit in CC to filter out quickly classes without value *)
+    field_has_value: N.bitfield;
+        (* bit in CC to filter out quickly classes without value *)
   }
 
   let push_level self = N_tbl.push_level self.values
@@ -1439,30 +1467,34 @@ end = struct
 
   let mem self n =
     let res = CC.get_bitfield self.cc self.field_has_value n in
-    assert (if res then N_tbl.mem self.values n else true);
+    assert (
+      if res then
+        N_tbl.mem self.values n
+      else
+        true);
     res
 
   let get self n =
-    if CC.get_bitfield self.cc self.field_has_value n
-    then N_tbl.get self.values n
-    else None
+    if CC.get_bitfield self.cc self.field_has_value n then
+      N_tbl.get self.values n
+    else
+      None
 
-  let on_new_term self cc n (t:T.t) : unit =
+  let on_new_term self cc n (t : T.t) : unit =
     (*Log.debugf 50 (fun k->k "(@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);*)
     let maybe_m, l = M.of_term cc n t in
-    begin match maybe_m with
-      | Some v ->
-        Log.debugf 20
-          (fun k->k "(@[monoid[%s].on-new-term@ :n %a@ :value %a@])"
-              M.name N.pp n M.pp v);
-        SI.CC.set_bitfield cc self.field_has_value true n;
-        N_tbl.add self.values n v
-      | None -> ()
-    end;
+    (match maybe_m with
+    | Some v ->
+      Log.debugf 20 (fun k ->
+          k "(@[monoid[%s].on-new-term@ :n %a@ :value %a@])" M.name N.pp n M.pp
+            v);
+      SI.CC.set_bitfield cc self.field_has_value true n;
+      N_tbl.add self.values n v
+    | None -> ());
     List.iter
-      (fun (n_u,m_u) ->
-        Log.debugf 20
-          (fun k->k "(@[monoid[%s].on-new-term.sub@ :n %a@ :sub-t %a@ :value %a@])"
+      (fun (n_u, m_u) ->
+        Log.debugf 20 (fun k ->
+            k "(@[monoid[%s].on-new-term.sub@ :n %a@ :sub-t %a@ :value %a@])"
               M.name N.pp n N.pp n_u M.pp m_u);
         let n_u = CC.find cc n_u in
         if CC.get_bitfield self.cc self.field_has_value n_u then (
@@ -1474,57 +1506,56 @@ end = struct
           match M.merge cc n_u m_u n_u m_u' (Expl.mk_list []) with
           | Error expl ->
             Error.errorf
-              "when merging@ @[for node %a@],@ \
-               values %a and %a:@ conflict %a"
+              "when merging@ @[for node %a@],@ values %a and %a:@ conflict %a"
               N.pp n_u M.pp m_u M.pp m_u' CC.Expl.pp expl
           | Ok m_u_merged ->
-            Log.debugf 20
-              (fun k->k "(@[monoid[%s].on-new-term.sub.merged@ \
-                         :n %a@ :sub-t %a@ :value %a@])"
+            Log.debugf 20 (fun k ->
+                k
+                  "(@[monoid[%s].on-new-term.sub.merged@ :n %a@ :sub-t %a@ \
+                   :value %a@])"
                   M.name N.pp n N.pp n_u M.pp m_u_merged);
-            N_tbl.add self.values n_u m_u_merged;
+            N_tbl.add self.values n_u m_u_merged
         ) else (
           (* just add to [n_u] *)
           SI.CC.set_bitfield cc self.field_has_value true n_u;
-          N_tbl.add self.values n_u m_u;
-        )
-      )
+          N_tbl.add self.values n_u m_u
+        ))
       l;
     ()
 
-  let iter_all (self:t) : _ Iter.t =
-    N_tbl.to_iter self.values
+  let iter_all (self : t) : _ Iter.t = N_tbl.to_iter self.values
 
-  let on_pre_merge (self:t) cc acts n1 n2 e_n1_n2 : unit =
-    begin match get self n1, get self n2 with
-      | Some v1, Some v2 ->
-        Log.debugf 5
-          (fun k->k
-              "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 %a@ :val2 %a@])@])"
-              M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2);
-        begin match M.merge cc n1 v1 n2 v2 e_n1_n2 with
-          | Ok v' ->
-            N_tbl.remove self.values n2; (* only keep repr *)
-            N_tbl.add self.values n1 v';
-          | Error expl -> SI.CC.raise_conflict_from_expl cc acts expl
-        end
-      | None, Some cr ->
-        SI.CC.set_bitfield cc self.field_has_value true n1;
-        N_tbl.add self.values n1 cr;
-        N_tbl.remove self.values n2; (* only keep reprs *)
-      | Some _, None -> () (* already there on the left *)
-      | None, None -> ()
-    end
+  let on_pre_merge (self : t) cc acts n1 n2 e_n1_n2 : unit =
+    match get self n1, get self n2 with
+    | Some v1, Some v2 ->
+      Log.debugf 5 (fun k ->
+          k
+            "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 %a@ \
+             :val2 %a@])@])"
+            M.name N.pp n1 M.pp v1 N.pp n2 M.pp v2);
+      (match M.merge cc n1 v1 n2 v2 e_n1_n2 with
+      | Ok v' ->
+        N_tbl.remove self.values n2;
+        (* only keep repr *)
+        N_tbl.add self.values n1 v'
+      | Error expl -> SI.CC.raise_conflict_from_expl cc acts expl)
+    | None, Some cr ->
+      SI.CC.set_bitfield cc self.field_has_value true n1;
+      N_tbl.add self.values n1 cr;
+      N_tbl.remove self.values n2 (* only keep reprs *)
+    | Some _, None -> () (* already there on the left *)
+    | None, None -> ()
 
-  let pp out (self:t) : unit =
-    let pp_e out (t,v) = Fmt.fprintf out "(@[%a@ :has %a@])" N.pp t M.pp v in
+  let pp out (self : t) : unit =
+    let pp_e out (t, v) = Fmt.fprintf out "(@[%a@ :has %a@])" N.pp t M.pp v in
     Fmt.fprintf out "(@[%a@])" (Fmt.iter pp_e) (iter_all self)
 
-  let create_and_setup ?size (solver:SI.t) : t =
+  let create_and_setup ?size (solver : SI.t) : t =
     let cc = SI.cc solver in
     let field_has_value =
-      SI.CC.allocate_bitfield ~descr:("monoid."^M.name^".has-value") cc in
-    let self = { cc; values=N_tbl.create ?size (); field_has_value; } in
+      SI.CC.allocate_bitfield ~descr:("monoid." ^ M.name ^ ".has-value") cc
+    in
+    let self = { cc; values = N_tbl.create ?size (); field_has_value } in
     SI.on_cc_new_term solver (on_new_term self);
     SI.on_cc_pre_merge solver (on_pre_merge self);
     self
