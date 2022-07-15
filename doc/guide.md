@@ -347,9 +347,7 @@ Sidekick_base_solver.Solver.Sat
   (a := 0)
   (b := 0)
   ((<= (+ a (* -1 b)) 0) := true)
-  (_sk_lra__le_comb0 := 0)
-  ((= a b) := true)
-  ((>= (+ a (* -1 b)) 0) := true))
+  (_sk_lra__le_comb0 := 0))
 
 
 # let a_geq_1 = Term.LRA.(geq tstore a (const tstore (Q.of_int 1)));;
