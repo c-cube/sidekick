@@ -1,4 +1,4 @@
-name: Build sidekick-bin
+name: build
 on:
   push:
   pull_request:
@@ -6,7 +6,7 @@ on:
       - master
 jobs:
   run:
-    name: Build
+    name: build
     strategy:
       matrix:
         os:
@@ -15,7 +15,7 @@ jobs:
             #- macos-latest  # clogs CI
         ocaml-compiler:
           - 4.08.x
-          - 4.12.x
+          - 4.14.x
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
