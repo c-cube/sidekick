@@ -46,11 +46,10 @@ type term = Term.t
 
 type t = {
   mutable enabled : bool;
-  config: Config.t;
   buf: Buffer.t;
   out: Proof_ser.Bare.Encode.t;
   mutable storage: Storage.t;
-  mutable dispose: unit -> unit;
+  dispose: unit -> unit;
   mutable steps_writer: CS.Writer.t;
   mutable next_id: int;
   map_term: term_id Term.Tbl.t; (* term -> proof ID *)
@@ -91,12 +90,12 @@ let create ?(config=Config.default) () : t =
       let dispose () = close_out oc in
       Storage.On_disk (file, oc), w, dispose
   in
-  let buf = Buffer.create 1024 in
+  let buf = Buffer.create 1_024 in
+  let out = Proof_ser.Bare.Encode.of_buffer buf in
   { enabled=config.Config.enabled;
-    config;
     next_id=1;
     buf;
-    out=Proof_ser.Bare.Encode.of_buffer buf;
+    out;
     map_term=Term.Tbl.create 32;
     map_fun=Fun.Tbl.create 32;
     steps_writer; storage; dispose;

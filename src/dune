@@ -1,7 +1,0 @@
-
-(env
-  (_
-    (flags :standard -warn-error
-           -a+8+9 -w +a-4-32-40-41-42-44-48
-           -color always -strict-sequence -safe-string -short-paths)
-    (ocamlopt_flags :standard -O3 -color always -unbox-closures -unbox-closures-factor 20)))
