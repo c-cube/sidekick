@@ -1,7 +1,6 @@
 
 let tests : unit Alcotest.test list =
   List.flatten @@ [
-    [Sidekick_test_intsolver.tests];
     [Sidekick_test_simplex.tests];
     [Sidekick_test_minicc.tests];
     Sidekick_test_util.tests;
@@ -10,7 +9,6 @@ let tests : unit Alcotest.test list =
 let props =
   List.flatten
     [
-      Sidekick_test_intsolver.props;
       Sidekick_test_simplex.props;
       Sidekick_test_util.props;
     ]

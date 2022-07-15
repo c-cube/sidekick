@@ -308,7 +308,6 @@ module Make(A : ARG)
       delayed_actions: delayed_action Queue.t;
       mutable last_model: Model.t option;
 
-      mutable t_defs : (term*term) list; (* term definitions *)
       mutable th_states : th_states; (** Set of theories *)
       mutable level: int;
       mutable complete: bool;
@@ -805,7 +804,6 @@ module Make(A : ARG)
         count_preprocess_clause = Stat.mk_int stat "solver.preprocess-clause";
         count_propagate = Stat.mk_int stat "solver.th-propagations";
         count_conflict = Stat.mk_int stat "solver.th-conflicts";
-        t_defs=[];
         on_partial_check=[];
         on_final_check=[];
         on_th_combination=[];

@@ -1032,7 +1032,6 @@ end = struct
 
   type store = {
     tbl : H.t;
-    mutable n: int;
     true_ : t lazy_t;
     false_ : t lazy_t;
   }
@@ -1051,7 +1050,6 @@ end = struct
 
   let create ?(size=1024) () : store =
     let rec st ={
-      n=2;
       tbl=H.create ~size ();
       true_ = lazy (make st Term_cell.true_);
       false_ = lazy (make st Term_cell.false_);

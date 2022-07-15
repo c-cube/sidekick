@@ -115,17 +115,14 @@ module Make(A : ARG) : S with module A = A = struct
 
   module Tag = struct
     type t =
-      | By_def
       | Lit of Lit.t
       | CC_eq of N.t * N.t
 
     let pp out = function
-      | By_def -> Fmt.string out "by-def"
       | Lit l -> Fmt.fprintf out "(@[lit %a@])" Lit.pp l
       | CC_eq (n1,n2) -> Fmt.fprintf out "(@[cc-eq@ %a@ %a@])" N.pp n1 N.pp n2
 
     let to_lits si = function
-      | By_def -> []
       | Lit l -> [l]
       | CC_eq (n1,n2) ->
         let r = SI.CC.explain_eq (SI.cc si) n1 n2 in

@@ -1,5 +1,0 @@
-
-(library
-  (name sidekick_test_intsolver)
-  (libraries zarith sidekick.intsolver sidekick.util sidekick.zarith
-             qcheck alcotest))
