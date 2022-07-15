@@ -173,7 +173,7 @@ module Make(A : ARG)
       while Z.(!n <= n0) do
         if is_prime !n then k !n
       done
-  end
+  end [@@warning "-60"]
 
 
   module Op = struct

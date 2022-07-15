@@ -156,8 +156,8 @@ let solve
   let should_stop = match time, memory with
     | None, None -> None
     | _ ->
-      let time = CCOpt.get_or ~default:3600. time in (* default: 1 hour *)
-      let memory = CCOpt.get_or ~default:4e9 memory in (* default: 4 GB *)
+      let time = Option.value ~default:3600. time in (* default: 1 hour *)
+      let memory = Option.value ~default:4e9 memory in (* default: 4 GB *)
       let stop _ _ =
         Sys.time () -. t1 > time ||
         (Gc.quick_stat()).Gc.major_words *. 8. > memory

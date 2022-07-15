@@ -185,7 +185,6 @@ module Make() : S = struct
     val del_clause : t -> Clause.t -> unit
   end = struct
     type t = {
-      cstore: Clause.store;
       assign: Atom.Assign.t; (* atom -> is_true(atom) *)
       trail: Atom.Stack.t; (* current assignment *)
       mutable trail_ptr : int; (* offset in trail for propagation *)
@@ -193,10 +192,9 @@ module Make() : S = struct
       watches: Clause.t Vec.t Atom.Map.t; (* atom -> clauses it watches *)
     }
 
-    let create cstore : t =
+    let create _cstore : t =
       { trail=Atom.Stack.create();
         trail_ptr = 0;
-        cstore;
         active_clauses=Clause.Tbl.create 32;
         assign=Atom.Assign.create();
         watches=Atom.Map.create();

@@ -146,7 +146,7 @@ module Make(C : COEFF)(Var : VAR) = struct
     }
 
     let compare c c' =
-      CCOrd.(compare c.op c'.op
+      CCOrd.(poly c.op c'.op
              <?> (Expr.compare, c.expr, c'.expr))
 
     let pp_op out o =

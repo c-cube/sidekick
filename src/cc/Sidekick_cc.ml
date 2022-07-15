@@ -308,7 +308,6 @@ module Make (A: CC_ARG)
     mutable on_conflict: ev_on_conflict list;
     mutable on_propagate: ev_on_propagate list;
     mutable on_is_subterm : ev_on_is_subterm list;
-    stat: Stat.t;
     count_conflict: int Stat.counter;
     count_props: int Stat.counter;
     count_merge: int Stat.counter;
@@ -639,7 +638,7 @@ module Make (A: CC_ARG)
          T_tbl.remove cc.tbl t);
     (* add term to the table *)
     T_tbl.add cc.tbl t n;
-    if CCOpt.is_some sig0 then (
+    if Option.is_some sig0 then (
       (* [n] might be merged with other equiv classes *)
       push_pending cc n;
     );
@@ -1164,7 +1163,6 @@ module Make (A: CC_ARG)
       undo=Backtrack_stack.create();
       true_;
       false_;
-      stat;
       field_marked_explain;
       count_conflict=Stat.mk_int stat "cc.conflicts";
       count_props=Stat.mk_int stat "cc.propagations";

@@ -167,7 +167,7 @@ module Make(A : ARG) : S with module A = A = struct
       (* directly simplify [a] so that maybe we never will simplify one
          of the branches *)
       let a, prf_a = SI.Simplify.normalize_t simp a in
-      CCOpt.iter add_step_ prf_a;
+      Option.iter add_step_ prf_a;
       begin match A.view_as_bool a with
         | B_bool true ->
           add_step_eq t b ~using:(Iter.of_opt prf_a)

@@ -157,7 +157,6 @@ module Make(A : ARG) : S with module A = A = struct
       let mk_lit _ _ _ = assert false
     end)
   module Subst = SimpSolver.Subst
-  module Q_tbl = CCHashtbl.Make(A.Q)
 
   module Comb_map = CCMap.Make(LE_.Comb)
 
@@ -243,7 +242,6 @@ module Make(A : ARG) : S with module A = A = struct
     mutable encoded_le: T.t Comb_map.t; (* [le] -> var encoding [le] *)
     simplex: SimpSolver.t;
     mutable last_res: SimpSolver.result option;
-    stat_th_comb: int Stat.counter;
   }
 
   let create ?(stat=Stat.create()) (si:SI.t) : state =
@@ -262,7 +260,6 @@ module Make(A : ARG) : S with module A = A = struct
       encoded_le=Comb_map.empty;
       simplex=SimpSolver.create ~stat ();
       last_res=None;
-      stat_th_comb=Stat.mk_int stat "lra.th-comb";
     }
 
   let[@inline] reset_res_ (self:state) : unit =
@@ -537,8 +534,6 @@ module Make(A : ARG) : S with module A = A = struct
       )
     | _ -> None
 
-  module Q_map = CCMap.Make(A.Q)
-
   (* raise conflict from certificate *)
   let fail_with_cert si acts cert : 'a =
     Profile.with1 "lra.simplex.check-cert" SimpSolver._check_cert cert;
@@ -624,7 +619,7 @@ module Make(A : ARG) : S with module A = A = struct
   (* evaluate a term directly, as a variable *)
   let eval_in_subst_ subst t = match A.view_as_lra t with
     | LRA_const n -> n
-    | _ -> Subst.eval subst t |> CCOpt.get_or ~default:A.Q.zero
+    | _ -> Subst.eval subst t |> Option.value ~default:A.Q.zero
 
   (* evaluate a linear expression *)
   let eval_le_in_subst_ subst (le:LE.t) =
@@ -754,7 +749,7 @@ module Make(A : ARG) : S with module A = A = struct
         begin match A.view_as_lra t with
           | LRA_const n -> Some n (* always eval constants to themselves *)
           | _ -> SimpSolver.V_map.get t m
-        end |> CCOpt.map (t_const self)
+        end |> Option.map (t_const self)
       | _ -> None
     end
 

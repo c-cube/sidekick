@@ -730,10 +730,6 @@ module Make(Plugin : PLUGIN)
     (* learnt clauses (tautologies true at any time, whatever the user level).
        GC'd regularly. *)
 
-    clauses_dead : CVec.t;
-    (* dead clauses, to be removed at next GC.
-       invariant: all satisfy [Clause.dead store c]. *)
-
     clause_pools : clause_pool Vec.t;
     (* custom clause pools *)
 
@@ -754,7 +750,7 @@ module Make(Plugin : PLUGIN)
     var_levels : VecSmallInt.t;
     (* decision levels in [trail]  *)
 
-    mutable assumptions: AVec.t;
+    assumptions: AVec.t;
     (* current assumptions *)
 
     mutable th_head : int;
@@ -824,7 +820,6 @@ module Make(Plugin : PLUGIN)
         ~descr:(fun () -> "cp.learnt-clauses")
         ~max_size:max_clauses_learnt ();
     delayed_actions=Delayed_actions.create();
-    clauses_dead = CVec.create();
     clause_pools = Vec.create();
 
     to_clear=Vec.create();

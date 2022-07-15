@@ -88,7 +88,6 @@ module Make(A : ARG)
   module Term = T.Term
   module Lit = A.Lit
   type term = Term.t
-  type value = term
   type ty = Ty.t
   type proof = A.proof
   type proof_step = A.proof_step
@@ -354,8 +353,8 @@ module Make(A : ARG)
     let on_th_combination self f = self.on_th_combination <- f :: self.on_th_combination
     let on_preprocess self f = self.preprocess <- f :: self.preprocess
     let on_model ?ask ?complete self =
-      CCOpt.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
-      CCOpt.iter (fun f -> self.model_complete <- f :: self.model_complete) complete;
+      Option.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
+      Option.iter (fun f -> self.model_complete <- f :: self.model_complete) complete;
       ()
 
     let[@inline] raise_conflict self (acts:theory_actions) c proof : 'a =
@@ -472,7 +471,7 @@ module Make(A : ARG)
         (* simplify a literal, then preprocess it *)
         let[@inline] simp_lit lit =
           let lit, pr = simplify_and_preproc_lit_ self lit in
-          CCOpt.iter (fun pr -> steps := pr :: !steps) pr;
+          Option.iter (fun pr -> steps := pr :: !steps) pr;
           lit
         in
         let c' = A.map simp_lit c in
@@ -1014,7 +1013,7 @@ module Make(A : ARG)
           (fun k->k "(@[sidekick.smt-solver: SAT@ actual: UNKNOWN@ :reason incomplete-fragment@])");
         Unknown Unknown.U_incomplete
 
-      | Sat_solver.Sat (module SAT) ->
+      | Sat_solver.Sat _ ->
         Log.debug 1 "(sidekick.smt-solver: SAT)";
 
         Log.debugf 5

@@ -1,5 +1,4 @@
 
-open Sidekick_core
 
 module type RATIONAL = Sidekick_arith.RATIONAL
 module type INT = Sidekick_arith.INT
