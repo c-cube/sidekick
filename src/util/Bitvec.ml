@@ -1,7 +1,7 @@
-type t = { mutable chunks: bytes (* TODO: use a in32vec with bigarray *) }
+type t = { mutable chunks: bytes }
 
 let create () : t = { chunks = Bytes.make 32 '\x00' }
-let i2c = Char.chr
+let i2c = Char.unsafe_chr
 let c2i = Char.code
 
 (* from index to offset in bytes *)

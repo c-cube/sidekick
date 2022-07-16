@@ -280,7 +280,7 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
   | Statement.Stmt_assert t ->
     if pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
     let lit = Solver.mk_lit_t solver t in
-    Solver.add_clause solver (IArray.singleton lit)
+    Solver.add_clause solver [| lit |]
       (Solver.P.emit_input_clause (Iter.singleton lit) (Solver.proof solver));
     E.return ()
   | Statement.Stmt_assert_clause c_ts ->
@@ -297,7 +297,7 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
       P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) proof
     in
 
-    Solver.add_clause solver (IArray.of_list c) pr;
+    Solver.add_clause solver (CCArray.of_list c) pr;
     E.return ()
   | Statement.Stmt_get_model ->
     (match Solver.last_res solver with

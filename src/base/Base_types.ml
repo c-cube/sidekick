@@ -170,7 +170,7 @@ type term = {
     term view. *)
 and 'a term_view =
   | Bool of bool
-  | App_fun of fun_ * 'a IArray.t (* full, first-order application *)
+  | App_fun of fun_ * 'a array (* full, first-order application *)
   | Eq of 'a * 'a
   | Not of 'a
   | Ite of 'a * 'a * 'a
@@ -186,12 +186,12 @@ and fun_view =
   | Fun_cstor of cstor
   | Fun_is_a of cstor
   | Fun_def of {
-      pp: 'a. ('a Fmt.printer -> 'a IArray.t Fmt.printer) option;
-      abs: self:term -> term IArray.t -> term * bool; (* remove the sign? *)
+      pp: 'a. ('a Fmt.printer -> 'a array Fmt.printer) option;
+      abs: self:term -> term array -> term * bool; (* remove the sign? *)
       do_cc: bool; (* participate in congruence closure? *)
-      relevant: 'a. ID.t -> 'a IArray.t -> int -> bool; (* relevant argument? *)
-      ty: ID.t -> term IArray.t -> ty; (* compute type *)
-      eval: value IArray.t -> value; (* evaluate term *)
+      relevant: 'a. ID.t -> 'a array -> int -> bool; (* relevant argument? *)
+      ty: ID.t -> term array -> ty; (* compute type *)
+      eval: value array -> value; (* evaluate term *)
     }
       (** Methods on the custom term view whose arguments are ['a].
     Terms must be printable, and provide some additional theory handles.
@@ -336,10 +336,9 @@ let pp_term_view_gen ~pp_id ~pp_t out = function
   | Bool false -> Fmt.string out "false"
   | App_fun ({ fun_view = Fun_def { pp = Some pp_custom; _ }; _ }, l) ->
     pp_custom pp_t out l
-  | App_fun (c, a) when IArray.is_empty a -> pp_id out (id_of_fun c)
+  | App_fun (c, [||]) -> pp_id out (id_of_fun c)
   | App_fun (f, l) ->
-    Fmt.fprintf out "(@[<1>%a@ %a@])" pp_id (id_of_fun f) (Util.pp_iarray pp_t)
-      l
+    Fmt.fprintf out "(@[<1>%a@ %a@])" pp_id (id_of_fun f) (Util.pp_array pp_t) l
   | Eq (a, b) -> Fmt.fprintf out "(@[<hv>=@ %a@ %a@])" pp_t a pp_t b
   | Not u -> Fmt.fprintf out "(@[not@ %a@])" pp_t u
   | Ite (a, b, c) ->
@@ -547,13 +546,13 @@ module Fun : sig
     | Fun_cstor of cstor
     | Fun_is_a of cstor
     | Fun_def of {
-        pp: 'a. ('a Fmt.printer -> 'a IArray.t Fmt.printer) option;
-        abs: self:term -> term IArray.t -> term * bool; (* remove the sign? *)
+        pp: 'a. ('a Fmt.printer -> 'a array Fmt.printer) option;
+        abs: self:term -> term array -> term * bool; (* remove the sign? *)
         do_cc: bool; (* participate in congruence closure? *)
-        relevant: 'a. ID.t -> 'a IArray.t -> int -> bool;
+        relevant: 'a. ID.t -> 'a array -> int -> bool;
         (* relevant argument? *)
-        ty: ID.t -> term IArray.t -> ty; (* compute type *)
-        eval: value IArray.t -> value; (* evaluate term *)
+        ty: ID.t -> term array -> ty; (* compute type *)
+        eval: value array -> value; (* evaluate term *)
       }
         (** user defined function symbol.
             A good example can be found in {!Form} for boolean connectives. *)
@@ -594,13 +593,13 @@ end = struct
     | Fun_cstor of cstor
     | Fun_is_a of cstor
     | Fun_def of {
-        pp: 'a. ('a Fmt.printer -> 'a IArray.t Fmt.printer) option;
-        abs: self:term -> term IArray.t -> term * bool; (* remove the sign? *)
+        pp: 'a. ('a Fmt.printer -> 'a array Fmt.printer) option;
+        abs: self:term -> term array -> term * bool; (* remove the sign? *)
         do_cc: bool; (* participate in congruence closure? *)
-        relevant: 'a. ID.t -> 'a IArray.t -> int -> bool;
+        relevant: 'a. ID.t -> 'a array -> int -> bool;
         (* relevant argument? *)
-        ty: ID.t -> term IArray.t -> ty; (* compute type *)
-        eval: value IArray.t -> value; (* evaluate term *)
+        ty: ID.t -> term array -> ty; (* compute type *)
+        eval: value array -> value; (* evaluate term *)
       }
 
   type t = fun_ = { fun_id: ID.t; fun_view: fun_view }
@@ -666,7 +665,7 @@ end
 module Term_cell : sig
   type 'a view = 'a term_view =
     | Bool of bool
-    | App_fun of fun_ * 'a IArray.t
+    | App_fun of fun_ * 'a array
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
@@ -680,7 +679,7 @@ module Term_cell : sig
   val true_ : t
   val false_ : t
   val const : fun_ -> t
-  val app_fun : fun_ -> term IArray.t -> t
+  val app_fun : fun_ -> term array -> t
   val eq : term -> term -> t
   val not_ : term -> t
   val ite : term -> term -> term -> t
@@ -710,7 +709,7 @@ module Term_cell : sig
 end = struct
   type 'a view = 'a term_view =
     | Bool of bool
-    | App_fun of fun_ * 'a IArray.t
+    | App_fun of fun_ * 'a array
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
@@ -746,7 +745,7 @@ end = struct
       match a, b with
       | Bool b1, Bool b2 -> CCBool.equal b1 b2
       | App_fun (f1, a1), App_fun (f2, a2) ->
-        Fun.equal f1 f2 && IArray.equal sub_eq a1 a2
+        Fun.equal f1 f2 && CCArray.equal sub_eq a1 a2
       | Eq (a1, b1), Eq (a2, b2) -> sub_eq a1 a2 && sub_eq b1 b2
       | Not a, Not b -> sub_eq a b
       | Ite (a1, b1, c1), Ite (a2, b2, c2) ->
@@ -770,7 +769,7 @@ end = struct
   let true_ = Bool true
   let false_ = Bool false
   let app_fun f a = App_fun (f, a)
-  let const c = App_fun (c, IArray.empty)
+  let const c = App_fun (c, CCArray.empty)
 
   let eq a b =
     if term_equal_ a b then
@@ -805,13 +804,13 @@ end = struct
       | Fun_undef fty ->
         let ty_args, ty_ret = Ty.Fun.unfold fty in
         (* check arity *)
-        if List.length ty_args <> IArray.length args then
+        if List.length ty_args <> CCArray.length args then
           Error.errorf "Term_cell.apply: expected %d args, got %d@ in %a"
-            (List.length ty_args) (IArray.length args) pp t;
+            (List.length ty_args) (CCArray.length args) pp t;
         (* check types *)
         List.iteri
           (fun i ty_a ->
-            let a = IArray.get args i in
+            let a = CCArray.get args i in
             if not @@ Ty.equal a.term_ty ty_a then
               Error.errorf
                 "Term_cell.apply: %d-th argument mismatch:@ %a does not have \
@@ -839,7 +838,7 @@ end = struct
   let iter f view =
     match view with
     | Bool _ -> ()
-    | App_fun (_, a) -> IArray.iter f a
+    | App_fun (_, a) -> CCArray.iter f a
     | Not u -> f u
     | Eq (a, b) ->
       f a;
@@ -854,7 +853,7 @@ end = struct
   let map f view =
     match view with
     | Bool b -> Bool b
-    | App_fun (fu, a) -> App_fun (fu, IArray.map f a)
+    | App_fun (fu, a) -> App_fun (fu, CCArray.map f a)
     | Not u -> Not (f u)
     | Eq (a, b) -> Eq (f a, f b)
     | Ite (a, b, c) -> Ite (f a, f b, f c)
@@ -872,7 +871,7 @@ module Term : sig
 
   type 'a view = 'a term_view =
     | Bool of bool
-    | App_fun of fun_ * 'a IArray.t
+    | App_fun of fun_ * 'a array
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
@@ -894,13 +893,13 @@ module Term : sig
   val false_ : store -> t
   val bool : store -> bool -> t
   val const : store -> fun_ -> t
-  val app_fun : store -> fun_ -> t IArray.t -> t
+  val app_fun : store -> fun_ -> t array -> t
   val app_fun_l : store -> fun_ -> t list -> t
   val eq : store -> t -> t -> t
   val not_ : store -> t -> t
   val ite : store -> t -> t -> t -> t
 
-  val app_undefined : store -> ID.t -> Ty.Fun.t -> t IArray.t -> t
+  val app_undefined : store -> ID.t -> Ty.Fun.t -> t array -> t
   (** [app_undefined store f ty args] is [app store (Fun.mk_undef f ty) args].
       It builds a function symbol and applies it into a term immediately *)
 
@@ -910,7 +909,7 @@ module Term : sig
       immediately. *)
 
   val select : store -> select -> t -> t
-  val app_cstor : store -> cstor -> t IArray.t -> t
+  val app_cstor : store -> cstor -> t array -> t
   val is_a : store -> cstor -> t -> t
   val lra : store -> t LRA_view.t -> t
   val lia : store -> t LIA_view.t -> t
@@ -980,7 +979,7 @@ end = struct
 
   type 'a view = 'a term_view =
     | Bool of bool
-    | App_fun of fun_ * 'a IArray.t
+    | App_fun of fun_ * 'a array
     | Eq of 'a * 'a
     | Not of 'a
     | Ite of 'a * 'a * 'a
@@ -1039,13 +1038,13 @@ end = struct
     let cell = Term_cell.app_fun f a in
     make st cell
 
-  let app_fun_l st f l = app_fun st f (IArray.of_list l)
-  let[@inline] const st c = app_fun st c IArray.empty
+  let app_fun_l st f l = app_fun st f (CCArray.of_list l)
+  let[@inline] const st c = app_fun st c CCArray.empty
   let[@inline] eq st a b = make st (Term_cell.eq a b)
   let[@inline] not_ st a = make st (Term_cell.not_ a)
   let ite st a b c : t = make st (Term_cell.ite a b c)
-  let select st sel t : t = app_fun st (Fun.select sel) (IArray.singleton t)
-  let is_a st c t : t = app_fun st (Fun.is_a c) (IArray.singleton t)
+  let select st sel t : t = app_fun st (Fun.select sel) [| t |]
+  let is_a st c t : t = app_fun st (Fun.is_a c) [| t |]
   let app_cstor st c args : t = app_fun st (Fun.cstor c) args
 
   let[@inline] lra (st : store) (l : t LRA_view.t) : t =
@@ -1133,7 +1132,7 @@ end = struct
 
   let[@inline] is_const t =
     match view t with
-    | App_fun (_, a) -> IArray.is_empty a
+    | App_fun (_, [||]) -> true
     | _ -> false
 
   let cc_view (t : t) =
@@ -1141,7 +1140,7 @@ end = struct
     match view t with
     | Bool b -> C.Bool b
     | App_fun (f, _) when not (Fun.do_cc f) -> C.Opaque t (* skip *)
-    | App_fun (f, args) -> C.App_fun (f, IArray.to_iter args)
+    | App_fun (f, args) -> C.App_fun (f, CCArray.to_iter args)
     | Eq (a, b) -> C.Eq (a, b)
     | Not u -> C.Not u
     | Ite (a, b, c) -> C.If (a, b, c)
@@ -1169,7 +1168,7 @@ end = struct
   (* return [Some] iff the term is an undefined constant *)
   let as_fun_undef (t : term) : (fun_ * Ty.Fun.t) option =
     match view t with
-    | App_fun (c, a) when IArray.is_empty a -> Fun.as_undefined c
+    | App_fun (c, [||]) -> Fun.as_undefined c
     | _ -> None
 
   let as_bool t =
@@ -1212,7 +1211,7 @@ end = struct
   let map_shallow (tst : store) f (t : t) : t =
     match view t with
     | Bool _ -> t
-    | App_fun (hd, a) -> app_fun tst hd (IArray.map f a)
+    | App_fun (hd, a) -> app_fun tst hd (CCArray.map f a)
     | Not u -> not_ tst (f u)
     | Eq (a, b) -> eq tst (f a) (f b)
     | Ite (a, b, c) -> ite tst (f a) (f b) (f c)

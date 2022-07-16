@@ -21,13 +21,14 @@ let id_imply = ID.make "=>"
 
 let view_id fid args =
   if ID.equal fid id_and then
-    B_and (IArray.to_iter args)
+    B_and (CCArray.to_iter args)
   else if ID.equal fid id_or then
-    B_or (IArray.to_iter args)
-  else if ID.equal fid id_imply && IArray.length args >= 2 then (
+    B_or (CCArray.to_iter args)
+  else if ID.equal fid id_imply && CCArray.length args >= 2 then (
     (* conclusion is stored last *)
-    let len = IArray.length args in
-    B_imply (IArray.to_iter_sub args 0 (len - 1), IArray.get args (len - 1))
+    let len = CCArray.length args in
+    B_imply
+      (Iter.of_array args |> Iter.take (len - 1), CCArray.get args (len - 1))
   ) else
     raise_notrace Not_a_th_term
 
@@ -92,7 +93,7 @@ module Funs = struct
   let ite = T.ite
 end
 
-let as_id id (t : T.t) : T.t IArray.t option =
+let as_id id (t : T.t) : T.t array option =
   match T.view t with
   | App_fun ({ fun_id; _ }, args) when ID.equal id fun_id -> Some args
   | _ -> None
@@ -102,7 +103,7 @@ let flatten_id op sign (l : T.t list) : T.t list =
   CCList.flat_map
     (fun t ->
       match as_id op t with
-      | Some args -> IArray.to_list args
+      | Some args -> CCArray.to_list args
       | None when (sign && T.is_true t) || ((not sign) && T.is_false t) ->
         [] (* idempotent *)
       | None -> [ t ])
@@ -113,19 +114,19 @@ let and_l st l =
   | [] -> T.true_ st
   | l when List.exists T.is_false l -> T.false_ st
   | [ x ] -> x
-  | args -> T.app_fun st Funs.and_ (IArray.of_list args)
+  | args -> T.app_fun st Funs.and_ (CCArray.of_list args)
 
 let or_l st l =
   match flatten_id id_or false l with
   | [] -> T.false_ st
   | l when List.exists T.is_true l -> T.true_ st
   | [ x ] -> x
-  | args -> T.app_fun st Funs.or_ (IArray.of_list args)
+  | args -> T.app_fun st Funs.or_ (CCArray.of_list args)
 
 let and_ st a b = and_l st [ a; b ]
 let or_ st a b = or_l st [ a; b ]
-let and_a st a = and_l st (IArray.to_list a)
-let or_a st a = or_l st (IArray.to_list a)
+let and_a st a = and_l st (CCArray.to_list a)
+let or_a st a = or_l st (CCArray.to_list a)
 let eq = T.eq
 let not_ = T.not_
 
@@ -155,17 +156,17 @@ let equiv st a b =
 let neq st a b = not_ st @@ eq st a b
 
 let imply_a st xs y =
-  if IArray.is_empty xs then
+  if Array.length xs = 0 then
     y
   else
-    T.app_fun st Funs.imply (IArray.append xs (IArray.singleton y))
+    T.app_fun st Funs.imply (CCArray.append xs [| y |])
 
 let imply_l st xs y =
   match xs with
   | [] -> y
-  | _ -> imply_a st (IArray.of_list xs) y
+  | _ -> imply_a st (CCArray.of_list xs) y
 
-let imply st a b = imply_a st (IArray.singleton a) b
+let imply st a b = imply_a st [| a |] b
 let xor st a b = not_ st (equiv st a b)
 
 let distinct_l tst l =

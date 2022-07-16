@@ -44,24 +44,22 @@ module Th_data = Sidekick_th_data.Make (struct
     match Term.view t with
     | Term.App_fun ({ fun_view = Fun.Fun_cstor c; _ }, args) -> T_cstor (c, args)
     | Term.App_fun ({ fun_view = Fun.Fun_select sel; _ }, args) ->
-      assert (IArray.length args = 1);
-      T_select (sel.select_cstor, sel.select_i, IArray.get args 0)
+      assert (CCArray.length args = 1);
+      T_select (sel.select_cstor, sel.select_i, CCArray.get args 0)
     | Term.App_fun ({ fun_view = Fun.Fun_is_a c; _ }, args) ->
-      assert (IArray.length args = 1);
-      T_is_a (c, IArray.get args 0)
+      assert (CCArray.length args = 1);
+      T_is_a (c, CCArray.get args 0)
     | _ -> T_other t
 
   let mk_eq = Term.eq
   let mk_cstor tst c args : Term.t = Term.app_fun tst (Fun.cstor c) args
-
-  let mk_sel tst c i u =
-    Term.app_fun tst (Fun.select_idx c i) (IArray.singleton u)
+  let mk_sel tst c i u = Term.app_fun tst (Fun.select_idx c i) [| u |]
 
   let mk_is_a tst c u : Term.t =
     if c.cstor_arity = 0 then
       Term.eq tst u (Term.const tst (Fun.cstor c))
     else
-      Term.app_fun tst (Fun.is_a c) (IArray.singleton u)
+      Term.app_fun tst (Fun.is_a c) [| u |]
 
   let ty_is_finite = Ty.finite
   let ty_set_is_finite = Ty.set_finite

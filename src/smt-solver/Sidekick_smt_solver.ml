@@ -508,7 +508,7 @@ module Make (A : ARG) :
     [@@inline]
 
     module PC_list = Preprocess_clause (CCList)
-    module PC_arr = Preprocess_clause (IArray)
+    module PC_arr = Preprocess_clause (CCArray)
 
     let preprocess_clause_ = PC_list.top
     let preprocess_clause_iarray_ = PC_arr.top
@@ -966,8 +966,8 @@ module Make (A : ARG) :
   let reset_last_res_ self = self.last_res <- None
 
   (* preprocess clause, return new proof *)
-  let preprocess_clause_ (self : t) (c : lit IArray.t) (pr : proof_step) :
-      lit IArray.t * proof_step =
+  let preprocess_clause_ (self : t) (c : lit array) (pr : proof_step) :
+      lit array * proof_step =
     Solver_internal.preprocess_clause_iarray_ self.si c pr
 
   let mk_lit_t (self : t) ?sign (t : term) : lit =
@@ -980,18 +980,18 @@ module Make (A : ARG) :
   let pp_stats out (self : t) : unit = Stat.pp_all out (Stat.all @@ stats self)
 
   (* add [c], without preprocessing its literals *)
-  let add_clause_nopreproc_ (self : t) (c : lit IArray.t) (proof : proof_step) :
+  let add_clause_nopreproc_ (self : t) (c : lit array) (proof : proof_step) :
       unit =
     Stat.incr self.count_clause;
     reset_last_res_ self;
     Log.debugf 50 (fun k ->
-        k "(@[solver.add-clause@ %a@])" (Util.pp_iarray Lit.pp) c);
+        k "(@[solver.add-clause@ %a@])" (Util.pp_array Lit.pp) c);
     let pb = Profile.begin_ "add-clause" in
     Sat_solver.add_clause_a self.solver (c :> lit array) proof;
     Profile.exit pb
 
   let add_clause_nopreproc_l_ self c p =
-    add_clause_nopreproc_ self (IArray.of_list c) p
+    add_clause_nopreproc_ self (CCArray.of_list c) p
 
   module Perform_delayed_ = Solver_internal.Perform_delayed (struct
     type nonrec t = t
@@ -1003,14 +1003,14 @@ module Make (A : ARG) :
       Sat_solver.add_lit solver.solver ?default_pol lit
   end)
 
-  let add_clause (self : t) (c : lit IArray.t) (proof : proof_step) : unit =
+  let add_clause (self : t) (c : lit array) (proof : proof_step) : unit =
     let c, proof = preprocess_clause_ self c proof in
     add_clause_nopreproc_ self c proof;
     Perform_delayed_.top self.si self;
     (* finish preproc *)
     ()
 
-  let add_clause_l self c p = add_clause self (IArray.of_list c) p
+  let add_clause_l self c p = add_clause self (CCArray.of_list c) p
 
   let assert_terms self c =
     let c = CCList.map (fun t -> Lit.atom (tst self) t) c in

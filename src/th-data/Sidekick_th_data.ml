@@ -172,17 +172,17 @@ module Make (A : ARG) : S with module A = A = struct
     let name = "th-data.cstor"
 
     (* associate to each class a unique constructor term in the class (if any) *)
-    type t = { c_n: N.t; c_cstor: A.Cstor.t; c_args: N.t IArray.t }
+    type t = { c_n: N.t; c_cstor: A.Cstor.t; c_args: N.t array }
 
     let pp out (v : t) =
       Fmt.fprintf out "(@[%s@ :cstor %a@ :n %a@ :args [@[%a@]]@])" name
-        A.Cstor.pp v.c_cstor N.pp v.c_n (Util.pp_iarray N.pp) v.c_args
+        A.Cstor.pp v.c_cstor N.pp v.c_n (Util.pp_array N.pp) v.c_args
 
     (* attach data to constructor terms *)
     let of_term cc n (t : T.t) : _ option * _ list =
       match A.view_as_data t with
       | T_cstor (cstor, args) ->
-        let args = IArray.map (SI.CC.add_term cc) args in
+        let args = CCArray.map (SI.CC.add_term cc) args in
         Some { c_n = n; c_cstor = cstor; c_args = args }, []
       | _ -> None, []
 
@@ -209,10 +209,9 @@ module Make (A : ARG) : S with module A = A = struct
           mk_expl t1 t2 @@ A.P.lemma_cstor_inj t1 t2 i (SI.CC.proof cc)
         in
 
-        assert (IArray.length c1.c_args = IArray.length c2.c_args);
-        IArray.iteri2
-          (fun i u1 u2 -> SI.CC.merge cc u1 u2 (expl_merge i))
-          c1.c_args c2.c_args;
+        assert (CCArray.length c1.c_args = CCArray.length c2.c_args);
+        Util.array_iteri2 c1.c_args c2.c_args ~f:(fun i u1 u2 ->
+            SI.CC.merge cc u1 u2 (expl_merge i));
         Ok c1
       ) else (
         (* different function: disjointness *)
@@ -342,7 +341,7 @@ module Make (A : ARG) : S with module A = A = struct
           let sel_args =
             A.Cstor.ty_args cstor
             |> Iter.mapi (fun i ty -> A.mk_sel self.tst cstor i t)
-            |> Iter.to_array |> IArray.of_array_unsafe
+            |> Iter.to_array
           in
           A.mk_cstor self.tst cstor sel_args
         in
@@ -421,8 +420,8 @@ module Make (A : ARG) : S with module A = A = struct
         Log.debugf 5 (fun k ->
             k "(@[%s.on-new-term.select.reduce@ :n %a@ :sel get[%d]-%a@])" name
               N.pp n i A.Cstor.pp c_t);
-        assert (i < IArray.length cstor.c_args);
-        let u_i = IArray.get cstor.c_args i in
+        assert (i < CCArray.length cstor.c_args);
+        let u_i = CCArray.get cstor.c_args i in
         let pr =
           A.P.lemma_select_cstor ~cstor_t:(N.term cstor.c_n) t (SI.CC.proof cc)
         in
@@ -473,12 +472,12 @@ module Make (A : ARG) : S with module A = A = struct
         Log.debugf 5 (fun k ->
             k "(@[%s.on-merge.select.reduce@ :n2 %a@ :sel get[%d]-%a@])" name
               N.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
-        assert (sel2.sel_idx < IArray.length c1.c_args);
+        assert (sel2.sel_idx < CCArray.length c1.c_args);
         let pr =
           A.P.lemma_select_cstor ~cstor_t:(N.term c1.c_n) (N.term sel2.sel_n)
             self.proof
         in
-        let u_i = IArray.get c1.c_args sel2.sel_idx in
+        let u_i = CCArray.get c1.c_args sel2.sel_idx in
         SI.CC.merge cc sel2.sel_n u_i
           (Expl.mk_theory (N.term sel2.sel_n) (N.term u_i)
              [
@@ -545,7 +544,7 @@ module Make (A : ARG) : S with module A = A = struct
     let mk_graph (self : t) cc : graph =
       let g : graph = N_tbl.create ~size:32 () in
       let traverse_sub cstor : _ list =
-        IArray.to_list_map
+        Util.array_to_list_map
           (fun sub_n -> sub_n, SI.CC.find cc sub_n)
           cstor.Monoid_cstor.c_args
       in
@@ -625,7 +624,7 @@ module Make (A : ARG) : S with module A = A = struct
           let args =
             A.Cstor.ty_args c
             |> Iter.mapi (fun i _ty -> A.mk_sel self.tst c i u)
-            |> Iter.to_list |> IArray.of_list
+            |> Iter.to_list |> CCArray.of_list
           in
           A.mk_cstor self.tst c args
         in
@@ -725,7 +724,7 @@ module Make (A : ARG) : S with module A = A = struct
           let args =
             A.Cstor.ty_args base_cstor
             |> Iter.mapi (fun i _ -> A.mk_sel self.tst base_cstor i t)
-            |> IArray.of_iter
+            |> Iter.to_array
           in
           A.mk_cstor self.tst base_cstor args
         in
@@ -746,7 +745,7 @@ module Make (A : ARG) : S with module A = A = struct
     | Some c ->
       Log.debugf 5 (fun k ->
           k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
-      let args = IArray.map (recurse si) c.c_args in
+      let args = CCArray.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t
 

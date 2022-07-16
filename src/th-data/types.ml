@@ -11,8 +11,8 @@ and datatype = {
 (* a constructor *)
 and data_cstor = {
   cstor_ty: ty;
-  cstor_args: ty IArray.t; (* argument types *)
-  cstor_proj: cst IArray.t lazy_t; (* projectors *)
+  cstor_args: ty array; (* argument types *)
+  cstor_proj: cst array lazy_t; (* projectors *)
   cstor_test: cst lazy_t; (* tester *)
   cstor_cst: cst; (* the cstor itself *)
   cstor_card: ty_card; (* cardinality of the constructor('s args) *)
@@ -43,10 +43,10 @@ let if_ a b c =
   If (a,b,c)
 
 let cstor_test cstor t =
-  app_cst (Lazy.force cstor.cstor_test) (IArray.singleton t)
+  app_cst (Lazy.force cstor.cstor_test) (CCArray.singleton t)
 
 let cstor_proj cstor i t =
-  let p = IArray.get (Lazy.force cstor.cstor_proj) i in
-  app_cst p (IArray.singleton t)
+  let p = CCArray.get (Lazy.force cstor.cstor_proj) i in
+  app_cst p (CCArray.singleton t)
 
    *)

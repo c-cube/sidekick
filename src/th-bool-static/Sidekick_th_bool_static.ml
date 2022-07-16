@@ -50,7 +50,7 @@ module type ARG = sig
   val view_as_bool : term -> (term, term Iter.t) bool_view
   (** Project the term into the boolean view. *)
 
-  val mk_bool : S.T.Term.store -> (term, term IArray.t) bool_view -> term
+  val mk_bool : S.T.Term.store -> (term, term array) bool_view -> term
   (** Make a term from the given boolean view. *)
 
   include

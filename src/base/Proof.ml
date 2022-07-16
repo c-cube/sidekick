@@ -151,14 +151,14 @@ let rec emit_term_ (self : t) (t : Term.t) : term_id =
         PS.Step_view.Expr_if { PS.Expr_if.cond = a; then_ = b; else_ = c }
       | Term_cell.Not a -> PS.Step_view.Expr_not { PS.Expr_not.f = a }
       | Term_cell.App_fun ({ fun_view = Fun.Fun_is_a c; _ }, args) ->
-        assert (IArray.length args = 1);
+        assert (CCArray.length args = 1);
         let c = emit_fun_ self (Fun.cstor c) in
-        let arg = IArray.get args 0 in
+        let arg = CCArray.get args 0 in
         PS.Step_view.Expr_isa { PS.Expr_isa.c; arg }
       | Term_cell.App_fun (f, arr) ->
         let f = emit_fun_ self f in
         PS.Step_view.Expr_app
-          { PS.Expr_app.f; args = (arr : _ IArray.t :> _ array) }
+          { PS.Expr_app.f; args = (arr : _ array :> _ array) }
       | Term_cell.Eq (a, b) ->
         PS.Step_view.Expr_eq { PS.Expr_eq.lhs = a; rhs = b }
       | LRA _ | LIA _ -> assert false

@@ -14,11 +14,14 @@ let pp_pair ?(sep = " ") pp1 pp2 out t =
   Fmt.pair ~sep:(pp_sep sep) pp1 pp2 out t
 
 let pp_array ?(sep = " ") pp out l = Fmt.array ~sep:(pp_sep sep) pp out l
+let flat_map_l_arr f l = CCList.flat_map (fun x -> CCArray.to_list @@ f x) l
 
-let pp_iarray ?(sep = " ") pp out a =
-  Fmt.iter ~sep:(pp_sep sep) pp out (IArray.to_iter a)
-
-let flat_map_l_ia f l = CCList.flat_map (fun x -> IArray.to_list @@ f x) l
+let array_iteri2 ~f a b =
+  let open Array in
+  if length a <> length b then invalid_arg "iteri2";
+  for i = 0 to length a - 1 do
+    f i (unsafe_get a i) (unsafe_get b i)
+  done
 
 let array_of_list_map f l =
   match l with

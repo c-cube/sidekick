@@ -1,3 +1,5 @@
+(** Integer-based identifiers. *)
+
 module type S = sig
   type t = private int
 
@@ -8,6 +10,7 @@ module type S = sig
   val of_int_unsafe : int -> t
 end
 
+(** Generate a new type for integer identifiers *)
 module Make () = struct
   type t = int
 

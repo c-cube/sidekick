@@ -4,7 +4,7 @@
     - ['t] is the representation of terms
 *)
 type ('c, 't) data_view =
-  | T_cstor of 'c * 't IArray.t
+  | T_cstor of 'c * 't array
   | T_select of 'c * int * 't
   | T_is_a of 'c * 't
   | T_other of 't
@@ -82,7 +82,7 @@ module type ARG = sig
   val view_as_data : S.T.Term.t -> (Cstor.t, S.T.Term.t) data_view
   (** Try to view term as a datatype term *)
 
-  val mk_cstor : S.T.Term.store -> Cstor.t -> S.T.Term.t IArray.t -> S.T.Term.t
+  val mk_cstor : S.T.Term.store -> Cstor.t -> S.T.Term.t array -> S.T.Term.t
   (** Make a constructor application term *)
 
   val mk_is_a : S.T.Term.store -> Cstor.t -> S.T.Term.t -> S.T.Term.t

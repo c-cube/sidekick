@@ -1,4 +1,7 @@
-(** Bitvector *)
+(** Bitvector.
+
+   This provides compact storage with O(1) access to a range of bits,
+   like [bool Vec.t] but packed better. *)
 
 type t
 

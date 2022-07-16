@@ -170,12 +170,12 @@ let eval (m : t) (t : Term.t) : Value.t option =
       *)
     | LIA _l -> assert false (* TODO *)
     | App_fun (c, args) ->
-      (match Fun.view c, (args : _ IArray.t :> _ array) with
+      (match Fun.view c, (args : _ array :> _ array) with
       | Fun_def udef, _ ->
         (* use builtin interpretation function *)
-        let args = IArray.map aux args in
+        let args = CCArray.map aux args in
         udef.eval args
-      | Fun_cstor c, _ -> Value.cstor_app c (IArray.to_list_map aux args)
+      | Fun_cstor c, _ -> Value.cstor_app c (Util.array_to_list_map aux args)
       | Fun_select s, [| u |] ->
         (match aux u with
         | V_cstor { c; args } when Cstor.equal c s.select_cstor ->
@@ -194,7 +194,7 @@ let eval (m : t) (t : Term.t) : Value.t option =
          with Not_found ->
            (match Fun.Map.find c m.funs with
            | fi ->
-             let args = IArray.map aux args |> IArray.to_list in
+             let args = CCArray.map aux args |> CCArray.to_list in
              (match Val_map.find args fi.FI.cases with
              | None -> fi.FI.default
              | Some v -> v)

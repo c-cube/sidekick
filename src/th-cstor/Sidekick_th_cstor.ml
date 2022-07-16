@@ -1,6 +1,6 @@
 (** {1 Theory for constructors} *)
 
-type ('c, 't) cstor_view = T_cstor of 'c * 't IArray.t | T_other of 't
+type ('c, 't) cstor_view = T_cstor of 'c * 't array | T_other of 't
 
 let name = "th-cstor"
 
@@ -29,7 +29,7 @@ module Make (A : ARG) : S with module A = A = struct
     module SI = SI
 
     (* associate to each class a unique constructor term in the class (if any) *)
-    type t = { t: T.t; n: N.t; cstor: Fun.t; args: N.t IArray.t }
+    type t = { t: T.t; n: N.t; cstor: Fun.t; args: N.t array }
 
     let name = name
 
@@ -40,7 +40,7 @@ module Make (A : ARG) : S with module A = A = struct
     let of_term cc n (t : T.t) : _ option * _ =
       match A.view_as_cstor t with
       | T_cstor (cstor, args) ->
-        let args = IArray.map (SI.CC.add_term cc) args in
+        let args = CCArray.map (SI.CC.add_term cc) args in
         Some { n; t; cstor; args }, []
       | _ -> None, []
 
@@ -57,8 +57,8 @@ module Make (A : ARG) : S with module A = A = struct
       in
       if Fun.equal v1.cstor v2.cstor then (
         (* same function: injectivity *)
-        assert (IArray.length v1.args = IArray.length v2.args);
-        IArray.iter2 (fun u1 u2 -> SI.CC.merge cc u1 u2 expl) v1.args v2.args;
+        assert (CCArray.length v1.args = CCArray.length v2.args);
+        CCArray.iter2 (fun u1 u2 -> SI.CC.merge cc u1 u2 expl) v1.args v2.args;
         Ok v1
       ) else
         (* different function: disjointness *)

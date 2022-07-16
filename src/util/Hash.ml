@@ -77,7 +77,7 @@ let bool b =
 
 let list f l = List.fold_left (combine f) 0x42 l
 let array f = Array.fold_left (combine f) 0x43
-let iarray f = IArray.fold (combine f) 0x44
+let iarray f = CCArray.fold (combine f) 0x44
 let string : string t = Hashtbl.hash
 
 let seq f seq =

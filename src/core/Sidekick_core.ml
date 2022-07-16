@@ -1279,7 +1279,7 @@ module type SOLVER = sig
 
       The proof of [|- lit = lit'] is directly added to the solver's proof. *)
 
-  val add_clause : t -> lit IArray.t -> proof_step -> unit
+  val add_clause : t -> lit array -> proof_step -> unit
   (** [add_clause solver cs] adds a boolean clause to the solver.
       Subsequent calls to {!solve} will need to satisfy this clause. *)
 

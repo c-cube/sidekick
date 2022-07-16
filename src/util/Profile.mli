@@ -1,4 +1,8 @@
-(** {1 Profiling probes} *)
+(** Profiling probes.
+
+   This basic library can produce Catapult traces (a json file)
+   that can be read at [http://ui.perfetto.dev].
+ *)
 
 type probe
 

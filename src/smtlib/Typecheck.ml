@@ -237,7 +237,7 @@ let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
   | PA.App (f, args) ->
     let args = List.map (conv_term ctx) args in
     (match find_id_ ctx f with
-    | _, Ctx.K_fun f -> T.app_fun tst f (IArray.of_list args)
+    | _, Ctx.K_fun f -> T.app_fun tst f (CCArray.of_list args)
     | _, Ctx.K_ty _ ->
       errorf_ctx ctx "expected function, got type `%s` instead" f)
   | PA.If (a, b, c) ->

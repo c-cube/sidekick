@@ -4,9 +4,9 @@
 module View = struct
   type 'a t =
     | B_not of 'a
-    | B_and of 'a IArray.t
-    | B_or of 'a IArray.t
-    | B_imply of 'a IArray.t * 'a
+    | B_and of 'a array
+    | B_or of 'a array
+    | B_imply of 'a array * 'a
     | B_atom of 'a
 end
 
@@ -58,35 +58,35 @@ struct
     | B_and subs ->
       if Lit.sign lit then
         (* propagate [lit => subs_i] *)
-        IArray.iter
+        CCArray.iter
           (fun sub ->
             let sublit = SI.mk_lit solver sub in
             SI.propagate_l solver sublit [ lit ])
           subs
       else if final && (not @@ expanded ()) then (
         (* axiom [¬lit => ∨_i ¬ subs_i] *)
-        let subs = IArray.to_list subs in
+        let subs = CCArray.to_list subs in
         let c = Lit.neg lit :: List.map (SI.mk_lit solver ~sign:false) subs in
         add_axiom c
       )
     | B_or subs ->
       if not @@ Lit.sign lit then
         (* propagate [¬lit => ¬subs_i] *)
-        IArray.iter
+        CCArray.iter
           (fun sub ->
             let sublit = SI.mk_lit solver ~sign:false sub in
             SI.add_local_axiom solver [ Lit.neg lit; sublit ])
           subs
       else if final && (not @@ expanded ()) then (
         (* axiom [lit => ∨_i subs_i] *)
-        let subs = IArray.to_list subs in
+        let subs = CCArray.to_list subs in
         let c = Lit.neg lit :: List.map (SI.mk_lit solver ~sign:true) subs in
         add_axiom c
       )
     | B_imply (guard, concl) ->
       if Lit.sign lit && final && (not @@ expanded ()) then (
         (* axiom [lit => ∨_i ¬guard_i ∨ concl] *)
-        let guard = IArray.to_list guard in
+        let guard = CCArray.to_list guard in
         let c =
           SI.mk_lit solver concl :: Lit.neg lit
           :: List.map (SI.mk_lit solver ~sign:false) guard
@@ -96,7 +96,7 @@ struct
         (* propagate [¬lit => ¬concl] *)
         SI.propagate_l solver (SI.mk_lit solver ~sign:false concl) [ lit ];
         (* propagate [¬lit => ∧_i guard_i] *)
-        IArray.iter
+        CCArray.iter
           (fun sub ->
             let sublit = SI.mk_lit solver ~sign:true sub in
             SI.propagate_l solver sublit [ lit ])
