@@ -9,8 +9,6 @@ end
 module type S = Solver_intf.S
 module type PLUGIN_CDCL_T = Solver_intf.PLUGIN_CDCL_T
 
-module Clause_pool_id = Solver_intf.Clause_pool_id
-
 let invalid_argf fmt =
   Format.kasprintf (fun msg -> invalid_arg ("sidekick.sat: " ^ msg)) fmt
 
@@ -19,7 +17,16 @@ module Make (Plugin : PLUGIN) = struct
   type theory = Plugin.t
   type proof = Plugin.proof
   type proof_step = Plugin.proof_step
-  type clause_pool_id = Clause_pool_id.t
+
+  module Clause_pool_id : sig
+    type t = private int
+
+    val _unsafe_of_int : int -> t
+  end = struct
+    type t = int
+
+    let _unsafe_of_int x = x
+  end
 
   module Lit = Plugin.Lit
   module Proof = Plugin.Proof
@@ -951,10 +958,6 @@ module Make (Plugin : PLUGIN) = struct
   let[@inline] nb_clauses st = CVec.size st.clauses_hyps
   let stat self = self.stat
 
-  let clause_pool_descr self (p : clause_pool_id) =
-    let pool = Vec.get self.clause_pools (p :> int) in
-    cp_descr_ pool
-
   (* Do we have a level-0 empty clause? *)
   let[@inline] check_unsat_ st =
     match st.unsat_at_0 with
@@ -1855,7 +1858,7 @@ module Make (Plugin : PLUGIN) = struct
     let atoms = List.rev_map (make_atom_ self) l in
     let removable = true in
     let c = Clause.make_l self.store ~removable atoms p in
-    let pool = Vec.get self.clause_pools (pool : clause_pool_id :> int) in
+    let pool = Vec.get self.clause_pools (pool : Clause_pool_id.t :> int) in
     Log.debugf 5 (fun k ->
         k "(@[sat.th.add-clause-in-pool@ %a@ :pool %s@])"
           (Clause.debug self.store) c (cp_descr_ pool));
@@ -2003,7 +2006,6 @@ module Make (Plugin : PLUGIN) = struct
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
-      type nonrec clause_pool_id = clause_pool_id
       type nonrec lit = lit
 
       let proof = st.proof
@@ -2011,7 +2013,6 @@ module Make (Plugin : PLUGIN) = struct
       let eval_lit = acts_eval_lit st
       let add_lit = acts_add_lit st
       let add_clause = acts_add_clause st
-      let add_clause_in_pool = acts_add_clause_in_pool st
       let propagate = acts_propagate st
       let raise_conflict c pr = acts_raise st c pr
       let add_decision_lit = acts_add_decision_lit st
@@ -2023,7 +2024,6 @@ module Make (Plugin : PLUGIN) = struct
     let module M = struct
       type nonrec proof = proof
       type nonrec proof_step = proof_step
-      type nonrec clause_pool_id = clause_pool_id
       type nonrec lit = lit
 
       let proof = st.proof
@@ -2031,7 +2031,6 @@ module Make (Plugin : PLUGIN) = struct
       let eval_lit = acts_eval_lit st
       let add_lit = acts_add_lit st
       let add_clause = acts_add_clause st
-      let add_clause_in_pool = acts_add_clause_in_pool st
       let propagate = acts_propagate st
       let raise_conflict c pr = acts_raise st c pr
       let add_decision_lit = acts_add_decision_lit st
@@ -2615,16 +2614,6 @@ module Make (Plugin : PLUGIN) = struct
     let c = Util.array_of_list_map (make_atom_ self) c in
     add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c pr
 
-  let add_clause_a_in_pool self ~pool c (pr : proof_step) : unit =
-    let c = Array.map (make_atom_ self) c in
-    let pool = Vec.get self.clause_pools (pool : clause_pool_id :> int) in
-    add_clause_atoms_ ~pool ~removable:true self c pr
-
-  let add_clause_in_pool self ~pool (c : lit list) dp : unit =
-    let c = Util.array_of_list_map (make_atom_ self) c in
-    let pool = Vec.get self.clause_pools (pool : clause_pool_id :> int) in
-    add_clause_atoms_ ~pool ~removable:true self c dp
-
   let add_input_clause self (c : lit list) =
     let pr = Proof.emit_input_clause (Iter.of_list c) self.proof in
     add_clause self c pr
@@ -2632,14 +2621,6 @@ module Make (Plugin : PLUGIN) = struct
   let add_input_clause_a self c =
     let pr = Proof.emit_input_clause (Iter.of_array c) self.proof in
     add_clause_a self c pr
-
-  let new_clause_pool_gc_fixed_size ~descr ~size (self : t) : clause_pool_id =
-    let p =
-      make_gc_clause_pool_ ~descr:(fun () -> descr) ~max_size:(ref size) ()
-    in
-    let id = Vec.size self.clause_pools in
-    Vec.push self.clause_pools p;
-    Clause_pool_id._unsafe_of_int id
 
   (* run [f()] with additional assumptions *)
   let with_local_assumptions_ (self : t) (assumptions : lit list) f =

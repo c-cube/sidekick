@@ -1,18 +1,19 @@
+(** Interface for Solvers
+
+    This modules defines the safe external interface for solvers.
+    Solvers that implements this interface can be obtained using the [Make]
+    functor.
+*)
+
 (*
 MSAT is free software, using the Apache license, see file LICENSE
 Copyright 2016 Guillaume Bury
 Copyright 2016 Simon Cruanes
 *)
 
-(** Interface for Solvers
-
-    This modules defines the safe external interface for solvers.
-    Solvers that implements this interface can be obtained using the [Make]
-    functor in {!Solver} or {!Mcsolver}.
-*)
-
 type 'a printer = Format.formatter -> 'a -> unit
 
+(** Solver in a "SATISFIABLE" state *)
 module type SAT_STATE = sig
   type lit
   (** Literals (signed boolean atoms) *)
@@ -37,6 +38,7 @@ end
 type 'form sat_state = (module SAT_STATE with type lit = 'form)
 (** The type of values returned when the solver reaches a SAT state. *)
 
+(** Solver in an "UNSATISFIABLE" state *)
 module type UNSAT_STATE = sig
   type lit
   type clause
@@ -86,16 +88,6 @@ type ('lit, 'proof) reason = Consequence of (unit -> 'lit list * 'proof)
 
 type lbool = L_true | L_false | L_undefined  (** Valuation of an atom *)
 
-module Clause_pool_id : sig
-  type t = private int
-
-  val _unsafe_of_int : int -> t
-end = struct
-  type t = int
-
-  let _unsafe_of_int x = x
-end
-
 (** Actions available to the Plugin
 
     The plugin provides callbacks for the SAT solver to use. These callbacks
@@ -105,7 +97,6 @@ module type ACTS = sig
   type lit
   type proof
   type proof_step
-  type clause_pool_id = Clause_pool_id.t
 
   val proof : proof
 
@@ -126,10 +117,6 @@ module type ACTS = sig
         partial model again.
       - [C_use_allocator alloc] puts the clause in the given allocator.
   *)
-
-  val add_clause_in_pool : pool:clause_pool_id -> lit list -> proof_step -> unit
-  (** Like {!add_clause} but uses a custom clause pool for the clause,
-      with its own lifetime. *)
 
   val raise_conflict : lit list -> proof_step -> 'b
   (** Raise a conflict, yielding control back to the solver.
@@ -254,10 +241,6 @@ module type S = sig
   module Lit : LIT with type t = lit
 
   type clause
-
-  type clause_pool_id
-  (** Pool of clauses, with its own lifetime management *)
-
   type theory
 
   type proof
@@ -332,24 +315,6 @@ module type S = sig
   val proof : t -> proof
   (** Access the inner proof *)
 
-  (** {2 Clause Pools} *)
-
-  (** Clause pools.
-
-      A clause pool holds/owns a set of clauses, and is responsible for
-      managing their lifetime.
-      We only expose an id, not a private type. *)
-
-  val clause_pool_descr : t -> clause_pool_id -> string
-
-  val new_clause_pool_gc_fixed_size :
-    descr:string -> size:int -> t -> clause_pool_id
-  (** Allocate a new clause pool that GC's its clauses when its size
-      goes above [size]. It keeps half of the clauses. *)
-
-  (* TODO: scoped clause pool, which removes clauses automatically
-     on backtrack. *)
-
   (** {2 Types} *)
 
   (** Result type for the solver *)
@@ -380,14 +345,6 @@ module type S = sig
 
   val add_input_clause_a : t -> lit array -> unit
   (** Like {!add_clause_a} but with justification of being an input clause *)
-
-  val add_clause_in_pool :
-    t -> pool:clause_pool_id -> lit list -> proof_step -> unit
-  (** Like {!add_clause} but using a specific clause pool *)
-
-  val add_clause_a_in_pool :
-    t -> pool:clause_pool_id -> lit array -> proof_step -> unit
-  (** Like {!add_clause_a} but using a specific clause pool *)
 
   (** {2 Solving} *)
 

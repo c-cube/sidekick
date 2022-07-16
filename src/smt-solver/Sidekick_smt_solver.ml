@@ -387,12 +387,6 @@ module Make (A : ARG) :
       Stat.incr self.count_axiom;
       A.add_clause ~keep lits proof
 
-    let add_sat_clause_pool_ self (acts : theory_actions) ~pool lits
-        (proof : proof_step) : unit =
-      let (module A) = acts in
-      Stat.incr self.count_axiom;
-      A.add_clause_in_pool ~pool lits proof
-
     let add_sat_lit_ _self ?default_pol (acts : theory_actions) (lit : Lit.t) :
         unit =
       let (module A) = acts in
