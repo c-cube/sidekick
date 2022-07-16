@@ -1,0 +1,6 @@
+(library
+ (name sidekick_sigs_proof_sat)
+ (public_name sidekick.sigs.proof.sat)
+ (synopsis "SAT-solving rules for proof traces")
+ (flags :standard -open Sidekick_util)
+ (libraries containers iter sidekick.util sidekick.sigs))

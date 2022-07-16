@@ -1,0 +1,5 @@
+(library
+ (name sidekick_sigs_lit)
+ (public_name sidekick.sigs.lit)
+ (synopsis "Common definition for literals")
+ (libraries containers iter sidekick.sigs sidekick.sigs.term))

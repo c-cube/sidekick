@@ -24,4 +24,17 @@ module type PRINT = sig
   val pp : t CCFormat.printer
 end
 
+module type EQ_HASH_PRINT = sig
+  include EQ
+  include HASH with type t := t
+  include PRINT with type t := t
+end
+
+module type EQ_ORD_HASH_PRINT = sig
+  include EQ
+  include ORD with type t := t
+  include HASH with type t := t
+  include PRINT with type t := t
+end
+
 type 'a printer = Format.formatter -> 'a -> unit

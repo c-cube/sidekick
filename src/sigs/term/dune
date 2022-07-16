@@ -1,0 +1,5 @@
+(library
+ (name sidekick_sigs_term)
+ (public_name sidekick.sigs.term)
+ (synopsis "Common definition for terms and types")
+ (libraries containers iter sidekick.sigs))
