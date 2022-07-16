@@ -23,4 +23,4 @@ let pop_levels (self : _ t) (n : int) ~f : unit =
     Vec.shrink self.lvls new_lvl
   )
 
-let iter ~f self = Vec.iter f self.vec
+let iter ~f self = Vec.iter ~f self.vec

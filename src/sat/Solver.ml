@@ -347,7 +347,7 @@ module Make (Plugin : PLUGIN) = struct
 
         (* allocate space *)
         (let new_len = cid + 1 in
-         Vec.ensure_size c_lits [||] new_len;
+         Vec.ensure_size c_lits ~elt:[||] new_len;
          Vec_float.ensure_size c_activity new_len;
          Step_vec.ensure_size c_proof new_len;
          Bitvec.ensure_size c_attached new_len;
