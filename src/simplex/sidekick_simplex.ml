@@ -353,23 +353,21 @@ module Make (Arg : ARG) :
         (Fmt.iter ~sep:(Fmt.return "@ ") ppi)
         CCInt.(0 -- (n_cols self - 1));
 
-      Vec.iteri
-        (fun i row ->
+      Vec.iteri self.rows ~f:(fun i row ->
           let hd =
             CCString.pad ~side:`Left 6
             @@ Printf.sprintf "r%d (v%d)" i row.vs.idx
           in
           Fmt.fprintf out "@,{@[<hov2>%9s: %a@]}" hd
             (Fmt.iter ~sep:(Fmt.return "@ ") (Q.pp_approx 6))
-            (Vec.to_seq row.cols))
-        self.rows;
+            (Vec.to_iter row.cols));
       Fmt.fprintf out "@;<0 -1>}@]"
 
     let to_string = Fmt.to_string pp
 
     let add_column self =
       self.n_cols <- 1 + self.n_cols;
-      Vec.iter (fun r -> Vec.push r.cols Q.zero) self.rows
+      Vec.iter self.rows ~f:(fun r -> Vec.push r.cols Q.zero)
 
     let add_row_and_column self ~f : var_state =
       let n = n_rows self in
@@ -393,7 +391,7 @@ module Make (Arg : ARG) :
       Vec.set r.cols j n
 
     let[@inline] iter_rows ?(skip = ~-1) (self : t) f : unit =
-      Vec.iteri (fun i row -> if i <> skip then f i row.vs) self.rows
+      Vec.iteri self.rows ~f:(fun i row -> if i <> skip then f i row.vs)
 
     let[@inline] iter_cols ?(skip = ~-1) (self : t) f : unit =
       for i = 0 to n_cols self - 1 do
@@ -498,7 +496,7 @@ module Make (Arg : ARG) :
 
   (* for debug purposes *)
   let _check_invariants self : unit =
-    Vec.iteri (fun i v -> assert (v.idx = i)) self.vars;
+    Vec.iteri self.vars ~f:(fun i v -> assert (v.idx = i));
     let n = Vec.size self.vars in
     assert (Matrix.n_rows self.matrix = 0 || Matrix.n_cols self.matrix = n);
     Matrix.iter_rows self.matrix (fun i x_i ->
@@ -507,12 +505,10 @@ module Make (Arg : ARG) :
         assert (Q.(Matrix.get self.matrix x_i.basic_idx x_i.idx = minus_one));
 
         (* basic vars are only defined in terms of non-basic vars *)
-        Vec.iteri
-          (fun j x_j ->
+        Vec.iteri self.vars ~f:(fun j x_j ->
             if Var_state.(x_i != x_j) && Q.(Matrix.get self.matrix i j <> zero)
             then
-              assert (Var_state.is_n_basic x_j))
-          self.vars;
+              assert (Var_state.is_n_basic x_j));
 
         (* sum of each row must be 0 *)
         let sum =
@@ -786,8 +782,7 @@ module Make (Arg : ARG) :
     assert (Var_state.is_basic x_i);
     let map_res = ref [] in
     let bounds = ref V_map.empty in
-    Vec.iteri
-      (fun j x_j ->
+    Vec.iteri self.vars ~f:(fun j x_j ->
         if j <> x_i.idx then (
           let c = Matrix.get self.matrix x_i.basic_idx j in
           if Q.(c <> zero) then (
@@ -817,8 +812,7 @@ module Make (Arg : ARG) :
                 bounds := V_map.add x_j.var (op, u) !bounds
               | None -> assert false (* we could increase [x_j]?! *))
           )
-        ))
-      self.vars;
+        ));
     !map_res, !bounds
 
   let add_constraint ?(is_int = false) ~on_propagate (self : t)
@@ -1159,7 +1153,7 @@ module Make (Arg : ARG) :
             | _ -> eps
           in
           eps)
-        default_eps (Vec.to_seq self.vars)
+        default_eps (Vec.to_iter self.vars)
     in
     if Q.(eps >= one) then
       Q.one
@@ -1171,7 +1165,7 @@ module Make (Arg : ARG) :
     Log.debugf 50 (fun k ->
         k "(@[simplex.model@ :epsilon-val %a@])" pp_q_dbg eps);
     let subst =
-      Vec.to_seq self.vars
+      Vec.to_iter self.vars
       |> Iter.fold
            (fun subst x ->
              let { base; eps_factor } = x.value in

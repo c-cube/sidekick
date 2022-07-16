@@ -84,10 +84,13 @@ let[@inline] iteri ~f self =
     f i self.data.{i}
   done
 
+let to_iter v k = iter ~f:k v
+
 include Vec_sig.Make_extensions (struct
   type nonrec elt = float
   type nonrec t = t
 
+  let to_iter = to_iter
   let get = get
   let size = size
   let iter = iter

@@ -30,8 +30,8 @@ end = struct
   let del_clause self c = Vec.push self.ops (Delete c)
   let get self i = Vec.get self.ops i
   let size self = Vec.size self.ops
-  let ops self = Vec.to_seq self.ops
-  let iteri self ~f = Vec.iteri f self.ops
+  let ops self = Vec.to_iter self.ops
+  let iteri self ~f = Vec.iteri ~f self.ops
 
   let pp_op out = function
     | Input c -> Fmt.fprintf out "(@[Input %a@])" Clause.pp c
@@ -43,19 +43,17 @@ end = struct
     let pp_c out c =
       Clause.iter c ~f:(fun a -> fpf out "%d " (a : atom :> int))
     in
-    Vec.iter
-      (function
-        | Input c -> fpf oc "i %a0\n" pp_c c
-        | Redundant c -> fpf oc "%a0\n" pp_c c
-        | Delete c -> fpf oc "d %a0\n" pp_c c)
-      self.ops
+    Vec.iter self.ops ~f:(function
+      | Input c -> fpf oc "i %a0\n" pp_c c
+      | Redundant c -> fpf oc "%a0\n" pp_c c
+      | Delete c -> fpf oc "d %a0\n" pp_c c)
 end
 
 (** Forward checking.
 
     Each event is checked by reverse-unit propagation on previous events. *)
 module Fwd_check : sig
-  type error = [ `Bad_steps of VecSmallInt.t | `No_empty_clause ]
+  type error = [ `Bad_steps of Veci.t | `No_empty_clause ]
 
   val pp_error : Trace.t -> error Fmt.printer
 
@@ -64,10 +62,10 @@ module Fwd_check : sig
       success. In case of error it returns [Error idxs] where [idxs] are the
       indexes in the trace of the steps that failed. *)
 end = struct
-  type t = { checker: Checker.t; errors: VecSmallInt.t }
+  type t = { checker: Checker.t; errors: Veci.t }
 
   let create cstore : t =
-    { checker = Checker.create cstore; errors = VecSmallInt.create () }
+    { checker = Checker.create cstore; errors = Veci.create () }
 
   (* check event, return [true] if it's valid *)
   let check_op (self : t) i (op : Trace.op) : bool =
@@ -87,15 +85,15 @@ end = struct
       Checker.del_clause self.checker c;
       true
 
-  type error = [ `Bad_steps of VecSmallInt.t | `No_empty_clause ]
+  type error = [ `Bad_steps of Veci.t | `No_empty_clause ]
 
   let pp_error trace out = function
     | `No_empty_clause -> Fmt.string out "no empty clause found"
     | `Bad_steps bad ->
-      let n0 = VecSmallInt.get bad 0 in
+      let n0 = Veci.get bad 0 in
       Fmt.fprintf out
         "@[<v>checking failed on %d ops.@ @[<2>First failure is op[%d]:@ %a@]@]"
-        (VecSmallInt.size bad) n0 Trace.pp_op (Trace.get trace n0)
+        (Veci.size bad) n0 Trace.pp_op (Trace.get trace n0)
 
   let check trace : _ result =
     let self = create (Trace.cstore trace) in
@@ -116,13 +114,13 @@ end = struct
         ) else (
           Log.debugf 10 (fun k ->
               k "(@[check.proof_rule.fail@ :idx %d@ :op %a@])" i Trace.pp_op op);
-          VecSmallInt.push self.errors i
+          Veci.push self.errors i
         ));
 
-    Log.debugf 10 (fun k -> k "found %d errors" (VecSmallInt.size self.errors));
+    Log.debugf 10 (fun k -> k "found %d errors" (Veci.size self.errors));
     if not !has_false then
       Error `No_empty_clause
-    else if VecSmallInt.size self.errors > 0 then
+    else if Veci.size self.errors > 0 then
       Error (`Bad_steps self.errors)
     else
       Ok ()

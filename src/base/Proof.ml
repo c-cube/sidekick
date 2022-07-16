@@ -51,8 +51,24 @@ type proof_rule = t -> proof_step
 
 module Step_vec = struct
   type elt = proof_step
+  type t = elt Vec.t
 
-  include VecI32
+  let get = Vec.get
+  let size = Vec.size
+  let iter = Vec.iter
+  let iteri = Vec.iteri
+  let create ?cap:_ () = Vec.create ()
+  let clear = Vec.clear
+  let copy = Vec.copy
+  let is_empty = Vec.is_empty
+  let push = Vec.push
+  let fast_remove = Vec.fast_remove
+  let filter_in_place = Vec.filter_in_place
+  let ensure_size v len = Vec.ensure_size v ~elt:0l len
+  let pop = Vec.pop_exn
+  let set = Vec.set
+  let shrink = Vec.shrink
+  let to_iter = Vec.to_iter
 end
 
 let disable (self : t) : unit =

@@ -20,12 +20,11 @@ val to_list : 'a t -> 'a list
 
 val to_array : 'a t -> 'a array
 val of_list : 'a list -> 'a t
-val to_seq : 'a t -> 'a Iter.t
 
 val clear : 'a t -> unit
 (** Set size to 0, doesn't free elements *)
 
-val ensure_size : 'a t -> 'a -> int -> unit
+val ensure_size : 'a t -> elt:'a -> int -> unit
 (** ensure size is at least [n] *)
 
 val ensure_size_with : 'a t -> (unit -> 'a) -> int -> unit
@@ -79,12 +78,12 @@ val filter_in_place : ('a -> bool) -> 'a t -> unit
 val sort : 'a t -> ('a -> 'a -> int) -> unit
 (** Sort in place the array *)
 
-val iter : ('a -> unit) -> 'a t -> unit
+val iter : f:('a -> unit) -> 'a t -> unit
 (** Iterate on elements *)
 
 val to_iter : 'a t -> 'a Iter.t
 
-val iteri : (int -> 'a -> unit) -> 'a t -> unit
+val iteri : f:(int -> 'a -> unit) -> 'a t -> unit
 (** Iterate on elements with their index *)
 
 val fold : ('b -> 'a -> 'b) -> 'b -> 'a t -> 'b

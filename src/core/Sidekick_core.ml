@@ -169,7 +169,7 @@ module type SAT_PROOF = sig
   type proof_step
   (** identifier for a proof *)
 
-  module Step_vec : Vec_sig.S with type elt = proof_step
+  module Step_vec : Vec_sig.BASE with type elt = proof_step
   (** A vector of steps *)
 
   type lit

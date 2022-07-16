@@ -7,6 +7,7 @@ module type BASE_RO = sig
   val get : t -> int -> elt
   val iter : f:(elt -> unit) -> t -> unit
   val iteri : f:(int -> elt -> unit) -> t -> unit
+  val to_iter : t -> elt Iter.t
 end
 
 module type BASE = sig
@@ -33,7 +34,6 @@ module type EXTENSIONS = sig
   type elt
   type t
 
-  val to_iter : t -> elt Iter.t
   val to_array : t -> elt array
   val fold_left : ('a -> elt -> 'a) -> 'a -> t -> 'a
   val pp : elt CCFormat.printer -> t CCFormat.printer
@@ -47,8 +47,6 @@ end
 module Make_extensions (B : BASE_RO) :
   EXTENSIONS with type t := B.t and type elt := B.elt = struct
   include B
-
-  let[@inline] to_iter self k = iter ~f:k self
 
   let to_array self =
     if size self = 0 then

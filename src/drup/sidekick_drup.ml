@@ -5,7 +5,7 @@
 *)
 
 module Fmt = CCFormat
-module VecSmallInt = VecSmallInt
+module Veci = Veci
 
 (* TODO: resolution proof construction, optionally *)
 
@@ -130,7 +130,7 @@ module Make () : S = struct
     end
 
     module Stack = struct
-      include VecSmallInt
+      include Veci
 
       let create () = create ()
     end

@@ -61,7 +61,7 @@ module Make (Plugin : PLUGIN) = struct
     let[@inline] var a = Var0.of_int_unsafe (a lsr 1)
     let[@inline] na v = ((v : var :> int) lsl 1) lor 1
 
-    module AVec = VecSmallInt
+    module AVec = Veci
     module ATbl = CCHashtbl.Make (CCInt)
   end
 
@@ -74,7 +74,7 @@ module Make (Plugin : PLUGIN) = struct
   end = struct
     include Int_id.Make ()
     module Tbl = Util.Int_tbl
-    module CVec = VecSmallInt
+    module CVec = Veci
   end
 
   type clause = Clause0.t
@@ -98,7 +98,7 @@ module Make (Plugin : PLUGIN) = struct
     type cstore = {
       c_lits: atom array Vec.t; (* storage for clause content *)
       c_activity: Vec_float.t;
-      c_recycle_idx: VecSmallInt.t; (* recycle clause numbers that were GC'd *)
+      c_recycle_idx: Veci.t; (* recycle clause numbers that were GC'd *)
       c_proof: Step_vec.t; (* clause -> proof_rule for its proof *)
       c_attached: Bitvec.t;
       c_marked: Bitvec.t;
@@ -158,7 +158,7 @@ module Make (Plugin : PLUGIN) = struct
           {
             c_lits = Vec.create ();
             c_activity = Vec_float.create ();
-            c_recycle_idx = VecSmallInt.create ~cap:0 ();
+            c_recycle_idx = Veci.create ~cap:0 ();
             c_proof = Step_vec.create ~cap:0 ();
             c_dead = Bitvec.create ();
             c_attached = Bitvec.create ();
@@ -172,7 +172,7 @@ module Make (Plugin : PLUGIN) = struct
 
     (** iterate on variables *)
     let iter_vars self f =
-      Vec.iteri (fun i _ -> f (Var0.of_int_unsafe i)) self.v_level
+      Vec.iteri self.v_level ~f:(fun i _ -> f (Var0.of_int_unsafe i))
 
     module Var = struct
       include Var0
@@ -339,10 +339,10 @@ module Make (Plugin : PLUGIN) = struct
         in
         (* allocate new ID *)
         let cid =
-          if VecSmallInt.is_empty c_recycle_idx then
+          if Veci.is_empty c_recycle_idx then
             Vec.size c_lits
           else
-            VecSmallInt.pop c_recycle_idx
+            Veci.pop c_recycle_idx
         in
 
         (* allocate space *)
@@ -447,7 +447,7 @@ module Make (Plugin : PLUGIN) = struct
         Vec.set c_lits cid [||];
         Vec_float.set c_activity cid 0.;
 
-        VecSmallInt.push c_recycle_idx cid;
+        Veci.push c_recycle_idx cid;
         (* recycle idx *)
         ()
 
@@ -659,7 +659,7 @@ module Make (Plugin : PLUGIN) = struct
 
     let descr = P.descr
     let add c = Vec.push clauses_ c
-    let iter ~f = Vec.iter f clauses_
+    let iter ~f = Vec.iter ~f clauses_
     let push_level () = ()
     let pop_levels _ = ()
     let size () = Vec.size clauses_
@@ -816,10 +816,10 @@ module Make (Plugin : PLUGIN) = struct
       } =
         self
       in
-      Vec.iter (fun (c, p) -> add_clause_pool c p) clauses_to_add_in_pool;
+      Vec.iter clauses_to_add_in_pool ~f:(fun (c, p) -> add_clause_pool c p);
       CVec.iter ~f:add_clause_learnt clauses_to_add_learnt;
-      Vec.iter decision decisions;
-      Vec.iter (fun (p, lvl, c) -> propagate p ~lvl c) prop;
+      Vec.iter ~f:decision decisions;
+      Vec.iter prop ~f:(fun (p, lvl, c) -> propagate p ~lvl c);
       clear self;
       ()
   end
@@ -847,7 +847,7 @@ module Make (Plugin : PLUGIN) = struct
        store them here. *)
     trail: AVec.t;
     (* decision stack + propagated elements (atoms or assignments). *)
-    var_levels: VecSmallInt.t; (* decision levels in [trail]  *)
+    var_levels: Veci.t; (* decision levels in [trail]  *)
     assumptions: AVec.t; (* current assumptions *)
     mutable th_head: int;
     (* Start offset in the queue {!trail} of
@@ -911,7 +911,7 @@ module Make (Plugin : PLUGIN) = struct
       th_head = 0;
       elt_head = 0;
       trail = AVec.create ();
-      var_levels = VecSmallInt.create ();
+      var_levels = Veci.create ();
       assumptions = AVec.create ();
       order = H.create store;
       var_incr = 1.;
@@ -944,10 +944,10 @@ module Make (Plugin : PLUGIN) = struct
   let iter_clauses_learnt_ (self : t) ~f : unit =
     let[@inline] iter_pool (module P : CLAUSE_POOL) = P.iter ~f in
     iter_pool self.clauses_learnt;
-    Vec.iter iter_pool self.clause_pools;
+    Vec.iter ~f:iter_pool self.clause_pools;
     ()
 
-  let[@inline] decision_level st = VecSmallInt.size st.var_levels
+  let[@inline] decision_level st = Veci.size st.var_levels
   let[@inline] nb_clauses st = CVec.size st.clauses_hyps
   let stat self = self.stat
 
@@ -1172,7 +1172,7 @@ module Make (Plugin : PLUGIN) = struct
   let new_decision_level st =
     assert (st.th_head = AVec.size st.trail);
     assert (st.elt_head = AVec.size st.trail);
-    VecSmallInt.push st.var_levels (AVec.size st.trail);
+    Veci.push st.var_levels (AVec.size st.trail);
     Plugin.push_level st.th;
     ()
 
@@ -1206,7 +1206,7 @@ module Make (Plugin : PLUGIN) = struct
     else (
       Log.debugf 5 (fun k -> k "(@[sat.cancel-until %d@])" lvl);
       (* We set the head of the solver and theory queue to what it was. *)
-      let head = ref (VecSmallInt.get self.var_levels lvl) in
+      let head = ref (Veci.get self.var_levels lvl) in
       self.elt_head <- !head;
       self.th_head <- !head;
       (* Now we need to cleanup the vars that are not valid anymore
@@ -1239,7 +1239,7 @@ module Make (Plugin : PLUGIN) = struct
       assert (n > 0);
       (* Resize the vectors according to their new size. *)
       AVec.shrink self.trail !head;
-      VecSmallInt.shrink self.var_levels lvl;
+      Veci.shrink self.var_levels lvl;
       Plugin.pop_levels self.th n;
       Delayed_actions.clear_on_backtrack self.delayed_actions;
       (* TODO: for scoped clause pools, backtrack them *)
@@ -1598,7 +1598,7 @@ module Make (Plugin : PLUGIN) = struct
     Step_vec.clear self.temp_step_vec;
 
     (* cleanup marks *)
-    Vec.iter (Store.clear_var store) to_unmark;
+    Vec.iter ~f:(Store.clear_var store) to_unmark;
     Vec.clear to_unmark;
 
     (* put high-level literals first, so that:
@@ -2213,7 +2213,7 @@ module Make (Plugin : PLUGIN) = struct
     in
 
     gc_pool self.clauses_learnt;
-    Vec.iter gc_pool self.clause_pools;
+    Vec.iter ~f:gc_pool self.clause_pools;
 
     let n_collected = CVec.size to_be_gc in
 

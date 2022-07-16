@@ -53,7 +53,7 @@ let ensure_size_with self f n =
     self.sz <- n
   )
 
-let ensure_size self x n = ensure_size_with self (fun () -> x) n
+let ensure_size self ~elt:x n = ensure_size_with self (fun () -> x) n
 
 (* grow the array *)
 let[@inline never] grow_to_double_size t x : unit =
@@ -125,22 +125,21 @@ let sort t f : unit =
   Array.fast_sort f sub_arr;
   t.data <- sub_arr
 
-let[@inline] iter f t =
+let iter ~f t =
   for i = 0 to size t - 1 do
     f (Array.unsafe_get t.data i)
   done
 
-let[@inline] iteri f t =
+let iteri ~f t =
   for i = 0 to size t - 1 do
     f i (Array.unsafe_get t.data i)
   done
 
-let[@inline] to_seq a k = iter k a
-let to_iter v k = iter k v
-let exists p t = Iter.exists p @@ to_seq t
-let for_all p t = Iter.for_all p @@ to_seq t
-let fold f acc a = Iter.fold f acc @@ to_seq a
-let to_list a = Iter.to_list @@ to_seq a
+let to_iter v k = iter ~f:k v
+let exists p t = Iter.exists p @@ to_iter t
+let for_all p t = Iter.for_all p @@ to_iter t
+let fold f acc a = Iter.fold f acc @@ to_iter a
+let to_list a = Iter.to_list @@ to_iter a
 let to_array a = Array.sub a.data 0 a.sz
 
 let of_list l : _ t =
@@ -153,11 +152,9 @@ let of_list l : _ t =
 
 let pp ?(sep = ", ") pp out v =
   let first = ref true in
-  iter
-    (fun x ->
+  iter v ~f:(fun x ->
       if !first then
         first := false
       else
         Format.fprintf out "%s@," sep;
       pp out x)
-    v
