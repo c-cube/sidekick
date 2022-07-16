@@ -1,17 +1,19 @@
-(** {1 Mini congruence closure}
+(** Mini congruence closure
 
     This implementation is as simple as possible, and doesn't provide
     backtracking, theories, or explanations.
     It just decides the satisfiability of a set of (dis)equations.
 *)
 
-module CC_view = Sidekick_core.CC_view
+module CC_view = Sidekick_sigs_cc.View
+
+module type TERM = Sidekick_sigs_term.S
 
 (** Argument for the functor {!Make}
 
     It only requires a term structure, and a congruence-oriented view. *)
 module type ARG = sig
-  module T : Sidekick_core.TERM
+  module T : TERM
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 end

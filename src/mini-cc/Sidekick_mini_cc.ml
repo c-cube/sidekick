@@ -1,7 +1,9 @@
-module CC_view = Sidekick_core.CC_view
+module CC_view = Sidekick_sigs_cc.View
+
+module type TERM = Sidekick_sigs_term.S
 
 module type ARG = sig
-  module T : Sidekick_core.TERM
+  module T : TERM
 
   val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 end
