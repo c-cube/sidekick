@@ -16,3 +16,5 @@ snapshots/
 perf.*
 .mypy_cache
 *.gz
+.git-blame-ignore-revs
+*.json
