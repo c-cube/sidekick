@@ -1,3 +1,3 @@
 #!/bin/sh
-OPTS=--profile=release
+OPTS="--profile=release --display=quiet"
 exec dune exec $OPTS ./src/main/main.exe -- $@
