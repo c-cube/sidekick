@@ -28,39 +28,42 @@ end
 
 (** {2 Main Proof API} *)
 
-type t
+module Proof_trace : Sidekick_core.PROOF_TRACE
+
+type t = Proof_trace.t
 (** A container for the whole proof *)
 
-type proof_step
-(** A proof step in the trace.
+type step_id = Proof_trace.A.step_id
+type rule = Proof_trace.A.rule
 
-    The proof will store all steps, and at the end when we find the empty clause
-    we can filter them to keep only the relevant ones. *)
+module Rule_sat :
+  Sidekick_core.SAT_PROOF_RULES
+    with type rule = rule
+     and type lit = Lit.t
+     and type step_id = step_id
 
-include
-  Sidekick_core.PROOF
-    with type t := t
-     and type proof_step := proof_step
+module Rule_core :
+  Sidekick_core.PROOF_CORE
+    with type rule = rule
+     and type lit = Lit.t
+     and type term = Term.t
+     and type step_id = step_id
+
+val lemma_lra : Lit.t Iter.t -> rule
+val lemma_relax_to_lra : Lit.t Iter.t -> rule
+val lemma_lia : Lit.t Iter.t -> rule
+
+module Rule_data :
+  Sidekick_th_data.PROOF_RULES
+    with type rule = rule
      and type lit = Lit.t
      and type term = Term.t
 
-val lemma_lra : Lit.t Iter.t -> proof_rule
-val lemma_relax_to_lra : Lit.t Iter.t -> proof_rule
-val lemma_lia : Lit.t Iter.t -> proof_rule
-
-include
-  Sidekick_th_data.PROOF
-    with type proof := t
-     and type proof_step := proof_step
-     and type lit := Lit.t
-     and type term := Term.t
-
-include
-  Sidekick_th_bool_static.PROOF
-    with type proof := t
-     and type proof_step := proof_step
-     and type lit := Lit.t
-     and type term := Term.t
+module Rule_bool :
+  Sidekick_th_bool_static.PROOF_RULES
+    with type rule = rule
+     and type lit = Lit.t
+     and type term = Term.t
 
 (** {2 Creation} *)
 
@@ -83,5 +86,5 @@ val iter_steps_backward : t -> Proof_ser.Step.t Iter.t
     a dummy backend. *)
 
 module Unsafe_ : sig
-  val id_of_proof_step_ : proof_step -> Proof_ser.ID.t
+  val id_of_proof_step_ : step_id -> Proof_ser.ID.t
 end

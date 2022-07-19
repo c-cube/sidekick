@@ -4,7 +4,7 @@
 
 type t
 
-val of_proof : Proof.t -> unsat:Proof.proof_step -> t
+val of_proof : Proof.t -> unsat:Proof.step_id -> t
 
 type out_format = Sidekick_quip.out_format = Sexp | CSexp
 

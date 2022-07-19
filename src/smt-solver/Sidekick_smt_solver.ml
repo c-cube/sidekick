@@ -12,18 +12,26 @@ module type ARG = sig
   open Sidekick_core
   module T : TERM
   module Lit : LIT with module T = T
+  module Proof_trace : PROOF_TRACE
 
-  type proof
-  type proof_step
+  type step_id = Proof_trace.A.step_id
+  type rule = Proof_trace.A.rule
 
-  module P :
-    PROOF
+  module Rule_core :
+    Sidekick_sigs_proof_core.S
       with type term = T.Term.t
-       and type t = proof
-       and type proof_step = proof_step
        and type lit = Lit.t
+       and type step_id = step_id
+       and type rule = rule
 
-  val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
+  module Rule_sat :
+    Sidekick_sigs_proof_sat.S
+      with type lit = Lit.t
+       and type step_id = step_id
+       and type rule = rule
+
+  val view_as_cc :
+    T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) Sidekick_sigs_cc.View.t
 
   val mk_eq : T.Term.store -> T.Term.t -> T.Term.t -> T.Term.t
   (** [mk_eq store t u] builds the term [t=u] *)
@@ -33,9 +41,9 @@ module type ARG = sig
       a quantifier) *)
 end
 
-module type S = Sidekick_core.SOLVER
+module type S = Sidekick_sigs_smt.SOLVER
 
-module Registry : Sidekick_core.REGISTRY = struct
+module Registry : Sidekick_sigs_smt.REGISTRY = struct
   (* registry keys *)
   module type KEY = sig
     type elt
@@ -78,24 +86,28 @@ end
 module Make (A : ARG) :
   S
     with module T = A.T
-     and type proof = A.proof
-     and type proof_step = A.proof_step
      and module Lit = A.Lit
-     and module P = A.P = struct
+     and module Proof_trace = A.Proof_trace = struct
   module T = A.T
-  module P = A.P
+  module Proof_trace = A.Proof_trace
+  module Lit = A.Lit
   module Ty = T.Ty
   module Term = T.Term
-  module Lit = A.Lit
+
+  open struct
+    module P = Proof_trace
+    module Rule_ = A.Rule_core
+  end
 
   type term = Term.t
   type ty = Ty.t
-  type proof = A.proof
-  type proof_step = A.proof_step
   type lit = Lit.t
+  type rule = Proof_trace.A.rule
+  type step_id = Proof_trace.A.step_id
+  type proof_trace = Proof_trace.t
 
   (* actions from the sat solver *)
-  type sat_acts = (lit, proof, proof_step) Sidekick_sat.acts
+  type sat_acts = (lit, Proof_trace.t, step_id) Sidekick_sat.acts
 
   type th_combination_conflict = {
     lits: lit list;
@@ -109,48 +121,20 @@ module Make (A : ARG) :
   exception Semantic_conflict of th_combination_conflict
 
   (* the full argument to the congruence closure *)
-  module CC_actions = struct
+  module CC_arg = struct
     module T = T
-    module P = P
     module Lit = Lit
+    module Proof_trace = Proof_trace
+    module Rule_core = A.Rule_core
 
-    type nonrec proof = proof
-    type nonrec proof_step = proof_step
-
-    let cc_view = A.cc_view
+    let view_as_cc = A.view_as_cc
 
     let[@inline] mk_lit_eq ?sign store t u =
       A.Lit.atom ?sign store (A.mk_eq store t u)
-
-    module Actions = struct
-      module T = T
-      module P = P
-      module Lit = Lit
-
-      type nonrec proof = proof
-      type nonrec proof_step = proof_step
-      type t = sat_acts
-
-      let[@inline] proof (a : t) =
-        let (module A) = a in
-        A.proof
-
-      let[@inline] raise_conflict (a : t) lits (pr : proof_step) =
-        let (module A) = a in
-        A.raise_conflict lits pr
-
-      let[@inline] raise_semantic_conflict (_ : t) lits semantic =
-        raise (Semantic_conflict { lits; semantic })
-
-      let[@inline] propagate (a : t) lit ~reason =
-        let (module A) = a in
-        let reason = Sidekick_sat.Consequence reason in
-        A.propagate lit reason
-    end
   end
 
-  module CC = Sidekick_cc.Make (CC_actions)
-  module N = CC.N
+  module CC = Sidekick_cc.Make (CC_arg)
+  module N = CC.Class
 
   module Model = struct
     type t = Empty | Map of term Term.Tbl.t
@@ -180,19 +164,44 @@ module Make (A : ARG) :
   (* delayed actions. We avoid doing them on the spot because, when
      triggered by a theory, they might go back to the theory "too early". *)
   type delayed_action =
-    | DA_add_clause of { c: lit list; pr: proof_step; keep: bool }
+    | DA_add_clause of { c: lit list; pr: step_id; keep: bool }
     | DA_add_lit of { default_pol: bool option; lit: lit }
+
+  let mk_cc_acts_ (pr : P.t) (a : sat_acts) : CC.actions =
+    let (module A) = a in
+
+    (module struct
+      module T = T
+      module Lit = Lit
+
+      type nonrec lit = lit
+      type nonrec term = term
+      type nonrec proof_trace = Proof_trace.t
+      type nonrec step_id = step_id
+
+      let proof_trace () = pr
+      let[@inline] raise_conflict lits (pr : step_id) = A.raise_conflict lits pr
+
+      let[@inline] raise_semantic_conflict lits semantic =
+        raise (Semantic_conflict { lits; semantic })
+
+      let[@inline] propagate lit ~reason =
+        let reason = Sidekick_sat.Consequence reason in
+        A.propagate lit reason
+    end)
 
   (** Internal solver, given to theories and to Msat *)
   module Solver_internal = struct
     module T = T
-    module P = P
+    module Proof_trace = Proof_trace
+    module Proof_rules = A.Rule_sat
+    module P_core_rules = A.Rule_core
     module Lit = Lit
     module CC = CC
-    module N = CC.N
+    module N = CC.Class
 
-    type nonrec proof = proof
-    type nonrec proof_step = proof_step
+    type nonrec proof_trace = Proof_trace.t
+    type nonrec step_id = step_id
     type term = Term.t
     type value = term
     type ty = Ty.t
@@ -217,15 +226,15 @@ module Make (A : ARG) :
       type t = {
         tst: term_store;
         ty_st: ty_store;
-        proof: proof;
+        proof: proof_trace;
         mutable hooks: hook list;
-        (* store [t --> u by proof_steps] in the cache.
+        (* store [t --> u by step_ids] in the cache.
            We use a bag for the proof steps because it gives us structural
            sharing of subproofs. *)
-        cache: (Term.t * proof_step Bag.t) Term.Tbl.t;
+        cache: (Term.t * step_id Bag.t) Term.Tbl.t;
       }
 
-      and hook = t -> term -> (term * proof_step Iter.t) option
+      and hook = t -> term -> (term * step_id Iter.t) option
 
       let create tst ty_st ~proof : t =
         { tst; ty_st; proof; hooks = []; cache = Term.Tbl.create 32 }
@@ -236,7 +245,7 @@ module Make (A : ARG) :
       let add_hook self f = self.hooks <- f :: self.hooks
       let clear self = Term.Tbl.clear self.cache
 
-      let normalize (self : t) (t : Term.t) : (Term.t * proof_step) option =
+      let normalize (self : t) (t : Term.t) : (Term.t * step_id) option =
         (* compute and cache normal form of [t] *)
         let rec loop t : Term.t * _ Bag.t =
           match Term.Tbl.find self.cache t with
@@ -277,7 +286,8 @@ module Make (A : ARG) :
         else (
           (* proof: [sub_proofs |- t=u] by CC + subproof *)
           let step =
-            P.lemma_preprocess t u ~using:(Bag.to_iter pr_u) self.proof
+            P.add_step self.proof
+            @@ Rule_.lemma_preprocess t u ~using:(Bag.to_iter pr_u)
           in
           Some (u, step)
         )
@@ -291,9 +301,9 @@ module Make (A : ARG) :
     type simplify_hook = Simplify.hook
 
     module type PREPROCESS_ACTS = sig
-      val proof : proof
+      val proof : proof_trace
       val mk_lit : ?sign:bool -> term -> lit
-      val add_clause : lit list -> proof_step -> unit
+      val add_clause : lit list -> step_id -> unit
       val add_lit : ?default_pol:bool -> lit -> unit
     end
 
@@ -305,7 +315,7 @@ module Make (A : ARG) :
       tst: Term.store;  (** state for managing terms *)
       ty_st: Ty.store;
       cc: CC.t lazy_t;  (** congruence closure *)
-      proof: proof;  (** proof logger *)
+      proof: proof_trace;  (** proof logger *)
       registry: Registry.t;
       mutable on_progress: unit -> unit;
       mutable on_partial_check:
@@ -331,15 +341,10 @@ module Make (A : ARG) :
     }
 
     and preprocess_hook = t -> preprocess_actions -> term -> unit
-
-    and model_ask_hook =
-      recurse:(t -> CC.N.t -> term) -> t -> CC.N.t -> term option
-
+    and model_ask_hook = recurse:(t -> N.t -> term) -> t -> N.t -> term option
     and model_completion_hook = t -> add:(term -> term -> unit) -> unit
 
     type solver = t
-
-    module Proof = P
 
     let[@inline] cc (t : t) = Lazy.force t.cc
     let[@inline] tst t = t.tst
@@ -382,7 +387,7 @@ module Make (A : ARG) :
       propagate self acts p ~reason:(fun () -> cs, proof)
 
     let add_sat_clause_ self (acts : theory_actions) ~keep lits
-        (proof : proof_step) : unit =
+        (proof : step_id) : unit =
       let (module A) = acts in
       Stat.incr self.count_axiom;
       A.add_clause ~keep lits proof
@@ -395,7 +400,7 @@ module Make (A : ARG) :
     let delayed_add_lit (self : t) ?default_pol (lit : Lit.t) : unit =
       Queue.push (DA_add_lit { default_pol; lit }) self.delayed_actions
 
-    let delayed_add_clause (self : t) ~keep (c : Lit.t list) (pr : proof_step) :
+    let delayed_add_clause (self : t) ~keep (c : Lit.t list) (pr : step_id) :
         unit =
       Queue.push (DA_add_clause { c; pr; keep }) self.delayed_actions
 
@@ -445,7 +450,7 @@ module Make (A : ARG) :
 
     (* simplify literal, then preprocess the result *)
     let simplify_and_preproc_lit_ (self : t) (lit : Lit.t) :
-        Lit.t * proof_step option =
+        Lit.t * step_id option =
       let t = Lit.term lit in
       let sign = Lit.sign lit in
       let u, pr =
@@ -476,8 +481,7 @@ module Make (A : ARG) :
     module Preprocess_clause (A : ARR) = struct
       (* preprocess a clause's literals, possibly emitting a proof
          for the preprocessing. *)
-      let top (self : t) (c : lit A.t) (pr_c : proof_step) :
-          lit A.t * proof_step =
+      let top (self : t) (c : lit A.t) (pr_c : step_id) : lit A.t * step_id =
         let steps = ref [] in
 
         (* simplify a literal, then preprocess it *)
@@ -493,8 +497,9 @@ module Make (A : ARG) :
             pr_c
           else (
             Stat.incr self.count_preprocess_clause;
-            P.lemma_rw_clause pr_c ~res:(A.to_iter c')
-              ~using:(Iter.of_list !steps) self.proof
+            P.add_step self.proof
+            @@ Rule_.lemma_rw_clause pr_c ~res:(A.to_iter c')
+                 ~using:(Iter.of_list !steps)
           )
         in
         c', pr_c'
@@ -510,9 +515,7 @@ module Make (A : ARG) :
     module type PERFORM_ACTS = sig
       type t
 
-      val add_clause :
-        solver -> t -> keep:bool -> lit list -> proof_step -> unit
-
+      val add_clause : solver -> t -> keep:bool -> lit list -> step_id -> unit
       val add_lit : solver -> t -> ?default_pol:bool -> lit -> unit
     end
 
@@ -542,11 +545,11 @@ module Make (A : ARG) :
         add_sat_lit_ self acts ?default_pol lit
     end)
 
-    let[@inline] add_clause_temp self _acts c (proof : proof_step) : unit =
+    let[@inline] add_clause_temp self _acts c (proof : step_id) : unit =
       let c, proof = preprocess_clause_ self c proof in
       delayed_add_clause self ~keep:false c proof
 
-    let[@inline] add_clause_permanent self _acts c (proof : proof_step) : unit =
+    let[@inline] add_clause_permanent self _acts c (proof : step_id) : unit =
       let c, proof = preprocess_clause_ self c proof in
       delayed_add_clause self ~keep:true c proof
 
@@ -566,12 +569,12 @@ module Make (A : ARG) :
     let on_partial_check self f =
       self.on_partial_check <- f :: self.on_partial_check
 
-    let on_cc_new_term self f = CC.on_new_term (cc self) f
-    let on_cc_pre_merge self f = CC.on_pre_merge (cc self) f
-    let on_cc_post_merge self f = CC.on_post_merge (cc self) f
-    let on_cc_conflict self f = CC.on_conflict (cc self) f
-    let on_cc_propagate self f = CC.on_propagate (cc self) f
-    let on_cc_is_subterm self f = CC.on_is_subterm (cc self) f
+    let on_cc_new_term self f = Event.on (CC.on_new_term (cc self)) ~f
+    let on_cc_pre_merge self f = Event.on (CC.on_pre_merge (cc self)) ~f
+    let on_cc_post_merge self f = Event.on (CC.on_post_merge (cc self)) ~f
+    let on_cc_conflict self f = Event.on (CC.on_conflict (cc self)) ~f
+    let on_cc_propagate self f = Event.on (CC.on_propagate (cc self)) ~f
+    let on_cc_is_subterm self f = Event.on (CC.on_is_subterm (cc self)) ~f
     let cc_add_term self t = CC.add_term (cc self) t
     let cc_mem_term self t = CC.mem_term (cc self) t
     let cc_find self n = CC.find (cc self) n
@@ -584,10 +587,12 @@ module Make (A : ARG) :
     let cc_merge self _acts n1 n2 e = CC.merge (cc self) n1 n2 e
 
     let cc_merge_t self acts t1 t2 e =
-      cc_merge self acts (cc_add_term self t1) (cc_add_term self t2) e
+      let cc_acts = mk_cc_acts_ self.proof acts in
+      cc_merge self cc_acts (cc_add_term self t1) (cc_add_term self t2) e
 
     let cc_raise_conflict_expl self acts e =
-      CC.raise_conflict_from_expl (cc self) acts e
+      let cc_acts = mk_cc_acts_ self.proof acts in
+      CC.raise_conflict_from_expl (cc self) cc_acts e
 
     (** {2 Interface with the SAT solver} *)
 
@@ -698,6 +703,8 @@ module Make (A : ARG) :
     let check_th_combination_ (self : t) (acts : theory_actions) :
         (Model.t, th_combination_conflict) result =
       let cc = cc self in
+      let cc_acts = mk_cc_acts_ self.proof acts in
+
       (* entier model mode, disabling most of congruence closure *)
       CC.with_model_mode cc @@ fun () ->
       let set_val (t, v) : unit =
@@ -715,7 +722,7 @@ module Make (A : ARG) :
 
       try
         List.iter add_th_values self.on_th_combination;
-        CC.check cc acts;
+        CC.check cc cc_acts;
         let m = mk_model_ self in
         Ok m
       with Semantic_conflict c -> Error c
@@ -734,12 +741,14 @@ module Make (A : ARG) :
             lits);
       (* transmit to CC *)
       let cc = cc self in
+      let cc_acts = mk_cc_acts_ self.proof acts in
+
       if not final then CC.assert_lits cc lits;
       (* transmit to theories. *)
-      CC.check cc acts;
+      CC.check cc cc_acts;
       if final then (
         List.iter (fun f -> f self acts lits) self.on_final_check;
-        CC.check cc acts;
+        CC.check cc cc_acts;
 
         (match check_th_combination_ self acts with
         | Ok m -> self.last_model <- Some m
@@ -765,7 +774,7 @@ module Make (A : ARG) :
           in
 
           let c = List.rev_append c1 c2 in
-          let pr = P.lemma_cc (Iter.of_list c) self.proof in
+          let pr = P.add_step self.proof @@ Rule_.lemma_cc (Iter.of_list c) in
 
           Log.debugf 20 (fun k ->
               k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
@@ -882,7 +891,7 @@ module Make (A : ARG) :
     | Unsat of {
         unsat_core: unit -> lit Iter.t;
             (** Unsat core (subset of assumptions), or empty *)
-        unsat_proof_step: unit -> proof_step option;
+        unsat_step_id: unit -> step_id option;
             (** Proof step for the empty clause *)
       }
     | Unknown of Unknown.t
@@ -946,7 +955,7 @@ module Make (A : ARG) :
      let t_true = Term.bool tst true in
      Sat_solver.add_clause self.solver
        [ Lit.atom tst t_true ]
-       (P.lemma_true t_true self.proof));
+       (P.add_step self.proof @@ Rule_.lemma_true t_true));
     self
 
   let[@inline] solver self = self.solver
@@ -960,8 +969,8 @@ module Make (A : ARG) :
   let reset_last_res_ self = self.last_res <- None
 
   (* preprocess clause, return new proof *)
-  let preprocess_clause_ (self : t) (c : lit array) (pr : proof_step) :
-      lit array * proof_step =
+  let preprocess_clause_ (self : t) (c : lit array) (pr : step_id) :
+      lit array * step_id =
     Solver_internal.preprocess_clause_iarray_ self.si c pr
 
   let mk_lit_t (self : t) ?sign (t : term) : lit =
@@ -974,8 +983,8 @@ module Make (A : ARG) :
   let pp_stats out (self : t) : unit = Stat.pp_all out (Stat.all @@ stats self)
 
   (* add [c], without preprocessing its literals *)
-  let add_clause_nopreproc_ (self : t) (c : lit array) (proof : proof_step) :
-      unit =
+  let add_clause_nopreproc_ (self : t) (c : lit array) (proof : step_id) : unit
+      =
     Stat.incr self.count_clause;
     reset_last_res_ self;
     Log.debugf 50 (fun k ->
@@ -997,7 +1006,7 @@ module Make (A : ARG) :
       Sat_solver.add_lit solver.solver ?default_pol lit
   end)
 
-  let add_clause (self : t) (c : lit array) (proof : proof_step) : unit =
+  let add_clause (self : t) (c : lit array) (proof : step_id) : unit =
     let c, proof = preprocess_clause_ self c proof in
     add_clause_nopreproc_ self c proof;
     Perform_delayed_.top self.si self;
@@ -1008,7 +1017,9 @@ module Make (A : ARG) :
 
   let assert_terms self c =
     let c = CCList.map (fun t -> Lit.atom (tst self) t) c in
-    let pr_c = P.emit_input_clause (Iter.of_list c) self.proof in
+    let pr_c =
+      P.add_step self.proof @@ A.Rule_sat.sat_input_clause (Iter.of_list c)
+    in
     add_clause_l self c pr_c
 
   let assert_term self t = assert_terms self [ t ]
@@ -1064,9 +1075,9 @@ module Make (A : ARG) :
         Sat m
       | Sat_solver.Unsat (module UNSAT) ->
         let unsat_core () = UNSAT.unsat_assumptions () in
-        let unsat_proof_step () = Some (UNSAT.unsat_proof ()) in
+        let unsat_step_id () = Some (UNSAT.unsat_proof ()) in
         do_on_exit ();
-        Unsat { unsat_core; unsat_proof_step }
+        Unsat { unsat_core; unsat_step_id }
       | exception Resource_exhausted -> Unknown Unknown.U_asked_to_stop
     in
     self.last_res <- Some res;

@@ -37,10 +37,7 @@ val to_string : t -> string
 val to_string_full : t -> string
 (** Printer name and unique counter for this ID. *)
 
-include Intf.EQ with type t := t
-include Intf.ORD with type t := t
-include Intf.HASH with type t := t
-include Intf.PRINT with type t := t
+include Sidekick_sigs.EQ_ORD_HASH_PRINT with type t := t
 
 val pp_name : t CCFormat.printer
 

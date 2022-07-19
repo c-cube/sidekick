@@ -1,7 +1,7 @@
 (library
  (name Sidekick_th_data)
  (public_name sidekick.th-data)
- (libraries containers sidekick.core sidekick.util)
+ (libraries containers sidekick.sigs.smt sidekick.util sidekick.cc.plugin)
  (flags :standard -open Sidekick_util -w -27-32))
 
 ; TODO get warning back

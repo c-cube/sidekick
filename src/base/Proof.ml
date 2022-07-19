@@ -30,27 +30,13 @@ end
 
 (* a step is just a unique integer ID.
    The actual step is stored in the chunk_stack. *)
-type proof_step = Proof_ser.ID.t
+type step_id = Proof_ser.ID.t
 type term_id = Proof_ser.ID.t
 type lit = Lit.t
 type term = Term.t
 
-type t = {
-  mutable enabled: bool;
-  buf: Buffer.t;
-  out: Proof_ser.Bare.Encode.t;
-  mutable storage: Storage.t;
-  dispose: unit -> unit;
-  mutable steps_writer: CS.Writer.t;
-  mutable next_id: int;
-  map_term: term_id Term.Tbl.t; (* term -> proof ID *)
-  map_fun: term_id Fun.Tbl.t;
-}
-
-type proof_rule = t -> proof_step
-
 module Step_vec = struct
-  type elt = proof_step
+  type elt = step_id
   type t = elt Vec.t
 
   let get = Vec.get
@@ -70,6 +56,18 @@ module Step_vec = struct
   let shrink = Vec.shrink
   let to_iter = Vec.to_iter
 end
+
+type t = {
+  mutable enabled: bool;
+  buf: Buffer.t;
+  out: Proof_ser.Bare.Encode.t;
+  mutable storage: Storage.t;
+  dispose: unit -> unit;
+  mutable steps_writer: CS.Writer.t;
+  mutable next_id: int;
+  map_term: term_id Term.Tbl.t; (* term -> proof ID *)
+  map_fun: term_id Fun.Tbl.t;
+}
 
 let disable (self : t) : unit =
   self.enabled <- false;
@@ -114,7 +112,7 @@ let create ?(config = Config.default) () : t =
 
 let empty = create ~config:Config.empty ()
 let iter_steps_backward (self : t) = Storage.iter_steps_backward self.storage
-let dummy_step : proof_step = Int32.min_int
+let dummy_step : step_id = Int32.min_int
 let[@inline] enabled (self : t) = self.enabled
 
 (* allocate a unique ID to refer to an event in the trace *)
@@ -178,119 +176,178 @@ let emit_lit_ (self : t) (lit : Lit.t) : term_id =
   else
     Int32.neg t
 
-let emit_ (self : t) f : proof_step =
-  if enabled self then (
-    let view = f () in
-    let id = alloc_id self in
-    emit_step_ self { PS.Step.id; view };
-    id
-  ) else
-    dummy_step
-
 let emit_no_return_ (self : t) f : unit =
   if enabled self then (
     let view = f () in
     emit_step_ self { PS.Step.id = -1l; view }
   )
 
-let[@inline] emit_redundant_clause lits ~hyps (self : t) =
-  emit_ self @@ fun () ->
-  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
-  let clause = Proof_ser.{ Clause.lits } in
-  let hyps = Iter.to_array hyps in
-  PS.Step_view.Step_rup { res = clause; hyps }
+let emit_unsat c (self : t) : unit =
+  emit_no_return_ self @@ fun () -> PS.(Step_view.Step_unsat { Step_unsat.c })
 
-let emit_input_clause (lits : Lit.t Iter.t) (self : t) =
-  emit_ self @@ fun () ->
-  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
-  PS.(Step_view.Step_input { Step_input.c = { Clause.lits } })
+(** What a rule can return. It can return an existing step, or ask to create
+    a new one. *)
+type rule_res = R_new of PS.Step_view.t | R_old of step_id
 
-let define_term t u (self : t) =
-  emit_ self @@ fun () ->
-  let t = emit_term_ self t and u = emit_term_ self u in
-  PS.(Step_view.Expr_def { Expr_def.c = t; rhs = u })
+type rule = t -> rule_res
 
-let proof_p1 rw_with c (self : t) =
-  emit_ self @@ fun () ->
-  PS.(Step_view.Step_proof_p1 { Step_proof_p1.c; rw_with })
-
-let proof_r1 unit c (self : t) =
-  emit_ self @@ fun () -> PS.(Step_view.Step_proof_r1 { Step_proof_r1.c; unit })
-
-let proof_res ~pivot c1 c2 (self : t) =
-  emit_ self @@ fun () ->
-  let pivot = emit_term_ self pivot in
-  PS.(Step_view.Step_proof_res { Step_proof_res.c1; c2; pivot })
-
-let lemma_preprocess t u ~using (self : t) =
-  emit_ self @@ fun () ->
-  let t = emit_term_ self t and u = emit_term_ self u in
-  let using = using |> Iter.to_array in
-  PS.(Step_view.Step_preprocess { Step_preprocess.t; u; using })
-
-let lemma_true t (self : t) =
-  emit_ self @@ fun () ->
-  let t = emit_term_ self t in
-  PS.(Step_view.Step_true { Step_true.true_ = t })
-
-let lemma_cc lits (self : t) =
-  emit_ self @@ fun () ->
-  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
-  PS.(Step_view.Step_cc { Step_cc.eqns = lits })
-
-let lemma_rw_clause c ~res ~using (self : t) =
+let emit_rule_ (self : t) (f : rule) : step_id =
   if enabled self then (
-    let using = Iter.to_array using in
-    if Array.length using = 0 then
-      c
-    (* useless step *)
-    else
-      emit_ self @@ fun () ->
-      let lits = Iter.map (emit_lit_ self) res |> Iter.to_array in
-      let res = Proof_ser.{ Clause.lits } in
-      PS.(Step_view.Step_clause_rw { Step_clause_rw.c; res; using })
+    match f self with
+    | R_old id -> id
+    | R_new view ->
+      let id = alloc_id self in
+      emit_step_ self { PS.Step.id; view };
+      id
   ) else
     dummy_step
 
-(* TODO *)
-let with_defs _ _ (_pr : t) = dummy_step
+module Proof_trace = struct
+  module A = struct
+    type nonrec step_id = step_id
+    type nonrec rule = rule
+
+    module Step_vec = Step_vec
+  end
+
+  type nonrec t = t
+
+  let enabled = enabled
+  let add_step = emit_rule_
+  let[@inline] add_unsat self id = emit_unsat id self
+  let delete _ _ = ()
+end
+
+let r_new v = R_new v
+let r_old id = R_old id
+
+module Rule_sat = struct
+  type nonrec lit = lit
+  type nonrec step_id = step_id
+  type nonrec rule = rule
+
+  let sat_redundant_clause lits ~hyps : rule =
+   fun self ->
+    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+    let clause = Proof_ser.{ Clause.lits } in
+    let hyps = Iter.to_array hyps in
+    r_new @@ PS.Step_view.Step_rup { res = clause; hyps }
+
+  let sat_input_clause (lits : Lit.t Iter.t) : rule =
+   fun self ->
+    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+    r_new @@ PS.(Step_view.Step_input { Step_input.c = { Clause.lits } })
+
+  (* TODO *)
+  let sat_unsat_core _ (_pr : t) = r_old dummy_step
+end
+
+module Rule_core = struct
+  type nonrec term = term
+  type nonrec step_id = step_id
+  type nonrec rule = rule
+  type nonrec lit = lit
+
+  let sat_redundant_clause lits ~hyps : rule =
+   fun self ->
+    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+    let clause = Proof_ser.{ Clause.lits } in
+    let hyps = Iter.to_array hyps in
+    r_new @@ PS.Step_view.Step_rup { res = clause; hyps }
+
+  let define_term t u : rule =
+   fun self ->
+    let t = emit_term_ self t and u = emit_term_ self u in
+    r_new @@ PS.(Step_view.Expr_def { Expr_def.c = t; rhs = u })
+
+  let proof_p1 rw_with c : rule =
+   fun _self ->
+    r_new @@ PS.(Step_view.Step_proof_p1 { Step_proof_p1.c; rw_with })
+
+  let proof_r1 unit c : rule =
+   fun _self -> r_new @@ PS.(Step_view.Step_proof_r1 { Step_proof_r1.c; unit })
+
+  let proof_res ~pivot c1 c2 : rule =
+   fun self ->
+    let pivot = emit_term_ self pivot in
+    r_new @@ PS.(Step_view.Step_proof_res { Step_proof_res.c1; c2; pivot })
+
+  let lemma_preprocess t u ~using : rule =
+   fun self ->
+    let t = emit_term_ self t and u = emit_term_ self u in
+    let using = using |> Iter.to_array in
+    r_new @@ PS.(Step_view.Step_preprocess { Step_preprocess.t; u; using })
+
+  let lemma_true t : rule =
+   fun self ->
+    let t = emit_term_ self t in
+    r_new @@ PS.(Step_view.Step_true { Step_true.true_ = t })
+
+  let lemma_cc lits : rule =
+   fun self ->
+    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+    r_new @@ PS.(Step_view.Step_cc { Step_cc.eqns = lits })
+
+  let lemma_rw_clause c ~res ~using : rule =
+   fun self ->
+    let using = Iter.to_array using in
+    if Array.length using = 0 then
+      r_old c
+    (* useless step *)
+    else (
+      let lits = Iter.map (emit_lit_ self) res |> Iter.to_array in
+      let res = Proof_ser.{ Clause.lits } in
+      r_new @@ PS.(Step_view.Step_clause_rw { Step_clause_rw.c; res; using })
+    )
+
+  (* TODO *)
+  let with_defs _ _ (_pr : t) = r_old dummy_step
+end
 
 (* not useful *)
 let del_clause _ _ (_pr : t) = ()
 
+module Rule_bool = struct
+  type nonrec term = term
+  type nonrec lit = lit
+  type nonrec rule = rule
+
+  let lemma_bool_tauto lits : rule =
+   fun self ->
+    let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
+    r_new @@ PS.(Step_view.Step_bool_tauto { Step_bool_tauto.lits })
+
+  let lemma_bool_c rule (ts : Term.t list) : rule =
+   fun self ->
+    let exprs = Util.array_of_list_map (emit_term_ self) ts in
+    r_new @@ PS.(Step_view.Step_bool_c { Step_bool_c.exprs; rule })
+
+  let lemma_bool_equiv _ _ _ = r_old dummy_step
+  let lemma_ite_true ~ite:_ _ = r_old dummy_step
+  let lemma_ite_false ~ite:_ _ = r_old dummy_step
+end
+
 (* TODO *)
-let emit_unsat_core _ (_pr : t) = dummy_step
 
-let emit_unsat c (self : t) : unit =
-  emit_no_return_ self @@ fun () -> PS.(Step_view.Step_unsat { Step_unsat.c })
+let lemma_lra _ _ = r_old dummy_step
+let lemma_relax_to_lra _ _ = r_old dummy_step
+let lemma_lia _ _ = r_old dummy_step
 
-let lemma_bool_tauto lits (self : t) =
-  emit_ self @@ fun () ->
-  let lits = Iter.map (emit_lit_ self) lits |> Iter.to_array in
-  PS.(Step_view.Step_bool_tauto { Step_bool_tauto.lits })
+module Rule_data = struct
+  type nonrec lit = lit
+  type nonrec rule = rule
+  type nonrec term = term
 
-let lemma_bool_c rule (ts : Term.t list) (self : t) =
-  emit_ self @@ fun () ->
-  let exprs = ts |> Util.array_of_list_map (emit_term_ self) in
-  PS.(Step_view.Step_bool_c { Step_bool_c.exprs; rule })
-
-(* TODO *)
-
-let lemma_lra _ _ = dummy_step
-let lemma_relax_to_lra _ _ = dummy_step
-let lemma_lia _ _ = dummy_step
-let lemma_bool_equiv _ _ _ = dummy_step
-let lemma_ite_true ~ite:_ _ = dummy_step
-let lemma_ite_false ~ite:_ _ = dummy_step
-let lemma_isa_cstor ~cstor_t:_ _ (_pr : t) = dummy_step
-let lemma_select_cstor ~cstor_t:_ _ (_pr : t) = dummy_step
-let lemma_isa_split _ _ (_pr : t) = dummy_step
-let lemma_isa_sel _ (_pr : t) = dummy_step
-let lemma_isa_disj _ _ (_pr : t) = dummy_step
-let lemma_cstor_inj _ _ _ (_pr : t) = dummy_step
-let lemma_cstor_distinct _ _ (_pr : t) = dummy_step
-let lemma_acyclicity _ (_pr : t) = dummy_step
+  let lemma_isa_cstor ~cstor_t:_ _ (_pr : t) = r_old dummy_step
+  let lemma_select_cstor ~cstor_t:_ _ (_pr : t) = r_old dummy_step
+  let lemma_isa_split _ _ (_pr : t) = r_old dummy_step
+  let lemma_isa_sel _ (_pr : t) = r_old dummy_step
+  let lemma_isa_disj _ _ (_pr : t) = r_old dummy_step
+  let lemma_cstor_inj _ _ _ (_pr : t) = r_old dummy_step
+  let lemma_cstor_distinct _ _ (_pr : t) = r_old dummy_step
+  let lemma_acyclicity _ (_pr : t) = r_old dummy_step
+end
 
 module Unsafe_ = struct
-  let[@inline] id_of_proof_step_ (p : proof_step) : proof_step = p
+  let[@inline] id_of_proof_step_ (p : step_id) : step_id = p
 end

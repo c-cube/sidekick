@@ -5,7 +5,7 @@ module type TERM = Sidekick_sigs_term.S
 module type ARG = sig
   module T : TERM
 
-  val cc_view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
+  val view_as_cc : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
 end
 
 module type S = sig
@@ -165,7 +165,7 @@ module Make (A : ARG) = struct
     ()
 
   let sub_ t k : unit =
-    match A.cc_view t with
+    match A.view_as_cc t with
     | Bool _ | Opaque _ -> ()
     | App_fun (_, args) -> args k
     | App_ho (f, a) ->
@@ -202,7 +202,7 @@ module Make (A : ARG) = struct
 
   let compute_sig (self : t) (n : node) : Signature.t option =
     let[@inline] return x = Some x in
-    match A.cc_view n.n_t with
+    match A.view_as_cc n.n_t with
     | Bool _ | Opaque _ -> None
     | Eq (a, b) ->
       let a = find_t_ self a in
@@ -318,7 +318,7 @@ module Make (A : ARG) = struct
   (* API *)
 
   let add_lit (self : t) (p : T.t) (sign : bool) : unit =
-    match A.cc_view p with
+    match A.view_as_cc p with
     | Eq (t1, t2) when sign ->
       let n1 = add_t self t1 in
       let n2 = add_t self t2 in

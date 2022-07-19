@@ -3,6 +3,8 @@
     This handles formulas containing "and", "or", "=>", "if-then-else", etc.
     *)
 
+open Sidekick_sigs_smt
+
 (** Boolean-oriented view of terms *)
 type ('a, 'args) bool_view =
   | B_bool of bool
@@ -18,32 +20,31 @@ type ('a, 'args) bool_view =
   | B_opaque_bool of 'a (* do not enter *)
   | B_atom of 'a
 
-module type PROOF = sig
-  type proof
-  type proof_step
+module type PROOF_RULES = sig
+  type rule
   type term
   type lit
 
-  val lemma_bool_tauto : lit Iter.t -> proof -> proof_step
+  val lemma_bool_tauto : lit Iter.t -> rule
   (** Boolean tautology lemma (clause) *)
 
-  val lemma_bool_c : string -> term list -> proof -> proof_step
+  val lemma_bool_c : string -> term list -> rule
   (** Basic boolean logic lemma for a clause [|- c].
       [proof_bool_c b name cs] is the rule designated by [name]. *)
 
-  val lemma_bool_equiv : term -> term -> proof -> proof_step
+  val lemma_bool_equiv : term -> term -> rule
   (** Boolean tautology lemma (equivalence) *)
 
-  val lemma_ite_true : ite:term -> proof -> proof_step
+  val lemma_ite_true : ite:term -> rule
   (** lemma [a ==> ite a b c = b] *)
 
-  val lemma_ite_false : ite:term -> proof -> proof_step
+  val lemma_ite_false : ite:term -> rule
   (** lemma [¬a ==> ite a b c = c] *)
 end
 
 (** Argument to the theory *)
 module type ARG = sig
-  module S : Sidekick_core.SOLVER
+  module S : SOLVER
 
   type term = S.T.Term.t
 
@@ -53,10 +54,9 @@ module type ARG = sig
   val mk_bool : S.T.Term.store -> (term, term array) bool_view -> term
   (** Make a term from the given boolean view. *)
 
-  include
-    PROOF
-      with type proof := S.P.t
-       and type proof_step := S.P.proof_step
+  module P :
+    PROOF_RULES
+      with type rule := S.Proof_trace.A.rule
        and type lit := S.Lit.t
        and type term := S.T.Term.t
 
@@ -107,6 +107,11 @@ module Make (A : ARG) : S with module A = A = struct
   module Lit = A.S.Solver_internal.Lit
   module SI = A.S.Solver_internal
 
+  (* utils *)
+  open struct
+    module Pr = A.S.Proof_trace
+  end
+
   type state = { tst: T.store; ty_st: Ty.store; gensym: A.Gensym.t }
 
   let create tst ty_st : state = { tst; ty_st; gensym = A.Gensym.create tst }
@@ -124,23 +129,24 @@ module Make (A : ARG) : S with module A = A = struct
     | _ -> false
 
   let simplify (self : state) (simp : SI.Simplify.t) (t : T.t) :
-      (T.t * SI.proof_step Iter.t) option =
+      (T.t * SI.step_id Iter.t) option =
     let tst = self.tst in
 
     let proof = SI.Simplify.proof simp in
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
+    let mk_step_ r = Pr.add_step proof r in
 
     let add_step_eq a b ~using ~c0 : unit =
-      add_step_
-      @@ SI.P.lemma_rw_clause c0 (SI.Simplify.proof simp) ~using
+      add_step_ @@ mk_step_
+      @@ SI.P_core_rules.lemma_rw_clause c0 ~using
            ~res:(Iter.return (Lit.atom tst (A.mk_bool tst (B_eq (a, b)))))
     in
 
     let[@inline] ret u = Some (u, Iter.of_list !steps) in
     (* proof is [t <=> u] *)
     let ret_bequiv t1 u =
-      add_step_ @@ A.lemma_bool_equiv t1 u @@ SI.Simplify.proof simp;
+      add_step_ @@ mk_step_ @@ A.P.lemma_bool_equiv t1 u;
       ret u
     in
 
@@ -179,11 +185,11 @@ module Make (A : ARG) : S with module A = A = struct
       (match A.view_as_bool a with
       | B_bool true ->
         add_step_eq t b ~using:(Iter.of_opt prf_a)
-          ~c0:(A.lemma_ite_true ~ite:t proof);
+          ~c0:(mk_step_ @@ A.P.lemma_ite_true ~ite:t);
         ret b
       | B_bool false ->
         add_step_eq t c ~using:(Iter.of_opt prf_a)
-          ~c0:(A.lemma_ite_false ~ite:t proof);
+          ~c0:(mk_step_ @@ A.P.lemma_ite_false ~ite:t);
         ret c
       | _ -> None)
     | B_equiv (a, b) when is_true a -> ret_bequiv t b
@@ -215,6 +221,7 @@ module Make (A : ARG) : S with module A = A = struct
   let cnf (self : state) (si : SI.t) (module PA : SI.PREPROCESS_ACTS) (t : T.t)
       : unit =
     Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp t);
+    let[@inline] mk_step_ r = Pr.add_step PA.proof r in
 
     (* handle boolean equality *)
     let equiv_ _si ~is_xor ~t t_a t_b : unit =
@@ -234,26 +241,26 @@ module Make (A : ARG) : S with module A = A = struct
       PA.add_clause
         [ Lit.neg lit; Lit.neg a; b ]
         (if is_xor then
-          A.lemma_bool_c "xor-e+" [ t ] PA.proof
+          mk_step_ @@ A.P.lemma_bool_c "xor-e+" [ t ]
         else
-          A.lemma_bool_c "eq-e" [ t; t_a ] PA.proof);
+          mk_step_ @@ A.P.lemma_bool_c "eq-e" [ t; t_a ]);
       PA.add_clause
         [ Lit.neg lit; Lit.neg b; a ]
         (if is_xor then
-          A.lemma_bool_c "xor-e-" [ t ] PA.proof
+          mk_step_ @@ A.P.lemma_bool_c "xor-e-" [ t ]
         else
-          A.lemma_bool_c "eq-e" [ t; t_b ] PA.proof);
+          mk_step_ @@ A.P.lemma_bool_c "eq-e" [ t; t_b ]);
       PA.add_clause [ lit; a; b ]
         (if is_xor then
-          A.lemma_bool_c "xor-i" [ t; t_a ] PA.proof
+          mk_step_ @@ A.P.lemma_bool_c "xor-i" [ t; t_a ]
         else
-          A.lemma_bool_c "eq-i+" [ t ] PA.proof);
+          mk_step_ @@ A.P.lemma_bool_c "eq-i+" [ t ]);
       PA.add_clause
         [ lit; Lit.neg a; Lit.neg b ]
         (if is_xor then
-          A.lemma_bool_c "xor-i" [ t; t_b ] PA.proof
+          mk_step_ @@ A.P.lemma_bool_c "xor-i" [ t; t_b ]
         else
-          A.lemma_bool_c "eq-i-" [ t ] PA.proof)
+          mk_step_ @@ A.P.lemma_bool_c "eq-i-" [ t ])
     in
 
     (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
@@ -271,11 +278,11 @@ module Make (A : ARG) : S with module A = A = struct
         (fun t_u u ->
           PA.add_clause
             [ Lit.neg lit; u ]
-            (A.lemma_bool_c "and-e" [ t; t_u ] PA.proof))
+            (mk_step_ @@ A.P.lemma_bool_c "and-e" [ t; t_u ]))
         t_subs subs;
       PA.add_clause
         (lit :: List.map Lit.neg subs)
-        (A.lemma_bool_c "and-i" [ t ] PA.proof)
+        (mk_step_ @@ A.P.lemma_bool_c "and-i" [ t ])
     | B_or l ->
       let t_subs = Iter.to_list l in
       let subs = List.map PA.mk_lit t_subs in
@@ -286,9 +293,10 @@ module Make (A : ARG) : S with module A = A = struct
         (fun t_u u ->
           PA.add_clause
             [ Lit.neg u; lit ]
-            (A.lemma_bool_c "or-i" [ t; t_u ] PA.proof))
+            (mk_step_ @@ A.P.lemma_bool_c "or-i" [ t; t_u ]))
         t_subs subs;
-      PA.add_clause (Lit.neg lit :: subs) (A.lemma_bool_c "or-e" [ t ] PA.proof)
+      PA.add_clause (Lit.neg lit :: subs)
+        (mk_step_ @@ A.P.lemma_bool_c "or-e" [ t ])
     | B_imply (t_args, t_u) ->
       (* transform into [¬args \/ u] on the fly *)
       let t_args = Iter.to_list t_args in
@@ -304,18 +312,18 @@ module Make (A : ARG) : S with module A = A = struct
         (fun t_u u ->
           PA.add_clause
             [ Lit.neg u; lit ]
-            (A.lemma_bool_c "imp-i" [ t; t_u ] PA.proof))
+            (mk_step_ @@ A.P.lemma_bool_c "imp-i" [ t; t_u ]))
         (t_u :: t_args) subs;
       PA.add_clause (Lit.neg lit :: subs)
-        (A.lemma_bool_c "imp-e" [ t ] PA.proof)
+        (mk_step_ @@ A.P.lemma_bool_c "imp-e" [ t ])
     | B_ite (a, b, c) ->
       let lit_a = PA.mk_lit a in
       PA.add_clause
         [ Lit.neg lit_a; PA.mk_lit (eq self.tst t b) ]
-        (A.lemma_ite_true ~ite:t PA.proof);
+        (mk_step_ @@ A.P.lemma_ite_true ~ite:t);
       PA.add_clause
         [ lit_a; PA.mk_lit (eq self.tst t c) ]
-        (A.lemma_ite_false ~ite:t PA.proof)
+        (mk_step_ @@ A.P.lemma_ite_false ~ite:t)
     | B_eq _ | B_neq _ -> ()
     | B_equiv (a, b) -> equiv_ si ~t ~is_xor:false a b
     | B_xor (a, b) -> equiv_ si ~t ~is_xor:true a b

@@ -5,7 +5,8 @@ module Solver_intf = Solver_intf
 module type S = Solver_intf.S
 module type LIT = Solver_intf.LIT
 module type PLUGIN_CDCL_T = Solver_intf.PLUGIN_CDCL_T
-module type PROOF = Solver_intf.PROOF
+module type PLUGIN_SAT = Solver_intf.PLUGIN_SAT
+module type PROOF_RULES = Solver_intf.PROOF_RULES
 
 type lbool = Solver_intf.lbool = L_true | L_false | L_undefined
 

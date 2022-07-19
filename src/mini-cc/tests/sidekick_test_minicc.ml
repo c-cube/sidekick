@@ -4,7 +4,7 @@ module A = Alcotest
 module CC = Sidekick_mini_cc.Make (struct
   module T = Sidekick_base.Solver_arg
 
-  let cc_view = Term.cc_view
+  let view_as_cc = Term.cc_view
 end)
 
 module Setup () = struct

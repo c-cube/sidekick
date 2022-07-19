@@ -1,20 +1,33 @@
 (** Congruence Closure Implementation *)
 
 module View = Sidekick_sigs_cc.View
+open Sidekick_sigs_cc
 
-module type TERM = Sidekick_sigs_cc.TERM
-module type LIT = Sidekick_sigs_cc.LIT
-module type ARG = Sidekick_sigs_cc.ARG
-module type S = Sidekick_sigs_cc.S
-module type MONOID_ARG = Sidekick_sigs_cc.MONOID_ARG
-module type PLUGIN = Sidekick_sigs_cc.PLUGIN
-module type PLUGIN_BUILDER = Sidekick_sigs_cc.PLUGIN_BUILDER
+module type ARG = ARG
+
+module type S = sig
+  include S
+
+  val create :
+    ?stat:Stat.t -> ?size:[ `Small | `Big ] -> term_store -> proof_trace -> t
+  (** Create a new congruence closure.
+
+      @param term_store used to be able to create new terms. All terms
+      interacting with this congruence closure must belong in this term state
+      as well. *)
+
+  (**/**)
+
+  module Debug_ : sig
+    val pp : t Fmt.printer
+    (** Print the whole CC *)
+  end
+
+  (**/**)
+end
 
 module Make (A : ARG) :
   S
     with module T = A.T
      and module Lit = A.Lit
      and module Proof_trace = A.Proof_trace
-
-(** Create a plugin builder from the given per-class monoid *)
-module Make_plugin (M : MONOID_ARG) : PLUGIN_BUILDER with module M = M

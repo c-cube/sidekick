@@ -1,9 +1,9 @@
-(** {1 Linear Rational Arithmetic} *)
+(** Linear Rational Arithmetic *)
 
 (* Reference:
    http://smtlib.cs.uiowa.edu/logics-all.shtml#QF_LRA *)
 
-open Sidekick_core
+open Sidekick_sigs_smt
 module Predicate = Sidekick_simplex.Predicate
 module Linear_expr = Sidekick_simplex.Linear_expr
 module Linear_expr_intf = Sidekick_simplex.Linear_expr_intf
@@ -32,7 +32,7 @@ let map_view f (l : _ lra_view) : _ lra_view =
   | LRA_other x -> LRA_other (f x)
 
 module type ARG = sig
-  module S : Sidekick_core.SOLVER
+  module S : SOLVER
   module Z : INT
   module Q : RATIONAL with type bigint = Z.t
 
@@ -55,7 +55,7 @@ module type ARG = sig
   val has_ty_real : term -> bool
   (** Does this term have the type [Real] *)
 
-  val lemma_lra : S.Lit.t Iter.t -> S.P.proof_rule
+  val lemma_lra : S.Lit.t Iter.t -> S.Proof_trace.A.rule
 
   module Gensym : sig
     type t
@@ -104,7 +104,11 @@ module Make (A : ARG) : S with module A = A = struct
   module T = A.S.T.Term
   module Lit = A.S.Solver_internal.Lit
   module SI = A.S.Solver_internal
-  module N = A.S.Solver_internal.CC.N
+  module N = SI.CC.Class
+
+  open struct
+    module Pr = SI.Proof_trace
+  end
 
   module Tag = struct
     type t = Lit of Lit.t | CC_eq of N.t * N.t
@@ -171,7 +175,7 @@ module Make (A : ARG) : S with module A = A = struct
 
   (* monoid to track linear expressions in congruence classes, to clash on merge *)
   module Monoid_exprs = struct
-    module SI = SI
+    module CC = SI.CC
 
     let name = "lra.const"
 
@@ -214,12 +218,12 @@ module Make (A : ARG) : S with module A = A = struct
       with Confl expl -> Error expl
   end
 
-  module ST_exprs = Sidekick_core.Monoid_of_repr (Monoid_exprs)
+  module ST_exprs = Sidekick_cc_plugin.Make (Monoid_exprs)
 
   type state = {
     tst: T.store;
     ty_st: Ty.store;
-    proof: SI.P.t;
+    proof: SI.Proof_trace.t;
     gensym: A.Gensym.t;
     in_model: unit T.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit T.Tbl.t;
@@ -245,7 +249,7 @@ module Make (A : ARG) : S with module A = A = struct
       ty_st;
       proof;
       in_model = T.Tbl.create 8;
-      st_exprs = ST_exprs.create_and_setup si;
+      st_exprs = ST_exprs.create_and_setup (SI.cc si);
       gensym = A.Gensym.create tst;
       simp_preds = T.Tbl.create 32;
       simp_defined = T.Tbl.create 16;
@@ -346,12 +350,13 @@ module Make (A : ARG) : S with module A = A = struct
         proxy)
 
   let add_clause_lra_ ?using (module PA : SI.PREPROCESS_ACTS) lits =
-    let pr = A.lemma_lra (Iter.of_list lits) PA.proof in
+    let pr = Pr.add_step PA.proof @@ A.lemma_lra (Iter.of_list lits) in
     let pr =
       match using with
       | None -> pr
       | Some using ->
-        SI.P.lemma_rw_clause pr ~res:(Iter.of_list lits) ~using PA.proof
+        Pr.add_step PA.proof
+        @@ SI.P_core_rules.lemma_rw_clause pr ~res:(Iter.of_list lits) ~using
     in
     PA.add_clause lits pr
 
@@ -388,7 +393,7 @@ module Make (A : ARG) : S with module A = A = struct
         proxy, A.Q.one)
 
   (* look for subterms of type Real, for they will need theory combination *)
-  let on_subterm (self : state) _ (t : T.t) : unit =
+  let on_subterm (self : state) (t : T.t) : unit =
     Log.debugf 50 (fun k -> k "(@[lra.cc-on-subterm@ %a@])" T.pp t);
     match A.view_as_lra t with
     | LRA_other _ when not (A.has_ty_real t) -> ()
@@ -408,8 +413,8 @@ module Make (A : ARG) : S with module A = A = struct
     (* tell the CC this term exists *)
     let declare_term_to_cc ~sub t =
       Log.debugf 50 (fun k -> k "(@[lra.declare-term-to-cc@ %a@])" T.pp t);
-      ignore (SI.CC.add_term (SI.cc si) t : SI.CC.N.t);
-      if sub then on_subterm self () t
+      ignore (SI.CC.add_term (SI.cc si) t : N.t);
+      if sub then on_subterm self t
     in
 
     match A.view_as_lra t with
@@ -491,15 +496,14 @@ module Make (A : ARG) : S with module A = A = struct
     | LRA_other _ -> ()
 
   let simplify (self : state) (_recurse : _) (t : T.t) :
-      (T.t * SI.proof_step Iter.t) option =
+      (T.t * SI.step_id Iter.t) option =
     let proof_eq t u =
-      A.lemma_lra
-        (Iter.return (SI.Lit.atom self.tst (A.mk_eq self.tst t u)))
-        self.proof
+      Pr.add_step self.proof
+      @@ A.lemma_lra (Iter.return (SI.Lit.atom self.tst (A.mk_eq self.tst t u)))
     in
     let proof_bool t ~sign:b =
       let lit = SI.Lit.atom ~sign:b self.tst t in
-      A.lemma_lra (Iter.return lit) self.proof
+      Pr.add_step self.proof @@ A.lemma_lra (Iter.return lit)
     in
 
     match A.view_as_lra t with
@@ -564,7 +568,7 @@ module Make (A : ARG) : S with module A = A = struct
       |> CCList.flat_map (Tag.to_lits si)
       |> List.rev_map SI.Lit.neg
     in
-    let pr = A.lemma_lra (Iter.of_list confl) (SI.proof si) in
+    let pr = Pr.add_step (SI.proof si) @@ A.lemma_lra (Iter.of_list confl) in
     SI.raise_conflict si acts confl pr
 
   let on_propagate_ si acts lit ~reason =
@@ -573,7 +577,10 @@ module Make (A : ARG) : S with module A = A = struct
       (* TODO: more detailed proof certificate *)
       SI.propagate si acts lit ~reason:(fun () ->
           let lits = CCList.flat_map (Tag.to_lits si) reason in
-          let pr = A.lemma_lra Iter.(cons lit (of_list lits)) (SI.proof si) in
+          let pr =
+            Pr.add_step (SI.proof si)
+            @@ A.lemma_lra Iter.(cons lit (of_list lits))
+          in
           CCList.flat_map (Tag.to_lits si) reason, pr)
     | _ -> ()
 
@@ -616,7 +623,7 @@ module Make (A : ARG) : S with module A = A = struct
       if A.Q.(le_const <> zero) then (
         (* [c=0] when [c] is not 0 *)
         let lit = SI.Lit.neg @@ SI.mk_lit si acts @@ A.mk_eq self.tst t1 t2 in
-        let pr = A.lemma_lra (Iter.return lit) self.proof in
+        let pr = Pr.add_step self.proof @@ A.lemma_lra (Iter.return lit) in
         SI.add_clause_permanent si acts [ lit ] pr
       )
     ) else (
@@ -791,14 +798,14 @@ module Make (A : ARG) : S with module A = A = struct
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
-    SI.on_cc_is_subterm si (on_subterm st);
-    SI.on_cc_pre_merge si (fun si acts n1 n2 expl ->
+    SI.on_cc_is_subterm si (fun (_, _, t) -> on_subterm st t);
+    SI.on_cc_pre_merge si (fun (cc, acts, n1, n2, expl) ->
         match as_const_ (N.term n1), as_const_ (N.term n2) with
         | Some q1, Some q2 when A.Q.(q1 <> q2) ->
           (* classes with incompatible constants *)
           Log.debugf 30 (fun k ->
               k "(@[lra.merge-incompatible-consts@ %a@ %a@])" N.pp n1 N.pp n2);
-          SI.CC.raise_conflict_from_expl si acts expl
+          SI.CC.raise_conflict_from_expl cc acts expl
         | _ -> ());
     SI.on_th_combination si (do_th_combination st);
     st

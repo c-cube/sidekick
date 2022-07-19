@@ -13,10 +13,16 @@ let invalid_argf fmt =
   Format.kasprintf (fun msg -> invalid_arg ("sidekick.sat: " ^ msg)) fmt
 
 module Make (Plugin : PLUGIN) = struct
-  type lit = Plugin.lit
+  module Lit = Plugin.Lit
+  module Proof_trace = Plugin.Proof_trace
+  module Proof_rules = Plugin.Proof_rules
+  module Step_vec = Proof_trace.A.Step_vec
+
+  type lit = Plugin.Lit.t
   type theory = Plugin.t
-  type proof = Plugin.proof
-  type proof_step = Plugin.proof_step
+  type proof_rule = Proof_trace.A.rule
+  type proof_step = Proof_trace.A.step_id
+  type proof_trace = Proof_trace.t
 
   module Clause_pool_id : sig
     type t = private int
@@ -27,10 +33,6 @@ module Make (Plugin : PLUGIN) = struct
 
     let _unsafe_of_int x = x
   end
-
-  module Lit = Plugin.Lit
-  module Proof = Plugin.Proof
-  module Step_vec = Proof.Step_vec
 
   (* ### types ### *)
 
@@ -835,7 +837,7 @@ module Make (Plugin : PLUGIN) = struct
   type t = {
     store: store; (* atom/var/clause store *)
     th: theory; (* user defined theory *)
-    proof: Proof.t; (* the proof object *)
+    proof: Proof_trace.t; (* the proof object *)
     (* Clauses are simplified for efficiency purposes. In the following
        vectors, the comments actually refer to the original non-simplified
        clause. *)
@@ -878,10 +880,11 @@ module Make (Plugin : PLUGIN) = struct
     temp_step_vec: Step_vec.t;
     mutable var_incr: float; (* increment for variables' activity *)
     mutable clause_incr: float; (* increment for clauses' activity *)
-    mutable on_conflict: (t -> Clause.t -> unit) option;
-    mutable on_decision: (t -> lit -> unit) option;
-    mutable on_learnt: (t -> Clause.t -> unit) option;
-    mutable on_gc: (t -> lit array -> unit) option;
+    (* FIXME: use event *)
+    on_conflict: Clause.t Event.Emitter.t;
+    on_decision: lit Event.Emitter.t;
+    on_learnt: Clause.t Event.Emitter.t;
+    on_gc: lit array Event.Emitter.t;
     stat: Stat.t;
     n_conflicts: int Stat.counter;
     n_propagations: int Stat.counter;
@@ -930,21 +933,21 @@ module Make (Plugin : PLUGIN) = struct
       n_propagations = Stat.mk_int stat "sat.n-propagations";
       n_restarts = Stat.mk_int stat "sat.n-restarts";
       n_minimized_away = Stat.mk_int stat "sat.n-confl-lits-minimized-away";
-      on_conflict = None;
-      on_decision = None;
-      on_learnt = None;
-      on_gc = None;
+      on_conflict = Event.Emitter.create ();
+      on_decision = Event.Emitter.create ();
+      on_learnt = Event.Emitter.create ();
+      on_gc = Event.Emitter.create ();
     }
 
-  let create ?on_conflict ?on_decision ?on_learnt ?on_gc ?(stat = Stat.global)
-      ?(size = `Big) ~proof (th : theory) : t =
+  let on_gc self = Event.of_emitter self.on_gc
+  let on_conflict self = Event.of_emitter self.on_conflict
+  let on_decision self = Event.of_emitter self.on_decision
+  let on_learnt self = Event.of_emitter self.on_learnt
+
+  let create ?(stat = Stat.global) ?(size = `Big) ~proof (th : theory) : t =
     let store = Store.create ~size ~stat () in
     let max_clauses_learnt = ref 0 in
     let self = create_ ~max_clauses_learnt ~store ~proof ~stat th in
-    self.on_decision <- on_decision;
-    self.on_conflict <- on_conflict;
-    self.on_learnt <- on_learnt;
-    self.on_gc <- on_gc;
     self
 
   (* iterate on all learnt clauses, pools included *)
@@ -1071,10 +1074,10 @@ module Make (Plugin : PLUGIN) = struct
           if !steps = [] then
             proof_c2
           else
-            Proof.emit_redundant_clause
-              (Iter.return (Atom.lit self.store a))
-              ~hyps:Iter.(cons proof_c2 (of_list !steps))
-              self.proof
+            Proof_trace.add_step self.proof
+            @@ Proof_rules.sat_redundant_clause
+                 (Iter.return (Atom.lit self.store a))
+                 ~hyps:Iter.(cons proof_c2 (of_list !steps))
       in
 
       Atom.set_proof_lvl0 self.store a p;
@@ -1164,10 +1167,11 @@ module Make (Plugin : PLUGIN) = struct
             (Atom.debug_a store) atoms);
       let proof =
         let lits = Iter.of_array atoms |> Iter.map (Atom.lit store) in
-        Proof.emit_redundant_clause lits
-          ~hyps:
-            Iter.(cons (Clause.proof_step self.store c) (of_list !res0_proofs))
-          self.proof
+        Proof_trace.add_step self.proof
+        @@ Proof_rules.sat_redundant_clause lits
+             ~hyps:
+               Iter.(
+                 cons (Clause.proof_step self.store c) (of_list !res0_proofs))
       in
       Clause.make_a store atoms proof ~removable:(Clause.removable store c)
     )
@@ -1260,7 +1264,7 @@ module Make (Plugin : PLUGIN) = struct
         (Clause.debug self.store) c
 
   let prove_unsat self (us : clause) : clause =
-    if Proof.enabled self.proof && Clause.n_atoms self.store us > 0 then (
+    if Proof_trace.enabled self.proof && Clause.n_atoms self.store us > 0 then (
       (* reduce [c] to an empty clause, all its literals should be false at level 0 *)
       Log.debugf 1 (fun k ->
           k "(@[sat.prove-unsat@ :from %a@])" (Clause.debug self.store) us);
@@ -1277,8 +1281,9 @@ module Make (Plugin : PLUGIN) = struct
           | _ -> assert false);
 
       let p_empty =
-        Proof.emit_redundant_clause Iter.empty ~hyps:(Step_vec.to_iter pvec)
-          self.proof
+        Proof_trace.add_step self.proof
+        @@ Proof_rules.sat_redundant_clause Iter.empty
+             ~hyps:(Step_vec.to_iter pvec)
       in
       Step_vec.clear pvec;
       let c_empty = Clause.make_l self.store [] ~removable:false p_empty in
@@ -1296,11 +1301,9 @@ module Make (Plugin : PLUGIN) = struct
       match us with
       | US_false c ->
         self.unsat_at_0 <- Some c;
-        (match self.on_learnt with
-        | Some f -> f self c
-        | None -> ());
+        Event.emit self.on_learnt c;
         let p = Clause.proof_step self.store c in
-        Proof.emit_unsat p self.proof;
+        Proof_trace.add_unsat self.proof p;
         US_false c
       | US_local _ -> us
     in
@@ -1405,7 +1408,7 @@ module Make (Plugin : PLUGIN) = struct
       | Some (Bcp c | Bcp_lazy (lazy c)) ->
         let c_atoms = Clause.atoms_a store c in
         assert (Var.equal v (Atom.var c_atoms.(0)));
-        if Proof.enabled self.proof then
+        if Proof_trace.enabled self.proof then
           Step_vec.push steps (Clause.proof_step self.store c);
 
         (* check that all the other lits of [c] are marked or redundant *)
@@ -1418,7 +1421,7 @@ module Make (Plugin : PLUGIN) = struct
             | _ when lvl_v2 = 0 ->
               (* can always remove literals at level 0, but got
                  to update proof properly *)
-              if Proof.enabled self.proof then (
+              if Proof_trace.enabled self.proof then (
                 let p = proof_of_atom_lvl0_ self (Atom.neg c_atoms.(i)) in
                 Step_vec.push steps p
               )
@@ -1536,7 +1539,7 @@ module Make (Plugin : PLUGIN) = struct
               clause);
 
         if Clause.removable store clause then clause_bump_activity self clause;
-        if Proof.enabled self.proof then
+        if Proof_trace.enabled self.proof then
           Step_vec.push steps (Clause.proof_step self.store clause);
 
         (* visit the current predecessors *)
@@ -1548,7 +1551,7 @@ module Make (Plugin : PLUGIN) = struct
           if Atom.level store q = 0 then (
             (* skip [q] entirely, resolved away at level 0 *)
             assert (Atom.is_false store q);
-            if Proof.enabled self.proof then (
+            if Proof_trace.enabled self.proof then (
               let step = proof_of_atom_lvl0_ self (Atom.neg q) in
               Step_vec.push steps step
             )
@@ -1639,15 +1642,13 @@ module Make (Plugin : PLUGIN) = struct
       assert (cr.cr_backtrack_lvl = 0 && decision_level self = 0);
 
       let p =
-        Proof.emit_redundant_clause
-          (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
-          ~hyps:(Step_vec.to_iter cr.cr_steps)
-          self.proof
+        Proof_trace.add_step self.proof
+        @@ Proof_rules.sat_redundant_clause
+             (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
+             ~hyps:(Step_vec.to_iter cr.cr_steps)
       in
       let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
-      (match self.on_learnt with
-      | Some f -> f self uclause
-      | None -> ());
+      Event.emit self.on_learnt uclause;
 
       if Atom.is_false store fuip then
         (* incompatible at level 0 *)
@@ -1658,19 +1659,17 @@ module Make (Plugin : PLUGIN) = struct
     | _ ->
       let fuip = cr.cr_learnt.(0) in
       let p =
-        Proof.emit_redundant_clause
-          (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
-          ~hyps:(Step_vec.to_iter cr.cr_steps)
-          self.proof
+        Proof_trace.add_step self.proof
+        @@ Proof_rules.sat_redundant_clause
+             (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
+             ~hyps:(Step_vec.to_iter cr.cr_steps)
       in
       let lclause = Clause.make_a store ~removable:true cr.cr_learnt p in
 
       add_clause_to_vec_ ~pool self lclause;
       attach_clause self lclause;
       clause_bump_activity self lclause;
-      (match self.on_learnt with
-      | Some f -> f self lclause
-      | None -> ());
+      Event.emit self.on_learnt lclause;
       assert cr.cr_is_uip;
       enqueue_bool self fuip ~level:cr.cr_backtrack_lvl (Bcp lclause));
     var_decay_activity self;
@@ -2004,7 +2003,7 @@ module Make (Plugin : PLUGIN) = struct
 
   let[@inline] current_slice st : _ Solver_intf.acts =
     let module M = struct
-      type nonrec proof = proof
+      type nonrec proof = Proof_trace.t
       type nonrec proof_step = proof_step
       type nonrec lit = lit
 
@@ -2022,7 +2021,7 @@ module Make (Plugin : PLUGIN) = struct
   (* full slice, for [if_sat] final check *)
   let[@inline] full_slice st : _ Solver_intf.acts =
     let module M = struct
-      type nonrec proof = proof
+      type nonrec proof = Proof_trace.t
       type nonrec proof_step = proof_step
       type nonrec lit = lit
 
@@ -2185,14 +2184,8 @@ module Make (Plugin : PLUGIN) = struct
       mark_dirty_atom (Atom.neg atoms.(0));
       (* need to remove from watchlists *)
       mark_dirty_atom (Atom.neg atoms.(1));
-      (match self.on_gc with
-      | Some f ->
-        let lits = Clause.lits_a store c in
-        f self lits
-      | None -> ());
-      Proof.del_clause
-        (Clause.proof_step store c)
-        (Clause.lits_iter store c) self.proof
+      Event.emit self.on_gc (Clause.lits_a store c);
+      Proof_trace.delete self.proof (Clause.proof_step store c)
     in
 
     let gc_arg =
@@ -2281,9 +2274,7 @@ module Make (Plugin : PLUGIN) = struct
         let current_level = decision_level self in
         enqueue_bool self atom ~level:current_level Decision;
         Stat.incr self.n_decisions;
-        (match self.on_decision with
-        | Some f -> f self (Atom.lit self.store atom)
-        | None -> ());
+        Event.emit self.on_decision (Atom.lit self.store atom);
         true
       )
     in
@@ -2291,13 +2282,13 @@ module Make (Plugin : PLUGIN) = struct
 
   (* do some amount of search, until the number of conflicts or clause learnt
      reaches the given parameters *)
-  let search (st : t) ~on_progress ~(max_conflicts : int) : unit =
+  let search (self : t) ~on_progress ~(max_conflicts : int) : unit =
     Log.debugf 3 (fun k ->
         k "(@[sat.search@ :max-conflicts %d@ :max-learnt %d@])" max_conflicts
-          !(st.max_clauses_learnt));
+          !(self.max_clauses_learnt));
     let n_conflicts = ref 0 in
     while true do
-      match propagate st with
+      match propagate self with
       | Some confl ->
         (* Conflict *)
         incr n_conflicts;
@@ -2305,38 +2296,36 @@ module Make (Plugin : PLUGIN) = struct
            might 'forget' the initial conflict clause, and only add the
            analyzed backtrack clause. So in those case, we use add_clause
            to make sure the initial conflict clause is also added. *)
-        if Clause.attached st.store confl then
-          add_boolean_conflict st confl
+        if Clause.attached self.store confl then
+          add_boolean_conflict self confl
         else
-          add_clause_ ~pool:st.clauses_learnt st confl;
-        Stat.incr st.n_conflicts;
-        (match st.on_conflict with
-        | Some f -> f st confl
-        | None -> ())
+          add_clause_ ~pool:self.clauses_learnt self confl;
+        Stat.incr self.n_conflicts;
+        Event.emit self.on_conflict confl
       | None ->
         (* No Conflict *)
-        assert (st.elt_head = AVec.size st.trail);
-        assert (st.elt_head = st.th_head);
+        assert (self.elt_head = AVec.size self.trail);
+        assert (self.elt_head = self.th_head);
         if max_conflicts > 0 && !n_conflicts >= max_conflicts then (
           Log.debug 1 "(sat.restarting)";
-          cancel_until st 0;
-          Stat.incr st.n_restarts;
+          cancel_until self 0;
+          Stat.incr self.n_restarts;
           raise_notrace Restart
         );
 
         (* if decision_level() = 0 then simplify (); *)
         let do_gc =
-          !(st.max_clauses_learnt) > 0
-          && cp_size_ st.clauses_learnt - AVec.size st.trail
-             > !(st.max_clauses_learnt)
-          || Vec.exists cp_needs_gc_ st.clause_pools
+          !(self.max_clauses_learnt) > 0
+          && cp_size_ self.clauses_learnt - AVec.size self.trail
+             > !(self.max_clauses_learnt)
+          || Vec.exists cp_needs_gc_ self.clause_pools
         in
         if do_gc then (
-          reduce_clause_db st;
+          reduce_clause_db self;
           on_progress ()
         );
 
-        let decided = pick_branch_lit ~full:true st in
+        let decided = pick_branch_lit ~full:true self in
         if not decided then raise_notrace E_sat
     done
 
@@ -2401,9 +2390,7 @@ module Make (Plugin : PLUGIN) = struct
                 k "(@[sat.theory-conflict-clause@ %a@])"
                   (Clause.debug self.store) c);
             Stat.incr self.n_conflicts;
-            (match self.on_conflict with
-            | Some f -> f self c
-            | None -> ());
+            Event.emit self.on_conflict c;
             Delayed_actions.add_clause_learnt self.delayed_actions c;
             perform_delayed_actions self;
             on_progress ())
@@ -2414,7 +2401,10 @@ module Make (Plugin : PLUGIN) = struct
     List.iter
       (fun l ->
         let atoms = Util.array_of_list_map (make_atom_ self) l in
-        let proof = Proof.emit_input_clause (Iter.of_list l) self.proof in
+        let proof =
+          Proof_trace.add_step self.proof
+          @@ Proof_rules.sat_input_clause (Iter.of_list l)
+        in
         let c = Clause.make_a self.store ~removable:false atoms proof in
         Log.debugf 10 (fun k ->
             k "(@[sat.assume-clause@ @[<hov 2>%a@]@])" (Clause.debug self.store)
@@ -2504,7 +2494,8 @@ module Make (Plugin : PLUGIN) = struct
       let proof =
         let lits = Iter.of_list !res |> Iter.map (Atom.lit self.store) in
         let hyps = Iter.of_list (Clause.proof_step self.store c :: !lvl0) in
-        Proof.emit_redundant_clause lits ~hyps self.proof
+        Proof_trace.add_step self.proof
+        @@ Proof_rules.sat_redundant_clause lits ~hyps
       in
       Clause.make_l self.store ~removable:false !res proof
     )
@@ -2539,7 +2530,8 @@ module Make (Plugin : PLUGIN) = struct
              assert (Atom.equal first @@ List.hd core);
              let proof =
                let lits = Iter.of_list core |> Iter.map (Atom.lit self.store) in
-               Proof.emit_unsat_core lits self.proof
+               Proof_trace.add_step self.proof
+               @@ Proof_rules.sat_unsat_core lits
              in
              Clause.make_l self.store ~removable:false [] proof)
         in
@@ -2547,7 +2539,7 @@ module Make (Plugin : PLUGIN) = struct
     in
     let module M = struct
       type nonrec lit = lit
-      type nonrec proof = proof_step
+      type nonrec proof_step = proof_step
       type clause = Clause.t
 
       let unsat_conflict = unsat_conflict
@@ -2615,11 +2607,17 @@ module Make (Plugin : PLUGIN) = struct
     add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c pr
 
   let add_input_clause self (c : lit list) =
-    let pr = Proof.emit_input_clause (Iter.of_list c) self.proof in
+    let pr =
+      Proof_trace.add_step self.proof
+      @@ Proof_rules.sat_input_clause (Iter.of_list c)
+    in
     add_clause self c pr
 
   let add_input_clause_a self c =
-    let pr = Proof.emit_input_clause (Iter.of_array c) self.proof in
+    let pr =
+      Proof_trace.add_step self.proof
+      @@ Proof_rules.sat_input_clause (Iter.of_array c)
+    in
     add_clause_a self c pr
 
   (* run [f()] with additional assumptions *)
@@ -2693,12 +2691,9 @@ end)
 [@@inline] [@@specialise]
 
 module Make_pure_sat (Plugin : Solver_intf.PLUGIN_SAT) = Make (struct
-  type lit = Plugin.lit
-  type proof = Plugin.proof
-  type proof_step = Plugin.proof_step
-
   module Lit = Plugin.Lit
-  module Proof = Plugin.Proof
+  module Proof_trace = Plugin.Proof_trace
+  module Proof_rules = Plugin.Proof_rules
 
   type t = unit
 

@@ -1,4 +1,5 @@
-(** Signature for SAT-solver proof emission. *)
+(** Proof rules for SAT Solver reasoning *)
+
 module type S = sig
   type rule
   (** The stored proof (possibly nil, possibly on disk, possibly in memory) *)
@@ -16,9 +17,6 @@ module type S = sig
   (** Emit a clause deduced by the SAT solver, redundant wrt previous clauses.
       The clause must be RUP wrt [hyps]. *)
 
-  (* FIXME: goes in proof trace itself? not exactly a rule…
-     val sat_unsat_core : lit Iter.t -> rule
-     (** Produce a proof of the empty clause given this subset of the assumptions.
-         FIXME: probably needs the list of proof_step that disprove the lits? *)
-  *)
+  val sat_unsat_core : lit Iter.t -> rule
+  (** TODO: is this relevant here? *)
 end

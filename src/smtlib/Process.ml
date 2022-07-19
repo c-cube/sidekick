@@ -65,7 +65,7 @@ module Check_cc = struct
         let n_calls =
           Stat.mk_int (Solver.Solver_internal.stats si) "check-cc.call"
         in
-        Solver.Solver_internal.on_cc_conflict si (fun cc ~th c ->
+        Solver.Solver_internal.on_cc_conflict si (fun { cc; th; c } ->
             if not th then (
               Stat.incr n_calls;
               check_conflict si cc c
@@ -193,7 +193,7 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
     *)
     let t3 = Sys.time () -. t2 in
     Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2 -. t1) t3
-  | Solver.Unsat { unsat_proof_step; unsat_core = _ } ->
+  | Solver.Unsat { unsat_step_id; unsat_core = _ } ->
     if check then
       ()
     (* FIXME: check trace?
@@ -205,13 +205,13 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
 
     (match proof_file with
     | Some file ->
-      (match unsat_proof_step () with
+      (match unsat_step_id () with
       | None -> ()
-      | Some unsat_step ->
+      | Some step_id ->
         let proof = Solver.proof s in
         let proof_quip =
           Profile.with_ "proof.to-quip" @@ fun () ->
-          Proof_quip.of_proof proof ~unsat:unsat_step
+          Proof_quip.of_proof proof ~unsat:step_id
         in
         Profile.with_ "proof.write-file" @@ fun () ->
         with_file_out file @@ fun oc ->
@@ -248,6 +248,8 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
     (* TODO: more? *)
   in
 
+  let add_step r = Solver.Proof_trace.add_step (Solver.proof solver) r in
+
   match stmt with
   | Statement.Stmt_set_logic logic ->
     if not @@ List.mem logic known_logics then
@@ -281,7 +283,7 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
     if pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
     let lit = Solver.mk_lit_t solver t in
     Solver.add_clause solver [| lit |]
-      (Solver.P.emit_input_clause (Iter.singleton lit) (Solver.proof solver));
+      (add_step @@ Proof.Rule_sat.sat_input_clause (Iter.singleton lit));
     E.return ()
   | Statement.Stmt_assert_clause c_ts ->
     if pp_cnf then
@@ -291,10 +293,9 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
 
     (* proof of assert-input + preprocessing *)
     let pr =
-      let module P = Solver.P in
-      let proof = Solver.proof solver in
       let tst = Solver.tst solver in
-      P.emit_input_clause (Iter.of_list c_ts |> Iter.map (Lit.atom tst)) proof
+      let lits = Iter.of_list c_ts |> Iter.map (Lit.atom tst) in
+      add_step @@ Proof.Rule_sat.sat_input_clause lits
     in
 
     Solver.add_clause solver (CCArray.of_list c) pr;

@@ -2,40 +2,75 @@ open Base_types
 
 type lit = Lit.t
 type term = Term.t
-type t = unit
-type proof_step = unit
-type proof_rule = t -> proof_step
 
-module Step_vec = Vec_unit
+module Arg = struct
+  type nonrec rule = unit
+  type nonrec step_id = unit
+
+  module Step_vec = Vec_unit
+
+  let dummy_step_id = ()
+end
+
+include Sidekick_proof_trace_dummy.Make (Arg)
+
+type rule = A.rule
+type step_id = A.step_id
 
 let create () : t = ()
 let with_proof _ _ = ()
-let enabled (_pr : t) = false
-let del_clause _ _ (_pr : t) = ()
-let emit_redundant_clause _ ~hyps:_ _ = ()
-let emit_input_clause _ _ = ()
-let define_term _ _ _ = ()
-let emit_unsat _ _ = ()
-let proof_p1 _ _ (_pr : t) = ()
-let proof_r1 _ _ (_pr : t) = ()
-let proof_res ~pivot:_ _ _ (_pr : t) = ()
-let emit_unsat_core _ (_pr : t) = ()
-let lemma_preprocess _ _ ~using:_ (_pr : t) = ()
-let lemma_true _ _ = ()
-let lemma_cc _ _ = ()
-let lemma_rw_clause _ ~res:_ ~using:_ (_pr : t) = ()
-let with_defs _ _ (_pr : t) = ()
-let lemma_lra _ _ = ()
-let lemma_bool_tauto _ _ = ()
-let lemma_bool_c _ _ _ = ()
-let lemma_bool_equiv _ _ _ = ()
-let lemma_ite_true ~ite:_ _ = ()
-let lemma_ite_false ~ite:_ _ = ()
-let lemma_isa_cstor ~cstor_t:_ _ (_pr : t) = ()
-let lemma_select_cstor ~cstor_t:_ _ (_pr : t) = ()
-let lemma_isa_split _ _ (_pr : t) = ()
-let lemma_isa_sel _ (_pr : t) = ()
-let lemma_isa_disj _ _ (_pr : t) = ()
-let lemma_cstor_inj _ _ _ (_pr : t) = ()
-let lemma_cstor_distinct _ _ (_pr : t) = ()
-let lemma_acyclicity _ (_pr : t) = ()
+
+module Rule_sat = struct
+  type nonrec rule = rule
+  type nonrec step_id = step_id
+  type nonrec lit = lit
+
+  let sat_redundant_clause _ ~hyps:_ = ()
+  let sat_input_clause _ = ()
+  let sat_unsat_core _ = ()
+end
+
+module Rule_core = struct
+  type nonrec rule = rule
+  type nonrec step_id = step_id
+  type nonrec lit = lit
+  type nonrec term = term
+
+  let define_term _ _ = ()
+  let proof_p1 _ _ = ()
+  let proof_r1 _ _ = ()
+  let proof_res ~pivot:_ _ _ = ()
+  let lemma_preprocess _ _ ~using:_ = ()
+  let lemma_true _ = ()
+  let lemma_cc _ = ()
+  let lemma_rw_clause _ ~res:_ ~using:_ = ()
+  let with_defs _ _ = ()
+end
+
+let lemma_lra _ = ()
+
+module Rule_bool = struct
+  type nonrec rule = rule
+  type nonrec lit = lit
+
+  let lemma_bool_tauto _ = ()
+  let lemma_bool_c _ _ = ()
+  let lemma_bool_equiv _ _ = ()
+  let lemma_ite_true ~ite:_ = ()
+  let lemma_ite_false ~ite:_ = ()
+end
+
+module Rule_data = struct
+  type nonrec rule = rule
+  type nonrec lit = lit
+  type nonrec term = term
+
+  let lemma_isa_cstor ~cstor_t:_ _ = ()
+  let lemma_select_cstor ~cstor_t:_ _ = ()
+  let lemma_isa_split _ _ = ()
+  let lemma_isa_sel _ = ()
+  let lemma_isa_disj _ _ = ()
+  let lemma_cstor_inj _ _ _ = ()
+  let lemma_cstor_distinct _ _ = ()
+  let lemma_acyclicity _ = ()
+end

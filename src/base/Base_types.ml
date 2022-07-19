@@ -3,7 +3,7 @@
 module Vec = Sidekick_util.Vec
 module Log = Sidekick_util.Log
 module Fmt = CCFormat
-module CC_view = Sidekick_core.CC_view
+module CC_view = Sidekick_sigs_cc.View
 module Proof_ser = Sidekick_base_proof_trace.Proof_ser
 module Storage = Sidekick_base_proof_trace.Storage
 

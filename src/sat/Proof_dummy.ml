@@ -1,21 +1,17 @@
+(** Dummy proof module for rule=empty *)
+
 module Make (Lit : sig
   type t
 end) :
-  Solver_intf.PROOF
+  Solver_intf.PROOF_RULES
     with type lit = Lit.t
-     and type t = unit
-     and type proof_step = unit = struct
+     and type rule = unit
+     and type step_id = unit = struct
   type lit = Lit.t
-  type t = unit
-  type proof_step = unit
-  type proof_rule = t -> proof_step
+  type rule = unit
+  type step_id = unit
 
-  module Step_vec = Vec_unit
-
-  let enabled (_pr : t) = false
-  let del_clause _ _ (_pr : t) = ()
-  let emit_redundant_clause _ ~hyps:_ _ = ()
-  let emit_input_clause _ _ = ()
-  let emit_unsat _ _ = ()
-  let emit_unsat_core _ (_pr : t) = ()
+  let sat_input_clause _ = ()
+  let sat_redundant_clause _ ~hyps:_ = ()
+  let sat_unsat_core _ = ()
 end

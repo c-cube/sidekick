@@ -11,14 +11,16 @@ module Solver_arg = struct
   module T = Sidekick_base.Solver_arg
   module Lit = Sidekick_base.Lit
 
-  let cc_view = Term.cc_view
+  let view_as_cc = Term.cc_view
   let mk_eq = Term.eq
   let is_valid_literal _ = true
 
-  module P = Sidekick_base.Proof
+  module Proof_trace = Sidekick_base.Proof.Proof_trace
+  module Rule_core = Sidekick_base.Proof.Rule_core
+  module Rule_sat = Sidekick_base.Proof.Rule_sat
 
-  type proof = P.t
-  type proof_step = P.proof_step
+  type step_id = Proof_trace.A.step_id
+  type rule = Proof_trace.A.rule
 end
 
 module Solver = Sidekick_smt_solver.Make (Solver_arg)
@@ -29,7 +31,6 @@ module Th_data = Sidekick_th_data.Make (struct
   module S = Solver
   open! Base_types
   open! Sidekick_th_data
-  module Proof = Proof
   module Cstor = Cstor
 
   let as_datatype ty =
@@ -64,7 +65,7 @@ module Th_data = Sidekick_th_data.Make (struct
   let ty_is_finite = Ty.finite
   let ty_set_is_finite = Ty.set_finite
 
-  module P = Proof
+  module P = Proof.Rule_data
 end)
 
 (** Reducing boolean formulas to clauses *)
@@ -74,12 +75,7 @@ module Th_bool = Sidekick_th_bool_static.Make (struct
   type term = S.T.Term.t
 
   include Form
-
-  let lemma_bool_tauto = Proof.lemma_bool_tauto
-  let lemma_bool_c = Proof.lemma_bool_c
-  let lemma_bool_equiv = Proof.lemma_bool_equiv
-  let lemma_ite_true = Proof.lemma_ite_true
-  let lemma_ite_false = Proof.lemma_ite_false
+  module P = Proof.Rule_bool
 end)
 
 module Gensym = struct

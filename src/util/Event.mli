@@ -4,9 +4,10 @@ type 'a t
 module Emitter : sig
   type 'a t
 
-  val emit : 'a t -> 'a -> unit
   val create : unit -> 'a t
+  val emit : 'a t -> 'a -> unit
 end
 
-val on : 'a t -> ('a -> unit) -> unit
+val on : 'a t -> f:('a -> unit) -> unit
 val of_emitter : 'a Emitter.t -> 'a t
+val emit : 'a Emitter.t -> 'a -> unit

@@ -8,7 +8,7 @@ type t = P.t
 
 module type CONV_ARG = sig
   val proof : Proof.t
-  val unsat : Proof.proof_step
+  val unsat : Proof.step_id
 end
 
 module Make_lazy_tbl (T : sig
@@ -318,7 +318,7 @@ end = struct
     P.composite_a steps
 end
 
-let of_proof (self : Proof.t) ~(unsat : Proof.proof_step) : P.t =
+let of_proof (self : Proof.t) ~(unsat : Proof.step_id) : P.t =
   let module C = Conv (struct
     let proof = self
     let unsat = unsat

@@ -12,15 +12,15 @@ module type PROOF_TRACE = Sidekick_sigs_proof_trace.S
     it detects that they are true or false; it must also
     be able to create conflicts when the set of (dis)equalities
     is inconsistent *)
-module type ACTIONS = sig
+module type DYN_ACTIONS = sig
   type term
   type lit
-  type proof
-  type proof_step
+  type proof_trace
+  type step_id
 
-  val proof : unit -> proof
+  val proof_trace : unit -> proof_trace
 
-  val raise_conflict : lit list -> proof_step -> 'a
+  val raise_conflict : lit list -> step_id -> 'a
   (** [raise_conflict c pr] declares that [c] is a tautology of
       the theory of congruence. This does not return (it should raise an
       exception).
@@ -37,7 +37,7 @@ module type ACTIONS = sig
       This does not return. It should raise an exception.
   *)
 
-  val propagate : lit -> reason:(unit -> lit list * proof_step) -> unit
+  val propagate : lit -> reason:(unit -> lit list * step_id) -> unit
   (** [propagate lit ~reason pr] declares that [reason() => lit]
       is a tautology.
 
@@ -55,40 +55,22 @@ module type ARG = sig
   module Proof_trace : PROOF_TRACE
 
   (** Arguments for the congruence closure *)
-  module CC : sig
-    val view : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) View.t
-    (** View the term through the lens of the congruence closure *)
+  val view_as_cc : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) View.t
+  (** View the term through the lens of the congruence closure *)
 
-    val mk_lit_eq : ?sign:bool -> T.Term.store -> T.Term.t -> T.Term.t -> Lit.t
-    (** [mk_lit_eq store t u] makes the literal [t=u] *)
+  val mk_lit_eq : ?sign:bool -> T.Term.store -> T.Term.t -> T.Term.t -> Lit.t
+  (** [mk_lit_eq store t u] makes the literal [t=u] *)
 
-    module Proof_rules :
-      Sidekick_sigs_proof_core.S
-        with type term = T.Term.t
-         and type lit = Lit.t
-         and type step_id = Proof_trace.step_id
-         and type rule = Proof_trace.rule
-  end
+  module Rule_core :
+    Sidekick_sigs_proof_core.S
+      with type term = T.Term.t
+       and type lit = Lit.t
+       and type step_id = Proof_trace.A.step_id
+       and type rule = Proof_trace.A.rule
 end
 
-(** Main congruence closure signature.
-
-    The congruence closure handles the theory QF_UF (uninterpreted
-    function symbols).
-    It is also responsible for {i theory combination}, and provides
-    a general framework for equality reasoning that other
-    theories piggyback on.
-
-    For example, the theory of datatypes relies on the congruence closure
-    to do most of the work, and "only" adds injectivity/disjointness/acyclicity
-    lemmas when needed.
-
-    Similarly, a theory of arrays would hook into the congruence closure and
-    assert (dis)equalities as needed.
-*)
-module type S = sig
-  (** first, some aliases. *)
-
+(** Collection of input types, and types defined by the congruence closure *)
+module type ARGS_CLASSES_EXPL_EVENT = sig
   module T : TERM
   module Lit : LIT with module T = T
   module Proof_trace : PROOF_TRACE
@@ -98,21 +80,16 @@ module type S = sig
   type value = term
   type fun_ = T.Fun.t
   type lit = Lit.t
-  type proof = Proof_trace.t
-  type proof_step = Proof_trace.step_id
+  type proof_trace = Proof_trace.t
+  type step_id = Proof_trace.A.step_id
 
   type actions =
-    (module ACTIONS
+    (module DYN_ACTIONS
        with type term = T.Term.t
         and type lit = Lit.t
-        and type proof = proof
-        and type proof_step = proof_step)
+        and type proof_trace = proof_trace
+        and type step_id = step_id)
   (** Actions available to the congruence closure *)
-
-  type t
-  (** The congruence closure object.
-      It contains a fair amount of state and is mutable
-      and backtrackable. *)
 
   (** Equivalence classes.
 
@@ -122,7 +99,7 @@ module type S = sig
       distinguished and is called the "representative".
 
       All information pertaining to the whole equivalence class is stored
-      in this representative's node.
+      in this representative's Class.t.
 
       When two classes become equal (are "merged"), one of the two
       representatives is picked as the representative of the new class.
@@ -140,6 +117,8 @@ module type S = sig
         A value of type [t] points to a particular term, but see
         {!find} to get the representative of the class. *)
 
+    include Sidekick_sigs.PRINT with type t := t
+
     val term : t -> term
     (** Term contained in this equivalence class.
         If [is_root n], then [term n] is the class' representative term. *)
@@ -150,14 +129,10 @@ module type S = sig
         which checks for equality of representatives. *)
 
     val hash : t -> int
-    (** An opaque hash of this node. *)
-
-    val pp : t Fmt.printer
-    (** Unspecified printing of the node, for example its term,
-        a unique ID, etc. *)
+    (** An opaque hash of this Class.t. *)
 
     val is_root : t -> bool
-    (** Is the node a root (ie the representative of its class)?
+    (** Is the Class.t a root (ie the representative of its class)?
         See {!find} to get the root. *)
 
     val iter_class : t -> t Iter.t
@@ -167,6 +142,10 @@ module type S = sig
     val iter_parents : t -> t Iter.t
     (** Traverse the parents of the class.
         Precondition: [is_root n] (see {!find} below) *)
+
+    (* FIXME:
+       [@@alert refactor "this should be replaced with a Per_class concept"]
+    *)
 
     type bitfield
     (** A field in the bitfield of this node. This should only be
@@ -182,11 +161,11 @@ module type S = sig
   (** Explanations
 
       Explanations are specialized proofs, created by the congruence closure
-      when asked to justify why twp terms are equal. *)
+      when asked to justify why two terms are equal. *)
   module Expl : sig
     type t
 
-    val pp : t Fmt.printer
+    include Sidekick_sigs.PRINT with type t := t
 
     val mk_merge : Class.t -> Class.t -> t
     (** Explanation: the nodes were explicitly merged *)
@@ -200,12 +179,12 @@ module type S = sig
         or [t] and [false] because of literal [¬t] *)
 
     val mk_same_value : Class.t -> Class.t -> t
+    (** The two classes have the same value during model construction *)
 
     val mk_list : t list -> t
     (** Conjunction of explanations *)
 
-    val mk_theory :
-      term -> term -> (term * term * t list) list -> proof_step -> t
+    val mk_theory : term -> term -> (term * term * t list) list -> step_id -> t
     (** [mk_theory t u expl_sets pr] builds a theory explanation for
         why [|- t=u]. It depends on sub-explanations [expl_sets] which
         are tuples [ (t_i, u_i, expls_i) ] where [expls_i] are
@@ -241,28 +220,97 @@ module type S = sig
     type t = {
       lits: lit list;
       same_value: (Class.t * Class.t) list;
-      pr: proof -> proof_step;
+      pr: proof_trace -> step_id;
     }
+
+    include Sidekick_sigs.PRINT with type t := t
 
     val is_semantic : t -> bool
     (** [is_semantic expl] is [true] if there's at least one
         pair in [expl.same_value]. *)
-
-    val pp : t Fmt.printer
   end
 
   type node = Class.t
   (** A node of the congruence closure *)
 
   type repr = Class.t
-  (** Node that is currently a representative *)
+  (** Node that is currently a representative. *)
 
   type explanation = Expl.t
+end
+
+(* TODO: can we have that meaningfully? the type of Class.t would depend on
+      the implementation, so it can't be pre-defined, but nor can it be accessed from
+      shortcuts from the inside. That means one cannot point to classes from outside
+      the opened module.
+
+      Potential solution:
+        - make Expl polymorphic and lift it to toplevel, like View
+        - do not expose Class, only Term-based API
+   (** The type for a congruence closure, as a first-class module *)
+   module type DYN = sig
+     include ARGS_CLASSES_EXPL_EVENT
+     include Sidekick_sigs.DYN_BACKTRACKABLE
+
+     val term_store : unit -> term_store
+     val proof : unit -> proof_trace
+     val find : node -> repr
+     val add_term : term -> node
+     val mem_term : term -> bool
+     val allocate_bitfield : descr:string -> Class.bitfield
+     val get_bitfield : Class.bitfield -> Class.t -> bool
+     val set_bitfield : Class.bitfield -> bool -> Class.t -> unit
+     val on_event : unit -> event Event.t
+     val set_as_lit : Class.t -> lit -> unit
+     val find_t : term -> repr
+     val add_iter : term Iter.t -> unit
+     val all_classes : repr Iter.t
+     val assert_lit : lit -> unit
+     val assert_lits : lit Iter.t -> unit
+     val explain_eq : Class.t -> Class.t -> Resolved_expl.t
+     val raise_conflict_from_expl : actions -> Expl.t -> 'a
+     val n_true : unit -> Class.t
+     val n_false : unit -> Class.t
+     val n_bool : bool -> Class.t
+     val merge : Class.t -> Class.t -> Expl.t -> unit
+     val merge_t : term -> term -> Expl.t -> unit
+     val set_model_value : term -> value -> unit
+     val with_model_mode : (unit -> 'a) -> 'a
+     val get_model_for_each_class : (repr * Class.t Iter.t * value) Iter.t
+     val check : actions -> unit
+     val push_level : unit -> unit
+     val pop_levels : int -> unit
+     val get_model : Class.t Iter.t Iter.t
+   end
+*)
+
+(** Main congruence closure signature.
+
+    The congruence closure handles the theory QF_UF (uninterpreted
+    function symbols).
+    It is also responsible for {i theory combination}, and provides
+    a general framework for equality reasoning that other
+    theories piggyback on.
+
+    For example, the theory of datatypes relies on the congruence closure
+    to do most of the work, and "only" adds injectivity/disjointness/acyclicity
+    lemmas when needed.
+
+    Similarly, a theory of arrays would hook into the congruence closure and
+    assert (dis)equalities as needed.
+*)
+module type S = sig
+  include ARGS_CLASSES_EXPL_EVENT
+
+  type t
+  (** The congruence closure object.
+      It contains a fair amount of state and is mutable
+      and backtrackable. *)
 
   (** {3 Accessors} *)
 
   val term_store : t -> term_store
-  val proof : t -> proof
+  val proof : t -> proof_trace
 
   val find : t -> node -> repr
   (** Current representative *)
@@ -274,66 +322,12 @@ module type S = sig
   val mem_term : t -> term -> bool
   (** Returns [true] if the term is explicitly present in the congruence closure *)
 
-  (** {3 Events}
-
-      Events triggered by the congruence closure, to which
-      other plugins can subscribe. *)
-
-  type ev_on_pre_merge = t -> actions -> Class.t -> Class.t -> Expl.t -> unit
-  (** [ev_on_pre_merge cc acts n1 n2 expl] is called right before [n1]
-      and [n2] are merged with explanation [expl].  *)
-
-  type ev_on_post_merge = t -> actions -> Class.t -> Class.t -> unit
-  (** [ev_on_post_merge cc acts n1 n2] is called right after [n1]
-      and [n2] were merged. [find cc n1] and [find cc n2] will return
-      the same node. *)
-
-  type ev_on_new_term = t -> Class.t -> term -> unit
-  (** [ev_on_new_term cc n t] is called whenever a new term [t]
-      is added to the congruence closure. Its node is [n]. *)
-
-  type ev_on_conflict = t -> th:bool -> lit list -> unit
-  (** [ev_on_conflict acts ~th c] is called when the congruence
-      closure triggers a conflict by asserting the tautology [c].
-
-      @param th true if the explanation for this conflict involves
-      at least one "theory" explanation; i.e. some of the equations
-      participating in the conflict are purely syntactic theories
-      like injectivity of constructors. *)
-
-  type ev_on_propagate = t -> lit -> (unit -> lit list * proof_step) -> unit
-  (** [ev_on_propagate cc lit reason] is called whenever [reason() => lit]
-      is a propagated lemma. See {!CC_ACTIONS.propagate}. *)
-
-  type ev_on_is_subterm = Class.t -> term -> unit
-  (** [ev_on_is_subterm n t] is called when [n] is a subterm of
-      another node for the first time. [t] is the term corresponding to
-      the node [n]. This can be useful for theory combination. *)
-
-  val create :
-    ?stat:Stat.t ->
-    ?on_pre_merge:ev_on_pre_merge list ->
-    ?on_post_merge:ev_on_post_merge list ->
-    ?on_new_term:ev_on_new_term list ->
-    ?on_conflict:ev_on_conflict list ->
-    ?on_propagate:ev_on_propagate list ->
-    ?on_is_subterm:ev_on_is_subterm list ->
-    ?size:[ `Small | `Big ] ->
-    term_store ->
-    proof ->
-    t
-  (** Create a new congruence closure.
-
-      @param term_store used to be able to create new terms. All terms
-      interacting with this congruence closure must belong in this term state
-      as well. *)
-
-  val allocate_bitfield : descr:string -> t -> Class.bitfield
+  val allocate_bitfield : t -> descr:string -> Class.bitfield
   (** Allocate a new node field (see {!Class.bitfield}).
 
       This field descriptor is henceforth reserved for all nodes
       in this congruence closure, and can be set using {!set_bitfield}
-      for each node individually.
+      for each class_ individually.
       This can be used to efficiently store some metadata on nodes
       (e.g. "is there a numeric value in the class"
       or "is there a constructor term in the class").
@@ -349,24 +343,47 @@ module type S = sig
   (** Set the bitfield for the node. This will be backtracked.
       See {!Class.bitfield}. *)
 
-  (* TODO: remove? this is managed by the solver anyway? *)
-  val on_pre_merge : t -> ev_on_pre_merge -> unit
-  (** Add a function to be called when two classes are merged *)
+  (** {3 Events}
 
-  val on_post_merge : t -> ev_on_post_merge -> unit
-  (** Add a function to be called when two classes are merged *)
+      Events triggered by the congruence closure, to which
+      other plugins can subscribe. *)
 
-  val on_new_term : t -> ev_on_new_term -> unit
-  (** Add a function to be called when a new node is created *)
+  (** Events emitted by the congruence closure when something changes. *)
+  val on_pre_merge : t -> (t * actions * Class.t * Class.t * Expl.t) Event.t
+  (** [Ev_on_pre_merge acts n1 n2 expl] is emitted right before [n1]
+      and [n2] are merged with explanation [expl].  *)
 
-  val on_conflict : t -> ev_on_conflict -> unit
-  (** Called when the congruence closure finds a conflict *)
+  val on_post_merge : t -> (t * actions * Class.t * Class.t) Event.t
+  (** [ev_on_post_merge acts n1 n2] is emitted right after [n1]
+      and [n2] were merged. [find cc n1] and [find cc n2] will return
+      the same Class.t. *)
 
-  val on_propagate : t -> ev_on_propagate -> unit
-  (** Called when the congruence closure propagates a literal *)
+  val on_new_term : t -> (t * Class.t * term) Event.t
+  (** [ev_on_new_term n t] is emitted whenever a new term [t]
+      is added to the congruence closure. Its Class.t is [n]. *)
 
-  val on_is_subterm : t -> ev_on_is_subterm -> unit
-  (** Called on terms that are subterms of function symbols *)
+  type ev_on_conflict = { cc: t; th: bool; c: lit list }
+  (** Event emitted when a conflict occurs in the CC.
+
+      [th] is true if the explanation for this conflict involves
+      at least one "theory" explanation; i.e. some of the equations
+      participating in the conflict are purely syntactic theories
+      like injectivity of constructors. *)
+
+  val on_conflict : t -> ev_on_conflict Event.t
+  (** [ev_on_conflict {th; c}] is emitted when the congruence
+      closure triggers a conflict by asserting the tautology [c]. *)
+
+  val on_propagate : t -> (t * lit * (unit -> lit list * step_id)) Event.t
+  (** [ev_on_propagate lit reason] is emitted whenever [reason() => lit]
+      is a propagated lemma. See {!CC_ACTIONS.propagate}. *)
+
+  val on_is_subterm : t -> (t * Class.t * term) Event.t
+  (** [ev_on_is_subterm n t] is emitted when [n] is a subterm of
+      another Class.t for the first time. [t] is the term corresponding to
+      the Class.t [n]. This can be useful for theory combination. *)
+
+  (** {3 Misc} *)
 
   val set_as_lit : t -> Class.t -> lit -> unit
   (** map the given node to a literal. *)
@@ -440,16 +457,13 @@ module type S = sig
 
   val get_model : t -> Class.t Iter.t Iter.t
   (** get all the equivalence classes so they can be merged in the model *)
-
-  (**/**)
-
-  module Debug_ : sig
-    val pp : t Fmt.printer
-    (** Print the whole CC *)
-  end
-
-  (**/**)
 end
+
+(* TODO
+   module type DYN_BUILDER = sig
+     include ARGS_CLASSES_EXPL_EVENT
+   end
+*)
 
 (* TODO: full EGG, also have a function to update the value when
    the subterms (produced in [of_term]) are updated *)
@@ -460,7 +474,7 @@ end
     The state of a class is the monoidal combination of the state for each
     term in the class (for example, the set of terms in the
     class whose head symbol is a datatype constructor). *)
-module type MONOID_ARG = sig
+module type MONOID_PLUGIN_ARG = sig
   module CC : S
 
   type t
@@ -511,38 +525,32 @@ end
     aggregate some theory-specific state over all terms, with
     the information of what terms are already known to be equal
     potentially saving work for the theory. *)
-module type PLUGIN = sig
-  module CC : S
-  module M : MONOID_ARG with module CC = CC
+module type DYN_MONOID_PLUGIN = sig
+  module M : MONOID_PLUGIN_ARG
+  include Sidekick_sigs.DYN_BACKTRACKABLE
 
-  val push_level : unit -> unit
-  (** Push backtracking point *)
+  val pp : unit Fmt.printer
 
-  val pop_levels : int -> unit
-  (** Pop [n] backtracking points *)
+  val mem : M.CC.Class.t -> bool
+  (** Does the CC Class.t have a monoid value? *)
 
-  val n_levels : unit -> int
+  val get : M.CC.Class.t -> M.t option
+  (** Get monoid value for this CC Class.t, if any *)
 
-  val mem : CC.Class.t -> bool
-  (** Does the CC node have a monoid value? *)
-
-  val get : CC.Class.t -> M.t option
-  (** Get monoid value for this CC node, if any *)
-
-  val iter_all : (CC.repr * M.t) Iter.t
+  val iter_all : (M.CC.repr * M.t) Iter.t
 end
 
 (** Builder for a plugin.
 
     The builder takes a congruence closure, and instantiate the
     plugin on it. *)
-module type PLUGIN_BUILDER = sig
-  module M : MONOID_ARG
+module type MONOID_PLUGIN_BUILDER = sig
+  module M : MONOID_PLUGIN_ARG
 
-  module type PL = PLUGIN with module CC = M.CC and module M = M
+  module type DYN_PL_FOR_M = DYN_MONOID_PLUGIN with module M = M
 
-  type plugin = (module PL)
+  type t = (module DYN_PL_FOR_M)
 
-  val create_and_setup : ?size:int -> M.CC.t -> plugin
+  val create_and_setup : ?size:int -> M.CC.t -> t
   (** Create a new monoid state *)
 end

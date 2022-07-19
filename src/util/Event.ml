@@ -10,5 +10,6 @@ module Emitter = struct
   let create () : _ t = { h = Vec.make 3 nop_handler_ }
 end
 
-let on self f = Vec.push self.h f
+let on self ~f = Vec.push self.h f
 let of_emitter x = x
+let emit = Emitter.emit

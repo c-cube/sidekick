@@ -2,7 +2,7 @@ module P = Sidekick_util.Profile
 
 let active =
   lazy
-    (match Sys.getenv "TEF" with
+    (match Sys.getenv "TRACE" with
     | "1" | "true" -> true
     | _ -> false
     | exception Not_found -> false)

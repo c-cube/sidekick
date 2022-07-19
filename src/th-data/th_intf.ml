@@ -1,3 +1,5 @@
+open Sidekick_sigs_smt
+
 (** Datatype-oriented view of terms.
 
     - ['c] is the representation of constructors
@@ -16,47 +18,46 @@ type ('c, 'ty) data_ty_view =
   | Ty_data of { cstors: 'c }
   | Ty_other
 
-module type PROOF = sig
+module type PROOF_RULES = sig
   type term
   type lit
-  type proof_step
-  type proof
+  type rule
 
-  val lemma_isa_cstor : cstor_t:term -> term -> proof -> proof_step
+  val lemma_isa_cstor : cstor_t:term -> term -> rule
   (** [lemma_isa_cstor (d …) (is-c t)] returns the clause
       [(c …) = t |- is-c t] or [(d …) = t |- ¬ (is-c t)] *)
 
-  val lemma_select_cstor : cstor_t:term -> term -> proof -> proof_step
+  val lemma_select_cstor : cstor_t:term -> term -> rule
   (** [lemma_select_cstor (c t1…tn) (sel-c-i t)]
       returns a proof of [t = c t1…tn |- (sel-c-i t) = ti] *)
 
-  val lemma_isa_split : term -> lit Iter.t -> proof -> proof_step
+  val lemma_isa_split : term -> lit Iter.t -> rule
   (** [lemma_isa_split t lits] is the proof of
       [is-c1 t \/ is-c2 t \/ … \/ is-c_n t] *)
 
-  val lemma_isa_sel : term -> proof -> proof_step
+  val lemma_isa_sel : term -> rule
   (** [lemma_isa_sel (is-c t)] is the proof of
       [is-c t |- t = c (sel-c-1 t)…(sel-c-n t)] *)
 
-  val lemma_isa_disj : lit -> lit -> proof -> proof_step
+  val lemma_isa_disj : lit -> lit -> rule
   (** [lemma_isa_disj (is-c t) (is-d t)] is the proof
       of [¬ (is-c t) \/ ¬ (is-c t)] *)
 
-  val lemma_cstor_inj : term -> term -> int -> proof -> proof_step
+  val lemma_cstor_inj : term -> term -> int -> rule
   (** [lemma_cstor_inj (c t1…tn) (c u1…un) i] is the proof of
       [c t1…tn = c u1…un |- ti = ui] *)
 
-  val lemma_cstor_distinct : term -> term -> proof -> proof_step
+  val lemma_cstor_distinct : term -> term -> rule
   (** [lemma_isa_distinct (c …) (d …)] is the proof
       of the unit clause [|- (c …) ≠ (d …)] *)
 
-  val lemma_acyclicity : (term * term) Iter.t -> proof -> proof_step
+  val lemma_acyclicity : (term * term) Iter.t -> rule
   (** [lemma_acyclicity pairs] is a proof of [t1=u1, …, tn=un |- false]
       by acyclicity. *)
 end
 
 module type ARG = sig
-  module S : Sidekick_core.SOLVER
+  module S : SOLVER
 
   (** Constructor symbols.
 
@@ -102,9 +103,8 @@ module type ARG = sig
   (** Modify the "finite" field (see {!ty_is_finite}) *)
 
   module P :
-    PROOF
-      with type proof := S.P.t
-       and type proof_step := S.P.proof_step
-       and type term := S.T.Term.t
-       and type lit := S.Lit.t
+    PROOF_RULES
+      with type rule = S.Proof_trace.A.rule
+       and type term = S.T.Term.t
+       and type lit = S.Lit.t
 end

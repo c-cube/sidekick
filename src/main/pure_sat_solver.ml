@@ -22,7 +22,13 @@ end
 
 (* TODO: on the fly compression *)
 module Proof : sig
-  include Sidekick_sat.PROOF with type lit = Lit.t
+  include Sidekick_sigs_proof_trace.S
+
+  module Rule :
+    Sidekick_sat.PROOF_RULES
+      with type lit = Lit.t
+       and type rule = A.rule
+       and type step_id = A.step_id
 
   type in_memory
 
@@ -51,12 +57,20 @@ end = struct
     | Inner of in_memory
     | Out of { oc: out_channel; close: unit -> unit }
 
-  type proof_step = unit
-  type proof_rule = t -> proof_step
+  module A = struct
+    type step_id = unit
+    type rule = t -> unit
 
-  module Step_vec = Vec_unit
+    module Step_vec = Vec_unit
+  end
 
-  let[@inline] enabled pr =
+  open A
+
+  let[@inline] add_step (self : t) r = r self
+  let add_unsat _ _ = ()
+  let delete _ _ = ()
+
+  let[@inline] enabled (pr : t) =
     match pr with
     | Dummy -> false
     | Inner _ | Out _ -> true
@@ -64,29 +78,37 @@ end = struct
   let[@inline] emit_lits_buf_ buf lits = lits (fun i -> bpf buf "%d " i)
   let[@inline] emit_lits_out_ oc lits = lits (fun i -> fpf oc "%d " i)
 
-  let emit_input_clause lits self =
-    match self with
-    | Dummy -> ()
-    | Inner buf ->
-      bpf buf "i ";
-      emit_lits_buf_ buf lits;
-      bpf buf "0\n"
-    | Out { oc; _ } ->
-      fpf oc "i ";
-      emit_lits_out_ oc lits;
-      fpf oc "0\n"
+  module Rule = struct
+    type nonrec lit = lit
+    type nonrec rule = rule
+    type nonrec step_id = step_id
 
-  let emit_redundant_clause lits ~hyps:_ self =
-    match self with
-    | Dummy -> ()
-    | Inner buf ->
-      bpf buf "r ";
-      emit_lits_buf_ buf lits;
-      bpf buf "0\n"
-    | Out { oc; _ } ->
-      fpf oc "r ";
-      emit_lits_out_ oc lits;
-      fpf oc "0\n"
+    let sat_input_clause lits self =
+      match self with
+      | Dummy -> ()
+      | Inner buf ->
+        bpf buf "i ";
+        emit_lits_buf_ buf lits;
+        bpf buf "0\n"
+      | Out { oc; _ } ->
+        fpf oc "i ";
+        emit_lits_out_ oc lits;
+        fpf oc "0\n"
+
+    let sat_redundant_clause lits ~hyps:_ self =
+      match self with
+      | Dummy -> ()
+      | Inner buf ->
+        bpf buf "r ";
+        emit_lits_buf_ buf lits;
+        bpf buf "0\n"
+      | Out { oc; _ } ->
+        fpf oc "r ";
+        emit_lits_out_ oc lits;
+        fpf oc "0\n"
+
+    let sat_unsat_core _ _ = ()
+  end
 
   let del_clause () lits self =
     match self with
@@ -99,9 +121,6 @@ end = struct
       fpf oc "d ";
       emit_lits_out_ oc lits;
       fpf oc "0\n"
-
-  let emit_unsat _ _ = ()
-  let emit_unsat_core _ _ = ()
 
   (* lifetime *)
 
@@ -153,10 +172,11 @@ module Arg = struct
 
   type lit = Lit.t
 
-  module Proof = Proof
+  module Proof_trace = Proof
+  module Proof_rules = Proof.Rule
 
   type proof = Proof.t
-  type proof_step = Proof.proof_step
+  type step_id = Proof.A.step_id
 end
 
 module SAT = Sidekick_sat.Make_pure_sat (Arg)

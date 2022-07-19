@@ -2,4 +2,4 @@
  (name sidekick_th_bool_static)
  (public_name sidekick.th-bool-static)
  (flags :standard -open Sidekick_util)
- (libraries sidekick.core sidekick.util))
+ (libraries sidekick.sigs.smt sidekick.util sidekick.cc.plugin))

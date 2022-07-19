@@ -1,14 +1,16 @@
 (** {1 Theory for constructors} *)
 
+open Sidekick_sigs_smt
+
 type ('c, 't) cstor_view = T_cstor of 'c * 't array | T_other of 't
 
 let name = "th-cstor"
 
 module type ARG = sig
-  module S : Sidekick_core.SOLVER
+  module S : SOLVER
 
   val view_as_cstor : S.T.Term.t -> (S.T.Fun.t, S.T.Term.t) cstor_view
-  val lemma_cstor : S.proof -> S.Lit.t Iter.t -> unit
+  val lemma_cstor : S.Lit.t Iter.t -> S.Proof_trace.A.rule
 end
 
 module type S = sig
@@ -21,12 +23,12 @@ module Make (A : ARG) : S with module A = A = struct
   module A = A
   module SI = A.S.Solver_internal
   module T = A.S.T.Term
-  module N = SI.CC.N
+  module N = SI.CC.Class
   module Fun = A.S.T.Fun
   module Expl = SI.CC.Expl
 
   module Monoid = struct
-    module SI = SI
+    module CC = SI.CC
 
     (* associate to each class a unique constructor term in the class (if any) *)
     type t = { t: T.t; n: N.t; cstor: Fun.t; args: N.t array }
@@ -65,16 +67,17 @@ module Make (A : ARG) : S with module A = A = struct
         Error expl
   end
 
-  module ST = Sidekick_core.Monoid_of_repr (Monoid)
+  module ST = Sidekick_cc_plugin.Make (Monoid)
 
   type t = ST.t
 
-  let push_level = ST.push_level
-  let pop_levels = ST.pop_levels
+  let push_level ((module P) : t) = P.push_level ()
+  let pop_levels ((module P) : t) n = P.pop_levels n
+  let n_levels ((module P) : t) = P.n_levels ()
 
-  let create_and_setup (solver : SI.t) : t =
+  let create_and_setup (si : SI.t) : t =
     Log.debug 1 "(setup :th-cstor)";
-    let self = ST.create_and_setup ~size:32 solver in
+    let self = ST.create_and_setup ~size:32 (SI.cc si) in
     self
 
   let theory = A.S.mk_theory ~name ~push_level ~pop_levels ~create_and_setup ()

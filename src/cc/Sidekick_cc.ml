@@ -1,5 +1,29 @@
-include Sidekick_sigs_cc
+open Sidekick_sigs_cc
+module View = View
 open View
+
+module type S = sig
+  include S
+
+  val create :
+    ?stat:Stat.t -> ?size:[ `Small | `Big ] -> term_store -> proof_trace -> t
+  (** Create a new congruence closure.
+
+      @param term_store used to be able to create new terms. All terms
+      interacting with this congruence closure must belong in this term state
+      as well. *)
+
+  (**/**)
+
+  module Debug_ : sig
+    val pp : t Fmt.printer
+    (** Print the whole CC *)
+  end
+
+  (**/**)
+end
+
+module type ARG = ARG
 
 module Make (A : ARG) :
   S
@@ -14,8 +38,8 @@ module Make (A : ARG) :
 
   open struct
     (* proof rules *)
-    module Rules_ = A.CC.Proof_rules
-    module P = Sidekick_sigs_proof_trace.Utils_ (Proof_trace)
+    module Rules_ = A.Rule_core
+    module P = Proof_trace
   end
 
   type term = T.Term.t
@@ -23,15 +47,15 @@ module Make (A : ARG) :
   type term_store = T.Term.store
   type lit = Lit.t
   type fun_ = T.Fun.t
-  type proof = A.Proof_trace.t
-  type proof_step = A.Proof_trace.step_id
+  type proof_trace = A.Proof_trace.t
+  type step_id = A.Proof_trace.A.step_id
 
   type actions =
-    (module ACTIONS
+    (module DYN_ACTIONS
        with type term = T.Term.t
         and type lit = Lit.t
-        and type proof = proof
-        and type proof_step = proof_step)
+        and type proof_trace = proof_trace
+        and type step_id = step_id)
 
   module Bits : sig
     type t = private int
@@ -107,8 +131,7 @@ module Make (A : ARG) :
     | E_merge_t of term * term
     | E_congruence of node * node (* caused by normal congruence *)
     | E_and of explanation * explanation
-    | E_theory of
-        term * term * (term * term * explanation list) list * proof_step
+    | E_theory of term * term * (term * term * explanation list) list * step_id
     | E_same_val of node * node
 
   type repr = node
@@ -237,7 +260,7 @@ module Make (A : ARG) :
     type t = {
       lits: lit list;
       same_value: (Class.t * Class.t) list;
-      pr: proof -> proof_step;
+      pr: proof_trace -> step_id;
     }
 
     let[@inline] is_semantic (self : t) : bool =
@@ -320,7 +343,7 @@ module Make (A : ARG) :
 
   type t = {
     tst: term_store;
-    proof: proof;
+    proof: proof_trace;
     tbl: node T_tbl.t; (* internalization [term -> node] *)
     signatures_tbl: node Sig_tbl.t;
     (* map a signature to the corresponding node in some equivalence class.
@@ -333,6 +356,7 @@ module Make (A : ARG) :
     pending: node Vec.t;
     combine: combine_task Vec.t;
     t_to_val: (node * value) T_b_tbl.t;
+    (* TODO: remove this, make it a plugin/EGG instead *)
     (* [repr -> (t,val)] where [repr = t] and [t := val] in the model *)
     val_to_t: node T_b_tbl.t; (* [val -> t] where [t := val] in the model *)
     undo: (unit -> unit) Backtrack_stack.t;
@@ -342,12 +366,12 @@ module Make (A : ARG) :
     true_: node lazy_t;
     false_: node lazy_t;
     mutable model_mode: bool;
-    mutable on_pre_merge: ev_on_pre_merge list;
-    mutable on_post_merge: ev_on_post_merge list;
-    mutable on_new_term: ev_on_new_term list;
-    mutable on_conflict: ev_on_conflict list;
-    mutable on_propagate: ev_on_propagate list;
-    mutable on_is_subterm: ev_on_is_subterm list;
+    on_pre_merge: (t * actions * Class.t * Class.t * Expl.t) Event.Emitter.t;
+    on_post_merge: (t * actions * Class.t * Class.t) Event.Emitter.t;
+    on_new_term: (t * Class.t * term) Event.Emitter.t;
+    on_conflict: ev_on_conflict Event.Emitter.t;
+    on_propagate: (t * lit * (unit -> lit list * step_id)) Event.Emitter.t;
+    on_is_subterm: (t * Class.t * term) Event.Emitter.t;
     count_conflict: int Stat.counter;
     count_props: int Stat.counter;
     count_merge: int Stat.counter;
@@ -359,75 +383,73 @@ module Make (A : ARG) :
      several times.
      See "fast congruence closure and extensions", Nieuwenhuis&al, page 14 *)
 
-  and ev_on_pre_merge = t -> actions -> Class.t -> Class.t -> Expl.t -> unit
-  and ev_on_post_merge = t -> actions -> Class.t -> Class.t -> unit
-  and ev_on_new_term = t -> Class.t -> term -> unit
-  and ev_on_conflict = t -> th:bool -> lit list -> unit
-  and ev_on_propagate = t -> lit -> (unit -> lit list * proof_step) -> unit
-  and ev_on_is_subterm = Class.t -> term -> unit
+  and ev_on_conflict = { cc: t; th: bool; c: lit list }
 
   let[@inline] size_ (r : repr) = r.n_size
-  let[@inline] n_true cc = Lazy.force cc.true_
-  let[@inline] n_false cc = Lazy.force cc.false_
+  let[@inline] n_true self = Lazy.force self.true_
+  let[@inline] n_false self = Lazy.force self.false_
 
-  let n_bool cc b =
+  let n_bool self b =
     if b then
-      n_true cc
+      n_true self
     else
-      n_false cc
+      n_false self
 
-  let[@inline] term_store cc = cc.tst
-  let[@inline] proof cc = cc.proof
+  let[@inline] term_store self = self.tst
+  let[@inline] proof self = self.proof
 
-  let allocate_bitfield ~descr cc =
+  let allocate_bitfield self ~descr =
     Log.debugf 5 (fun k -> k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
-    Bits.mk_field cc.bitgen
+    Bits.mk_field self.bitgen
 
-  let[@inline] on_backtrack cc f : unit =
-    Backtrack_stack.push_if_nonzero_level cc.undo f
+  let[@inline] on_backtrack self f : unit =
+    Backtrack_stack.push_if_nonzero_level self.undo f
 
   let[@inline] get_bitfield _cc field n = Class.get_field field n
 
-  let set_bitfield cc field b n =
+  let set_bitfield self field b n =
     let old = Class.get_field field n in
     if old <> b then (
-      on_backtrack cc (fun () -> Class.set_field field old n);
+      on_backtrack self (fun () -> Class.set_field field old n);
       Class.set_field field b n
     )
 
   (* check if [t] is in the congruence closure.
      Invariant: [in_cc t ∧ do_cc t => forall u subterm t, in_cc u] *)
-  let[@inline] mem (cc : t) (t : term) : bool = T_tbl.mem cc.tbl t
+  let[@inline] mem (self : t) (t : term) : bool = T_tbl.mem self.tbl t
 
-  (* print full state *)
-  let pp_full out (cc : t) : unit =
-    let pp_next out n = Fmt.fprintf out "@ :next %a" Class.pp n.n_next in
-    let pp_root out n =
-      if Class.is_root n then
-        Fmt.string out " :is-root"
-      else
-        Fmt.fprintf out "@ :root %a" Class.pp n.n_root
-    in
-    let pp_expl out n =
-      match n.n_expl with
-      | FL_none -> ()
-      | FL_some e ->
-        Fmt.fprintf out " (@[:forest %a :expl %a@])" Class.pp e.next Expl.pp
-          e.expl
-    in
-    let pp_n out n =
-      Fmt.fprintf out "(@[%a%a%a%a@])" Term.pp n.n_term pp_root n pp_next n
-        pp_expl n
-    and pp_sig_e out (s, n) =
-      Fmt.fprintf out "(@[<1>%a@ ~~> %a%a@])" Signature.pp s Class.pp n pp_root
-        n
-    in
-    Fmt.fprintf out
-      "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig-tbl@ %a@])@])"
-      (Util.pp_iter ~sep:" " pp_n)
-      (T_tbl.values cc.tbl)
-      (Util.pp_iter ~sep:" " pp_sig_e)
-      (Sig_tbl.to_iter cc.signatures_tbl)
+  module Debug_ = struct
+    (* print full state *)
+    let pp out (self : t) : unit =
+      let pp_next out n = Fmt.fprintf out "@ :next %a" Class.pp n.n_next in
+      let pp_root out n =
+        if Class.is_root n then
+          Fmt.string out " :is-root"
+        else
+          Fmt.fprintf out "@ :root %a" Class.pp n.n_root
+      in
+      let pp_expl out n =
+        match n.n_expl with
+        | FL_none -> ()
+        | FL_some e ->
+          Fmt.fprintf out " (@[:forest %a :expl %a@])" Class.pp e.next Expl.pp
+            e.expl
+      in
+      let pp_n out n =
+        Fmt.fprintf out "(@[%a%a%a%a@])" Term.pp n.n_term pp_root n pp_next n
+          pp_expl n
+      and pp_sig_e out (s, n) =
+        Fmt.fprintf out "(@[<1>%a@ ~~> %a%a@])" Signature.pp s Class.pp n
+          pp_root n
+      in
+      Fmt.fprintf out
+        "(@[@{<yellow>cc.state@}@ (@[<hv>:nodes@ %a@])@ (@[<hv>:sig-tbl@ \
+         %a@])@])"
+        (Util.pp_iter ~sep:" " pp_n)
+        (T_tbl.values self.tbl)
+        (Util.pp_iter ~sep:" " pp_sig_e)
+        (Sig_tbl.to_iter self.signatures_tbl)
+  end
 
   (* compute up-to-date signature *)
   let update_sig (s : signature) : Signature.t =
@@ -439,50 +461,50 @@ module Make (A : ARG) :
     Sig_tbl.get cc.signatures_tbl s
 
   (* add to signature table. Assume it's not present already *)
-  let add_signature cc (s : signature) (n : node) : unit =
-    assert (not @@ Sig_tbl.mem cc.signatures_tbl s);
+  let add_signature self (s : signature) (n : node) : unit =
+    assert (not @@ Sig_tbl.mem self.signatures_tbl s);
     Log.debugf 50 (fun k ->
         k "(@[cc.add-sig@ %a@ ~~> %a@])" Signature.pp s Class.pp n);
-    on_backtrack cc (fun () -> Sig_tbl.remove cc.signatures_tbl s);
-    Sig_tbl.add cc.signatures_tbl s n
+    on_backtrack self (fun () -> Sig_tbl.remove self.signatures_tbl s);
+    Sig_tbl.add self.signatures_tbl s n
 
-  let push_pending cc t : unit =
+  let push_pending self t : unit =
     Log.debugf 50 (fun k -> k "(@[<hv1>cc.push-pending@ %a@])" Class.pp t);
-    Vec.push cc.pending t
+    Vec.push self.pending t
 
-  let merge_classes cc t u e : unit =
+  let merge_classes self t u e : unit =
     if t != u && not (same_class t u) then (
       Log.debugf 50 (fun k ->
           k "(@[<hv1>cc.push-combine@ %a ~@ %a@ :expl %a@])" Class.pp t Class.pp
             u Expl.pp e);
-      Vec.push cc.combine @@ CT_merge (t, u, e)
+      Vec.push self.combine @@ CT_merge (t, u, e)
     )
 
   (* re-root the explanation tree of the equivalence class of [n]
      so that it points to [n].
      postcondition: [n.n_expl = None] *)
-  let[@unroll 2] rec reroot_expl (cc : t) (n : node) : unit =
+  let[@unroll 2] rec reroot_expl (self : t) (n : node) : unit =
     match n.n_expl with
     | FL_none -> () (* already root *)
     | FL_some { next = u; expl = e_n_u } ->
       (* reroot to [u], then invert link between [u] and [n] *)
-      reroot_expl cc u;
+      reroot_expl self u;
       u.n_expl <- FL_some { next = n; expl = e_n_u };
       n.n_expl <- FL_none
 
-  let raise_conflict_ (cc : t) ~th (acts : actions) (e : lit list)
-      (p : proof_step) : _ =
+  let raise_conflict_ (cc : t) ~th (acts : actions) (e : lit list) (p : step_id)
+      : _ =
     Profile.instant "cc.conflict";
     (* clear tasks queue *)
     Vec.clear cc.pending;
     Vec.clear cc.combine;
-    List.iter (fun f -> f cc ~th e) cc.on_conflict;
+    Event.emit cc.on_conflict { cc; th; c = e };
     Stat.incr cc.count_conflict;
     let (module A) = acts in
     A.raise_conflict e p
 
-  let[@inline] all_classes cc : repr Iter.t =
-    T_tbl.values cc.tbl |> Iter.filter Class.is_root
+  let[@inline] all_classes self : repr Iter.t =
+    T_tbl.values self.tbl |> Iter.filter Class.is_root
 
   (* find the closest common ancestor of [a] and [b] in the proof forest.
 
@@ -493,10 +515,10 @@ module Make (A : ARG) :
      - if [n] is marked, then all the predecessors of [n]
        from [a] or [b] are marked too.
   *)
-  let find_common_ancestor cc (a : node) (b : node) : node =
+  let find_common_ancestor self (a : node) (b : node) : node =
     (* catch up to the other node *)
     let rec find1 a =
-      if Class.get_field cc.field_marked_explain a then
+      if Class.get_field self.field_marked_explain a then
         a
       else (
         match a.n_expl with
@@ -507,13 +529,13 @@ module Make (A : ARG) :
     let rec find2 a b =
       if Class.equal a b then
         a
-      else if Class.get_field cc.field_marked_explain a then
+      else if Class.get_field self.field_marked_explain a then
         a
-      else if Class.get_field cc.field_marked_explain b then
+      else if Class.get_field self.field_marked_explain b then
         b
       else (
-        Class.set_field cc.field_marked_explain true a;
-        Class.set_field cc.field_marked_explain true b;
+        Class.set_field self.field_marked_explain true a;
+        Class.set_field self.field_marked_explain true b;
         match a.n_expl, b.n_expl with
         | FL_some r1, FL_some r2 -> find2 r1.next r2.next
         | FL_some r, FL_none -> find1 r.next
@@ -525,8 +547,8 @@ module Make (A : ARG) :
 
     (* cleanup tags on nodes traversed in [find2] *)
     let rec cleanup_ n =
-      if Class.get_field cc.field_marked_explain n then (
-        Class.set_field cc.field_marked_explain false n;
+      if Class.get_field self.field_marked_explain n then (
+        Class.set_field self.field_marked_explain false n;
         match n.n_expl with
         | FL_none -> ()
         | FL_some { next; _ } -> cleanup_ next
@@ -541,7 +563,7 @@ module Make (A : ARG) :
     type t = {
       mutable lits: Lit.t list;
       mutable same_val: (Class.t * Class.t) list;
-      mutable th_lemmas: (Lit.t * (Lit.t * Lit.t list) list * proof_step) list;
+      mutable th_lemmas: (Lit.t * (Lit.t * Lit.t list) list * step_id) list;
     }
 
     let create () : t = { lits = []; same_val = []; th_lemmas = [] }
@@ -568,7 +590,7 @@ module Make (A : ARG) :
       ()
 
     (* proof of [\/_i ¬lits[i]] *)
-    let proof_of_th_lemmas (self : t) (proof : proof) : proof_step =
+    let proof_of_th_lemmas (self : t) (proof : proof_trace) : step_id =
       let p_lits1 = Iter.of_list self.lits |> Iter.map Lit.neg in
       let p_lits2 =
         Iter.of_list self.th_lemmas
@@ -609,8 +631,8 @@ module Make (A : ARG) :
   end
 
   (* decompose explanation [e] into a list of literals added to [acc] *)
-  let rec explain_decompose_expl cc (st : Expl_state.t) (e : explanation) : unit
-      =
+  let rec explain_decompose_expl self (st : Expl_state.t) (e : explanation) :
+      unit =
     Log.debugf 5 (fun k -> k "(@[cc.decompose_expl@ %a@])" Expl.pp e);
     match e with
     | E_trivial -> ()
@@ -619,14 +641,14 @@ module Make (A : ARG) :
       | Some (App_fun (f1, a1)), Some (App_fun (f2, a2)) ->
         assert (Fun.equal f1 f2);
         assert (List.length a1 = List.length a2);
-        List.iter2 (explain_equal_rec_ cc st) a1 a2
+        List.iter2 (explain_equal_rec_ self st) a1 a2
       | Some (App_ho (f1, a1)), Some (App_ho (f2, a2)) ->
-        explain_equal_rec_ cc st f1 f2;
-        explain_equal_rec_ cc st a1 a2
+        explain_equal_rec_ self st f1 f2;
+        explain_equal_rec_ self st a1 a2
       | Some (If (a1, b1, c1)), Some (If (a2, b2, c2)) ->
-        explain_equal_rec_ cc st a1 a2;
-        explain_equal_rec_ cc st b1 b2;
-        explain_equal_rec_ cc st c1 c2
+        explain_equal_rec_ self st a1 a2;
+        explain_equal_rec_ self st b1 b2;
+        explain_equal_rec_ self st c1 c2
       | _ -> assert false)
     | E_lit lit -> Expl_state.add_lit st lit
     | E_same_val (n1, n2) -> Expl_state.add_same_val st n1 n2
@@ -634,29 +656,29 @@ module Make (A : ARG) :
       let sub_proofs =
         List.map
           (fun (t_i, u_i, expls_i) ->
-            let lit_i = A.CC.mk_lit_eq cc.tst t_i u_i in
+            let lit_i = A.mk_lit_eq self.tst t_i u_i in
             (* use a separate call to [explain_expls] for each set *)
-            let sub = explain_expls cc expls_i in
+            let sub = explain_expls self expls_i in
             Expl_state.merge st sub;
             lit_i, sub.lits)
           expl_sets
       in
-      let lit_t_u = A.CC.mk_lit_eq cc.tst t u in
+      let lit_t_u = A.mk_lit_eq self.tst t u in
       Expl_state.add_th st lit_t_u sub_proofs pr
-    | E_merge (a, b) -> explain_equal_rec_ cc st a b
+    | E_merge (a, b) -> explain_equal_rec_ self st a b
     | E_merge_t (a, b) ->
       (* find nodes for [a] and [b] on the fly *)
-      (match T_tbl.find cc.tbl a, T_tbl.find cc.tbl b with
-      | a, b -> explain_equal_rec_ cc st a b
+      (match T_tbl.find self.tbl a, T_tbl.find self.tbl b with
+      | a, b -> explain_equal_rec_ self st a b
       | exception Not_found ->
         Error.errorf "expl: cannot find node(s) for %a, %a" Term.pp a Term.pp b)
     | E_and (a, b) ->
-      explain_decompose_expl cc st a;
-      explain_decompose_expl cc st b
+      explain_decompose_expl self st a;
+      explain_decompose_expl self st b
 
-  and explain_expls cc (es : explanation list) : Expl_state.t =
+  and explain_expls self (es : explanation list) : Expl_state.t =
     let st = Expl_state.create () in
-    List.iter (explain_decompose_expl cc st) es;
+    List.iter (explain_decompose_expl self st) es;
     st
 
   and explain_equal_rec_ (cc : t) (st : Expl_state.t) (a : node) (b : node) :
@@ -670,7 +692,7 @@ module Make (A : ARG) :
 
   (* explain why [a = parent_a], where [a -> ... -> target] in the
      proof forest *)
-  and explain_along_path cc (st : Expl_state.t) (a : node) (target : node) :
+  and explain_along_path self (st : Expl_state.t) (a : node) (target : node) :
       unit =
     let rec aux n =
       if n == target then
@@ -679,7 +701,7 @@ module Make (A : ARG) :
         match n.n_expl with
         | FL_none -> assert false
         | FL_some { next = next_n; expl } ->
-          explain_decompose_expl cc st expl;
+          explain_decompose_expl self st expl;
           (* now prove [next_n = target] *)
           aux next_n
       )
@@ -687,28 +709,30 @@ module Make (A : ARG) :
     aux a
 
   (* add a term *)
-  let[@inline] rec add_term_rec_ cc t : node =
-    try T_tbl.find cc.tbl t with Not_found -> add_new_term_ cc t
+  let[@inline] rec add_term_rec_ self t : node =
+    match T_tbl.find self.tbl t with
+    | n -> n
+    | exception Not_found -> add_new_term_ self t
 
-  (* add [t] to [cc] when not present already *)
-  and add_new_term_ cc (t : term) : node =
-    assert (not @@ mem cc t);
+  (* add [t] when not present already *)
+  and add_new_term_ self (t : term) : node =
+    assert (not @@ mem self t);
     Log.debugf 15 (fun k -> k "(@[cc.add-term@ %a@])" Term.pp t);
     let n = Class.make t in
     (* register sub-terms, add [t] to their parent list, and return the
        corresponding initial signature *)
-    let sig0 = compute_sig0 cc n in
+    let sig0 = compute_sig0 self n in
     n.n_sig0 <- sig0;
     (* remove term when we backtrack *)
-    on_backtrack cc (fun () ->
+    on_backtrack self (fun () ->
         Log.debugf 30 (fun k -> k "(@[cc.remove-term@ %a@])" Term.pp t);
-        T_tbl.remove cc.tbl t);
+        T_tbl.remove self.tbl t);
     (* add term to the table *)
-    T_tbl.add cc.tbl t n;
+    T_tbl.add self.tbl t n;
     if Option.is_some sig0 then
       (* [n] might be merged with other equiv classes *)
-      push_pending cc n;
-    if not cc.model_mode then List.iter (fun f -> f cc n t) cc.on_new_term;
+      push_pending self n;
+    if not self.model_mode then Event.emit self.on_new_term (self, n, t);
     n
 
   (* compute the initial signature of the given node *)
@@ -723,13 +747,13 @@ module Make (A : ARG) :
        let old_parents = sub_r.n_parents in
        if Bag.is_empty old_parents && not self.model_mode then
          (* first time it has parents: tell watchers that this is a subterm *)
-         List.iter (fun f -> f sub u) self.on_is_subterm;
+         Event.emit self.on_is_subterm (self, sub, u);
        on_backtrack self (fun () -> sub_r.n_parents <- old_parents);
        sub_r.n_parents <- Bag.cons n sub_r.n_parents);
       sub
     in
     let[@inline] return x = Some x in
-    match A.CC.view n.n_term with
+    match A.view_as_cc n.n_term with
     | Bool _ | Opaque _ -> None
     | Eq (a, b) ->
       let a = deref_sub a in
@@ -748,16 +772,16 @@ module Make (A : ARG) :
       return @@ App_ho (f, a)
     | If (a, b, c) -> return @@ If (deref_sub a, deref_sub b, deref_sub c)
 
-  let[@inline] add_term cc t : node = add_term_rec_ cc t
+  let[@inline] add_term self t : node = add_term_rec_ self t
   let mem_term = mem
 
-  let set_as_lit cc (n : node) (lit : lit) : unit =
+  let set_as_lit self (n : node) (lit : lit) : unit =
     match n.n_as_lit with
     | Some _ -> ()
     | None ->
       Log.debugf 15 (fun k ->
           k "(@[cc.set-as-lit@ %a@ %a@])" Class.pp n Lit.pp lit);
-      on_backtrack cc (fun () -> n.n_as_lit <- None);
+      on_backtrack self (fun () -> n.n_as_lit <- None);
       n.n_as_lit <- Some lit
 
   (* is [n] true or false? *)
@@ -769,7 +793,7 @@ module Make (A : ARG) :
      the SAT solver), and [pr] is a proof, including sub-proofs for theory
      merges. *)
   let lits_and_proof_of_expl (self : t) (st : Expl_state.t) :
-      Lit.t list * proof_step =
+      Lit.t list * step_id =
     let { Expl_state.lits; th_lemmas = _; same_val } = st in
     assert (same_val = []);
     let pr = Expl_state.proof_of_th_lemmas st self.proof in
@@ -777,17 +801,17 @@ module Make (A : ARG) :
 
   (* main CC algo: add terms from [pending] to the signature table,
      check for collisions *)
-  let rec update_tasks (cc : t) (acts : actions) : unit =
-    while not (Vec.is_empty cc.pending && Vec.is_empty cc.combine) do
-      while not @@ Vec.is_empty cc.pending do
-        task_pending_ cc (Vec.pop_exn cc.pending)
+  let rec update_tasks (self : t) (acts : actions) : unit =
+    while not (Vec.is_empty self.pending && Vec.is_empty self.combine) do
+      while not @@ Vec.is_empty self.pending do
+        task_pending_ self (Vec.pop_exn self.pending)
       done;
-      while not @@ Vec.is_empty cc.combine do
-        task_combine_ cc acts (Vec.pop_exn cc.combine)
+      while not @@ Vec.is_empty self.combine do
+        task_combine_ self acts (Vec.pop_exn self.combine)
       done
     done
 
-  and task_pending_ cc (n : node) : unit =
+  and task_pending_ self (n : node) : unit =
     (* check if some parent collided *)
     match n.n_sig0 with
     | None -> () (* no-op *)
@@ -798,47 +822,47 @@ module Make (A : ARG) :
         Log.debugf 5 (fun k ->
             k "(@[cc.pending.eq@ %a@ :r1 %a@ :r2 %a@])" Class.pp n Class.pp a
               Class.pp b);
-        merge_classes cc n (n_true cc) expl
+        merge_classes self n (n_true self) expl
       )
     | Some (Not u) ->
       (* [u = bool ==> not u = not bool] *)
       let r_u = find_ u in
-      if Class.equal r_u (n_true cc) then (
-        let expl = Expl.mk_merge u (n_true cc) in
-        merge_classes cc n (n_false cc) expl
-      ) else if Class.equal r_u (n_false cc) then (
-        let expl = Expl.mk_merge u (n_false cc) in
-        merge_classes cc n (n_true cc) expl
+      if Class.equal r_u (n_true self) then (
+        let expl = Expl.mk_merge u (n_true self) in
+        merge_classes self n (n_false self) expl
+      ) else if Class.equal r_u (n_false self) then (
+        let expl = Expl.mk_merge u (n_false self) in
+        merge_classes self n (n_true self) expl
       )
     | Some s0 ->
       (* update the signature by using [find] on each sub-node *)
       let s = update_sig s0 in
-      (match find_signature cc s with
+      (match find_signature self s with
       | None ->
         (* add to the signature table [sig(n) --> n] *)
-        add_signature cc s n
+        add_signature self s n
       | Some u when Class.equal n u -> ()
       | Some u ->
         (* [t1] and [t2] must be applications of the same symbol to
              arguments that are pairwise equal *)
         assert (n != u);
         let expl = Expl.mk_congruence n u in
-        merge_classes cc n u expl)
+        merge_classes self n u expl)
 
-  and[@inline] task_combine_ cc acts = function
-    | CT_merge (a, b, e_ab) -> task_merge_ cc acts a b e_ab
-    | CT_set_val (n, v) -> task_set_val_ cc acts n v
+  and task_combine_ self acts = function
+    | CT_merge (a, b, e_ab) -> task_merge_ self acts a b e_ab
+    | CT_set_val (n, v) -> task_set_val_ self acts n v
 
-  and task_set_val_ cc acts n v =
+  and task_set_val_ self acts n v =
     let repr_n = find_ n in
     (* - if repr(n) has value [v], do nothing
        - else if repr(n) has value [v'], semantic conflict
        - else add [repr(n) -> (n,v)] to cc.t_to_val *)
-    (match T_b_tbl.get cc.t_to_val repr_n.n_term with
+    (match T_b_tbl.get self.t_to_val repr_n.n_term with
     | Some (n', v') when not (Term.equal v v') ->
       (* semantic conflict *)
       let expl = [ Expl.mk_merge n n' ] in
-      let expl_st = explain_expls cc expl in
+      let expl_st = explain_expls self expl in
       let lits = expl_st.lits in
       let tuples =
         List.rev_map (fun (t, u) -> true, t.n_term, u.n_term) expl_st.same_val
@@ -850,33 +874,33 @@ module Make (A : ARG) :
              (@[existing-val %a@ := %a@])@])"
             Class.pp n Term.pp v Class.pp n' Term.pp v');
 
-      Stat.incr cc.count_semantic_conflict;
+      Stat.incr self.count_semantic_conflict;
       let (module A) = acts in
       A.raise_semantic_conflict lits tuples
     | Some _ -> ()
-    | None -> T_b_tbl.add cc.t_to_val repr_n.n_term (n, v));
+    | None -> T_b_tbl.add self.t_to_val repr_n.n_term (n, v));
     (* now for the reverse map, look in self.val_to_t for [v].
        - if present, push a merge command with Expl.mk_same_value
        - if not, add [v -> n] *)
-    match T_b_tbl.get cc.val_to_t v with
-    | None -> T_b_tbl.add cc.val_to_t v n
+    match T_b_tbl.get self.val_to_t v with
+    | None -> T_b_tbl.add self.val_to_t v n
     | Some n' when not (same_class n n') ->
-      merge_classes cc n n' (Expl.mk_same_value n n')
+      merge_classes self n n' (Expl.mk_same_value n n')
     | Some _ -> ()
 
   (* main CC algo: merge equivalence classes in [st.combine].
      @raise Exn_unsat if merge fails *)
-  and task_merge_ cc acts a b e_ab : unit =
+  and task_merge_ self acts a b e_ab : unit =
     let ra = find_ a in
     let rb = find_ b in
     if not @@ Class.equal ra rb then (
       assert (Class.is_root ra);
       assert (Class.is_root rb);
-      Stat.incr cc.count_merge;
+      Stat.incr self.count_merge;
       (* check we're not merging [true] and [false] *)
       if
-        (Class.equal ra (n_true cc) && Class.equal rb (n_false cc))
-        || (Class.equal rb (n_true cc) && Class.equal ra (n_false cc))
+        (Class.equal ra (n_true self) && Class.equal rb (n_false self))
+        || (Class.equal rb (n_true self) && Class.equal ra (n_false self))
       then (
         Log.debugf 5 (fun k ->
             k
@@ -890,9 +914,9 @@ module Make (A : ARG) :
            C3: r1 C1 C2
         *)
         let expl_st = Expl_state.create () in
-        explain_decompose_expl cc expl_st e_ab;
-        explain_equal_rec_ cc expl_st a ra;
-        explain_equal_rec_ cc expl_st b rb;
+        explain_decompose_expl self expl_st e_ab;
+        explain_equal_rec_ self expl_st a ra;
+        explain_equal_rec_ self expl_st b rb;
 
         if Expl_state.is_semantic expl_st then (
           (* conflict involving some semantic values *)
@@ -902,22 +926,22 @@ module Make (A : ARG) :
             |> List.rev_map (fun (t, u) -> true, Class.term t, Class.term u)
           in
           assert (same_val <> []);
-          Stat.incr cc.count_semantic_conflict;
+          Stat.incr self.count_semantic_conflict;
           let (module A) = acts in
           A.raise_semantic_conflict lits same_val
         ) else (
           (* regular conflict *)
-          let lits, pr = lits_and_proof_of_expl cc expl_st in
-          raise_conflict_ cc ~th:!th acts (List.rev_map Lit.neg lits) pr
+          let lits, pr = lits_and_proof_of_expl self expl_st in
+          raise_conflict_ self ~th:!th acts (List.rev_map Lit.neg lits) pr
         )
       );
       (* We will merge [r_from] into [r_into].
          we try to ensure that [size ra <= size rb] in general, but always
          keep values as representative *)
       let r_from, r_into =
-        if n_is_bool_value cc ra then
+        if n_is_bool_value self ra then
           rb, ra
-        else if n_is_bool_value cc rb then
+        else if n_is_bool_value self rb then
           ra, rb
         else if size_ ra > size_ rb then
           rb, ra
@@ -926,13 +950,13 @@ module Make (A : ARG) :
       in
       (* when merging terms with [true] or [false], possibly propagate them to SAT *)
       let merge_bool r1 t1 r2 t2 =
-        if Class.equal r1 (n_true cc) then
-          propagate_bools cc acts r2 t2 r1 t1 e_ab true
-        else if Class.equal r1 (n_false cc) then
-          propagate_bools cc acts r2 t2 r1 t1 e_ab false
+        if Class.equal r1 (n_true self) then
+          propagate_bools self acts r2 t2 r1 t1 e_ab true
+        else if Class.equal r1 (n_false self) then
+          propagate_bools self acts r2 t2 r1 t1 e_ab false
       in
 
-      if not cc.model_mode then (
+      if not self.model_mode then (
         merge_bool ra a rb b;
         merge_bool rb b ra a
       );
@@ -942,16 +966,16 @@ module Make (A : ARG) :
           k "(@[cc.merge@ :from %a@ :into %a@])" Class.pp r_from Class.pp r_into);
 
       (* call [on_pre_merge] functions, and merge theory data items *)
-      if not cc.model_mode then (
+      if not self.model_mode then (
         (* explanation is [a=ra & e_ab & b=rb] *)
         let expl =
           Expl.mk_list [ e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb ]
         in
-        List.iter (fun f -> f cc acts r_into r_from expl) cc.on_pre_merge
+        Event.emit self.on_pre_merge (self, acts, r_into, r_from, expl)
       );
 
       ((* parents might have a different signature, check for collisions *)
-       Class.iter_parents r_from (fun parent -> push_pending cc parent);
+       Class.iter_parents r_from (fun parent -> push_pending self parent);
        (* for each node in [r_from]'s class, make it point to [r_into] *)
        Class.iter_class r_from (fun u ->
            assert (u.n_root == r_from);
@@ -968,7 +992,7 @@ module Make (A : ARG) :
        r_into.n_size <- r_into.n_size + r_from.n_size;
        r_into.n_bits <- Bits.merge r_into.n_bits r_from.n_bits;
        (* on backtrack, unmerge classes and restore the pointers to [r_from] *)
-       on_backtrack cc (fun () ->
+       on_backtrack self (fun () ->
            Log.debugf 30 (fun k ->
                k "(@[cc.undo_merge@ :from %a@ :into %a@])" Class.pp r_from
                  Class.pp r_into);
@@ -983,17 +1007,17 @@ module Make (A : ARG) :
 
       (* check for semantic values, update the one of [r_into]
          if [r_from] has a value *)
-      (match T_b_tbl.get cc.t_to_val r_from.n_term with
+      (match T_b_tbl.get self.t_to_val r_from.n_term with
       | None -> ()
       | Some (n_from, v_from) ->
-        (match T_b_tbl.get cc.t_to_val r_into.n_term with
-        | None -> T_b_tbl.add cc.t_to_val r_into.n_term (n_from, v_from)
+        (match T_b_tbl.get self.t_to_val r_into.n_term with
+        | None -> T_b_tbl.add self.t_to_val r_into.n_term (n_from, v_from)
         | Some (n_into, v_into) when not (Term.equal v_from v_into) ->
           (* semantic conflict, including [n_from != n_into] in model *)
           let expl =
             [ e_ab; Expl.mk_merge r_from n_from; Expl.mk_merge r_into n_into ]
           in
-          let expl_st = explain_expls cc expl in
+          let expl_st = explain_expls self expl in
           let lits = expl_st.lits in
           let tuples =
             List.rev_map
@@ -1008,7 +1032,7 @@ module Make (A : ARG) :
                  (@[n-into %a@ := %a@])@])"
                 Class.pp n_from Term.pp v_from Class.pp n_into Term.pp v_into);
 
-          Stat.incr cc.count_semantic_conflict;
+          Stat.incr self.count_semantic_conflict;
           let (module A) = acts in
           A.raise_semantic_conflict lits tuples
         | Some _ -> ()));
@@ -1016,32 +1040,32 @@ module Make (A : ARG) :
       (* update explanations (a -> b), arbitrarily.
          Note that here we merge the classes by adding a bridge between [a]
          and [b], not their roots. *)
-      reroot_expl cc a;
+      reroot_expl self a;
       assert (a.n_expl = FL_none);
       (* on backtracking, link may be inverted, but we delete the one
          that bridges between [a] and [b] *)
-      on_backtrack cc (fun () ->
+      on_backtrack self (fun () ->
           match a.n_expl, b.n_expl with
           | FL_some e, _ when Class.equal e.next b -> a.n_expl <- FL_none
           | _, FL_some e when Class.equal e.next a -> b.n_expl <- FL_none
           | _ -> assert false);
       a.n_expl <- FL_some { next = b; expl = e_ab };
       (* call [on_post_merge] *)
-      if not cc.model_mode then
-        List.iter (fun f -> f cc acts r_into r_from) cc.on_post_merge
+      if not self.model_mode then
+        Event.emit self.on_post_merge (self, acts, r_into, r_from)
     )
 
   (* we are merging [r1] with [r2==Bool(sign)], so propagate each term [u1]
      in the equiv class of [r1] that is a known literal back to the SAT solver
      and which is not the one initially merged.
      We can explain the propagation with [u1 = t1 =e= t2 = r2==bool] *)
-  and propagate_bools cc acts r1 t1 r2 t2 (e_12 : explanation) sign : unit =
+  and propagate_bools self acts r1 t1 r2 t2 (e_12 : explanation) sign : unit =
     (* explanation for [t1 =e= t2 = r2] *)
     let half_expl_and_pr =
       lazy
         (let st = Expl_state.create () in
-         explain_decompose_expl cc st e_12;
-         explain_equal_rec_ cc st r2 t2;
+         explain_decompose_expl self st e_12;
+         explain_equal_rec_ self st r2 t2;
          st)
     in
     (* TODO: flag per class, `or`-ed on merge, to indicate if the class
@@ -1066,7 +1090,7 @@ module Make (A : ARG) :
           let (lazy st) = half_expl_and_pr in
           let st = Expl_state.copy st in
           (* do not modify shared st *)
-          explain_equal_rec_ cc st u1 t1;
+          explain_equal_rec_ self st u1 t1;
 
           (* propagate only if this doesn't depend on some semantic values *)
           if not (Expl_state.is_semantic st) then (
@@ -1075,21 +1099,17 @@ module Make (A : ARG) :
               let guard = st.lits in
               (* get a proof of [guard /\ ¬lit] being absurd, to propagate [lit] *)
               Expl_state.add_lit st (Lit.neg lit);
-              let _, pr = lits_and_proof_of_expl cc st in
+              let _, pr = lits_and_proof_of_expl self st in
               guard, pr
             in
-            List.iter (fun f -> f cc lit reason) cc.on_propagate;
-            Stat.incr cc.count_props;
+            Event.emit self.on_propagate (self, lit, reason);
+            Stat.incr self.count_props;
             let (module A) = acts in
             A.propagate lit ~reason
           )
         | _ -> ())
 
-  module Debug_ = struct
-    let pp out _ = Fmt.string out "cc"
-  end
-
-  let add_iter cc it : unit = it (fun t -> ignore @@ add_term_rec_ cc t)
+  let add_iter self it : unit = it (fun t -> ignore @@ add_term_rec_ self t)
 
   let[@inline] push_level (self : t) : unit =
     Backtrack_stack.push_level self.undo;
@@ -1108,13 +1128,13 @@ module Make (A : ARG) :
     ()
 
   (* run [f] in a local congruence closure level *)
-  let with_model_mode cc f =
-    assert (not cc.model_mode);
-    cc.model_mode <- true;
-    push_level cc;
+  let with_model_mode self f =
+    assert (not self.model_mode);
+    self.model_mode <- true;
+    push_level self;
     CCFun.protect f ~finally:(fun () ->
-        pop_levels cc 1;
-        cc.model_mode <- false)
+        pop_levels self 1;
+        self.model_mode <- false)
 
   let get_model_for_each_class self : _ Iter.t =
     assert self.model_mode;
@@ -1127,54 +1147,49 @@ module Make (A : ARG) :
   (* assert that this boolean literal holds.
      if a lit is [= a b], merge [a] and [b];
      otherwise merge the atom with true/false *)
-  let assert_lit cc lit : unit =
+  let assert_lit self lit : unit =
     let t = Lit.term lit in
     Log.debugf 15 (fun k -> k "(@[cc.assert-lit@ %a@])" Lit.pp lit);
     let sign = Lit.sign lit in
-    match A.CC.view t with
+    match A.view_as_cc t with
     | Eq (a, b) when sign ->
-      let a = add_term cc a in
-      let b = add_term cc b in
+      let a = add_term self a in
+      let b = add_term self b in
       (* merge [a] and [b] *)
-      merge_classes cc a b (Expl.mk_lit lit)
+      merge_classes self a b (Expl.mk_lit lit)
     | _ ->
       (* equate t and true/false *)
-      let rhs =
-        if sign then
-          n_true cc
-        else
-          n_false cc
-      in
-      let n = add_term cc t in
+      let rhs = n_bool self sign in
+      let n = add_term self t in
       (* TODO: ensure that this is O(1).
          basically, just have [n] point to true/false and thus acquire
          the corresponding value, so its superterms (like [ite]) can evaluate
          properly *)
       (* TODO: use oriented merge (force direction [n -> rhs]) *)
-      merge_classes cc n rhs (Expl.mk_lit lit)
+      merge_classes self n rhs (Expl.mk_lit lit)
 
-  let[@inline] assert_lits cc lits : unit = Iter.iter (assert_lit cc) lits
+  let[@inline] assert_lits self lits : unit = Iter.iter (assert_lit self) lits
 
   (* raise a conflict *)
-  let raise_conflict_from_expl cc (acts : actions) expl =
+  let raise_conflict_from_expl self (acts : actions) expl =
     Log.debugf 5 (fun k ->
         k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
     let st = Expl_state.create () in
-    explain_decompose_expl cc st expl;
-    let lits, pr = lits_and_proof_of_expl cc st in
+    explain_decompose_expl self st expl;
+    let lits, pr = lits_and_proof_of_expl self st in
     let c = List.rev_map Lit.neg lits in
     let th = st.th_lemmas <> [] in
-    raise_conflict_ cc ~th acts c pr
+    raise_conflict_ self ~th acts c pr
 
-  let merge cc n1 n2 expl =
+  let merge self n1 n2 expl =
     Log.debugf 5 (fun k ->
         k "(@[cc.theory.merge@ :n1 %a@ :n2 %a@ :expl %a@])" Class.pp n1 Class.pp
           n2 Expl.pp expl);
     assert (T.Ty.equal (T.Term.ty n1.n_term) (T.Term.ty n2.n_term));
-    merge_classes cc n1 n2 expl
+    merge_classes self n1 n2 expl
 
-  let[@inline] merge_t cc t1 t2 expl =
-    merge cc (add_term cc t1) (add_term cc t2) expl
+  let merge_t self t1 t2 expl =
+    merge self (add_term self t1) (add_term self t2) expl
 
   let set_model_value (self : t) (t : term) (v : value) : unit =
     assert self.model_mode;
@@ -1183,23 +1198,21 @@ module Make (A : ARG) :
     | None -> () (* ignore, th combination not needed *)
     | Some n -> Vec.push self.combine (CT_set_val (n, v))
 
-  let explain_eq cc n1 n2 : Resolved_expl.t =
+  let explain_eq self n1 n2 : Resolved_expl.t =
     let st = Expl_state.create () in
-    explain_equal_rec_ cc st n1 n2;
+    explain_equal_rec_ self st n1 n2;
     (* FIXME: also need to return the proof? *)
     Expl_state.to_resolved_expl st
 
-  let on_pre_merge cc f = cc.on_pre_merge <- f :: cc.on_pre_merge
-  let on_post_merge cc f = cc.on_post_merge <- f :: cc.on_post_merge
-  let on_new_term cc f = cc.on_new_term <- f :: cc.on_new_term
-  let on_conflict cc f = cc.on_conflict <- f :: cc.on_conflict
-  let on_propagate cc f = cc.on_propagate <- f :: cc.on_propagate
-  let on_is_subterm cc f = cc.on_is_subterm <- f :: cc.on_is_subterm
+  let[@inline] on_pre_merge self = Event.of_emitter self.on_pre_merge
+  let[@inline] on_post_merge self = Event.of_emitter self.on_post_merge
+  let[@inline] on_new_term self = Event.of_emitter self.on_new_term
+  let[@inline] on_conflict self = Event.of_emitter self.on_conflict
+  let[@inline] on_propagate self = Event.of_emitter self.on_propagate
+  let[@inline] on_is_subterm self = Event.of_emitter self.on_is_subterm
 
-  let create ?(stat = Stat.global) ?(on_pre_merge = []) ?(on_post_merge = [])
-      ?(on_new_term = []) ?(on_conflict = []) ?(on_propagate = [])
-      ?(on_is_subterm = []) ?(size = `Big) (tst : term_store) (proof : proof) :
-      t =
+  let create ?(stat = Stat.global) ?(size = `Big) (tst : term_store)
+      (proof : proof_trace) : t =
     let size =
       match size with
       | `Small -> 128
@@ -1217,12 +1230,12 @@ module Make (A : ARG) :
         t_to_val = T_b_tbl.create ~size:32 ();
         val_to_t = T_b_tbl.create ~size:32 ();
         model_mode = false;
-        on_pre_merge;
-        on_post_merge;
-        on_new_term;
-        on_conflict;
-        on_propagate;
-        on_is_subterm;
+        on_pre_merge = Event.Emitter.create ();
+        on_post_merge = Event.Emitter.create ();
+        on_new_term = Event.Emitter.create ();
+        on_conflict = Event.Emitter.create ();
+        on_propagate = Event.Emitter.create ();
+        on_is_subterm = Event.Emitter.create ();
         pending = Vec.create ();
         combine = Vec.create ();
         undo = Backtrack_stack.create ();
@@ -1240,13 +1253,13 @@ module Make (A : ARG) :
     ignore (Lazy.force false_ : node);
     cc
 
-  let[@inline] find_t cc t : repr =
-    let n = T_tbl.find cc.tbl t in
+  let[@inline] find_t self t : repr =
+    let n = T_tbl.find self.tbl t in
     find_ n
 
-  let[@inline] check cc acts : unit =
+  let[@inline] check self acts : unit =
     Log.debug 5 "(cc.check)";
-    update_tasks cc acts
+    update_tasks self acts
 
   let check_inv_enabled_ = true (* XXX NUDGE *)
 
@@ -1273,134 +1286,7 @@ module Make (A : ARG) :
     )
 
   (* model: return all the classes *)
-  let get_model (cc : t) : repr Iter.t Iter.t =
-    check_inv_ cc;
-    all_classes cc |> Iter.map Class.iter_class
-end
-
-module Make_plugin (M : MONOID_ARG) : PLUGIN_BUILDER with module M = M = struct
-  module M = M
-  module CC = M.CC
-  module Class = CC.Class
-  module N_tbl = Backtrackable_tbl.Make (Class)
-  module Expl = CC.Expl
-
-  type term = CC.term
-
-  module type PL = PLUGIN with module CC = M.CC and module M = M
-
-  type plugin = (module PL)
-
-  module Make (A : sig
-    val size : int option
-    val cc : CC.t
-  end) : PL = struct
-    module M = M
-    module CC = CC
-    open A
-
-    (* repr -> value for the class *)
-    let values : M.t N_tbl.t = N_tbl.create ?size ()
-
-    (* bit in CC to filter out quickly classes without value *)
-    let field_has_value : Class.bitfield =
-      CC.allocate_bitfield ~descr:("monoid." ^ M.name ^ ".has-value") cc
-
-    let push_level () = N_tbl.push_level values
-    let pop_levels n = N_tbl.pop_levels values n
-    let n_levels () = N_tbl.n_levels values
-
-    let mem n =
-      let res = CC.get_bitfield cc field_has_value n in
-      assert (
-        if res then
-          N_tbl.mem values n
-        else
-          true);
-      res
-
-    let get n =
-      if CC.get_bitfield cc field_has_value n then
-        N_tbl.get values n
-      else
-        None
-
-    let on_new_term cc n (t : term) : unit =
-      (*Log.debugf 50 (fun k->k "(@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);*)
-      let maybe_m, l = M.of_term cc n t in
-      (match maybe_m with
-      | Some v ->
-        Log.debugf 20 (fun k ->
-            k "(@[monoid[%s].on-new-term@ :n %a@ :value %a@])" M.name Class.pp n
-              M.pp v);
-        CC.set_bitfield cc field_has_value true n;
-        N_tbl.add values n v
-      | None -> ());
-      List.iter
-        (fun (n_u, m_u) ->
-          Log.debugf 20 (fun k ->
-              k "(@[monoid[%s].on-new-term.sub@ :n %a@ :sub-t %a@ :value %a@])"
-                M.name Class.pp n Class.pp n_u M.pp m_u);
-          let n_u = CC.find cc n_u in
-          if CC.get_bitfield cc field_has_value n_u then (
-            let m_u' =
-              try N_tbl.find values n_u
-              with Not_found ->
-                Error.errorf "node %a has bitfield but no value" Class.pp n_u
-            in
-            match M.merge cc n_u m_u n_u m_u' (Expl.mk_list []) with
-            | Error expl ->
-              Error.errorf
-                "when merging@ @[for node %a@],@ values %a and %a:@ conflict %a"
-                Class.pp n_u M.pp m_u M.pp m_u' CC.Expl.pp expl
-            | Ok m_u_merged ->
-              Log.debugf 20 (fun k ->
-                  k
-                    "(@[monoid[%s].on-new-term.sub.merged@ :n %a@ :sub-t %a@ \
-                     :value %a@])"
-                    M.name Class.pp n Class.pp n_u M.pp m_u_merged);
-              N_tbl.add values n_u m_u_merged
-          ) else (
-            (* just add to [n_u] *)
-            CC.set_bitfield cc field_has_value true n_u;
-            N_tbl.add values n_u m_u
-          ))
-        l;
-      ()
-
-    let iter_all : _ Iter.t = N_tbl.to_iter values
-
-    let on_pre_merge cc acts n1 n2 e_n1_n2 : unit =
-      match get n1, get n2 with
-      | Some v1, Some v2 ->
-        Log.debugf 5 (fun k ->
-            k
-              "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 %a@ \
-               :val2 %a@])@])"
-              M.name Class.pp n1 M.pp v1 Class.pp n2 M.pp v2);
-        (match M.merge cc n1 v1 n2 v2 e_n1_n2 with
-        | Ok v' ->
-          N_tbl.remove values n2;
-          (* only keep repr *)
-          N_tbl.add values n1 v'
-        | Error expl -> CC.raise_conflict_from_expl cc acts expl)
-      | None, Some cr ->
-        CC.set_bitfield cc field_has_value true n1;
-        N_tbl.add values n1 cr;
-        N_tbl.remove values n2 (* only keep reprs *)
-      | Some _, None -> () (* already there on the left *)
-      | None, None -> ()
-
-    (* setup *)
-    let () =
-      CC.on_new_term cc on_new_term;
-      CC.on_pre_merge cc on_pre_merge;
-      ()
-  end
-
-  let create_and_setup ?size (cc : CC.t) : plugin =
-    (module Make (struct
-      let size = size
-      let cc = cc
-    end))
+  let get_model (self : t) : repr Iter.t Iter.t =
+    check_inv_ self;
+    all_classes self |> Iter.map Class.iter_class
 end

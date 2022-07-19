@@ -42,7 +42,7 @@ type 'form sat_state = (module SAT_STATE with type lit = 'form)
 module type UNSAT_STATE = sig
   type lit
   type clause
-  type proof
+  type proof_step
 
   val unsat_conflict : unit -> clause
   (** Returns the unsat clause found at the toplevel *)
@@ -50,14 +50,14 @@ module type UNSAT_STATE = sig
   val unsat_assumptions : unit -> lit Iter.t
   (** Subset of assumptions responsible for "unsat" *)
 
-  val unsat_proof : unit -> proof
+  val unsat_proof : unit -> proof_step
 end
 
-type ('lit, 'clause, 'proof) unsat_state =
+type ('lit, 'clause, 'proof_step) unsat_state =
   (module UNSAT_STATE
      with type lit = 'lit
       and type clause = 'clause
-      and type proof = 'proof)
+      and type proof_step = 'proof_step)
 (** The type of values returned when the solver reaches an UNSAT state. *)
 
 type same_sign = bool
@@ -65,7 +65,8 @@ type same_sign = bool
     [true] means the literal stayed the same, [false] that its sign was flipped. *)
 
 (** The type of reasons for propagations of a lit [f]. *)
-type ('lit, 'proof) reason = Consequence of (unit -> 'lit list * 'proof)
+type ('lit, 'proof_step) reason =
+  | Consequence of (unit -> 'lit list * 'proof_step)
 [@@unboxed]
 (** [Consequence (l, p)] means that the lits in [l] imply the propagated
       lit [f]. The proof should be a proof of the clause "[l] implies [f]".
@@ -168,28 +169,21 @@ module type LIT = sig
       but one returns [false] and the other [true]. *)
 end
 
-module type PROOF = Sidekick_core.SAT_PROOF
+module type PROOF_RULES = Sidekick_sigs_proof_sat.S
 
 (** Signature for theories to be given to the CDCL(T) solver *)
 module type PLUGIN_CDCL_T = sig
   type t
   (** The plugin state itself *)
 
-  type lit
+  module Lit : LIT
+  module Proof_trace : Sidekick_sigs_proof_trace.S
 
-  module Lit : LIT with type t = lit
-
-  type proof
-  (** Proof storage/recording *)
-
-  type proof_step
-  (** Identifier for a clause precendently added/proved *)
-
-  module Proof :
-    PROOF
-      with type t = proof
-       and type lit = lit
-       and type proof_step = proof_step
+  module Proof_rules :
+    PROOF_RULES
+      with type lit = Lit.t
+       and type rule = Proof_trace.A.rule
+       and type step_id = Proof_trace.A.step_id
 
   val push_level : t -> unit
   (** Create a new backtrack level *)
@@ -197,12 +191,14 @@ module type PLUGIN_CDCL_T = sig
   val pop_levels : t -> int -> unit
   (** Pop [n] levels of the theory *)
 
-  val partial_check : t -> (lit, proof, proof_step) acts -> unit
+  val partial_check :
+    t -> (Lit.t, Proof_trace.t, Proof_trace.A.step_id) acts -> unit
   (** Assume the lits in the slice, possibly using the [slice]
       to push new lits to be propagated or to raising a conflict or to add
       new lemmas. *)
 
-  val final_check : t -> (lit, proof, proof_step) acts -> unit
+  val final_check :
+    t -> (Lit.t, Proof_trace.t, Proof_trace.A.step_id) acts -> unit
   (** Called at the end of the search in case a model has been found.
       If no new clause is pushed, then proof search ends and "sat" is returned;
       if lemmas are added, search is resumed;
@@ -211,18 +207,14 @@ end
 
 (** Signature for pure SAT solvers *)
 module type PLUGIN_SAT = sig
-  type lit
+  module Lit : LIT
+  module Proof_trace : Sidekick_sigs_proof_trace.S
 
-  module Lit : LIT with type t = lit
-
-  type proof
-  type proof_step
-
-  module Proof :
-    PROOF
-      with type t = proof
-       and type lit = lit
-       and type proof_step = proof_step
+  module Proof_rules :
+    PROOF_RULES
+      with type lit = Lit.t
+       and type rule = Proof_trace.A.rule
+       and type step_id = Proof_trace.A.step_id
 end
 
 exception Resource_exhausted
@@ -235,18 +227,19 @@ module type S = sig
       These are the internal modules used, you should probably not use them
       if you're not familiar with the internals of mSAT. *)
 
-  type lit
-  (** literals *)
+  module Lit : LIT
+  module Proof_trace : Sidekick_sigs_proof_trace.S
 
-  module Lit : LIT with type t = lit
+  type lit = Lit.t
+  (** literals *)
 
   type clause
   type theory
+  type proof_rule = Proof_trace.A.rule
+  type proof_step = Proof_trace.A.step_id
 
-  type proof
+  type proof_trace = Proof_trace.t
   (** A representation of a full proof *)
-
-  type proof_step
 
   type solver
   (** The main solver type. *)
@@ -279,8 +272,12 @@ module type S = sig
     (** List of atoms of a clause *)
   end
 
-  (** A module to manipulate proofs. *)
-  module Proof : PROOF with type lit = lit and type t = proof
+  (** Proof rules for SAT solving *)
+  module Proof_rules :
+    PROOF_RULES
+      with type lit = lit
+       and type rule = proof_rule
+       and type step_id = proof_step
 
   (** {2 Main Solver Type} *)
 
@@ -288,13 +285,9 @@ module type S = sig
   (** Main solver type, containing all state for solving. *)
 
   val create :
-    ?on_conflict:(t -> Clause.t -> unit) ->
-    ?on_decision:(t -> lit -> unit) ->
-    ?on_learnt:(t -> Clause.t -> unit) ->
-    ?on_gc:(t -> lit array -> unit) ->
     ?stat:Stat.t ->
     ?size:[ `Tiny | `Small | `Big ] ->
-    proof:Proof.t ->
+    proof:proof_trace ->
     theory ->
     t
   (** Create new solver
@@ -312,8 +305,13 @@ module type S = sig
   val stat : t -> Stat.t
   (** Statistics *)
 
-  val proof : t -> proof
+  val proof : t -> proof_trace
   (** Access the inner proof *)
+
+  val on_conflict : t -> Clause.t Event.t
+  val on_decision : t -> lit Event.t
+  val on_learnt : t -> Clause.t Event.t
+  val on_gc : t -> lit array Event.t
 
   (** {2 Types} *)
 

@@ -1,0 +1,6 @@
+(library
+ (name sidekick_proof_trace_dummy)
+ (public_name sidekick.proof-trace.dummy)
+ (synopsis "Dummy proof trace that stores nothing")
+ (libraries sidekick.util sidekick.sigs.proof-trace)
+ (flags :standard -open Sidekick_util))
