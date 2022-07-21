@@ -1,4 +1,4 @@
-(** {1 simple sudoku solver} *)
+(** simple sudoku solver *)
 
 module Fmt = CCFormat
 module Vec = Sidekick_util.Vec
@@ -179,15 +179,14 @@ end = struct
   end
 
   module Theory = struct
+    include Sidekick_sat.Proof_dummy.Make (F)
+
     type proof = unit
     type proof_step = unit
 
     module Lit = F
 
     type lit = Lit.t
-
-    module Proof = Sidekick_sat.Proof_dummy.Make (Lit)
-
     type t = { grid: Grid.t B_ref.t }
 
     let create g : t = { grid = B_ref.create g }
