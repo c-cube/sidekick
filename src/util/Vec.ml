@@ -130,6 +130,11 @@ let iter ~f t =
     f (Array.unsafe_get t.data i)
   done
 
+let rev_iter ~f t =
+  for i = size t - 1 downto 0 do
+    f (Array.unsafe_get t.data i)
+  done
+
 let iteri ~f t =
   for i = 0 to size t - 1 do
     f i (Array.unsafe_get t.data i)

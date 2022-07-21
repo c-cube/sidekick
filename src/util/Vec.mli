@@ -81,6 +81,7 @@ val sort : 'a t -> ('a -> 'a -> int) -> unit
 val iter : f:('a -> unit) -> 'a t -> unit
 (** Iterate on elements *)
 
+val rev_iter : f:('a -> unit) -> 'a t -> unit
 val to_iter : 'a t -> 'a Iter.t
 
 val iteri : f:(int -> 'a -> unit) -> 'a t -> unit

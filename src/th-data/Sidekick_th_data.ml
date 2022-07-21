@@ -779,6 +779,7 @@ module Make (A : ARG) : S with module A = A = struct
     Log.debugf 1 (fun k -> k "(setup :%s)" name);
     SI.on_preprocess solver (preprocess self);
     SI.on_cc_new_term solver (on_new_term self);
+    (* note: this needs to happen before we modify the plugin data *)
     SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_final_check solver (on_final_check self);
     SI.on_model solver ~ask:(on_model_gen self);
