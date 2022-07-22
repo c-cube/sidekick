@@ -881,10 +881,10 @@ module Make (Plugin : PLUGIN) = struct
     mutable var_incr: float; (* increment for variables' activity *)
     mutable clause_incr: float; (* increment for clauses' activity *)
     (* FIXME: use event *)
-    on_conflict: Clause.t Event.Emitter.t;
-    on_decision: lit Event.Emitter.t;
-    on_learnt: Clause.t Event.Emitter.t;
-    on_gc: lit array Event.Emitter.t;
+    on_conflict: (Clause.t, unit) Event.Emitter.t;
+    on_decision: (lit, unit) Event.Emitter.t;
+    on_learnt: (Clause.t, unit) Event.Emitter.t;
+    on_gc: (lit array, unit) Event.Emitter.t;
     stat: Stat.t;
     n_conflicts: int Stat.counter;
     n_propagations: int Stat.counter;

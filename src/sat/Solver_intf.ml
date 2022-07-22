@@ -308,10 +308,10 @@ module type S = sig
   val proof : t -> proof_trace
   (** Access the inner proof *)
 
-  val on_conflict : t -> Clause.t Event.t
-  val on_decision : t -> lit Event.t
-  val on_learnt : t -> Clause.t Event.t
-  val on_gc : t -> lit array Event.t
+  val on_conflict : t -> (Clause.t, unit) Event.t
+  val on_decision : t -> (lit, unit) Event.t
+  val on_learnt : t -> (Clause.t, unit) Event.t
+  val on_gc : t -> (lit array, unit) Event.t
 
   (** {2 Types} *)
 
