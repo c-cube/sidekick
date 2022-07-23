@@ -3,7 +3,7 @@
     Sidekick_sat (in src/sat/) is a modular SAT solver in
     pure OCaml.
 
-    This builds a {!Sidekick_core.SOLVER} on top of it.
+    This builds a SMT solver on top of it.
 *)
 
 (** Argument to pass to the functor {!Make} in order to create a
