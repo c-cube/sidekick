@@ -627,15 +627,27 @@ module Make (A : ARG) :
     (** {2 Model construction and theory combination} *)
 
     (* make model from the congruence closure *)
-    let mk_model_ (self : t) : Model.t =
+    let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
       Log.debug 1 "(smt.solver.mk-model)";
       Profile.with_ "smt-solver.mk-model" @@ fun () ->
       let module M = Term.Tbl in
-      let { cc = (lazy cc); model_ask = model_ask_hooks; model_complete; _ } =
+      let {
+        cc = (lazy cc);
+        tst;
+        model_ask = model_ask_hooks;
+        model_complete;
+        _;
+      } =
         self
       in
 
       let model = M.create 128 in
+
+      (* first, add all literals to the model using the given propositional model
+         [lits]. *)
+      lits (fun lit ->
+          let t, sign = Lit.signed_term lit in
+          M.replace model t (Term.bool tst sign));
 
       (* populate with information from the CC *)
       (* FIXME
@@ -681,13 +693,16 @@ module Make (A : ARG) :
           in
 
           let t_val =
-            match
-              (* look for a value in the model for any term in the class *)
-              N.iter_class repr
-              |> Iter.find_map (fun n -> M.get model (N.term n))
-            with
-            | Some v -> v
-            | None -> try_hooks_ model_ask_hooks
+            try_hooks_ model_ask_hooks
+            (* FIXME: the more complete version?
+               match
+                 (* look for a value in the model for any term in the class *)
+                 N.iter_class repr
+                 |> Iter.find_map (fun n -> M.get model (N.term n))
+               with
+               | Some v -> v
+               | None -> try_hooks_ model_ask_hooks
+            *)
           in
 
           M.replace model (N.term repr) t_val;
@@ -708,7 +723,7 @@ module Make (A : ARG) :
 
     (* do theory combination using the congruence closure. Each theory
        can merge classes, *)
-    let check_th_combination_ (self : t) (acts : theory_actions) :
+    let check_th_combination_ (self : t) (_acts : theory_actions) lits :
         (Model.t, th_combination_conflict) result =
       (* FIXME
 
@@ -733,7 +748,7 @@ module Make (A : ARG) :
               Ok m
             with Semantic_conflict c -> Error c
       *)
-      let m = mk_model_ self in
+      let m = mk_model_ self lits in
       Ok m
 
     (* call congruence closure, perform the actions it scheduled *)
@@ -772,7 +787,7 @@ module Make (A : ARG) :
         List.iter (fun f -> f self acts lits) self.on_final_check;
         check_cc_with_acts_ self acts;
 
-        (match check_th_combination_ self acts with
+        (match check_th_combination_ self acts lits with
         | Ok m -> self.last_model <- Some m
         | Error { lits; semantic } ->
           (* bad model, we add a clause to remove it *)
