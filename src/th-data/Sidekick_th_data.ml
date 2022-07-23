@@ -630,7 +630,9 @@ module Make (A : ARG) : S with module A = A = struct
               k "(@[%s.acyclicity.raise_confl@ %a@ @[:path %a@]@])" name Expl.pp
                 expl pp_path path);
           let lits, pr = SI.cc_resolve_expl solver expl in
-          SI.raise_conflict solver acts lits pr
+          (* negate lits *)
+          let c = List.rev_map SI.Lit.neg lits in
+          SI.raise_conflict solver acts c pr
         | { flag = New; _ } as node_r ->
           node_r.flag <- Open;
           let path = (n, node_r) :: path in
