@@ -239,7 +239,7 @@ whether the assertions and hypotheses are satisfiable together.
                   Solver.mk_lit_t solver q ~sign:false];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 ```
 
 Here it's unsat, because we asserted "p = q", and then assumed "p"
@@ -296,7 +296,7 @@ val q_imp_not_r : Term.t = (=> q (not r))
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 ```
 
 This time we got _unsat_ and there is no way of undoing it.
@@ -359,10 +359,10 @@ val b_leq_half : Term.t = (<= b 1/2)
                   Solver.mk_lit_t solver b_leq_half];;
 val res : Solver.res =
   Sidekick_base_solver.Solver.Unsat
-   {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+   {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 
 # match res with Solver.Unsat {unsat_core=us; _} -> us() |> Iter.to_list | _ -> assert false;;
-- : Proof.lit list = [(>= a 1); (<= b 1/2)]
+- : Lit.t list = [(>= a 1); (<= b 1/2)]
 ```
 
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
@@ -428,13 +428,13 @@ val appf1 : Term.t list -> Term.t = <fun>
     ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u1 (appf1[u1]))];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 
 # Solver.solve solver
     ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u2 u3)];;
 - : Solver.res =
 Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+ {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 ```
 
 Assuming: `f1(u1)=u2, f1(u2)=u3, f1^2(u1)=u1, f1^3(u1)=u1`,
