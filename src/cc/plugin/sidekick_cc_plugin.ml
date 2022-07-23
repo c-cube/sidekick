@@ -63,8 +63,9 @@ module Make (M : MONOID_PLUGIN_ARG) :
       else
         None
 
-    let on_new_term cc n (t : term) : unit =
+    let on_new_term cc n (t : term) : CC.Handler_action.t list =
       (*Log.debugf 50 (fun k->k "(@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);*)
+      let acts = ref [] in
       let maybe_m, l = M.of_term cc n t in
       (match maybe_m with
       | Some v ->
@@ -86,12 +87,14 @@ module Make (M : MONOID_PLUGIN_ARG) :
               with Not_found ->
                 Error.errorf "node %a has bitfield but no value" E_node.pp n_u
             in
+
             match M.merge cc n_u m_u n_u m_u' (Expl.mk_list []) with
-            | Error expl ->
+            | Error (CC.Handler_action.Conflict expl) ->
               Error.errorf
                 "when merging@ @[for node %a@],@ values %a and %a:@ conflict %a"
                 E_node.pp n_u M.pp m_u M.pp m_u' CC.Expl.pp expl
-            | Ok m_u_merged ->
+            | Ok (m_u_merged, merge_acts) ->
+              acts := List.rev_append merge_acts !acts;
               Log.debugf 20 (fun k ->
                   k
                     "(@[monoid[%s].on-new-term.sub.merged@ :n %a@ :sub-t %a@ \
@@ -104,14 +107,15 @@ module Make (M : MONOID_PLUGIN_ARG) :
             Cls_tbl.add values n_u m_u
           ))
         l;
-      ()
+      !acts
 
     let iter_all : _ Iter.t = Cls_tbl.to_iter values
 
-    let on_pre_merge cc n1 n2 e_n1_n2 : CC.actions =
-      let exception E of M.CC.conflict in
+    let on_pre_merge cc n1 n2 e_n1_n2 : CC.Handler_action.or_conflict =
+      let exception E of M.CC.Handler_action.conflict in
+      let acts = ref [] in
       try
-        match get n1, get n2 with
+        (match get n1, get n2 with
         | Some v1, Some v2 ->
           Log.debugf 5 (fun k ->
               k
@@ -119,17 +123,19 @@ module Make (M : MONOID_PLUGIN_ARG) :
                  %a@ :val2 %a@])@])"
                 M.name E_node.pp n1 M.pp v1 E_node.pp n2 M.pp v2);
           (match M.merge cc n1 v1 n2 v2 e_n1_n2 with
-          | Ok v' ->
+          | Ok (v', merge_acts) ->
+            acts := merge_acts;
             Cls_tbl.remove values n2;
             (* only keep repr *)
             Cls_tbl.add values n1 v'
-          | Error expl -> raise (E (CC.Conflict_expl expl)))
+          | Error c -> raise (E c))
         | None, Some cr ->
           CC.set_bitfield cc field_has_value true n1;
           Cls_tbl.add values n1 cr;
           Cls_tbl.remove values n2 (* only keep reprs *)
         | Some _, None -> () (* already there on the left *)
-        | None, None -> ()
+        | None, None -> ());
+        Ok !acts
       with E c -> Error c
 
     let pp out () : unit =
@@ -141,8 +147,8 @@ module Make (M : MONOID_PLUGIN_ARG) :
     (* setup *)
     let () =
       Event.on (CC.on_new_term cc) ~f:(fun (_, r, t) -> on_new_term cc r t);
-      Event.on (CC.on_pre_merge cc) ~f:(fun (_, acts, ra, rb, expl) ->
-          on_pre_merge cc acts ra rb expl);
+      Event.on (CC.on_pre_merge cc) ~f:(fun (_, ra, rb, expl) ->
+          on_pre_merge cc ra rb expl);
       ()
   end
 

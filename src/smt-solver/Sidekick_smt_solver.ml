@@ -134,7 +134,7 @@ module Make (A : ARG) :
   end
 
   module CC = Sidekick_cc.Make (CC_arg)
-  module N = CC.Class
+  module N = CC.E_node
 
   module Model = struct
     type t = Empty | Map of term Term.Tbl.t
@@ -167,28 +167,30 @@ module Make (A : ARG) :
     | DA_add_clause of { c: lit list; pr: step_id; keep: bool }
     | DA_add_lit of { default_pol: bool option; lit: lit }
 
-  let mk_cc_acts_ (pr : P.t) (a : sat_acts) : CC.actions =
-    let (module A) = a in
+  (* TODO
+     let mk_cc_acts_ (pr : P.t) (a : sat_acts) : CC.actions =
+       let (module A) = a in
 
-    (module struct
-      module T = T
-      module Lit = Lit
+       (module struct
+         module T = T
+         module Lit = Lit
 
-      type nonrec lit = lit
-      type nonrec term = term
-      type nonrec proof_trace = Proof_trace.t
-      type nonrec step_id = step_id
+         type nonrec lit = lit
+         type nonrec term = term
+         type nonrec proof_trace = Proof_trace.t
+         type nonrec step_id = step_id
 
-      let proof_trace () = pr
-      let[@inline] raise_conflict lits (pr : step_id) = A.raise_conflict lits pr
+         let proof_trace () = pr
+         let[@inline] raise_conflict lits (pr : step_id) = A.raise_conflict lits pr
 
-      let[@inline] raise_semantic_conflict lits semantic =
-        raise (Semantic_conflict { lits; semantic })
+         let[@inline] raise_semantic_conflict lits semantic =
+           raise (Semantic_conflict { lits; semantic })
 
-      let[@inline] propagate lit ~reason =
-        let reason = Sidekick_sat.Consequence reason in
-        A.propagate lit reason
-    end)
+         let[@inline] propagate lit ~reason =
+           let reason = Sidekick_sat.Consequence reason in
+           A.propagate lit reason
+       end)
+  *)
 
   (** Internal solver, given to theories and to Msat *)
   module Solver_internal = struct
@@ -198,7 +200,7 @@ module Make (A : ARG) :
     module P_core_rules = A.Rule_core
     module Lit = Lit
     module CC = CC
-    module N = CC.Class
+    module N = CC.E_node
 
     type nonrec proof_trace = Proof_trace.t
     type nonrec step_id = step_id
@@ -584,6 +586,11 @@ module Make (A : ARG) :
       let n2 = cc_add_term self t2 in
       N.equal (cc_find self n1) (cc_find self n2)
 
+    let cc_resolve_expl self e : lit list * _ =
+      let r = CC.explain_expl (cc self) e in
+      r.lits, r.pr self.proof
+
+    (*
     let cc_merge self _acts n1 n2 e = CC.merge (cc self) n1 n2 e
 
     let cc_merge_t self acts t1 t2 e =
@@ -593,6 +600,7 @@ module Make (A : ARG) :
     let cc_raise_conflict_expl self acts e =
       let cc_acts = mk_cc_acts_ self.proof acts in
       CC.raise_conflict_from_expl (cc self) cc_acts e
+      *)
 
     (** {2 Interface with the SAT solver} *)
 
@@ -631,13 +639,16 @@ module Make (A : ARG) :
       in
 
       let model = M.create 128 in
+
       (* populate with information from the CC *)
-      CC.get_model_for_each_class cc (fun (_, ts, v) ->
-          Iter.iter
-            (fun n ->
-              let t = N.term n in
-              M.replace model t v)
-            ts);
+      (* FIXME
+         CC.get_model_for_each_class cc (fun (_, ts, v) ->
+             Iter.iter
+               (fun n ->
+                 let t = N.term n in
+                 M.replace model t v)
+               ts);
+      *)
 
       (* complete model with theory specific values *)
       let complete_with f =
@@ -702,30 +713,45 @@ module Make (A : ARG) :
        can merge classes, *)
     let check_th_combination_ (self : t) (acts : theory_actions) :
         (Model.t, th_combination_conflict) result =
+      (* FIXME
+
+         (* enter model mode, disabling most of congruence closure *)
+                  CC.with_model_mode cc @@ fun () ->
+                  let set_val (t, v) : unit =
+                    Log.debugf 50 (fun k ->
+                        k "(@[solver.th-comb.cc-set-term-value@ %a@ :val %a@])" Term.pp t
+                          Term.pp v);
+                    CC.set_model_value cc t v
+                  in
+
+               (* obtain assignments from the hook, and communicate them to the CC *)
+               let add_th_values f : unit =
+                 let vals = f self acts in
+                 Iter.iter set_val vals
+               in
+            try
+              List.iter add_th_values self.on_th_combination;
+              CC.check cc;
+              let m = mk_model_ self in
+              Ok m
+            with Semantic_conflict c -> Error c
+      *)
+      let m = mk_model_ self in
+      Ok m
+
+    (* call congruence closure, perform the actions it scheduled *)
+    let check_cc_with_acts_ (self : t) (acts : theory_actions) =
+      let (module A) = acts in
       let cc = cc self in
-      let cc_acts = mk_cc_acts_ self.proof acts in
-
-      (* entier model mode, disabling most of congruence closure *)
-      CC.with_model_mode cc @@ fun () ->
-      let set_val (t, v) : unit =
-        Log.debugf 50 (fun k ->
-            k "(@[solver.th-comb.cc-set-term-value@ %a@ :val %a@])" Term.pp t
-              Term.pp v);
-        CC.set_model_value cc t v
-      in
-
-      (* obtain assignments from the hook, and communicate them to the CC *)
-      let add_th_values f : unit =
-        let vals = f self acts in
-        Iter.iter set_val vals
-      in
-
-      try
-        List.iter add_th_values self.on_th_combination;
-        CC.check cc cc_acts;
-        let m = mk_model_ self in
-        Ok m
-      with Semantic_conflict c -> Error c
+      match CC.check cc with
+      | Ok acts ->
+        List.iter
+          (function
+            | CC.Result_action.Act_propagate { lit; reason } ->
+              let reason = Sidekick_sat.Consequence reason in
+              A.propagate lit reason)
+          acts
+      | Error (CC.Result_action.Conflict (lits, pr)) -> A.raise_conflict lits pr
 
     (* handle a literal assumed by the SAT solver *)
     let assert_lits_ ~final (self : t) (acts : theory_actions)
@@ -741,14 +767,13 @@ module Make (A : ARG) :
             lits);
       (* transmit to CC *)
       let cc = cc self in
-      let cc_acts = mk_cc_acts_ self.proof acts in
 
       if not final then CC.assert_lits cc lits;
       (* transmit to theories. *)
-      CC.check cc cc_acts;
+      check_cc_with_acts_ self acts;
       if final then (
         List.iter (fun f -> f self acts lits) self.on_final_check;
-        CC.check cc cc_acts;
+        check_cc_with_acts_ self acts;
 
         (match check_th_combination_ self acts with
         | Ok m -> self.last_model <- Some m

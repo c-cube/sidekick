@@ -160,7 +160,7 @@ module Make (A : ARG) : S with module A = A = struct
   module A = A
   module SI = A.S.Solver_internal
   module T = A.S.T.Term
-  module N = SI.CC.Class
+  module N = SI.CC.E_node
   module Ty = A.S.T.Ty
   module Expl = SI.CC.Expl
   module Card = Compute_card (A)
@@ -216,9 +216,11 @@ module Make (A : ARG) : S with module A = A = struct
         in
 
         assert (CCArray.length c1.c_args = CCArray.length c2.c_args);
+        let acts = ref [] in
         Util.array_iteri2 c1.c_args c2.c_args ~f:(fun i u1 u2 ->
-            SI.CC.merge cc u1 u2 (expl_merge i));
-        Ok c1
+            acts :=
+              SI.CC.Handler_action.Act_merge (u1, u2, expl_merge i) :: !acts);
+        Ok (c1, !acts)
       ) else (
         (* different function: disjointness *)
         let expl =
@@ -226,7 +228,7 @@ module Make (A : ARG) : S with module A = A = struct
           mk_expl t1 t2 @@ Pr.add_step proof @@ A.P.lemma_cstor_distinct t1 t2
         in
 
-        Error expl
+        Error (SI.CC.Handler_action.Conflict expl)
       )
   end
 
@@ -294,7 +296,7 @@ module Make (A : ARG) : S with module A = A = struct
             pp v1 N.pp n2 pp v2);
       let parent_is_a = v1.parent_is_a @ v2.parent_is_a in
       let parent_select = v1.parent_select @ v2.parent_select in
-      Ok { parent_is_a; parent_select }
+      Ok ({ parent_is_a; parent_select }, [])
   end
 
   module ST_cstors = Sidekick_cc_plugin.Make (Monoid_cstor)
@@ -394,7 +396,7 @@ module Make (A : ARG) : S with module A = A = struct
         N_tbl.add self.to_decide_for_complete_model n ()
     | _ -> ()
 
-  let on_new_term (self : t) ((cc, n, t) : _ * N.t * T.t) : unit =
+  let on_new_term (self : t) ((cc, n, t) : _ * N.t * T.t) : _ list =
     on_new_term_look_at_ty self n t;
     (* might have to decide [t] *)
     match A.view_as_data t with
@@ -402,8 +404,10 @@ module Make (A : ARG) : S with module A = A = struct
       let n_u = SI.CC.add_term cc u in
       let repr_u = SI.CC.find cc n_u in
       (match ST_cstors.get self.cstors repr_u with
-      | None -> N_tbl.add self.to_decide repr_u ()
-      (* needs to be decided *)
+      | None ->
+        (* needs to be decided *)
+        N_tbl.add self.to_decide repr_u ();
+        []
       | Some cstor ->
         let is_true = A.Cstor.equal cstor.c_cstor c_t in
         Log.debugf 5 (fun k ->
@@ -416,11 +420,14 @@ module Make (A : ARG) : S with module A = A = struct
           @@ A.P.lemma_isa_cstor ~cstor_t:(N.term cstor.c_n) t
         in
         let n_bool = SI.CC.n_bool cc is_true in
-        SI.CC.merge cc n n_bool
+        let expl =
           Expl.(
             mk_theory (N.term n) (N.term n_bool)
               [ N.term n_u, N.term cstor.c_n, [ mk_merge n_u cstor.c_n ] ]
-              pr))
+              pr)
+        in
+        let a = SI.CC.Handler_action.Act_merge (n, n_bool, expl) in
+        [ a ])
     | T_select (c_t, i, u) ->
       let n_u = SI.CC.add_term cc u in
       let repr_u = SI.CC.find cc n_u in
@@ -435,21 +442,28 @@ module Make (A : ARG) : S with module A = A = struct
           Pr.add_step self.proof
           @@ A.P.lemma_select_cstor ~cstor_t:(N.term cstor.c_n) t
         in
-        SI.CC.merge cc n u_i
+        let expl =
           Expl.(
             mk_theory (N.term n) (N.term u_i)
               [ N.term n_u, N.term cstor.c_n, [ mk_merge n_u cstor.c_n ] ]
               pr)
-      | Some _ -> ()
-      | None -> N_tbl.add self.to_decide repr_u () (* needs to be decided *))
-    | T_cstor _ | T_other _ -> ()
+        in
+        [ SI.CC.Handler_action.Act_merge (n, u_i, expl) ]
+      | Some _ -> []
+      | None ->
+        (* needs to be decided *)
+        N_tbl.add self.to_decide repr_u ();
+        [])
+    | T_cstor _ | T_other _ -> []
 
   let cstors_of_ty (ty : Ty.t) : A.Cstor.t Iter.t =
     match A.as_datatype ty with
     | Ty_data { cstors } -> cstors
     | _ -> assert false
 
-  let on_pre_merge (self : t) (cc, acts, n1, n2, expl) : unit =
+  let on_pre_merge (self : t) (cc, n1, n2, expl) : _ result =
+    let exception E_confl of SI.CC.Expl.t in
+    let acts = ref [] in
     let merge_is_a n1 (c1 : Monoid_cstor.t) n2 (is_a2 : Monoid_parents.is_a) =
       let is_true = A.Cstor.equal c1.c_cstor is_a2.is_a_cstor in
       Log.debugf 50 (fun k ->
@@ -463,18 +477,21 @@ module Make (A : ARG) : S with module A = A = struct
         @@ A.P.lemma_isa_cstor ~cstor_t:(N.term c1.c_n) (N.term is_a2.is_a_n)
       in
       let n_bool = SI.CC.n_bool cc is_true in
-      SI.CC.merge cc is_a2.is_a_n n_bool
-        (Expl.mk_theory (N.term is_a2.is_a_n) (N.term n_bool)
-           [
-             ( N.term n1,
-               N.term n2,
-               [
-                 Expl.mk_merge n1 c1.c_n;
-                 Expl.mk_merge n1 n2;
-                 Expl.mk_merge n2 is_a2.is_a_arg;
-               ] );
-           ]
-           pr)
+      let expl =
+        Expl.mk_theory (N.term is_a2.is_a_n) (N.term n_bool)
+          [
+            ( N.term n1,
+              N.term n2,
+              [
+                Expl.mk_merge n1 c1.c_n;
+                Expl.mk_merge n1 n2;
+                Expl.mk_merge n2 is_a2.is_a_arg;
+              ] );
+          ]
+          pr
+      in
+      let act = SI.CC.Handler_action.Act_merge (is_a2.is_a_n, n_bool, expl) in
+      acts := act :: !acts
     in
     let merge_select n1 (c1 : Monoid_cstor.t) n2 (sel2 : Monoid_parents.select)
         =
@@ -488,18 +505,21 @@ module Make (A : ARG) : S with module A = A = struct
           @@ A.P.lemma_select_cstor ~cstor_t:(N.term c1.c_n) (N.term sel2.sel_n)
         in
         let u_i = CCArray.get c1.c_args sel2.sel_idx in
-        SI.CC.merge cc sel2.sel_n u_i
-          (Expl.mk_theory (N.term sel2.sel_n) (N.term u_i)
-             [
-               ( N.term n1,
-                 N.term n2,
-                 [
-                   Expl.mk_merge n1 c1.c_n;
-                   Expl.mk_merge n1 n2;
-                   Expl.mk_merge n2 sel2.sel_arg;
-                 ] );
-             ]
-             pr)
+        let expl =
+          Expl.mk_theory (N.term sel2.sel_n) (N.term u_i)
+            [
+              ( N.term n1,
+                N.term n2,
+                [
+                  Expl.mk_merge n1 c1.c_n;
+                  Expl.mk_merge n1 n2;
+                  Expl.mk_merge n2 sel2.sel_arg;
+                ] );
+            ]
+            pr
+        in
+        let act = SI.CC.Handler_action.Act_merge (sel2.sel_n, u_i, expl) in
+        acts := act :: !acts
       )
     in
     let merge_c_p n1 n2 =
@@ -514,9 +534,11 @@ module Make (A : ARG) : S with module A = A = struct
         List.iter (fun is_a2 -> merge_is_a n1 c1 n2 is_a2) p2.parent_is_a;
         List.iter (fun s2 -> merge_select n1 c1 n2 s2) p2.parent_select
     in
-    merge_c_p n1 n2;
-    merge_c_p n2 n1;
-    ()
+    try
+      merge_c_p n1 n2;
+      merge_c_p n2 n1;
+      Ok !acts
+    with E_confl e -> Error (SI.CC.Handler_action.Conflict e)
 
   module Acyclicity_ = struct
     type repr = N.t
@@ -611,7 +633,8 @@ module Make (A : ARG) : S with module A = A = struct
           Log.debugf 5 (fun k ->
               k "(@[%s.acyclicity.raise_confl@ %a@ @[:path %a@]@])" name Expl.pp
                 expl pp_path path);
-          SI.cc_raise_conflict_expl solver acts expl
+          let lits, pr = SI.cc_resolve_expl solver expl in
+          SI.raise_conflict solver acts lits pr
         | { flag = New; _ } as node_r ->
           node_r.flag <- Open;
           let path = (n, node_r) :: path in
@@ -642,7 +665,8 @@ module Make (A : ARG) : S with module A = A = struct
             k "(@[%s.assign-is-a@ :lhs %a@ :rhs %a@ :lit %a@])" name T.pp u T.pp
               rhs SI.Lit.pp lit);
         let pr = Pr.add_step self.proof @@ A.P.lemma_isa_sel t in
-        SI.cc_merge_t solver acts u rhs
+        (* merge [u] and [rhs] *)
+        SI.CC.merge_t (SI.cc solver) u rhs
           (Expl.mk_theory u rhs
              [ t, N.term (SI.CC.n_true @@ SI.cc solver), [ Expl.mk_lit lit ] ]
              pr)

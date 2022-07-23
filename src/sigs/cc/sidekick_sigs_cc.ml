@@ -6,48 +6,6 @@ module type TERM = Sidekick_sigs_term.S
 module type LIT = Sidekick_sigs_lit.S
 module type PROOF_TRACE = Sidekick_sigs_proof_trace.S
 
-(** Actions provided to the congruence closure.
-
-    The congruence closure must be able to propagate literals when
-    it detects that they are true or false; it must also
-    be able to create conflicts when the set of (dis)equalities
-    is inconsistent *)
-module type DYN_ACTIONS = sig
-  type term
-  type lit
-  type proof_trace
-  type step_id
-
-  val proof_trace : unit -> proof_trace
-
-  val raise_conflict : lit list -> step_id -> 'a
-  (** [raise_conflict c pr] declares that [c] is a tautology of
-      the theory of congruence. This does not return (it should raise an
-      exception).
-      @param pr the proof of [c] being a tautology *)
-
-  val raise_semantic_conflict : lit list -> (bool * term * term) list -> 'a
-  (** [raise_semantic_conflict lits same_val] declares that
-      the conjunction of all [lits] (literals true in current trail) and tuples
-      [{=,≠}, t_i, u_i] implies false.
-
-      The [{=,≠}, t_i, u_i] are pairs of terms with the same value (if [=] / true)
-      or distinct value (if [≠] / false)) in the current model.
-
-      This does not return. It should raise an exception.
-  *)
-
-  val propagate : lit -> reason:(unit -> lit list * step_id) -> unit
-  (** [propagate lit ~reason pr] declares that [reason() => lit]
-      is a tautology.
-
-      - [reason()] should return a list of literals that are currently true.
-      - [lit] should be a literal of interest (see {!CC_S.set_as_lit}).
-
-      This function might never be called, a congruence closure has the right
-      to not propagate and only trigger conflicts. *)
-end
-
 (** Arguments to a congruence closure's implementation *)
 module type ARG = sig
   module T : TERM
@@ -83,23 +41,17 @@ module type ARGS_CLASSES_EXPL_EVENT = sig
   type proof_trace = Proof_trace.t
   type step_id = Proof_trace.A.step_id
 
-  type actions =
-    (module DYN_ACTIONS
-       with type term = T.Term.t
-        and type lit = Lit.t
-        and type proof_trace = proof_trace
-        and type step_id = step_id)
-  (** Actions available to the congruence closure *)
+  (** E-node.
 
-  (** Equivalence classes.
-
+      An e-node is a node in the congruence closure that is contained
+      in some equivalence classe).
       An equivalence class is a set of terms that are currently equal
       in the partial model built by the solver.
       The class is represented by a collection of nodes, one of which is
       distinguished and is called the "representative".
 
       All information pertaining to the whole equivalence class is stored
-      in this representative's Class.t.
+      in its representative's {!E_node.t}.
 
       When two classes become equal (are "merged"), one of the two
       representatives is picked as the representative of the new class.
@@ -109,10 +61,9 @@ module type ARGS_CLASSES_EXPL_EVENT = sig
       representative. This information can be used when two classes are
       merged, to detect conflicts and solve equations à la Shostak.
   *)
-  module Class : sig
+  module E_node : sig
     type t
-    (** An equivalent class, containing terms that are proved
-        to be equal.
+    (** An E-node.
 
         A value of type [t] points to a particular term, but see
         {!find} to get the representative of the class. *)
@@ -125,14 +76,14 @@ module type ARGS_CLASSES_EXPL_EVENT = sig
 
     val equal : t -> t -> bool
     (** Are two classes {b physically} equal? To check for
-        logical equality, use [CC.Class.equal (CC.find cc n1) (CC.find cc n2)]
+        logical equality, use [CC.E_node.equal (CC.find cc n1) (CC.find cc n2)]
         which checks for equality of representatives. *)
 
     val hash : t -> int
-    (** An opaque hash of this Class.t. *)
+    (** An opaque hash of this E_node.t. *)
 
     val is_root : t -> bool
-    (** Is the Class.t a root (ie the representative of its class)?
+    (** Is the E_node.t a root (ie the representative of its class)?
         See {!find} to get the root. *)
 
     val iter_class : t -> t Iter.t
@@ -167,7 +118,7 @@ module type ARGS_CLASSES_EXPL_EVENT = sig
 
     include Sidekick_sigs.PRINT with type t := t
 
-    val mk_merge : Class.t -> Class.t -> t
+    val mk_merge : E_node.t -> E_node.t -> t
     (** Explanation: the nodes were explicitly merged *)
 
     val mk_merge_t : term -> term -> t
@@ -177,9 +128,6 @@ module type ARGS_CLASSES_EXPL_EVENT = sig
     (** Explanation: we merged [t] and [u] because of literal [t=u],
         or we merged [t] and [true] because of literal [t],
         or [t] and [false] because of literal [¬t] *)
-
-    val mk_same_value : Class.t -> Class.t -> t
-    (** The two classes have the same value during model construction *)
 
     val mk_list : t list -> t
     (** Conjunction of explanations *)
@@ -217,72 +165,21 @@ module type ARGS_CLASSES_EXPL_EVENT = sig
       However, we can also have merged classes because they have the same value
       in the current model. *)
   module Resolved_expl : sig
-    type t = {
-      lits: lit list;
-      same_value: (Class.t * Class.t) list;
-      pr: proof_trace -> step_id;
-    }
+    type t = { lits: lit list; pr: proof_trace -> step_id }
 
     include Sidekick_sigs.PRINT with type t := t
-
-    val is_semantic : t -> bool
-    (** [is_semantic expl] is [true] if there's at least one
-        pair in [expl.same_value]. *)
   end
 
-  type node = Class.t
+  (** Per-node data *)
+
+  type e_node = E_node.t
   (** A node of the congruence closure *)
 
-  type repr = Class.t
+  type repr = E_node.t
   (** Node that is currently a representative. *)
 
   type explanation = Expl.t
 end
-
-(* TODO: can we have that meaningfully? the type of Class.t would depend on
-      the implementation, so it can't be pre-defined, but nor can it be accessed from
-      shortcuts from the inside. That means one cannot point to classes from outside
-      the opened module.
-
-      Potential solution:
-        - make Expl polymorphic and lift it to toplevel, like View
-        - do not expose Class, only Term-based API
-   (** The type for a congruence closure, as a first-class module *)
-   module type DYN = sig
-     include ARGS_CLASSES_EXPL_EVENT
-     include Sidekick_sigs.DYN_BACKTRACKABLE
-
-     val term_store : unit -> term_store
-     val proof : unit -> proof_trace
-     val find : node -> repr
-     val add_term : term -> node
-     val mem_term : term -> bool
-     val allocate_bitfield : descr:string -> Class.bitfield
-     val get_bitfield : Class.bitfield -> Class.t -> bool
-     val set_bitfield : Class.bitfield -> bool -> Class.t -> unit
-     val on_event : unit -> event Event.t
-     val set_as_lit : Class.t -> lit -> unit
-     val find_t : term -> repr
-     val add_iter : term Iter.t -> unit
-     val all_classes : repr Iter.t
-     val assert_lit : lit -> unit
-     val assert_lits : lit Iter.t -> unit
-     val explain_eq : Class.t -> Class.t -> Resolved_expl.t
-     val raise_conflict_from_expl : actions -> Expl.t -> 'a
-     val n_true : unit -> Class.t
-     val n_false : unit -> Class.t
-     val n_bool : bool -> Class.t
-     val merge : Class.t -> Class.t -> Expl.t -> unit
-     val merge_t : term -> term -> Expl.t -> unit
-     val set_model_value : term -> value -> unit
-     val with_model_mode : (unit -> 'a) -> 'a
-     val get_model_for_each_class : (repr * Class.t Iter.t * value) Iter.t
-     val check : actions -> unit
-     val push_level : unit -> unit
-     val pop_levels : int -> unit
-     val get_model : Class.t Iter.t Iter.t
-   end
-*)
 
 (** Main congruence closure signature.
 
@@ -312,18 +209,18 @@ module type S = sig
   val term_store : t -> term_store
   val proof : t -> proof_trace
 
-  val find : t -> node -> repr
+  val find : t -> e_node -> repr
   (** Current representative *)
 
-  val add_term : t -> term -> node
+  val add_term : t -> term -> e_node
   (** Add the term to the congruence closure, if not present already.
       Will be backtracked. *)
 
   val mem_term : t -> term -> bool
   (** Returns [true] if the term is explicitly present in the congruence closure *)
 
-  val allocate_bitfield : t -> descr:string -> Class.bitfield
-  (** Allocate a new node field (see {!Class.bitfield}).
+  val allocate_bitfield : t -> descr:string -> E_node.bitfield
+  (** Allocate a new e_node field (see {!E_node.bitfield}).
 
       This field descriptor is henceforth reserved for all nodes
       in this congruence closure, and can be set using {!set_bitfield}
@@ -336,12 +233,62 @@ module type S = sig
       for a given congruence closure (e.g. at most {!Sys.int_size} fields).
   *)
 
-  val get_bitfield : t -> Class.bitfield -> Class.t -> bool
-  (** Access the bit field of the given node *)
+  val get_bitfield : t -> E_node.bitfield -> E_node.t -> bool
+  (** Access the bit field of the given e_node *)
 
-  val set_bitfield : t -> Class.bitfield -> bool -> Class.t -> unit
-  (** Set the bitfield for the node. This will be backtracked.
-      See {!Class.bitfield}. *)
+  val set_bitfield : t -> E_node.bitfield -> bool -> E_node.t -> unit
+  (** Set the bitfield for the e_node. This will be backtracked.
+      See {!E_node.bitfield}. *)
+
+  type propagation_reason = unit -> lit list * step_id
+
+  (** Handler Actions
+
+      Actions that can be scheduled by event handlers. *)
+  module Handler_action : sig
+    type t =
+      | Act_merge of E_node.t * E_node.t * Expl.t
+      | Act_propagate of lit * propagation_reason
+
+    (* TODO:
+       - an action to modify data associated with a class
+    *)
+
+    type conflict = Conflict of Expl.t [@@unboxed]
+
+    type or_conflict = (t list, conflict) result
+    (** Actions or conflict scheduled by an event handler.
+
+      - [Ok acts] is a list of merges and propagations
+      - [Error confl] is a conflict to resolve.
+    *)
+  end
+
+  (** Result Actions.
+
+
+    Actions returned by the congruence closure after calling {!check}. *)
+  module Result_action : sig
+    type t =
+      | Act_propagate of { lit: lit; reason: propagation_reason }
+          (** [propagate (lit, reason)] declares that [reason() => lit]
+          is a tautology.
+
+          - [reason()] should return a list of literals that are currently true,
+            as well as a proof.
+          - [lit] should be a literal of interest (see {!S.set_as_lit}).
+
+          This function might never be called, a congruence closure has the right
+          to not propagate and only trigger conflicts. *)
+
+    type conflict =
+      | Conflict of lit list * step_id
+          (** [raise_conflict (c,pr)] declares that [c] is a tautology of
+          the theory of congruence.
+          @param pr the proof of [c] being a tautology *)
+
+    type or_conflict = (t list, conflict) result
+  end
 
   (** {3 Events}
 
@@ -349,18 +296,20 @@ module type S = sig
       other plugins can subscribe. *)
 
   (** Events emitted by the congruence closure when something changes. *)
-  val on_pre_merge : t -> (t * actions * Class.t * Class.t * Expl.t) Event.t
+  val on_pre_merge :
+    t -> (t * E_node.t * E_node.t * Expl.t, Handler_action.or_conflict) Event.t
   (** [Ev_on_pre_merge acts n1 n2 expl] is emitted right before [n1]
       and [n2] are merged with explanation [expl].  *)
 
-  val on_post_merge : t -> (t * actions * Class.t * Class.t) Event.t
+  val on_post_merge :
+    t -> (t * E_node.t * E_node.t, Handler_action.t list) Event.t
   (** [ev_on_post_merge acts n1 n2] is emitted right after [n1]
       and [n2] were merged. [find cc n1] and [find cc n2] will return
-      the same Class.t. *)
+      the same E_node.t. *)
 
-  val on_new_term : t -> (t * Class.t * term) Event.t
+  val on_new_term : t -> (t * E_node.t * term, Handler_action.t list) Event.t
   (** [ev_on_new_term n t] is emitted whenever a new term [t]
-      is added to the congruence closure. Its Class.t is [n]. *)
+      is added to the congruence closure. Its E_node.t is [n]. *)
 
   type ev_on_conflict = { cc: t; th: bool; c: lit list }
   (** Event emitted when a conflict occurs in the CC.
@@ -370,33 +319,73 @@ module type S = sig
       participating in the conflict are purely syntactic theories
       like injectivity of constructors. *)
 
-  val on_conflict : t -> ev_on_conflict Event.t
+  val on_conflict : t -> (ev_on_conflict, unit) Event.t
   (** [ev_on_conflict {th; c}] is emitted when the congruence
       closure triggers a conflict by asserting the tautology [c]. *)
 
-  val on_propagate : t -> (t * lit * (unit -> lit list * step_id)) Event.t
+  val on_propagate :
+    t -> (t * lit * (unit -> lit list * step_id), Handler_action.t list) Event.t
   (** [ev_on_propagate lit reason] is emitted whenever [reason() => lit]
       is a propagated lemma. See {!CC_ACTIONS.propagate}. *)
 
-  val on_is_subterm : t -> (t * Class.t * term) Event.t
+  val on_is_subterm : t -> (t * E_node.t * term, Handler_action.t list) Event.t
   (** [ev_on_is_subterm n t] is emitted when [n] is a subterm of
-      another Class.t for the first time. [t] is the term corresponding to
-      the Class.t [n]. This can be useful for theory combination. *)
+      another E_node.t for the first time. [t] is the term corresponding to
+      the E_node.t [n]. This can be useful for theory combination. *)
 
   (** {3 Misc} *)
 
-  val set_as_lit : t -> Class.t -> lit -> unit
-  (** map the given node to a literal. *)
+  val n_true : t -> E_node.t
+  (** Node for [true] *)
+
+  val n_false : t -> E_node.t
+  (** Node for [false] *)
+
+  val n_bool : t -> bool -> E_node.t
+  (** Node for either true or false *)
+
+  val set_as_lit : t -> E_node.t -> lit -> unit
+  (** map the given e_node to a literal. *)
 
   val find_t : t -> term -> repr
   (** Current representative of the term.
-      @raise Class.t_found if the term is not already {!add}-ed. *)
+      @raise E_node.t_found if the term is not already {!add}-ed. *)
 
   val add_iter : t -> term Iter.t -> unit
   (** Add a sequence of terms to the congruence closure *)
 
   val all_classes : t -> repr Iter.t
   (** All current classes. This is costly, only use if there is no other solution *)
+
+  val explain_eq : t -> E_node.t -> E_node.t -> Resolved_expl.t
+  (** Explain why the two nodes are equal.
+      Fails if they are not, in an unspecified way. *)
+
+  val explain_expl : t -> Expl.t -> Resolved_expl.t
+  (** Transform explanation into an actionable conflict clause *)
+
+  (* FIXME: remove
+        val raise_conflict_from_expl : t -> actions -> Expl.t -> 'a
+        (** Raise a conflict with the given explanation.
+            It must be a theory tautology that [expl ==> absurd].
+            To be used in theories.
+
+            This fails in an unspecified way if the explanation, once resolved,
+            satisfies {!Resolved_expl.is_semantic}. *)
+  *)
+
+  val merge : t -> E_node.t -> E_node.t -> Expl.t -> unit
+  (** Merge these two nodes given this explanation.
+         It must be a theory tautology that [expl ==> n1 = n2].
+         To be used in theories. *)
+
+  val merge_t : t -> term -> term -> Expl.t -> unit
+  (** Shortcut for adding + merging *)
+
+  (** {3 Main API *)
+
+  val assert_eq : t -> term -> term -> Expl.t -> unit
+  (** Assert that two terms are equal, using the given explanation. *)
 
   val assert_lit : t -> lit -> unit
   (** Given a literal, assume it in the congruence closure and propagate
@@ -407,45 +396,7 @@ module type S = sig
   val assert_lits : t -> lit Iter.t -> unit
   (** Addition of many literals *)
 
-  val explain_eq : t -> Class.t -> Class.t -> Resolved_expl.t
-  (** Explain why the two nodes are equal.
-      Fails if they are not, in an unspecified way. *)
-
-  val raise_conflict_from_expl : t -> actions -> Expl.t -> 'a
-  (** Raise a conflict with the given explanation.
-      It must be a theory tautology that [expl ==> absurd].
-      To be used in theories.
-
-      This fails in an unspecified way if the explanation, once resolved,
-      satisfies {!Resolved_expl.is_semantic}. *)
-
-  val n_true : t -> Class.t
-  (** Node for [true] *)
-
-  val n_false : t -> Class.t
-  (** Node for [false] *)
-
-  val n_bool : t -> bool -> Class.t
-  (** Node for either true or false *)
-
-  val merge : t -> Class.t -> Class.t -> Expl.t -> unit
-  (** Merge these two nodes given this explanation.
-      It must be a theory tautology that [expl ==> n1 = n2].
-      To be used in theories. *)
-
-  val merge_t : t -> term -> term -> Expl.t -> unit
-  (** Shortcut for adding + merging *)
-
-  val set_model_value : t -> term -> value -> unit
-  (** Set the value of a term in the model. *)
-
-  val with_model_mode : t -> (unit -> 'a) -> 'a
-  (** Enter model combination mode. *)
-
-  val get_model_for_each_class : t -> (repr * Class.t Iter.t * value) Iter.t
-  (** In model combination mode, obtain classes with their values. *)
-
-  val check : t -> actions -> unit
+  val check : t -> Result_action.or_conflict
   (** Perform all pending operations done via {!assert_eq}, {!assert_lit}, etc.
       Will use the {!actions} to propagate literals, declare conflicts, etc. *)
 
@@ -455,7 +406,7 @@ module type S = sig
   val pop_levels : t -> int -> unit
   (** Restore to state [n] calls to [push_level] earlier. Used during backtracking. *)
 
-  val get_model : t -> Class.t Iter.t Iter.t
+  val get_model : t -> E_node.t Iter.t Iter.t
   (** get all the equivalence classes so they can be merged in the model *)
 end
 
@@ -485,8 +436,10 @@ module type MONOID_PLUGIN_ARG = sig
   val name : string
   (** name of the monoid structure (short) *)
 
+  (* FIXME: for subs, return list of e_nodes, and assume of_term already
+     returned data for them. *)
   val of_term :
-    CC.t -> CC.Class.t -> CC.term -> t option * (CC.Class.t * t) list
+    CC.t -> CC.E_node.t -> CC.term -> t option * (CC.E_node.t * t) list
   (** [of_term n t], where [t] is the term annotating node [n],
       must return [maybe_m, l], where:
 
@@ -500,12 +453,12 @@ module type MONOID_PLUGIN_ARG = sig
 
   val merge :
     CC.t ->
-    CC.Class.t ->
+    CC.E_node.t ->
     t ->
-    CC.Class.t ->
+    CC.E_node.t ->
     t ->
     CC.Expl.t ->
-    (t, CC.Expl.t) result
+    (t * CC.Handler_action.t list, CC.Handler_action.conflict) result
   (** Monoidal combination of two values.
 
       [merge cc n1 mon1 n2 mon2 expl] returns the result of merging
@@ -531,11 +484,11 @@ module type DYN_MONOID_PLUGIN = sig
 
   val pp : unit Fmt.printer
 
-  val mem : M.CC.Class.t -> bool
-  (** Does the CC Class.t have a monoid value? *)
+  val mem : M.CC.E_node.t -> bool
+  (** Does the CC E_node.t have a monoid value? *)
 
-  val get : M.CC.Class.t -> M.t option
-  (** Get monoid value for this CC Class.t, if any *)
+  val get : M.CC.E_node.t -> M.t option
+  (** Get monoid value for this CC E_node.t, if any *)
 
   val iter_all : (M.CC.repr * M.t) Iter.t
 end

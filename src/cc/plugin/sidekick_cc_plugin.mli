@@ -5,11 +5,11 @@ open Sidekick_sigs_cc
 module type EXTENDED_PLUGIN_BUILDER = sig
   include MONOID_PLUGIN_BUILDER
 
-  val mem : t -> M.CC.Class.t -> bool
-  (** Does the CC Class.t have a monoid value? *)
+  val mem : t -> M.CC.E_node.t -> bool
+  (** Does the CC.E_node.t have a monoid value? *)
 
-  val get : t -> M.CC.Class.t -> M.t option
-  (** Get monoid value for this CC Class.t, if any *)
+  val get : t -> M.CC.E_node.t -> M.t option
+  (** Get monoid value for this CC.E_node.t, if any *)
 
   val iter_all : t -> (M.CC.repr * M.t) Iter.t
 

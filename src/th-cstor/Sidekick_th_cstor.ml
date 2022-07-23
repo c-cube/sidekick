@@ -23,7 +23,7 @@ module Make (A : ARG) : S with module A = A = struct
   module A = A
   module SI = A.S.Solver_internal
   module T = A.S.T.Term
-  module N = SI.CC.Class
+  module N = SI.CC.E_node
   module Fun = A.S.T.Fun
   module Expl = SI.CC.Expl
 
@@ -46,7 +46,7 @@ module Make (A : ARG) : S with module A = A = struct
         Some { n; t; cstor; args }, []
       | _ -> None, []
 
-    let merge cc n1 v1 n2 v2 e_n1_n2 : _ result =
+    let merge _cc n1 v1 n2 v2 e_n1_n2 : _ result =
       Log.debugf 5 (fun k ->
           k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])" name N.pp n1
             T.pp v1.t N.pp n2 T.pp v2.t);
@@ -60,11 +60,16 @@ module Make (A : ARG) : S with module A = A = struct
       if Fun.equal v1.cstor v2.cstor then (
         (* same function: injectivity *)
         assert (CCArray.length v1.args = CCArray.length v2.args);
-        CCArray.iter2 (fun u1 u2 -> SI.CC.merge cc u1 u2 expl) v1.args v2.args;
-        Ok v1
+        let acts =
+          CCArray.map2
+            (fun u1 u2 -> SI.CC.Handler_action.Act_merge (u1, u2, expl))
+            v1.args v2.args
+          |> Array.to_list
+        in
+        Ok (v1, acts)
       ) else
         (* different function: disjointness *)
-        Error expl
+        Error (SI.CC.Handler_action.Conflict expl)
   end
 
   module ST = Sidekick_cc_plugin.Make (Monoid)

@@ -248,21 +248,6 @@ module Make (A : ARG) :
       Fmt.fprintf out "(@[resolved-expl@ %a@])" (Util.pp_list Lit.pp) self.lits
   end
 
-  type propagation_reason = unit -> lit list * step_id
-
-  type action =
-    | Act_merge of E_node.t * E_node.t * Expl.t
-    | Act_propagate of { lit: lit; reason: propagation_reason }
-
-  type conflict =
-    | Conflict of lit list * step_id
-        (** [raise_conflict (c,pr)] declares that [c] is a tautology of
-          the theory of congruence.
-          @param pr the proof of [c] being a tautology *)
-    | Conflict_expl of Expl.t
-
-  type actions_or_confl = (action list, conflict) result
-
   (** A signature is a shallow term shape where immediate subterms
       are representative *)
   module Signature = struct
@@ -319,9 +304,26 @@ module Make (A : ARG) :
   module Sig_tbl = CCHashtbl.Make (Signature)
   module T_tbl = CCHashtbl.Make (Term)
 
+  type propagation_reason = unit -> lit list * step_id
+
+  module Handler_action = struct
+    type t =
+      | Act_merge of E_node.t * E_node.t * Expl.t
+      | Act_propagate of lit * propagation_reason
+
+    type conflict = Conflict of Expl.t [@@unboxed]
+    type or_conflict = (t list, conflict) result
+  end
+
+  module Result_action = struct
+    type t = Act_propagate of { lit: lit; reason: propagation_reason }
+    type conflict = Conflict of lit list * step_id
+    type or_conflict = (t list, conflict) result
+  end
+
   type combine_task =
     | CT_merge of e_node * e_node * explanation
-    | CT_act of action
+    | CT_act of Handler_action.t
 
   type t = {
     tst: term_store;
@@ -344,14 +346,18 @@ module Make (A : ARG) :
     true_: e_node lazy_t;
     false_: e_node lazy_t;
     mutable in_loop: bool; (* currently being modified? *)
-    res_acts: action Vec.t; (* to return *)
+    res_acts: Result_action.t Vec.t; (* to return *)
     on_pre_merge:
-      (t * E_node.t * E_node.t * Expl.t, actions_or_confl) Event.Emitter.t;
-    on_post_merge: (t * E_node.t * E_node.t, action list) Event.Emitter.t;
-    on_new_term: (t * E_node.t * term, action list) Event.Emitter.t;
+      ( t * E_node.t * E_node.t * Expl.t,
+        Handler_action.or_conflict )
+      Event.Emitter.t;
+    on_post_merge:
+      (t * E_node.t * E_node.t, Handler_action.t list) Event.Emitter.t;
+    on_new_term: (t * E_node.t * term, Handler_action.t list) Event.Emitter.t;
     on_conflict: (ev_on_conflict, unit) Event.Emitter.t;
-    on_propagate: (t * lit * propagation_reason, action list) Event.Emitter.t;
-    on_is_subterm: (t * E_node.t * term, action list) Event.Emitter.t;
+    on_propagate:
+      (t * lit * propagation_reason, Handler_action.t list) Event.Emitter.t;
+    on_is_subterm: (t * E_node.t * term, Handler_action.t list) Event.Emitter.t;
     count_conflict: int Stat.counter;
     count_props: int Stat.counter;
     count_merge: int Stat.counter;
@@ -451,10 +457,10 @@ module Make (A : ARG) :
     Log.debugf 50 (fun k -> k "(@[<hv1>cc.push-pending@ %a@])" E_node.pp t);
     Vec.push self.pending t
 
-  let push_action self (a : action) : unit = Vec.push self.combine (CT_act a)
+  let push_action self (a : Handler_action.t) : unit =
+    Vec.push self.combine (CT_act a)
 
-  let push_action_l self (l : action list) : unit =
-    List.iter (push_action self) l
+  let push_action_l self (l : _ list) : unit = List.iter (push_action self) l
 
   let merge_classes self t u e : unit =
     if t != u && not (same_class t u) then (
@@ -476,7 +482,7 @@ module Make (A : ARG) :
       u.n_expl <- FL_some { next = n; expl = e_n_u };
       n.n_expl <- FL_none
 
-  exception E_confl of conflict
+  exception E_confl of Result_action.conflict
 
   let raise_conflict_ (cc : t) ~th (e : lit list) (p : step_id) : _ =
     Profile.instant "cc.conflict";
@@ -824,10 +830,10 @@ module Make (A : ARG) :
 
   and task_combine_ self = function
     | CT_merge (a, b, e_ab) -> task_merge_ self a b e_ab
-    | CT_act (Act_merge (t, u, e)) -> task_merge_ self t u e
-    | CT_act (Act_propagate _ as a) ->
+    | CT_act (Handler_action.Act_merge (t, u, e)) -> task_merge_ self t u e
+    | CT_act (Handler_action.Act_propagate (lit, reason)) ->
       (* will return this propagation to the caller *)
-      Vec.push self.res_acts a
+      Vec.push self.res_acts (Result_action.Act_propagate { lit; reason })
 
   (* main CC algo: merge equivalence classes in [st.combine].
      @raise Exn_unsat if merge fails *)
@@ -900,7 +906,8 @@ module Make (A : ARG) :
       Event.emit_iter self.on_pre_merge (self, r_into, r_from, expl)
         ~f:(function
         | Ok l -> push_action_l self l
-        | Error c -> raise (E_confl c));
+        | Error (Handler_action.Conflict expl) ->
+          raise_conflict_from_expl self expl);
 
       (* TODO: merge plugin data here, _after_ the pre-merge hooks are called,
          so they have a chance of observing pre-merge plugin data *)
@@ -999,11 +1006,23 @@ module Make (A : ARG) :
             let _, pr = lits_and_proof_of_expl self st in
             guard, pr
           in
-          push_action self (Act_propagate { lit; reason });
+          Vec.push self.res_acts (Result_action.Act_propagate { lit; reason });
           Event.emit_iter self.on_propagate (self, lit, reason)
             ~f:(push_action_l self);
           Stat.incr self.count_props
         | _ -> ())
+
+  (* raise a conflict from an explanation, typically from an event handler.
+     Raises E_confl with a result conflict. *)
+  and raise_conflict_from_expl self (expl : Expl.t) : 'a =
+    Log.debugf 5 (fun k ->
+        k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
+    let st = Expl_state.create () in
+    explain_decompose_expl self st expl;
+    let lits, pr = lits_and_proof_of_expl self st in
+    let c = List.rev_map Lit.neg lits in
+    let th = st.th_lemmas <> [] in
+    raise_conflict_ self ~th c pr
 
   let add_iter self it : unit = it (fun t -> ignore @@ add_term_rec_ self t)
 
@@ -1053,19 +1072,6 @@ module Make (A : ARG) :
     assert (not self.in_loop);
     Iter.iter (assert_lit self) lits
 
-  (* FIXME: remove?
-     (* raise a conflict *)
-     let raise_conflict_from_expl self (acts : actions_or_confl) expl =
-       Log.debugf 5 (fun k ->
-           k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
-       let st = Expl_state.create () in
-       explain_decompose_expl self st expl;
-       let lits, pr = lits_and_proof_of_expl self st in
-       let c = List.rev_map Lit.neg lits in
-       let th = st.th_lemmas <> [] in
-       raise_conflict_ self ~th c pr
-  *)
-
   let merge self n1 n2 expl =
     assert (not self.in_loop);
     Log.debugf 5 (fun k ->
@@ -1082,6 +1088,11 @@ module Make (A : ARG) :
     explain_equal_rec_ self st n1 n2;
     (* FIXME: also need to return the proof? *)
     Expl_state.to_resolved_expl st
+
+  let explain_expl (self : t) expl : Resolved_expl.t =
+    let expl_st = Expl_state.create () in
+    explain_decompose_expl self expl_st expl;
+    Expl_state.to_resolved_expl expl_st
 
   let[@inline] on_pre_merge self = Event.of_emitter self.on_pre_merge
   let[@inline] on_post_merge self = Event.of_emitter self.on_post_merge
@@ -1142,7 +1153,7 @@ module Make (A : ARG) :
     in
     loop []
 
-  let check self : actions_or_confl =
+  let check self : Result_action.or_conflict =
     Log.debug 5 "(cc.check)";
     self.in_loop <- true;
     let@ () = Stdlib.Fun.protect ~finally:(fun () -> self.in_loop <- false) in

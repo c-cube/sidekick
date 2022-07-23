@@ -24,3 +24,5 @@ module Stat = Stat
 module Hash = Hash
 module Profile = Profile
 module Chunk_stack = Chunk_stack
+
+let[@inline] ( let@ ) f x = f x

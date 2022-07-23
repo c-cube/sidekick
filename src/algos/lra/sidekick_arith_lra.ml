@@ -104,7 +104,7 @@ module Make (A : ARG) : S with module A = A = struct
   module T = A.S.T.Term
   module Lit = A.S.Solver_internal.Lit
   module SI = A.S.Solver_internal
-  module N = SI.CC.Class
+  module N = SI.CC.E_node
 
   open struct
     module Pr = SI.Proof_trace
@@ -121,7 +121,9 @@ module Make (A : ARG) : S with module A = A = struct
       | Lit l -> [ l ]
       | CC_eq (n1, n2) ->
         let r = SI.CC.explain_eq (SI.cc si) n1 n2 in
-        assert (not (SI.CC.Resolved_expl.is_semantic r));
+        (* FIXME
+           assert (not (SI.CC.Resolved_expl.is_semantic r));
+        *)
         r.lits
   end
 
@@ -214,8 +216,8 @@ module Make (A : ARG) : S with module A = A = struct
               in
               raise (Confl expl)
             ));
-        Ok (List.rev_append l1 l2)
-      with Confl expl -> Error expl
+        Ok (List.rev_append l1 l2, [])
+      with Confl expl -> Error (SI.CC.Handler_action.Conflict expl)
   end
 
   module ST_exprs = Sidekick_cc_plugin.Make (Monoid_exprs)
@@ -798,15 +800,17 @@ module Make (A : ARG) : S with module A = A = struct
     SI.on_final_check si (final_check_ st);
     SI.on_partial_check si (partial_check_ st);
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
-    SI.on_cc_is_subterm si (fun (_, _, t) -> on_subterm st t);
-    SI.on_cc_pre_merge si (fun (cc, acts, n1, n2, expl) ->
+    SI.on_cc_is_subterm si (fun (_, _, t) ->
+        on_subterm st t;
+        []);
+    SI.on_cc_pre_merge si (fun (_cc, n1, n2, expl) ->
         match as_const_ (N.term n1), as_const_ (N.term n2) with
         | Some q1, Some q2 when A.Q.(q1 <> q2) ->
           (* classes with incompatible constants *)
           Log.debugf 30 (fun k ->
               k "(@[lra.merge-incompatible-consts@ %a@ %a@])" N.pp n1 N.pp n2);
-          SI.CC.raise_conflict_from_expl cc acts expl
-        | _ -> ());
+          Error (SI.CC.Handler_action.Conflict expl)
+        | _ -> Ok []);
     SI.on_th_combination si (do_th_combination st);
     st
 

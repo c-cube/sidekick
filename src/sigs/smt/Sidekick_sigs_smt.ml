@@ -230,19 +230,22 @@ module type SOLVER_INTERNAL = sig
   (** Add the given (signed) bool term to the SAT solver, so it gets assigned
       a boolean value *)
 
-  val cc_raise_conflict_expl : t -> theory_actions -> CC.Expl.t -> 'a
-  (** Raise a conflict with the given congruence closure explanation.
-      it must be a theory tautology that [expl ==> absurd].
-      To be used in theories. *)
-
-  val cc_find : t -> CC.Class.t -> CC.Class.t
+  val cc_find : t -> CC.E_node.t -> CC.E_node.t
   (** Find representative of the node *)
 
   val cc_are_equal : t -> term -> term -> bool
   (** Are these two terms equal in the congruence closure? *)
 
+  val cc_resolve_expl : t -> CC.Expl.t -> lit list * step_id
+
+  (*
+  val cc_raise_conflict_expl : t -> theory_actions -> CC.Expl.t -> 'a
+  (** Raise a conflict with the given congruence closure explanation.
+      it must be a theory tautology that [expl ==> absurd].
+      To be used in theories. *)
+
   val cc_merge :
-    t -> theory_actions -> CC.Class.t -> CC.Class.t -> CC.Expl.t -> unit
+    t -> theory_actions -> CC.E_node.t -> CC.E_node.t -> CC.Expl.t -> unit
   (** Merge these two nodes in the congruence closure, given this explanation.
       It must be a theory tautology that [expl ==> n1 = n2].
       To be used in theories. *)
@@ -250,8 +253,9 @@ module type SOLVER_INTERNAL = sig
   val cc_merge_t : t -> theory_actions -> term -> term -> CC.Expl.t -> unit
   (** Merge these two terms in the congruence closure, given this explanation.
       See {!cc_merge} *)
+  *)
 
-  val cc_add_term : t -> term -> CC.Class.t
+  val cc_add_term : t -> term -> CC.E_node.t
   (** Add/retrieve congruence closure node for this term.
       To be used in theories *)
 
@@ -261,19 +265,22 @@ module type SOLVER_INTERNAL = sig
 
   val on_cc_pre_merge :
     t ->
-    (CC.t * CC.actions * CC.Class.t * CC.Class.t * CC.Expl.t -> unit) ->
+    (CC.t * CC.E_node.t * CC.E_node.t * CC.Expl.t ->
+    CC.Handler_action.or_conflict) ->
     unit
   (** Callback for when two classes containing data for this key are merged (called before) *)
 
   val on_cc_post_merge :
-    t -> (CC.t * CC.actions * CC.Class.t * CC.Class.t -> unit) -> unit
+    t -> (CC.t * CC.E_node.t * CC.E_node.t -> CC.Handler_action.t list) -> unit
   (** Callback for when two classes containing data for this key are merged (called after)*)
 
-  val on_cc_new_term : t -> (CC.t * CC.Class.t * term -> unit) -> unit
+  val on_cc_new_term :
+    t -> (CC.t * CC.E_node.t * term -> CC.Handler_action.t list) -> unit
   (** Callback to add data on terms when they are added to the congruence
       closure *)
 
-  val on_cc_is_subterm : t -> (CC.t * CC.Class.t * term -> unit) -> unit
+  val on_cc_is_subterm :
+    t -> (CC.t * CC.E_node.t * term -> CC.Handler_action.t list) -> unit
   (** Callback for when a term is a subterm of another term in the
       congruence closure *)
 
@@ -281,7 +288,9 @@ module type SOLVER_INTERNAL = sig
   (** Callback called on every CC conflict *)
 
   val on_cc_propagate :
-    t -> (CC.t * lit * (unit -> lit list * step_id) -> unit) -> unit
+    t ->
+    (CC.t * lit * (unit -> lit list * step_id) -> CC.Handler_action.t list) ->
+    unit
   (** Callback called on every CC propagation *)
 
   val on_partial_check :
@@ -319,7 +328,7 @@ module type SOLVER_INTERNAL = sig
   (** {3 Model production} *)
 
   type model_ask_hook =
-    recurse:(t -> CC.Class.t -> term) -> t -> CC.Class.t -> term option
+    recurse:(t -> CC.E_node.t -> term) -> t -> CC.E_node.t -> term option
   (** A model-production hook to query values from a theory.
 
       It takes the solver, a class, and returns
