@@ -301,6 +301,12 @@ module type S = sig
   (** [Ev_on_pre_merge acts n1 n2 expl] is emitted right before [n1]
       and [n2] are merged with explanation [expl].  *)
 
+  val on_pre_merge2 :
+    t -> (t * E_node.t * E_node.t * Expl.t, Handler_action.or_conflict) Event.t
+  (** Second phase of "on pre merge". This runs after {!on_pre_merge}
+      and is used by Plugins. {b NOTE}: Plugin state might be observed as already
+      changed in these handlers. *)
+
   val on_post_merge :
     t -> (t * E_node.t * E_node.t, Handler_action.t list) Event.t
   (** [ev_on_post_merge acts n1 n2] is emitted right after [n1]

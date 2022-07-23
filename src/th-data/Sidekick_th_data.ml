@@ -1,6 +1,5 @@
 (** Theory for datatypes. *)
 
-open Sidekick_sigs_smt
 include Th_intf
 
 let name = "th-data"
@@ -462,7 +461,6 @@ module Make (A : ARG) : S with module A = A = struct
     | _ -> assert false
 
   let on_pre_merge (self : t) (cc, n1, n2, expl) : _ result =
-    let exception E_confl of SI.CC.Expl.t in
     let acts = ref [] in
     let merge_is_a n1 (c1 : Monoid_cstor.t) n2 (is_a2 : Monoid_parents.is_a) =
       let is_true = A.Cstor.equal c1.c_cstor is_a2.is_a_cstor in
@@ -534,11 +532,9 @@ module Make (A : ARG) : S with module A = A = struct
         List.iter (fun is_a2 -> merge_is_a n1 c1 n2 is_a2) p2.parent_is_a;
         List.iter (fun s2 -> merge_select n1 c1 n2 s2) p2.parent_select
     in
-    try
-      merge_c_p n1 n2;
-      merge_c_p n2 n1;
-      Ok !acts
-    with E_confl e -> Error (SI.CC.Handler_action.Conflict e)
+    merge_c_p n1 n2;
+    merge_c_p n2 n1;
+    Ok !acts
 
   module Acyclicity_ = struct
     type repr = N.t

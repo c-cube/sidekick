@@ -351,6 +351,10 @@ module Make (A : ARG) :
       ( t * E_node.t * E_node.t * Expl.t,
         Handler_action.or_conflict )
       Event.Emitter.t;
+    on_pre_merge2:
+      ( t * E_node.t * E_node.t * Expl.t,
+        Handler_action.or_conflict )
+      Event.Emitter.t;
     on_post_merge:
       (t * E_node.t * E_node.t, Handler_action.t list) Event.Emitter.t;
     on_new_term: (t * E_node.t * term, Handler_action.t list) Event.Emitter.t;
@@ -900,14 +904,22 @@ module Make (A : ARG) :
 
       (* call [on_pre_merge] functions, and merge theory data items *)
       (* explanation is [a=ra & e_ab & b=rb] *)
-      let expl =
-        Expl.mk_list [ e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb ]
-      in
-      Event.emit_iter self.on_pre_merge (self, r_into, r_from, expl)
-        ~f:(function
-        | Ok l -> push_action_l self l
-        | Error (Handler_action.Conflict expl) ->
-          raise_conflict_from_expl self expl);
+      (let expl =
+         Expl.mk_list [ e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb ]
+       in
+
+       let handle_act = function
+         | Ok l -> push_action_l self l
+         | Error (Handler_action.Conflict expl) ->
+           raise_conflict_from_expl self expl
+       in
+
+       Event.emit_iter self.on_pre_merge
+         (self, r_into, r_from, expl)
+         ~f:handle_act;
+       Event.emit_iter self.on_pre_merge2
+         (self, r_into, r_from, expl)
+         ~f:handle_act);
 
       (* TODO: merge plugin data here, _after_ the pre-merge hooks are called,
          so they have a chance of observing pre-merge plugin data *)
@@ -1095,6 +1107,7 @@ module Make (A : ARG) :
     Expl_state.to_resolved_expl expl_st
 
   let[@inline] on_pre_merge self = Event.of_emitter self.on_pre_merge
+  let[@inline] on_pre_merge2 self = Event.of_emitter self.on_pre_merge2
   let[@inline] on_post_merge self = Event.of_emitter self.on_post_merge
   let[@inline] on_new_term self = Event.of_emitter self.on_new_term
   let[@inline] on_conflict self = Event.of_emitter self.on_conflict
@@ -1118,6 +1131,7 @@ module Make (A : ARG) :
         signatures_tbl = Sig_tbl.create size;
         bitgen;
         on_pre_merge = Event.Emitter.create ();
+        on_pre_merge2 = Event.Emitter.create ();
         on_post_merge = Event.Emitter.create ();
         on_new_term = Event.Emitter.create ();
         on_conflict = Event.Emitter.create ();

@@ -102,7 +102,6 @@ module Make (A : ARG) :
   type term = Term.t
   type ty = Ty.t
   type lit = Lit.t
-  type rule = Proof_trace.A.rule
   type step_id = Proof_trace.A.step_id
   type proof_trace = Proof_trace.t
 
@@ -117,8 +116,6 @@ module Make (A : ARG) :
   (** Conflict obtained during theory combination. It involves equalities
       merged because of the current model so it's not a "true" conflict
       and doesn't need to kill the current trail. *)
-
-  exception Semantic_conflict of th_combination_conflict
 
   (* the full argument to the congruence closure *)
   module CC_arg = struct

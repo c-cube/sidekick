@@ -147,7 +147,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
     (* setup *)
     let () =
       Event.on (CC.on_new_term cc) ~f:(fun (_, r, t) -> on_new_term cc r t);
-      Event.on (CC.on_pre_merge cc) ~f:(fun (_, ra, rb, expl) ->
+      Event.on (CC.on_pre_merge2 cc) ~f:(fun (_, ra, rb, expl) ->
           on_pre_merge cc ra rb expl);
       ()
   end
