@@ -1,6 +1,0 @@
-(library
- (name sidekick_core_ast)
- (public_name sidekick.core-ast)
- (synopsis "Core AST for logic terms and types")
- (flags :standard -w +32 -open Sidekick_sigs -open Sidekick_util)
- (libraries containers iter sidekick.sigs sidekick.util))
