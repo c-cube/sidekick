@@ -10,3 +10,10 @@ p(b): p b
 q(a): q a
 q(b): q b
 typeof(p a): Bool
+pi Bool Bool
+pi Bool Bool
+pi Bool (Bool -> Bool)
+lxy_px: (\x:Bool. (\y:Bool. p x))
+  type: (Bool -> (Bool -> Bool))
+lxy_px a b: ((\x:Bool. (\y:Bool. p x))) a b
+  type: Bool

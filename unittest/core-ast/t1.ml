@@ -35,5 +35,24 @@ let () = Fmt.printf "p(b): %a@." pp_debug pb
 let () = Fmt.printf "q(a): %a@." pp_debug qa
 let () = Fmt.printf "q(b): %a@." pp_debug qb
 let () = assert (equal pa (app store p a))
+
+(* *)
+
 let ty_pa = ty_exn pa
 let () = Fmt.printf "typeof(p a): %a@." pp_debug ty_pa
+
+(* *)
+
+let v_x = Var.make "x" bool
+let v_y = Var.make "y" bool
+let x = var store v_x
+let y = var store v_y
+let lxy_px = lam store v_x @@ lam store v_y @@ app store p x
+
+let () =
+  Fmt.printf "@[<v2>lxy_px: %a@ type: %a@]@." pp_debug lxy_px pp_debug
+    (ty_exn lxy_px)
+
+let () =
+  let t = app_l store lxy_px [ a; b ] in
+  Fmt.printf "@[<v2>lxy_px a b: %a@ type: %a@]@." pp_debug t pp_debug (ty_exn t)
