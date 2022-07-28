@@ -441,24 +441,29 @@ module Make_ = struct
     else
       aux e 0
 
-  let compute_ty_ ~make (view : view) : term =
+  let compute_ty_ store ~make (view : view) : term =
     match view with
     | E_var v -> Var.ty v
     | E_bound_var v -> Bvar.ty v
     | E_type i -> make (E_type (i + 1))
     | E_const c ->
       let ty = Const.ty c in
+      Store.check_e_uid store ty;
       if not (is_closed ty) then
         Error.errorf "const %a@ cannot have a non-closed type like %a" Const.pp
           c pp_debug ty;
       ty
     | E_lam (name, ty_v, bod) ->
+      Store.check_e_uid store ty_v;
+      Store.check_e_uid store bod;
       (* type of [\x:tau. bod] is [pi x:tau. typeof(bod)] *)
       let ty_bod = ty bod in
       make (E_pi (name, ty_v, ty_bod))
     | E_app (f, a) ->
       (* type of [f a], where [a:tau] and [f: Pi x:tau. ty_bod_f],
          is [ty_bod_f[x := a]] *)
+      Store.check_e_uid store f;
+      Store.check_e_uid store a;
       let ty_f = ty f in
       let ty_a = ty a in
       (match ty_f.view with
@@ -478,6 +483,8 @@ module Make_ = struct
     | E_pi (_, ty, bod) ->
       (* TODO: check the actual triplets for COC *)
       (*Fmt.printf "pi %a %a@." pp_debug ty pp_debug bod;*)
+      Store.check_e_uid store ty;
+      Store.check_e_uid store bod;
       let u = max (universe_of_ty_ ty) (universe_of_ty_ bod) in
       make (E_type u)
 
@@ -499,7 +506,7 @@ module Make_ = struct
         let get_ty () = make_ store (E_type (i + 1)) in
         e.ty <- T_ty_delayed get_ty
       | _ ->
-        let ty = compute_ty_ ~make:(make_ store) view in
+        let ty = compute_ty_ store ~make:(make_ store) view in
         e.ty <- T_ty ty);
       let has_fvars = compute_has_fvars_ e in
       e2.flags <-
@@ -571,28 +578,42 @@ module Make_ = struct
     else
       loop 0 e0
 
-  let abs_on_ (store : store) (v : var) (e : term) : term =
-    Store.check_e_uid store v.v_ty;
-    Store.check_e_uid store e;
-    if not (is_closed v.v_ty) then
-      Error.errorf "cannot abstract on variable@ with non closed type %a"
-        pp_debug v.v_ty;
-    let db0 = bvar store (Bvar.make 0 v.v_ty) in
-    let body = db_shift_ ~make:(make_ store) e 1 in
-    subst_ ~make:(make_ store) ~recursive:false body
-      { m = Var_.Map.singleton v db0 }
+  module DB = struct
+    let subst_db0 store e ~by : t = db_0_replace_ ~make:(make_ store) e ~by
+
+    let shift store t ~by : t =
+      assert (by >= 0);
+      db_shift_ ~make:(make_ store) t by
+
+    let lam_db ?(var_name = "") store ~var_ty bod : term =
+      make_ store (E_lam (var_name, var_ty, bod))
+
+    let pi_db ?(var_name = "") store ~var_ty bod : term =
+      make_ store (E_pi (var_name, var_ty, bod))
+
+    let abs_on (store : store) (v : var) (e : term) : term =
+      Store.check_e_uid store v.v_ty;
+      Store.check_e_uid store e;
+      if not (is_closed v.v_ty) then
+        Error.errorf "cannot abstract on variable@ with non closed type %a"
+          pp_debug v.v_ty;
+      let db0 = bvar store (Bvar.make 0 v.v_ty) in
+      let body = db_shift_ ~make:(make_ store) e 1 in
+      subst_ ~make:(make_ store) ~recursive:false body
+        { m = Var_.Map.singleton v db0 }
+  end
 
   let lam store v bod : term =
-    let bod' = abs_on_ store v bod in
-    make_ store (E_lam (Var.name v, Var.ty v, bod'))
+    let bod' = DB.abs_on store v bod in
+    DB.lam_db ~var_name:(Var.name v) store ~var_ty:(Var.ty v) bod'
 
   let pi store v bod : term =
-    let bod' = abs_on_ store v bod in
-    make_ store (E_pi (Var.name v, Var.ty v, bod'))
+    let bod' = DB.abs_on store v bod in
+    DB.pi_db ~var_name:(Var.name v) store ~var_ty:(Var.ty v) bod'
 
   let arrow store a b : term =
-    let b' = db_shift_ ~make:(make_ store) b 1 in
-    make_ store (E_pi ("", a, b'))
+    let b' = DB.shift store b ~by:1 in
+    DB.pi_db store ~var_ty:a b'
 
   let arrow_l store args ret = List.fold_right (arrow store) args ret
 
@@ -617,7 +638,7 @@ module Make_ = struct
     | E_lam (name, ty, bod) ->
       let name = pick_name_ name bod in
       let v = Var.make name ty in
-      let bod' = db_0_replace_ bod ~make:(make_ store) ~by:(var store v) in
+      let bod' = DB.subst_db0 store bod ~by:(var store v) in
       Some (v, bod')
     | _ -> None
 

@@ -97,3 +97,18 @@ let t2 =
 let () =
   Fmt.printf "@[<v2>t2: %a@ type: %a@]@." Term.pp_debug t2 Term.pp_debug
     (Term.ty t2)
+
+(* a bit of dependent types *)
+
+let nat = Term.const store @@ Str_const.make "nat" ~ty:type_
+
+let f_vec =
+  let v_A = Var.make "A" type_ in
+  let v_n = Var.make "n" nat in
+  Term.const store
+  @@ Str_const.make "vec" ~ty:Term.(pi store v_A @@ pi store v_n @@ type_ store)
+
+let () =
+  Fmt.printf "@[<v2>f_vec: %a@ type: %a@ type of type: %a@]@." Term.pp_debug
+    f_vec Term.pp_debug (Term.ty f_vec) Term.pp_debug
+    (Term.ty @@ Term.ty f_vec)

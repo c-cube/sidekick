@@ -80,7 +80,8 @@ val type_ : store -> t
 val type_of_univ : store -> int -> t
 val var : store -> var -> t
 val var_str : store -> string -> ty:t -> t
-val const : store -> Const.t -> t
+val bvar : store -> bvar -> t
+val const : store -> const -> t
 val app : store -> t -> t -> t
 val app_l : store -> t -> t list -> t
 val lam : store -> var -> t -> t
@@ -89,6 +90,38 @@ val arrow : store -> t -> t -> t
 val arrow_l : store -> t list -> t -> t
 val open_lambda : store -> t -> (var * t) option
 val open_lambda_exn : store -> t -> var * t
+
+(** De bruijn indices *)
+module DB : sig
+  val lam_db : ?var_name:string -> store -> var_ty:t -> t -> t
+  (** [lam_db store ~var_ty bod] is [\ _:var_ty. bod]. Not DB shifting is done. *)
+
+  val pi_db : ?var_name:string -> store -> var_ty:t -> t -> t
+  (** [pi_db store ~var_ty bod] is [pi _:var_ty. bod]. Not DB shifting is done. *)
+
+  val subst_db0 : store -> t -> by:t -> t
+  (** [subst_db0 store t ~by] replaces bound variable 0 in [t] with
+      the term [by]. This is useful, for example, to implement beta-reduction.
+
+      For example, with [t] being [_[0] = (\x. _[2] _[1] x[0])],
+      [subst_db0 store t ~by:"hello"] is ["hello" = (\x. _[2] "hello" x[0])].
+  *)
+
+  val shift : store -> t -> by:int -> t
+  (** [shift store t ~by] shifts all bound variables in [t] that are not
+    closed on, by amount [by] (which must be >= 0).
+
+    For example, with term [t] being [\x. _[1] _[2] x[0]],
+    [shift store t ~by:5] is [\x. _[6] _[7] x[0]]. *)
+
+  val abs_on : store -> var -> t -> t
+  (** [abs_on store v t] is the term [t[v := _[0]]]. It replaces [v] with
+      the bound variable with the same type as [v], and the DB index 0,
+      and takes care of shifting if [v] occurs under binders.
+
+      For example, [abs_on store x (\y. x+y)] is [\y. _[1] y].
+  *)
+end
 
 (**/**)
 

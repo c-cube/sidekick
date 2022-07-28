@@ -19,3 +19,6 @@ p2: p2
   type: (tau -> (tau -> Bool))
 t2: = ((tau -> (tau -> Bool))) ((\x:tau. (\y:tau. p2 x[1] y[0]))) (= tau)
   type: Bool
+f_vec: vec
+  type: (Type -> (nat -> Type))
+  type of type: Type(1)
