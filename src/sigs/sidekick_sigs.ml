@@ -39,6 +39,12 @@ module type EQ_ORD_HASH_PRINT = sig
   include PRINT with type t := t
 end
 
+module type EQ_ORD_HASH = sig
+  include EQ
+  include ORD with type t := t
+  include HASH with type t := t
+end
+
 module type DYN_BACKTRACKABLE = sig
   val n_levels : unit -> int
   (** Number of levels *)
@@ -81,4 +87,12 @@ module type BACKTRACKABLE1_CB = sig
 
   val pop_levels : 'a t -> int -> f:('a -> unit) -> unit
   (** [pop_levels st n ~f] removes [n] levels, calling [f] on every removed item *)
+end
+
+module type WITH_SET_MAP_TBL = sig
+  type t
+
+  module Set : CCSet.S with type elt = t
+  module Map : CCMap.S with type key = t
+  module Tbl : CCHashtbl.S with type key = t
 end
