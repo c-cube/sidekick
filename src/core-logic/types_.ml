@@ -26,11 +26,13 @@ and const = { c_view: const_view; c_ops: const_ops; c_ty: term }
 and term = {
   view: term_view;
   (* computed on demand *)
-  mutable ty: term option;
+  mutable ty: term_ty_;
   mutable id: int;
   (* contains: [highest DB var | 1:has free vars | 5:ctx uid] *)
   mutable flags: int;
 }
+
+and term_ty_ = T_ty of term | T_ty_delayed of (unit -> term)
 
 module Term_ = struct
   let[@inline] equal (e1 : term) e2 : bool = e1 == e2

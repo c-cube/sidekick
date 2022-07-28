@@ -65,12 +65,8 @@ val has_fvars : t -> bool
 (** Does the term contain free variables?
   time: O(1)  *)
 
-val ty_exn : t -> t
-(** Return the type of this term. Fails if the term is a type. *)
-
-val get_ty : store -> t -> t
-(** [get_ty store t] gets the type of [t], or computes it on demand
-    in case [t] is itself a type. *)
+val ty : t -> t
+(** Return the type of this term. *)
 
 (** {2 Creation} *)
 
