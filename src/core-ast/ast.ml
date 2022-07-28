@@ -40,13 +40,12 @@ let[@inline] db_depth e = e.flags lsr (1 + store_id_bits)
 let[@inline] has_fvars e = (e.flags lsr store_id_bits) land 1 == 1
 let[@inline] store_uid e : int = e.flags land store_id_mask
 let[@inline] is_closed e : bool = db_depth e == 0
+let pp_debug_ = ref (fun _ _ -> assert false)
 
 let[@inline] ty_exn e : t =
   match e.ty with
   | Some x -> x
   | None -> assert false
-
-let pp_debug_ = ref (fun _ _ -> assert false)
 
 module Var = struct
   type t = var
@@ -131,6 +130,13 @@ let expr_pp_with_ ~pp_ids ~max_depth out (e : t) : unit =
     | E_lam (n, _ty, bod) ->
       Fmt.fprintf out "(@[\\%s:@[%a@].@ %a@])" n pp' _ty
         (loop (k + 1) ~depth:(depth + 1) (n :: names))
+        bod
+    | E_pi (_, ty, bod) when is_closed bod ->
+      (* actually just an arrow *)
+      Fmt.fprintf out "(@[%a@ -> %a@])"
+        (loop k ~depth:(depth + 1) names)
+        ty
+        (loop (k + 1) ~depth:(depth + 1) ("" :: names))
         bod
     | E_pi ("", _ty, bod) ->
       Fmt.fprintf out "(@[Pi x_%d:@[%a@].@ %a@])" k pp' _ty
@@ -385,32 +391,32 @@ let free_vars ?(init = Var.Set.empty) e : Var.Set.t =
 
 module Make_ = struct
   let compute_db_depth_ e : int =
-    let d1 =
-      match e.ty with
-      | None -> 0
-      | Some d -> db_depth d
-    in
-    let d2 =
-      match view e with
-      | E_type _ | E_const _ | E_var _ -> 0
-      | E_bound_var v -> v.bv_idx + 1
-      | E_app (a, b) -> max (db_depth a) (db_depth b)
-      | E_lam (_, ty, bod) | E_pi (_, ty, bod) ->
-        max (db_depth ty) (max 0 (db_depth bod - 1))
-    in
-    max d1 d2
+    if is_type_ e then
+      0
+    else (
+      let d1 = db_depth @@ ty_exn e in
+      let d2 =
+        match view e with
+        | E_type _ | E_const _ | E_var _ -> 0
+        | E_bound_var v -> v.bv_idx + 1
+        | E_app (a, b) -> max (db_depth a) (db_depth b)
+        | E_lam (_, ty, bod) | E_pi (_, ty, bod) ->
+          max (db_depth ty) (max 0 (db_depth bod - 1))
+      in
+      max d1 d2
+    )
 
   let compute_has_fvars_ e : bool =
-    (if is_type_ e then
+    if is_type_ e then
       false
     else
-      has_fvars (ty_exn e))
-    ||
-    match view e with
-    | E_var _ -> true
-    | E_type _ | E_bound_var _ | E_const _ -> false
-    | E_app (a, b) -> has_fvars a || has_fvars b
-    | E_lam (_, ty, bod) | E_pi (_, ty, bod) -> has_fvars ty || has_fvars bod
+      has_fvars (ty_exn e)
+      ||
+      match view e with
+      | E_var _ -> true
+      | E_type _ | E_bound_var _ | E_const _ -> false
+      | E_app (a, b) -> has_fvars a || has_fvars b
+      | E_lam (_, ty, bod) | E_pi (_, ty, bod) -> has_fvars ty || has_fvars bod
 
   let universe_ (e : t) : int =
     match e.view with
@@ -544,7 +550,7 @@ module Make_ = struct
     | E_lam (name, ty, bod) ->
       (* type of [\x:tau. bod] is [pi x:tau. typeof(bod)] *)
       let ty_bod = ty_exn bod in
-      make (E_pi (name, ty, db_shift_ ~make ty_bod 1))
+      make (E_pi (name, ty, ty_bod))
     | E_app (f, a) ->
       (* type of [f a], where [a:tau] and [f: Pi x:tau. ty_bod_f],
          is [ty_bod_f[x := a]] *)
@@ -564,7 +570,9 @@ module Make_ = struct
           "@[<2>cannot apply %a,@ must have Pi type, but actual type is %a@]"
           pp_debug f pp_debug ty_f)
     | E_pi (_, ty, bod) ->
-      let u = max (universe_ ty) (universe_of_ty_ bod) + 1 in
+      (* TODO: check the actual triplets for COC *)
+      Fmt.printf "pi %a %a@." pp_debug ty pp_debug bod;
+      let u = max (universe_of_ty_ ty) (universe_of_ty_ bod) + 1 in
       make (E_type u)
 
   (* hashconsing + computing metadata + computing type (for new terms) *)
@@ -574,6 +582,12 @@ module Make_ = struct
     if e == e2 then (
       (* new term, compute metadata *)
       assert (store.s_uid land store_id_mask == store.s_uid);
+
+      (* first, compute type *)
+      if not (is_type_ e) then (
+        let ty = compute_ty_ ~make:(make_ store) view in
+        e.ty <- Some ty
+      );
       let has_fvars = compute_has_fvars_ e in
       e2.flags <-
         (compute_db_depth_ e lsl (1 + store_id_bits))
@@ -582,12 +596,7 @@ module Make_ = struct
             else
               0)
         lor store.s_uid;
-      Store.check_e_uid store e2;
-
-      if not (is_type_ e) then (
-        let ty = compute_ty_ ~make:(make_ store) view in
-        e.ty <- Some ty
-      )
+      Store.check_e_uid store e2
     );
     e2
 
@@ -596,6 +605,7 @@ module Make_ = struct
   let var store v : t = make_ store (E_var v)
   let var_str store name ~ty : t = var store (Var.make name ty)
   let bvar store v : t = make_ store (E_bound_var v)
+  let const store c ~ty : t = make_ store (E_const (c, ty))
   let app store f a = make_ store (E_app (f, a))
   let app_l store f l = List.fold_left (app store) f l
 

@@ -98,6 +98,13 @@ val has_fvars : t -> bool
 (** Does the term contain free variables?
   time: O(1)  *)
 
+val ty_exn : t -> t
+(** Return the type of this term. Fails if the term is a type. *)
+
+val get_ty : store -> t -> t
+(** [get_ty store t] gets the type of [t], or computes it on demand
+    in case [t] is itself a type. *)
+
 (** {2 Creation} *)
 
 module Store : sig
@@ -110,6 +117,7 @@ val type_ : store -> t
 val type_of_univ : store -> int -> t
 val var : store -> var -> t
 val var_str : store -> string -> ty:t -> t
+val const : store -> Const.t -> ty:t -> t
 val app : store -> t -> t -> t
 val app_l : store -> t -> t list -> t
 val lam : store -> var -> t -> t
@@ -118,10 +126,6 @@ val arrow : store -> t -> t -> t
 val arrow_l : store -> t list -> t -> t
 val open_lambda : store -> t -> (var * t) option
 val open_lambda_exn : store -> t -> var * t
-
-val get_ty : store -> t -> t
-(** [get_ty store t] gets the type of [t], or computes it on demand
-    in case [t] is itself a type. *)
 
 (** Substitutions *)
 module Subst : sig
