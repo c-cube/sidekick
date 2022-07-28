@@ -1,4 +1,0 @@
-(tests
- (names t1)
- (flags :standard -open Sidekick_util)
- (libraries containers sidekick.util sidekick.core-ast))
