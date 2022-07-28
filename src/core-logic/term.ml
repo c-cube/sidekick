@@ -441,46 +441,6 @@ module Make_ = struct
     else
       aux e 0
 
-  let subst_ ~make ~recursive e0 (subst : subst) : t =
-    (* cache for types and some terms *)
-    let cache_ = T_int_tbl.create 16 in
-
-    let rec loop k e =
-      try T_int_tbl.find cache_ (e, k)
-      with Not_found ->
-        let r = loop_uncached_ k e in
-        T_int_tbl.add cache_ (e, k) r;
-        r
-    and loop_uncached_ k (e : t) : t =
-      match view e with
-      | _ when not (has_fvars e) -> e (* nothing to subst in *)
-      | E_var v ->
-        (* first, subst in type *)
-        let v = { v with v_ty = loop k v.v_ty } in
-        (match Var_.Map.find v subst.m with
-        | u ->
-          let u = db_shift_ ~make u k in
-          if recursive then
-            loop 0 u
-          else
-            u
-        | exception Not_found -> make (E_var v))
-      | E_const _ -> e
-      | _ ->
-        map_shallow_ e ~make ~f:(fun inb u ->
-            loop
-              (if inb then
-                k + 1
-              else
-                k)
-              u)
-    in
-
-    if Var_.Map.is_empty subst.m then
-      e0
-    else
-      loop 0 e0
-
   let compute_ty_ ~make (view : view) : term =
     match view with
     | E_var v -> Var.ty v
@@ -561,6 +521,55 @@ module Make_ = struct
   let const store c : term = make_ store (E_const c)
   let app store f a = make_ store (E_app (f, a))
   let app_l store f l = List.fold_left (app store) f l
+
+  (* general substitution, compatible with DB indices. We use this
+     also to abstract on a free variable, because it subsumes it and
+     it's better to minimize the number of DB indices manipulations *)
+  let subst_ ~make ~recursive e0 (subst : subst) : t =
+    (* cache for types and some terms *)
+    let cache_ = T_int_tbl.create 16 in
+
+    let rec loop k e =
+      if is_type_ e then
+        e
+      else if not (has_fvars e) then
+        (* no free variables, cannot change *)
+        e
+      else (
+        try T_int_tbl.find cache_ (e, k)
+        with Not_found ->
+          let r = loop_uncached_ k e in
+          T_int_tbl.add cache_ (e, k) r;
+          r
+      )
+    and loop_uncached_ k (e : t) : t =
+      match view e with
+      | E_var v ->
+        (* first, subst in type *)
+        let v = { v with v_ty = loop k v.v_ty } in
+        (match Var_.Map.find v subst.m with
+        | u ->
+          let u = db_shift_ ~make u k in
+          if recursive then
+            loop 0 u
+          else
+            u
+        | exception Not_found -> make (E_var v))
+      | E_const _ -> e
+      | _ ->
+        map_shallow_ e ~make ~f:(fun inb u ->
+            loop
+              (if inb then
+                k + 1
+              else
+                k)
+              u)
+    in
+
+    if Var_.Map.is_empty subst.m then
+      e0
+    else
+      loop 0 e0
 
   let abs_on_ (store : store) (v : var) (e : term) : term =
     Store.check_e_uid store v.v_ty;
