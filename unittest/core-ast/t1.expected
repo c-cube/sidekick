@@ -2,3 +2,11 @@ type0 : type
 typeof(type0) : type_1
 type tower: [type;type_1;type_2;type_3;type_4;type_5;type_6;type_7;type_8;
              type_9]
+a: a, b: b, typeof(a): Bool
+pi Bool Bool
+b2b: (Bool -> Bool)
+p(a): p a
+p(b): p b
+q(a): q a
+q(b): q b
+typeof(p a): Bool
