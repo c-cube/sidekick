@@ -1,19 +1,21 @@
-type0 : type
-typeof(type0) : type_1
-type tower: [type;type_1;type_2;type_3;type_4;type_5;type_6;type_7;type_8;
-             type_9]
+type0 : Type
+typeof(type0) : Type(1)
+type tower: [Type;Type(1);Type(2);Type(3);Type(4)]
 a: a, b: b, typeof(a): Bool
-pi Bool Bool
 b2b: (Bool -> Bool)
 p(a): p a
 p(b): p b
 q(a): q a
 q(b): q b
 typeof(p a): Bool
-pi Bool Bool
-pi Bool Bool
-pi Bool (Bool -> Bool)
-lxy_px: (\x:Bool. (\y:Bool. p x))
+lxy_px: (\x:Bool. (\y:Bool. p x[1]))
   type: (Bool -> (Bool -> Bool))
-lxy_px a b: ((\x:Bool. (\y:Bool. p x))) a b
+  type of type: Type
+lxy_px a b: ((\x:Bool. (\y:Bool. p x[1]))) a b
+  type: Bool
+(=): =
+  type: (Pi Alpha:Type. (Pi _:Alpha[0]. (Alpha[1] -> Bool)))
+p2: p2
+  type: (tau -> (tau -> Bool))
+t2: = ((tau -> (tau -> Bool))) ((\x:tau. (\y:tau. p2 x[1] y[0]))) (= tau)
   type: Bool
