@@ -1,3 +1,4 @@
+open Sidekick_core
 open Sidekick_cc
 
 module type EXTENDED_PLUGIN_BUILDER = sig
@@ -22,8 +23,6 @@ module Make (M : MONOID_PLUGIN_ARG) :
   module E_node = CC.E_node
   module Cls_tbl = Backtrackable_tbl.Make (E_node)
   module Expl = CC.Expl
-
-  type term = CC.term
 
   module type DYN_PL_FOR_M = DYN_MONOID_PLUGIN with module M = M
 
@@ -63,7 +62,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
       else
         None
 
-    let on_new_term cc n (t : term) : CC.Handler_action.t list =
+    let on_new_term cc n (t : Term.t) : CC.Handler_action.t list =
       (*Log.debugf 50 (fun k->k "(@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);*)
       let acts = ref [] in
       let maybe_m, l = M.of_term cc n t in

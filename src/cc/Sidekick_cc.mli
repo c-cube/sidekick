@@ -4,26 +4,12 @@ open Sidekick_core
 module View = View
 
 module type ARG = Sigs.ARG
-
-module type S = sig
-  include Sigs.S
-
-  val create :
-    ?stat:Stat.t -> ?size:[ `Small | `Big ] -> Term.store -> Proof_trace.t -> t
-  (** Create a new congruence closure.
-
-      @param term_store used to be able to create new terms. All terms
-      interacting with this congruence closure must belong in this term state
-      as well. *)
-
-  (**/**)
-
-  module Debug_ : sig
-    val pp : t Fmt.printer
-    (** Print the whole CC *)
-  end
-
-  (**/**)
-end
+module type S = Sigs.S
+module type DYN_MONOID_PLUGIN = Sigs.DYN_MONOID_PLUGIN
+module type MONOID_PLUGIN_ARG = Sigs.MONOID_PLUGIN_ARG
+module type MONOID_PLUGIN_BUILDER = Sigs.MONOID_PLUGIN_BUILDER
 
 module Make (_ : ARG) : S
+
+module Base : S
+(** Basic implementation following terms' shape *)
