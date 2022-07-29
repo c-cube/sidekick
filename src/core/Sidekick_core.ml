@@ -3,7 +3,7 @@
     Theories and concrete solvers rely on an environment that defines
     several important types:
 
-    - sorts
+      - types
     - terms (to represent logic expressions and formulas)
     - a congruence closure instance
     - a bridge to some SAT solver
@@ -14,12 +14,18 @@
 
 module Fmt = CCFormat
 
-module type TERM = Sidekick_sigs_term.S
-module type LIT = Sidekick_sigs_lit.S
-module type PROOF_TRACE = Sidekick_sigs_proof_trace.S
+(* re-export *)
 
-module type SAT_PROOF_RULES = Sidekick_sigs_proof_sat.S
-(** Signature for SAT-solver proof emission. *)
+module Const = Sidekick_core_logic.Const
 
-module type PROOF_CORE = Sidekick_sigs_proof_core.S
-(** Proofs of unsatisfiability. *)
+module Term = struct
+  include Sidekick_core_logic.Term
+  include Sidekick_core_logic.T_builtins
+end
+
+module Var = Sidekick_core_logic.Var
+module Bvar = Sidekick_core_logic.Bvar
+module Subst = Sidekick_core_logic.Subst
+module Proof_trace = Proof_trace
+module Proof_sat = Proof_sat
+module Proof_core = Proof_core
