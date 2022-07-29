@@ -36,6 +36,8 @@ val atom : ?sign:bool -> term -> t
       its sign in the process.
       @param sign if provided, and [sign=false], negate the resulting lit. *)
 
+val make_eq : ?sign:bool -> Term.store -> term -> term -> t
+
 val norm_sign : t -> t * bool
 (** [norm_sign (+t)] is [+t, true],
       and [norm_sign (-t)] is [+t, false].

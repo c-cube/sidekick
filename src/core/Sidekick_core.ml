@@ -23,9 +23,11 @@ module Term = struct
   include Sidekick_core_logic.T_builtins
 end
 
-module Var = Sidekick_core_logic.Var
 module Bvar = Sidekick_core_logic.Bvar
-module Subst = Sidekick_core_logic.Subst
-module Proof_trace = Proof_trace
-module Proof_sat = Proof_sat
+module Lit = Lit
 module Proof_core = Proof_core
+module Proof_sat = Proof_sat
+module Proof_trace = Proof_trace
+module Proof_term = Proof_term
+module Subst = Sidekick_core_logic.Subst
+module Var = Sidekick_core_logic.Var

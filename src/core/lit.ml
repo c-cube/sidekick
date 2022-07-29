@@ -21,6 +21,10 @@ let atom ?(sign = true) (t : term) : t =
   in
   make ~sign t
 
+let make_eq ?sign store t u : t =
+  let p = T_builtins.eq store t u in
+  atom ?sign p
+
 let equal a b = a.lit_sign = b.lit_sign && T.equal a.lit_term b.lit_term
 
 let hash a =
