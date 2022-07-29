@@ -9,6 +9,10 @@
 
 open Types_
 
+type nonrec var = var
+type nonrec bvar = bvar
+type nonrec term = term
+
 type t = term
 (** A term, in the calculus of constructions *)
 
@@ -44,13 +48,35 @@ include WITH_SET_MAP_TBL with type t := t
 
 val view : t -> view
 val unfold_app : t -> t * t list
+
 val iter_dag : ?seen:unit Tbl.t -> iter_ty:bool -> f:(t -> unit) -> t -> unit
+(** [iter_dag t ~f] calls [f] once on each subterm of [t], [t] included.
+        It must {b not} traverse [t] as a tree, but rather as a
+        perfectly shared DAG.
+
+        For example, in:
+        {[
+          let x = 2 in
+          let y = f x x in
+          let z = g y x in
+          z = z
+        ]}
+
+        the DAG has the following nodes:
+
+        {[ n1: 2
+           n2: f n1 n1
+           n3: g n2 n1
+           n4: = n3 n3
+         ]}
+    *)
 
 val iter_shallow : f:(bool -> t -> unit) -> t -> unit
 (** [iter_shallow f e] iterates on immediate subterms of [e],
   calling [f trdb e'] for each subterm [e'], with [trdb = true] iff
   [e'] is directly under a binder. *)
 
+val map_shallow : store -> f:(bool -> t -> t) -> t -> t
 val exists_shallow : f:(bool -> t -> bool) -> t -> bool
 val for_all_shallow : f:(bool -> t -> bool) -> t -> bool
 val contains : t -> sub:t -> bool
@@ -81,6 +107,7 @@ val type_of_univ : store -> int -> t
 val var : store -> var -> t
 val var_str : store -> string -> ty:t -> t
 val bvar : store -> bvar -> t
+val bvar_i : store -> int -> ty:t -> t
 val const : store -> const -> t
 val app : store -> t -> t -> t
 val app_l : store -> t -> t list -> t
@@ -126,6 +153,7 @@ end
 (**/**)
 
 module Internal_ : sig
+  val is_type_ : t -> bool
   val subst_ : store -> recursive:bool -> t -> subst -> t
 end
 

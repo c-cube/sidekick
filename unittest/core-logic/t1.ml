@@ -11,7 +11,13 @@ let l =
 
 let () = Fmt.printf "type tower: %a@." (Fmt.Dump.list Term.pp_debug) l
 let () = assert (Term.(equal (type_ store) (type_ store)))
-let bool = Term.const store @@ Str_const.make "Bool" ~ty:(Term.type_ store)
+let bool = T_builtins.bool store
+
+let () =
+  Fmt.printf "%a: [%a, %a]@." Term.pp_debug (T_builtins.bool store)
+    Term.pp_debug (T_builtins.true_ store) Term.pp_debug
+    (T_builtins.false_ store)
+
 let a = Term.const store @@ Str_const.make "a" ~ty:bool
 let a' = Term.const store @@ Str_const.make "a" ~ty:bool
 let b = Term.const store @@ Str_const.make "b" ~ty:bool
@@ -62,19 +68,11 @@ let () =
 (* *)
 
 let tau = Term.const store @@ Str_const.make "tau" ~ty:type_
-
-let f_eq =
-  let vAlpha = Var.make "Alpha" type_ in
-  let tAlpha = Term.var store vAlpha in
-  Term.const store
-  @@ Str_const.make "="
-       ~ty:Term.(pi store vAlpha @@ arrow_l store [ tAlpha; tAlpha ] bool)
+let f_eq = T_builtins.c_eq store
 
 let () =
   Fmt.printf "@[<v2>(=): %a@ type: %a@]@." Term.pp_debug f_eq Term.pp_debug
     (Term.ty f_eq)
-
-let app_eq store x y = Term.app_l store f_eq [ Term.ty x; x; y ]
 
 let p2 =
   Term.const store
@@ -92,7 +90,7 @@ let t2 =
   Term.(
     let t1 = lam store vx @@ lam store vy @@ app_l store p2 [ tX; tY ]
     and t2 = app store f_eq tau in
-    app_eq store t1 t2)
+    T_builtins.eq store t1 t2)
 
 let () =
   Fmt.printf "@[<v2>t2: %a@ type: %a@]@." Term.pp_debug t2 Term.pp_debug

@@ -1,5 +1,9 @@
 open Types_
 
+type nonrec var = var
+type nonrec bvar = bvar
+type nonrec term = term
+
 type view = term_view =
   | E_type of int
   | E_var of var
@@ -218,63 +222,6 @@ let map_shallow_ ~make ~f (e : term) : term =
       e
     else
       make (E_pi (n, tyv', bod'))
-
-(* TODO
-   (* map immediate subterms *)
-   let map_shallow ctx ~f (e : t) : t =
-     match view e with
-     | E_kind | E_type | E_const (_, []) | E_box _ -> e
-     | _ ->
-       let ty' =
-         lazy
-           (match e.e_ty with
-           | (lazy None) -> None
-           | (lazy (Some ty)) -> Some (f false ty))
-       in
-       (match view e with
-       | E_var v ->
-         let v_ty = f false v.v_ty in
-         if v_ty == v.v_ty then
-           e
-         else
-           make_ ctx (E_var { v with v_ty }) ty'
-       | E_const (c, args) ->
-         let args' = List.map (f false) args in
-         if List.for_all2 equal args args' then
-           e
-         else
-           make_ ctx (E_const (c, args')) ty'
-       | E_bound_var v ->
-         let ty' = f false v.bv_ty in
-         if v.bv_ty == ty' then
-           e
-         else
-           make_ ctx
-             (E_bound_var { v with bv_ty = ty' })
-             (Lazy.from_val (Some ty'))
-       | E_app (hd, a) ->
-         let hd' = f false hd in
-         let a' = f false a in
-         if a == a' && hd == hd' then
-           e
-         else
-           make_ ctx (E_app (f false hd, f false a)) ty'
-       | E_lam (n, tyv, bod) ->
-         let tyv' = f false tyv in
-         let bod' = f true bod in
-         if tyv == tyv' && bod == bod' then
-           e
-         else
-           make_ ctx (E_lam (n, tyv', bod')) ty'
-       | E_arrow (a, b) ->
-         let a' = f false a in
-         let b' = f false b in
-         if a == a' && b == b' then
-           e
-         else
-           make_ ctx (E_arrow (a', b')) ty'
-       | E_kind | E_type | E_box _ -> assert false)
-*)
 
 exception IsSub
 
@@ -525,6 +472,7 @@ module Make_ = struct
   let var store v : term = make_ store (E_var v)
   let var_str store name ~ty : term = var store (Var.make name ty)
   let bvar store v : term = make_ store (E_bound_var v)
+  let bvar_i store i ~ty : term = make_ store (E_bound_var (Bvar.make i ty))
   let const store c : term = make_ store (E_const c)
   let app store f a = make_ store (E_app (f, a))
   let app_l store f l = List.fold_left (app store) f l
@@ -650,8 +598,12 @@ end
 
 include Make_
 
+let map_shallow store ~f e : t = map_shallow_ ~make:(make_ store) ~f e
+
 (* re-export some internal things *)
 module Internal_ = struct
+  let is_type_ = is_type_
+
   let subst_ store ~recursive t subst =
     subst_ ~make:(make_ store) ~recursive t subst
 end
