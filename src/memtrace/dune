@@ -1,6 +1,7 @@
 (library
  (name sidekick_memtrace)
  (public_name sidekick.memtrace)
+ (synopsis "optional interface to memtrace")
  (libraries
   (select
    sidekick_memtrace.ml
