@@ -2,5 +2,6 @@
  (name sidekick_core_logic)
  (public_name sidekick.core-logic)
  (synopsis "Core AST for logic terms in the calculus of constructions")
+ (private_modules types_)
  (flags :standard -w +32 -open Sidekick_sigs -open Sidekick_util)
  (libraries containers iter sidekick.sigs sidekick.util))
