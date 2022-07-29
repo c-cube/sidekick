@@ -1,5 +1,7 @@
 (library
  (name Sidekick_cc)
  (public_name sidekick.cc)
- (libraries containers iter sidekick.sigs sidekick.sigs.cc sidekick.util)
- (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util))
+ (synopsis "main congruence closure implementation")
+ (private_modules core_cc)
+ (libraries containers iter sidekick.sigs sidekick.core sidekick.util)
+ (flags :standard -open Sidekick_util))

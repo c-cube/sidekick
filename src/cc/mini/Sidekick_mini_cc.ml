@@ -1,46 +1,34 @@
-module CC_view = Sidekick_sigs_cc.View
-
-module type TERM = Sidekick_sigs_term.S
+open Sidekick_core
+module CC_view = Sidekick_cc.View
 
 module type ARG = sig
-  module T : TERM
-
-  val view_as_cc : T.Term.t -> (T.Fun.t, T.Term.t, T.Term.t Iter.t) CC_view.t
+  val view_as_cc : Term.t -> (Const.t, Term.t, Term.t Iter.t) CC_view.t
 end
 
 module type S = sig
-  type term
-  type fun_
-  type term_store
   type t
 
-  val create : term_store -> t
+  val create : Term.store -> t
   val clear : t -> unit
-  val add_lit : t -> term -> bool -> unit
+  val add_lit : t -> Term.t -> bool -> unit
   val check_sat : t -> bool
-  val classes : t -> term Iter.t Iter.t
+  val classes : t -> Term.t Iter.t Iter.t
 end
 
 module Make (A : ARG) = struct
   open CC_view
-  module Fun = A.T.Fun
-  module T = A.T.Term
-
-  type fun_ = A.T.Fun.t
-  type term = T.t
-  type term_store = T.store
-
-  module T_tbl = CCHashtbl.Make (T)
+  module T = Term
+  module T_tbl = Term.Tbl
 
   type node = {
-    n_t: term;
+    n_t: Term.t;
     mutable n_next: node; (* next in class *)
     mutable n_size: int; (* size of class *)
     mutable n_parents: node list;
     mutable n_root: node; (* root of the class *)
   }
 
-  type signature = (fun_, node, node list) CC_view.t
+  type signature = (Const.t, node, node list) CC_view.t
 
   module Node = struct
     type t = node
@@ -51,7 +39,7 @@ module Make (A : ARG) = struct
     let[@inline] is_root n = n == n.n_root
     let[@inline] root n = n.n_root
     let[@inline] term n = n.n_t
-    let pp out n = T.pp out n.n_t
+    let pp out n = T.pp_debug out n.n_t
     let add_parent (self : t) ~p : unit = self.n_parents <- p :: self.n_parents
 
     let make (t : T.t) : t =
@@ -79,9 +67,9 @@ module Make (A : ARG) = struct
     let equal (s1 : t) s2 : bool =
       match s1, s2 with
       | Bool b1, Bool b2 -> b1 = b2
-      | App_fun (f1, []), App_fun (f2, []) -> Fun.equal f1 f2
+      | App_fun (f1, []), App_fun (f2, []) -> Const.equal f1 f2
       | App_fun (f1, l1), App_fun (f2, l2) ->
-        Fun.equal f1 f2 && CCList.equal Node.equal l1 l2
+        Const.equal f1 f2 && CCList.equal Node.equal l1 l2
       | App_ho (f1, a1), App_ho (f2, a2) -> Node.equal f1 f2 && Node.equal a1 a2
       | Not n1, Not n2 -> Node.equal n1 n2
       | If (a1, b1, c1), If (a2, b2, c2) ->
@@ -101,7 +89,7 @@ module Make (A : ARG) = struct
       let module H = CCHash in
       match s with
       | Bool b -> H.combine2 10 (H.bool b)
-      | App_fun (f, l) -> H.combine3 20 (Fun.hash f) (H.list Node.hash l)
+      | App_fun (f, l) -> H.combine3 20 (Const.hash f) (H.list Node.hash l)
       | App_ho (f, a) -> H.combine3 30 (Node.hash f) (Node.hash a)
       | Eq (a, b) -> H.combine3 40 (Node.hash a) (Node.hash b)
       | Opaque u -> H.combine2 50 (Node.hash u)
@@ -110,9 +98,9 @@ module Make (A : ARG) = struct
 
     let pp out = function
       | Bool b -> Fmt.bool out b
-      | App_fun (f, []) -> Fun.pp out f
+      | App_fun (f, []) -> Const.pp out f
       | App_fun (f, l) ->
-        Fmt.fprintf out "(@[%a@ %a@])" Fun.pp f (Util.pp_list Node.pp) l
+        Fmt.fprintf out "(@[%a@ %a@])" Const.pp f (Util.pp_list Node.pp) l
       | App_ho (f, a) -> Fmt.fprintf out "(@[%a@ %a@])" Node.pp f Node.pp a
       | Opaque t -> Node.pp out t
       | Not u -> Fmt.fprintf out "(@[not@ %a@])" Node.pp u
@@ -134,8 +122,8 @@ module Make (A : ARG) = struct
   }
 
   let create tst : t =
-    let true_ = T.bool tst true in
-    let false_ = T.bool tst false in
+    let true_ = Term.true_ tst in
+    let false_ = Term.false_ tst in
     let self =
       {
         ok = true;
@@ -180,7 +168,7 @@ module Make (A : ARG) = struct
       k b;
       k c
 
-  let rec add_t (self : t) (t : term) : node =
+  let rec add_t (self : t) (t : Term.t) : node =
     match T_tbl.find self.tbl t with
     | n -> n
     | exception Not_found ->
@@ -194,9 +182,10 @@ module Make (A : ARG) = struct
       self.pending <- node :: self.pending;
       node
 
-  let find_t_ (self : t) (t : term) : node =
+  let find_t_ (self : t) (t : Term.t) : node =
     try T_tbl.find self.tbl t |> Node.root
-    with Not_found -> Error.errorf "mini-cc.find_t: no node for %a" T.pp t
+    with Not_found ->
+      Error.errorf "mini-cc.find_t: no node for %a" T.pp_debug t
 
   exception E_unsat
 

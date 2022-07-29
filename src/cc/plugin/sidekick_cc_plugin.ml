@@ -1,4 +1,4 @@
-open Sidekick_sigs_cc
+open Sidekick_cc
 
 module type EXTENDED_PLUGIN_BUILDER = sig
   include MONOID_PLUGIN_BUILDER
