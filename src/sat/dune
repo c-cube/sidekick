@@ -1,7 +1,6 @@
 (library
  (name sidekick_sat)
  (public_name sidekick.sat)
- (libraries iter sidekick.util sidekick.core sidekick.sigs.proof-trace
-   sidekick.proof-trace.dummy)
  (synopsis "Pure OCaml SAT solver implementation for sidekick")
- (flags :standard -open Sidekick_util))
+ (libraries iter sidekick.util sidekick.core)
+ (flags :standard -w +32 -open Sidekick_util))
