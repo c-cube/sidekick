@@ -1,6 +1,6 @@
 open Sidekick_core_logic
 
-type step_id = int32
+type step_id = Proof_step.id
 type lit = Lit.t
 
 type t = {

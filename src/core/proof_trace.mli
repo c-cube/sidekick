@@ -10,7 +10,7 @@ open Sidekick_core_logic
 
 type lit = Lit.t
 
-type step_id = Proof_term.step_id
+type step_id = Proof_step.id
 (** Identifier for a tracing step (like a unique ID for a clause previously
     added/proved) *)
 

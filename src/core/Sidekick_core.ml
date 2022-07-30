@@ -25,6 +25,7 @@ end
 
 module Bvar = Sidekick_core_logic.Bvar
 module Lit = Lit
+module Proof_step = Proof_step
 module Proof_core = Proof_core
 module Proof_sat = Proof_sat
 module Proof_trace = Proof_trace

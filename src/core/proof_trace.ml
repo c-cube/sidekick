@@ -1,5 +1,5 @@
 type lit = Lit.t
-type step_id = int32
+type step_id = Proof_step.id
 type proof_term = Proof_term.t
 
 module Step_vec = struct
