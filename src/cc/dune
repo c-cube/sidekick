@@ -2,6 +2,6 @@
  (name Sidekick_cc)
  (public_name sidekick.cc)
  (synopsis "main congruence closure implementation")
- (private_modules core_cc)
+ (private_modules types_ signature)
  (libraries containers iter sidekick.sigs sidekick.core sidekick.util)
  (flags :standard -open Sidekick_util))

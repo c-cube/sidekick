@@ -1,16 +1,16 @@
-open Sidekick_core
-open Sidekick_cc
+open Types_
+open Sigs_plugin
 
 module type EXTENDED_PLUGIN_BUILDER = sig
   include MONOID_PLUGIN_BUILDER
 
-  val mem : t -> M.CC.E_node.t -> bool
-  (** Does the CC E_node.t have a monoid value? *)
+  val mem : t -> E_node.t -> bool
+  (** Does the CC.E_node.t have a monoid value? *)
 
-  val get : t -> M.CC.E_node.t -> M.t option
-  (** Get monoid value for this CC E_node.t, if any *)
+  val get : t -> E_node.t -> M.t option
+  (** Get monoid value for this CC.E_node.t, if any *)
 
-  val iter_all : t -> (M.CC.repr * M.t) Iter.t
+  val iter_all : t -> (CC.repr * M.t) Iter.t
 
   include Sidekick_sigs.BACKTRACKABLE0 with type t := t
   include Sidekick_sigs.PRINT with type t := t
@@ -19,10 +19,7 @@ end
 module Make (M : MONOID_PLUGIN_ARG) :
   EXTENDED_PLUGIN_BUILDER with module M = M = struct
   module M = M
-  module CC = M.CC
-  module E_node = CC.E_node
   module Cls_tbl = Backtrackable_tbl.Make (E_node)
-  module Expl = CC.Expl
 
   module type DYN_PL_FOR_M = DYN_MONOID_PLUGIN with module M = M
 
@@ -40,7 +37,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
     let values : M.t Cls_tbl.t = Cls_tbl.create ?size ()
 
     (* bit in CC to filter out quickly classes without value *)
-    let field_has_value : CC.E_node.bitfield =
+    let field_has_value : CC.bitfield =
       CC.allocate_bitfield ~descr:("monoid." ^ M.name ^ ".has-value") cc
 
     let push_level () = Cls_tbl.push_level values
@@ -91,7 +88,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
             | Error (CC.Handler_action.Conflict expl) ->
               Error.errorf
                 "when merging@ @[for node %a@],@ values %a and %a:@ conflict %a"
-                E_node.pp n_u M.pp m_u M.pp m_u' CC.Expl.pp expl
+                E_node.pp n_u M.pp m_u M.pp m_u' Expl.pp expl
             | Ok (m_u_merged, merge_acts) ->
               acts := List.rev_append merge_acts !acts;
               Log.debugf 20 (fun k ->
@@ -111,7 +108,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
     let iter_all : _ Iter.t = Cls_tbl.to_iter values
 
     let on_pre_merge cc n1 n2 e_n1_n2 : CC.Handler_action.or_conflict =
-      let exception E of M.CC.Handler_action.conflict in
+      let exception E of CC.Handler_action.conflict in
       let acts = ref [] in
       try
         (match get n1, get n2 with
