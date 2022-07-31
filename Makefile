@@ -77,7 +77,7 @@ reindent:
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 echo "reindenting: "
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 ocp-indent -i
 
-WATCH=@all
+WATCH?=@all
 watch:
 	dune build $(WATCH) -w $(OPTS)
 	#@dune build @all -w # TODO: once tests pass
