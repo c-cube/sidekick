@@ -248,13 +248,13 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         proxy)
 
   let add_clause_lra_ ?using (module PA : SI.PREPROCESS_ACTS) lits =
-    let pr = Proof_trace.add_step PA.proof @@ A.lemma_lra (Iter.of_list lits) in
+    let pr = Proof_trace.add_step PA.proof @@ fun () -> A.lemma_lra lits in
     let pr =
       match using with
       | None -> pr
       | Some using ->
-        Proof_trace.add_step PA.proof
-        @@ Proof_core.lemma_rw_clause pr ~res:(Iter.of_list lits) ~using
+        Proof_trace.add_step PA.proof @@ fun () ->
+        Proof_core.lemma_rw_clause pr ~res:lits ~using
     in
     PA.add_clause lits pr
 
@@ -396,12 +396,12 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   let simplify (self : state) (_recurse : _) (t : Term.t) :
       (Term.t * Proof_step.id Iter.t) option =
     let proof_eq t u =
-      Proof_trace.add_step self.proof
-      @@ A.lemma_lra (Iter.return (Lit.atom (Term.eq self.tst t u)))
+      Proof_trace.add_step self.proof @@ fun () ->
+      A.lemma_lra [ Lit.atom (Term.eq self.tst t u) ]
     in
     let proof_bool t ~sign:b =
       let lit = Lit.atom ~sign:b t in
-      Proof_trace.add_step self.proof @@ A.lemma_lra (Iter.return lit)
+      Proof_trace.add_step self.proof @@ fun () -> A.lemma_lra [ lit ]
     in
 
     match A.view_as_lra t with
@@ -467,7 +467,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       |> List.rev_map Lit.neg
     in
     let pr =
-      Proof_trace.add_step (SI.proof si) @@ A.lemma_lra (Iter.of_list confl)
+      Proof_trace.add_step (SI.proof si) @@ fun () -> A.lemma_lra confl
     in
     SI.raise_conflict si acts confl pr
 
@@ -478,8 +478,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       SI.propagate si acts lit ~reason:(fun () ->
           let lits = CCList.flat_map (Tag.to_lits si) reason in
           let pr =
-            Proof_trace.add_step (SI.proof si)
-            @@ A.lemma_lra Iter.(cons lit (of_list lits))
+            Proof_trace.add_step (SI.proof si) @@ fun () ->
+            A.lemma_lra (lit :: lits)
           in
           CCList.flat_map (Tag.to_lits si) reason, pr)
     | _ -> ()
@@ -525,7 +525,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         (* [c=0] when [c] is not 0 *)
         let lit = Lit.atom ~sign:false @@ Term.eq self.tst t1 t2 in
         let pr =
-          Proof_trace.add_step self.proof @@ A.lemma_lra (Iter.return lit)
+          Proof_trace.add_step self.proof @@ fun () -> A.lemma_lra [ lit ]
         in
         SI.add_clause_permanent si acts [ lit ] pr
       )

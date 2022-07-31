@@ -1,10 +1,5 @@
 open Sidekick_core
 
-open struct
-  module P = Proof_trace
-  module Rule_ = Proof_core
-end
-
 type t = {
   tst: Term.store;
   proof: Proof_trace.t;
@@ -68,8 +63,8 @@ let normalize (self : t) (t : Term.t) : (Term.t * Proof_step.id) option =
   else (
     (* proof: [sub_proofs |- t=u] by CC + subproof *)
     let step =
-      P.add_step self.proof
-      @@ Rule_.lemma_preprocess t u ~using:(Bag.to_iter pr_u)
+      Proof_trace.add_step self.proof @@ fun () ->
+      Proof_core.lemma_preprocess t u ~using:(Bag.to_list pr_u)
     in
     Some (u, step)
   )

@@ -9,7 +9,7 @@ let name = "th-cstor"
 
 module type ARG = sig
   val view_as_cstor : Term.t -> (Const.t, Term.t) cstor_view
-  val lemma_cstor : Lit.t Iter.t -> Proof_term.t
+  val lemma_cstor : Lit.t list -> Proof_term.data
 end
 
 module Make (A : ARG) : sig

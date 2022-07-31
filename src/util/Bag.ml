@@ -44,6 +44,8 @@ let rec fold f acc = function
   | L x -> f acc x
   | N (a, b) -> fold f (fold f acc a) b
 
+let to_list self = fold (fun acc x -> x :: acc) [] self
+
 let[@unroll 2] rec to_iter t yield =
   match t with
   | E -> ()

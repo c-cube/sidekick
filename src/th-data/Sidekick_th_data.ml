@@ -186,7 +186,7 @@ end = struct
           let t1 = E_node.term c1.c_n in
           let t2 = E_node.term c2.c_n in
           mk_expl t1 t2 @@ Proof_trace.add_step proof
-          @@ A.P.lemma_cstor_inj t1 t2 i
+          @@ fun () -> A.P.lemma_cstor_inj t1 t2 i
         in
 
         assert (CCArray.length c1.c_args = CCArray.length c2.c_args);
@@ -199,7 +199,7 @@ end = struct
         let expl =
           let t1 = E_node.term c1.c_n and t2 = E_node.term c2.c_n in
           mk_expl t1 t2 @@ Proof_trace.add_step proof
-          @@ A.P.lemma_cstor_distinct t1 t2
+          @@ fun () -> A.P.lemma_cstor_distinct t1 t2
         in
 
         Error (CC.Handler_action.Conflict expl)
@@ -332,15 +332,14 @@ end = struct
            with exhaustiveness: [|- is-c(t)] *)
         let proof =
           let pr_isa =
-            Proof_trace.add_step self.proof
-            @@ A.P.lemma_isa_split t
-                 (Iter.return @@ Act.mk_lit (A.mk_is_a self.tst cstor t))
+            Proof_trace.add_step self.proof @@ fun () ->
+            A.P.lemma_isa_split t [ Lit.atom (A.mk_is_a self.tst cstor t) ]
           and pr_eq_sel =
-            Proof_trace.add_step self.proof
-            @@ A.P.lemma_select_cstor ~cstor_t:u t
+            Proof_trace.add_step self.proof @@ fun () ->
+            A.P.lemma_select_cstor ~cstor_t:u t
           in
-          Proof_trace.add_step self.proof
-          @@ Proof_core.proof_r1 pr_isa pr_eq_sel
+          Proof_trace.add_step self.proof @@ fun () ->
+          Proof_core.proof_r1 pr_isa pr_eq_sel
         in
 
         Term.Tbl.add self.single_cstor_preproc_done t ();
@@ -394,8 +393,8 @@ end = struct
                %a@])"
               name Term.pp_debug t is_true E_node.pp n Monoid_cstor.pp cstor);
         let pr =
-          Proof_trace.add_step self.proof
-          @@ A.P.lemma_isa_cstor ~cstor_t:(E_node.term cstor.c_n) t
+          Proof_trace.add_step self.proof @@ fun () ->
+          A.P.lemma_isa_cstor ~cstor_t:(E_node.term cstor.c_n) t
         in
         let n_bool = CC.n_bool cc is_true in
         let expl =
@@ -421,8 +420,8 @@ end = struct
         assert (i < CCArray.length cstor.c_args);
         let u_i = CCArray.get cstor.c_args i in
         let pr =
-          Proof_trace.add_step self.proof
-          @@ A.P.lemma_select_cstor ~cstor_t:(E_node.term cstor.c_n) t
+          Proof_trace.add_step self.proof @@ fun () ->
+          A.P.lemma_select_cstor ~cstor_t:(E_node.term cstor.c_n) t
         in
         let expl =
           Expl.(
@@ -458,9 +457,9 @@ end = struct
             name Monoid_parents.pp_is_a is_a2 is_true E_node.pp n1 E_node.pp n2
             Monoid_cstor.pp c1);
       let pr =
-        Proof_trace.add_step self.proof
-        @@ A.P.lemma_isa_cstor ~cstor_t:(E_node.term c1.c_n)
-             (E_node.term is_a2.is_a_n)
+        Proof_trace.add_step self.proof @@ fun () ->
+        A.P.lemma_isa_cstor ~cstor_t:(E_node.term c1.c_n)
+          (E_node.term is_a2.is_a_n)
       in
       let n_bool = CC.n_bool cc is_true in
       let expl =
@@ -487,9 +486,9 @@ end = struct
               E_node.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
         assert (sel2.sel_idx < CCArray.length c1.c_args);
         let pr =
-          Proof_trace.add_step self.proof
-          @@ A.P.lemma_select_cstor ~cstor_t:(E_node.term c1.c_n)
-               (E_node.term sel2.sel_n)
+          Proof_trace.add_step self.proof @@ fun () ->
+          A.P.lemma_select_cstor ~cstor_t:(E_node.term c1.c_n)
+            (E_node.term sel2.sel_n)
         in
         let u_i = CCArray.get c1.c_args sel2.sel_idx in
         let expl =
@@ -598,10 +597,13 @@ end = struct
           (* conflict: the [path] forms a cycle *)
           let path = (n, node) :: path in
           let pr =
-            Proof_trace.add_step self.proof
-            @@ A.P.lemma_acyclicity
-                 (Iter.of_list path
-                 |> Iter.map (fun (a, b) -> E_node.term a, E_node.term b.repr))
+            Proof_trace.add_step self.proof @@ fun () ->
+            let path =
+              List.rev_map
+                (fun (a, b) -> E_node.term a, E_node.term b.repr)
+                path
+            in
+            A.P.lemma_acyclicity path
           in
           let expl =
             let subs =
@@ -654,7 +656,9 @@ end = struct
         Log.debugf 50 (fun k ->
             k "(@[%s.assign-is-a@ :lhs %a@ :rhs %a@ :lit %a@])" name
               Term.pp_debug u Term.pp_debug rhs Lit.pp lit);
-        let pr = Proof_trace.add_step self.proof @@ A.P.lemma_isa_sel t in
+        let pr =
+          Proof_trace.add_step self.proof @@ fun () -> A.P.lemma_isa_sel t
+        in
         (* merge [u] and [rhs] *)
         CC.merge_t (SI.cc solver) u rhs
           (Expl.mk_theory u rhs
@@ -680,12 +684,11 @@ end = struct
         |> Iter.to_rev_list
       in
       SI.add_clause_permanent solver acts c
-        (Proof_trace.add_step self.proof
-        @@ A.P.lemma_isa_split t (Iter.of_list c));
+        (Proof_trace.add_step self.proof @@ fun () -> A.P.lemma_isa_split t c);
       Iter.diagonal_l c (fun (l1, l2) ->
           let pr =
-            Proof_trace.add_step self.proof
-            @@ A.P.lemma_isa_disj (Lit.neg l1) (Lit.neg l2)
+            Proof_trace.add_step self.proof @@ fun () ->
+            A.P.lemma_isa_disj (Lit.neg l1) (Lit.neg l2)
           in
           SI.add_clause_permanent solver acts [ Lit.neg l1; Lit.neg l2 ] pr)
     )

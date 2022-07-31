@@ -36,8 +36,9 @@ end = struct
 
     let add_step_eq a b ~using ~c0 : unit =
       add_step_ @@ mk_step_
-      @@ Proof_core.lemma_rw_clause c0 ~using
-           ~res:(Iter.return (Lit.atom (A.mk_bool tst (B_eq (a, b)))))
+      @@ fun () ->
+      Proof_core.lemma_rw_clause c0 ~using
+        ~res:[ Lit.atom (A.mk_bool tst (B_eq (a, b))) ]
     in
 
     let[@inline] ret u = Some (u, Iter.of_list !steps) in
@@ -81,11 +82,11 @@ end = struct
       Option.iter add_step_ prf_a;
       (match A.view_as_bool a with
       | B_bool true ->
-        add_step_eq t b ~using:(Iter.of_opt prf_a)
+        add_step_eq t b ~using:(Option.to_list prf_a)
           ~c0:(mk_step_ @@ A.P.lemma_ite_true ~ite:t);
         ret b
       | B_bool false ->
-        add_step_eq t c ~using:(Iter.of_opt prf_a)
+        add_step_eq t c ~using:(Option.to_list prf_a)
           ~c0:(mk_step_ @@ A.P.lemma_ite_false ~ite:t);
         ret c
       | _ -> None)

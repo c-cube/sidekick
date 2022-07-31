@@ -467,10 +467,10 @@ let rec proof_of_atom_lvl0_ (self : t) (a : atom) : Proof_step.id =
         if !steps = [] then
           proof_c2
         else
-          Proof_trace.add_step self.proof
-          @@ Proof_sat.sat_redundant_clause
-               (Iter.return (Atom.lit self.store a))
-               ~hyps:Iter.(cons proof_c2 (of_list !steps))
+          Proof_trace.add_step self.proof @@ fun () ->
+          Proof_sat.sat_redundant_clause
+            [ Atom.lit self.store a ]
+            ~hyps:Iter.(cons proof_c2 (of_list !steps))
     in
 
     Atom.set_proof_lvl0 self.store a p;
@@ -559,11 +559,12 @@ let preprocess_clause_ (self : t) (c : Clause.t) : Clause.t =
         k "(@[sat.add-clause.resolved-lvl-0@ :into [@[%a@]]@])"
           (Atom.debug_a store) atoms);
     let proof =
-      let lits = Iter.of_array atoms |> Iter.map (Atom.lit store) in
-      Proof_trace.add_step self.proof
-      @@ Proof_sat.sat_redundant_clause lits
-           ~hyps:
-             Iter.(cons (Clause.proof_step self.store c) (of_list !res0_proofs))
+      Proof_trace.add_step self.proof @@ fun () ->
+      let lits = Util.array_to_list_map (Atom.lit store) atoms in
+      let hyps =
+        Iter.(cons (Clause.proof_step self.store c) (of_list !res0_proofs))
+      in
+      Proof_sat.sat_redundant_clause lits ~hyps
     in
     Clause.make_a store atoms proof ~removable:(Clause.removable store c)
   )
@@ -1005,10 +1006,9 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
     assert (cr.cr_backtrack_lvl = 0 && decision_level self = 0);
 
     let p =
-      Proof_trace.add_step self.proof
-      @@ Proof_sat.sat_redundant_clause
-           (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
-           ~hyps:(Step_vec.to_iter cr.cr_steps)
+      Proof_trace.add_step self.proof @@ fun () ->
+      let lits = Util.array_to_list_map (Atom.lit self.store) cr.cr_learnt in
+      Proof_sat.sat_redundant_clause lits ~hyps:(Step_vec.to_iter cr.cr_steps)
     in
     let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
     Event.emit self.on_learnt uclause;
@@ -1022,10 +1022,9 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
   | _ ->
     let fuip = cr.cr_learnt.(0) in
     let p =
-      Proof_trace.add_step self.proof
-      @@ Proof_sat.sat_redundant_clause
-           (Iter.of_array cr.cr_learnt |> Iter.map (Atom.lit self.store))
-           ~hyps:(Step_vec.to_iter cr.cr_steps)
+      Proof_trace.add_step self.proof @@ fun () ->
+      let lits = Util.array_to_list_map (Atom.lit self.store) cr.cr_learnt in
+      Proof_sat.sat_redundant_clause lits ~hyps:(Step_vec.to_iter cr.cr_steps)
     in
     let lclause = Clause.make_a store ~removable:true cr.cr_learnt p in
 
@@ -1741,8 +1740,8 @@ let assume self cnf : unit =
     (fun l ->
       let atoms = Util.array_of_list_map (make_atom_ self) l in
       let proof =
-        Proof_trace.add_step self.proof
-        @@ Proof_sat.sat_input_clause (Iter.of_list l)
+        Proof_trace.add_step self.proof @@ fun () ->
+        Proof_sat.sat_input_clause l
       in
       let c = Clause.make_a self.store ~removable:false atoms proof in
       Log.debugf 10 (fun k ->
@@ -1825,10 +1824,10 @@ let resolve_with_lvl0 (self : t) (c : clause) : clause =
   (* no resolution happened *)
   else (
     let proof =
-      let lits = Iter.of_list !res |> Iter.map (Atom.lit self.store) in
+      Proof_trace.add_step self.proof @@ fun () ->
+      let lits = List.rev_map (Atom.lit self.store) !res in
       let hyps = Iter.of_list (Clause.proof_step self.store c :: !lvl0) in
-      Proof_trace.add_step self.proof
-      @@ Proof_sat.sat_redundant_clause lits ~hyps
+      Proof_sat.sat_redundant_clause lits ~hyps
     in
     Clause.make_l self.store ~removable:false !res proof
   )
@@ -1861,8 +1860,9 @@ let mk_unsat (self : t) (us : unsat_cause) : _ unsat_state =
            (* increasing trail order *)
            assert (Atom.equal first @@ List.hd core);
            let proof =
-             let lits = Iter.of_list core |> Iter.map (Atom.lit self.store) in
-             Proof_trace.add_step self.proof @@ Proof_sat.sat_unsat_core lits
+             Proof_trace.add_step self.proof @@ fun () ->
+             let lits = List.rev_map (Atom.lit self.store) core in
+             Proof_sat.sat_unsat_core lits
            in
            Clause.make_l self.store ~removable:false [] proof)
       in
@@ -1937,15 +1937,14 @@ let add_clause self (c : Lit.t list) (pr : Proof_step.id) : unit =
 
 let add_input_clause self (c : Lit.t list) =
   let pr =
-    Proof_trace.add_step self.proof
-    @@ Proof_sat.sat_input_clause (Iter.of_list c)
+    Proof_trace.add_step self.proof @@ fun () -> Proof_sat.sat_input_clause c
   in
   add_clause self c pr
 
 let add_input_clause_a self c =
   let pr =
-    Proof_trace.add_step self.proof
-    @@ Proof_sat.sat_input_clause (Iter.of_array c)
+    Proof_trace.add_step self.proof @@ fun () ->
+    Proof_sat.sat_input_clause (Array.to_list c)
   in
   add_clause_a self c pr
 

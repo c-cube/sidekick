@@ -113,7 +113,7 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
    let t_true = Term.true_ tst in
    Sat_solver.add_clause self.solver
      [ Lit.atom t_true ]
-     (P.add_step self.proof @@ Rule_.lemma_true t_true));
+     (P.add_step self.proof @@ fun () -> Rule_.lemma_true t_true));
   self
 
 let[@inline] solver self = self.solver
@@ -173,9 +173,7 @@ let add_clause_l self c p = add_clause self (CCArray.of_list c) p
 
 let assert_terms self c =
   let c = CCList.map Lit.atom c in
-  let pr_c =
-    P.add_step self.proof @@ Proof_sat.sat_input_clause (Iter.of_list c)
-  in
+  let pr_c = P.add_step self.proof @@ fun () -> Proof_sat.sat_input_clause c in
   add_clause_l self c pr_c
 
 let assert_term self t = assert_terms self [ t ]

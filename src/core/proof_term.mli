@@ -7,20 +7,22 @@ open Sidekick_core_logic
 type step_id = Proof_step.id
 type lit = Lit.t
 
-type t = {
+type data = {
   rule_name: string;
-  lit_args: lit Iter.t;
-  term_args: Term.t Iter.t;
-  subst_args: Subst.t Iter.t;
-  premises: step_id Iter.t;
+  lit_args: lit list;
+  term_args: Term.t list;
+  subst_args: Subst.t list;
+  premises: step_id list;
 }
+
+type t = unit -> data
 
 include Sidekick_sigs.PRINT with type t := t
 
-val make :
-  ?lits:lit Iter.t ->
-  ?terms:Term.t Iter.t ->
-  ?substs:Subst.t Iter.t ->
-  ?premises:step_id Iter.t ->
+val make_data :
+  ?lits:lit list ->
+  ?terms:Term.t list ->
+  ?substs:Subst.t list ->
+  ?premises:step_id list ->
   string ->
-  t
+  data

@@ -2,12 +2,6 @@ open Types_
 
 type view_as_cc = Term.t -> (Const.t, Term.t, Term.t Iter.t) View.t
 
-open struct
-  (* proof rules *)
-  module Rules_ = Proof_core
-  module P = Proof_trace
-end
-
 type e_node = E_node.t
 (** A node of the congruence closure *)
 
@@ -305,13 +299,13 @@ module Expl_state = struct
   (* proof of [\/_i ¬lits[i]] *)
   let proof_of_th_lemmas (self : t) (proof : Proof_trace.t) : Proof_term.step_id
       =
-    let p_lits1 = Iter.of_list self.lits |> Iter.map Lit.neg in
+    let p_lits1 = List.rev_map Lit.neg self.lits in
     let p_lits2 =
-      Iter.of_list self.th_lemmas
-      |> Iter.map (fun (lit_t_u, _, _) -> Lit.neg lit_t_u)
+      self.th_lemmas |> List.rev_map (fun (lit_t_u, _, _) -> Lit.neg lit_t_u)
     in
     let p_cc =
-      P.add_step proof @@ Rules_.lemma_cc (Iter.append p_lits1 p_lits2)
+      Proof_trace.add_step proof @@ fun () ->
+      Proof_core.lemma_cc (List.rev_append p_lits1 p_lits2)
     in
     let resolve_with_th_proof pr (lit_t_u, sub_proofs, pr_th) =
       (* pr_th: [sub_proofs |- t=u].
@@ -322,16 +316,16 @@ module Expl_state = struct
           (fun pr_th (lit_i, hyps_i) ->
             (* [hyps_i |- lit_i] *)
             let lemma_i =
-              P.add_step proof
-              @@ Rules_.lemma_cc
-                   Iter.(cons lit_i (of_list hyps_i |> map Lit.neg))
+              Proof_trace.add_step proof @@ fun () ->
+              Proof_core.lemma_cc (lit_i :: List.rev_map Lit.neg hyps_i)
             in
             (* resolve [lit_i] away. *)
-            P.add_step proof
-            @@ Rules_.proof_res ~pivot:(Lit.term lit_i) lemma_i pr_th)
+            Proof_trace.add_step proof @@ fun () ->
+            Proof_core.proof_res ~pivot:(Lit.term lit_i) lemma_i pr_th)
           pr_th sub_proofs
       in
-      P.add_step proof @@ Rules_.proof_res ~pivot:(Lit.term lit_t_u) pr_th pr
+      Proof_trace.add_step proof @@ fun () ->
+      Proof_core.proof_res ~pivot:(Lit.term lit_t_u) pr_th pr
     in
     (* resolve with theory proofs responsible for some merges, if any. *)
     List.fold_left resolve_with_th_proof p_cc self.th_lemmas
@@ -590,7 +584,7 @@ and task_merge_ self a b e_ab : unit =
             E_node.pp ra E_node.pp a E_node.pp rb E_node.pp b Expl.pp e_ab);
       let th = ref false in
       (* TODO:
-         C1: P.true_neq_false
+         C1: Proof_trace.true_neq_false
          C2: lemma [lits |- true=false]  (and resolve on theory proofs)
          C3: r1 C1 C2
       *)

@@ -1,12 +1,5 @@
 open Sigs
-module Proof_rules = Sidekick_core.Proof_sat
-module P_core_rules = Sidekick_core.Proof_core
 module Ty = Term
-
-open struct
-  module P = Proof_trace
-  module Rule_ = Proof_core
-end
 
 type th_states =
   | Ths_nil
@@ -200,7 +193,7 @@ module type ARR = sig
   type 'a t
 
   val map : ('a -> 'b) -> 'a t -> 'b t
-  val to_iter : 'a t -> 'a Iter.t
+  val to_list : 'a t -> 'a list
 end
 
 module Preprocess_clause (A : ARR) = struct
@@ -222,16 +215,21 @@ module Preprocess_clause (A : ARR) = struct
         pr_c
       else (
         Stat.incr self.count_preprocess_clause;
-        P.add_step self.proof
-        @@ Rule_.lemma_rw_clause pr_c ~res:(A.to_iter c')
-             ~using:(Iter.of_list !steps)
+        Proof_trace.add_step self.proof @@ fun () ->
+        Proof_core.lemma_rw_clause pr_c ~res:(A.to_list c') ~using:!steps
       )
     in
     c', pr_c'
 end
 [@@inline]
 
-module PC_list = Preprocess_clause (CCList)
+module PC_list = Preprocess_clause (struct
+  type 'a t = 'a list
+
+  let map = CCList.map
+  let to_list l = l
+end)
+
 module PC_arr = Preprocess_clause (CCArray)
 
 let preprocess_clause = PC_list.top
@@ -518,7 +516,9 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
       in
 
       let c = List.rev_append c1 c2 in
-      let pr = P.add_step self.proof @@ Rule_.lemma_cc (Iter.of_list c) in
+      let pr =
+        Proof_trace.add_step self.proof @@ fun () -> Proof_core.lemma_cc c
+      in
 
       Log.debugf 20 (fun k ->
           k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
