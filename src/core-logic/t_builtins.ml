@@ -88,3 +88,9 @@ let rec abs t =
     let sign, v = abs u in
     Stdlib.not sign, v
   | _ -> true, t
+
+let as_bool_val t =
+  match Term.view t with
+  | Term.E_const { c_view = C_true; _ } -> Some true
+  | Term.E_const { c_view = C_false; _ } -> Some false
+  | _ -> None

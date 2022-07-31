@@ -1,8 +1,0 @@
-(library
- (name sidekick_sigs_smt)
- (public_name sidekick.sigs.smt)
- (synopsis "Signatures for the SMT solver")
- (flags :standard -open Sidekick_util)
- (libraries containers iter sidekick.sigs sidekick.sigs.term
-   sidekick.sigs.lit sidekick.sigs.proof-trace sidekick.sigs.proof.core
-   sidekick.sigs.proof.sat sidekick.util sidekick.sigs.cc))

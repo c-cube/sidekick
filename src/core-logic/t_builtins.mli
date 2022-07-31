@@ -31,3 +31,5 @@ val abs : t -> bool * t
       The idea is that we want to turn [not a] into [(false, a)],
       or [(a != b)] into [(false, a=b)]. For terms without a negation this
       should return [(true, t)]. *)
+
+val as_bool_val : t -> bool option

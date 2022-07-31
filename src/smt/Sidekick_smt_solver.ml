@@ -9,6 +9,9 @@
 module Sigs = Sigs
 module Model = Model
 module Registry = Registry
-module Simplify = Simplify
 module Solver_internal = Solver_internal
 module Solver = Solver
+module Theory = Theory
+
+type theory = Theory.t
+type solver = Solver.t
