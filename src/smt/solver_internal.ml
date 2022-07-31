@@ -1,7 +1,6 @@
 open Sigs
 module Proof_rules = Sidekick_core.Proof_sat
 module P_core_rules = Sidekick_core.Proof_core
-module N = Sidekick_cc.E_node
 module Ty = Term
 
 open struct
@@ -46,7 +45,7 @@ type t = {
   cc: CC.t;  (** congruence closure *)
   proof: proof_trace;  (** proof logger *)
   registry: Registry.t;
-  mutable on_progress: unit -> unit;
+  on_progress: (unit, unit) Event.Emitter.t;
   mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
   mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
   mutable on_th_combination:
@@ -69,7 +68,10 @@ type t = {
 }
 
 and preprocess_hook = t -> preprocess_actions -> term -> unit
-and model_ask_hook = recurse:(t -> N.t -> term) -> t -> N.t -> term option
+
+and model_ask_hook =
+  recurse:(t -> E_node.t -> term) -> t -> E_node.t -> term option
+
 and model_completion_hook = t -> add:(term -> term -> unit) -> unit
 
 type solver = t
@@ -172,8 +174,7 @@ let preprocess_term_ (self : t) (t0 : term) : unit =
   preproc_rec_ t0
 
 (* simplify literal, then preprocess the result *)
-let simplify_and_preproc_lit_ (self : t) (lit : Lit.t) : Lit.t * step_id option
-    =
+let simplify_and_preproc_lit (self : t) (lit : Lit.t) : Lit.t * step_id option =
   let t = Lit.term lit in
   let sign = Lit.sign lit in
   let u, pr =
@@ -191,7 +192,7 @@ let simplify_and_preproc_lit_ (self : t) (lit : Lit.t) : Lit.t * step_id option
 let push_decision (self : t) (acts : theory_actions) (lit : lit) : unit =
   let (module A) = acts in
   (* make sure the literal is preprocessed *)
-  let lit, _ = simplify_and_preproc_lit_ self lit in
+  let lit, _ = simplify_and_preproc_lit self lit in
   let sign = Lit.sign lit in
   A.add_decision_lit (Lit.abs lit) sign
 
@@ -210,7 +211,7 @@ module Preprocess_clause (A : ARR) = struct
 
     (* simplify a literal, then preprocess it *)
     let[@inline] simp_lit lit =
-      let lit, pr = simplify_and_preproc_lit_ self lit in
+      let lit, pr = simplify_and_preproc_lit self lit in
       Option.iter (fun pr -> steps := pr :: !steps) pr;
       lit
     in
@@ -233,8 +234,8 @@ end
 module PC_list = Preprocess_clause (CCList)
 module PC_arr = Preprocess_clause (CCArray)
 
-let preprocess_clause_ = PC_list.top
-let preprocess_clause_iarray_ = PC_arr.top
+let preprocess_clause = PC_list.top
+let preprocess_clause_array = PC_arr.top
 
 module type PERFORM_ACTS = sig
   type t
@@ -250,7 +251,7 @@ module Perform_delayed (A : PERFORM_ACTS) = struct
       let act = Queue.pop self.delayed_actions in
       match act with
       | DA_add_clause { c; pr = pr_c; keep } ->
-        let c', pr_c' = preprocess_clause_ self c pr_c in
+        let c', pr_c' = preprocess_clause self c pr_c in
         A.add_clause self acts ~keep c' pr_c'
       | DA_add_lit { default_pol; lit } ->
         preprocess_term_ self (Lit.term lit);
@@ -270,11 +271,11 @@ module Perform_delayed_th = Perform_delayed (struct
 end)
 
 let[@inline] add_clause_temp self _acts c (proof : step_id) : unit =
-  let c, proof = preprocess_clause_ self c proof in
+  let c, proof = preprocess_clause self c proof in
   delayed_add_clause self ~keep:false c proof
 
 let[@inline] add_clause_permanent self _acts c (proof : step_id) : unit =
-  let c, proof = preprocess_clause_ self c proof in
+  let c, proof = preprocess_clause self c proof in
   delayed_add_clause self ~keep:true c proof
 
 let[@inline] mk_lit _ ?sign t : lit = Lit.atom ?sign t
@@ -284,7 +285,7 @@ let[@inline] add_lit self _acts ?default_pol lit =
 
 let add_lit_t self _acts ?sign t =
   let lit = Lit.atom ?sign t in
-  let lit, _ = simplify_and_preproc_lit_ self lit in
+  let lit, _ = simplify_and_preproc_lit self lit in
   delayed_add_lit self lit
 
 let on_final_check self f = self.on_final_check <- f :: self.on_final_check
@@ -292,6 +293,7 @@ let on_final_check self f = self.on_final_check <- f :: self.on_final_check
 let on_partial_check self f =
   self.on_partial_check <- f :: self.on_partial_check
 
+let on_progress self = Event.of_emitter self.on_progress
 let on_cc_new_term self f = Event.on (CC.on_new_term (cc self)) ~f
 let on_cc_pre_merge self f = Event.on (CC.on_pre_merge (cc self)) ~f
 let on_cc_post_merge self f = Event.on (CC.on_post_merge (cc self)) ~f
@@ -301,11 +303,13 @@ let on_cc_is_subterm self f = Event.on (CC.on_is_subterm (cc self)) ~f
 let cc_add_term self t = CC.add_term (cc self) t
 let cc_mem_term self t = CC.mem_term (cc self) t
 let cc_find self n = CC.find (cc self) n
+let is_complete self = self.complete
+let last_model self = self.last_model
 
 let cc_are_equal self t1 t2 =
   let n1 = cc_add_term self t1 in
   let n2 = cc_add_term self t2 in
-  N.equal (cc_find self n1) (cc_find self n2)
+  E_node.equal (cc_find self n1) (cc_find self n2)
 
 let cc_resolve_expl self e : lit list * _ =
   let r = CC.explain_expl (cc self) e in
@@ -337,19 +341,6 @@ let rec pop_lvls_ n = function
     r.pop_levels r.st n;
     pop_lvls_ n r.next
 
-let push_level (self : t) : unit =
-  self.level <- 1 + self.level;
-  CC.push_level (cc self);
-  push_lvl_ self.th_states
-
-let pop_levels (self : t) n : unit =
-  self.last_model <- None;
-  self.level <- self.level - n;
-  CC.pop_levels (cc self) n;
-  pop_lvls_ n self.th_states
-
-let n_levels self = self.level
-
 (** {2 Model construction and theory combination} *)
 
 (* make model from the congruence closure *)
@@ -372,7 +363,7 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
      CC.get_model_for_each_class cc (fun (_, ts, v) ->
          Iter.iter
            (fun n ->
-             let t = N.term n in
+             let t = E_node.term n in
              M.replace model t v)
            ts);
   *)
@@ -390,20 +381,20 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
   List.iter complete_with model_complete;
 
   (* compute a value for [n]. *)
-  let rec val_for_class (n : N.t) : term =
-    Log.debugf 5 (fun k -> k "val-for-term %a" N.pp n);
+  let rec val_for_class (n : E_node.t) : term =
+    Log.debugf 5 (fun k -> k "val-for-term %a" E_node.pp n);
     let repr = CC.find cc n in
-    Log.debugf 5 (fun k -> k "val-for-term.repr %a" N.pp repr);
+    Log.debugf 5 (fun k -> k "val-for-term.repr %a" E_node.pp repr);
 
     (* see if a value is found already (always the case if it's a boolean) *)
-    match M.get model (N.term repr) with
+    match M.get model (E_node.term repr) with
     | Some t_val ->
       Log.debugf 5 (fun k -> k "cached val is %a" Term.pp_debug t_val);
       t_val
     | None ->
       (* try each model hook *)
       let rec try_hooks_ = function
-        | [] -> N.term repr
+        | [] -> E_node.term repr
         | h :: hooks ->
           (match h ~recurse:(fun _ n -> val_for_class n) self repr with
           | None -> try_hooks_ hooks
@@ -415,15 +406,15 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
         (* FIXME: the more complete version?
            match
              (* look for a value in the model for any term in the class *)
-             N.iter_class repr
-             |> Iter.find_map (fun n -> M.get model (N.term n))
+             E_node.iter_class repr
+             |> Iter.find_map (fun n -> M.get model (E_node.term n))
            with
            | Some v -> v
            | None -> try_hooks_ model_ask_hooks
         *)
       in
 
-      M.replace model (N.term repr) t_val;
+      M.replace model (E_node.term repr) t_val;
       (* be sure to cache the value *)
       Log.debugf 5 (fun k -> k "val is %a" Term.pp_debug t_val);
       t_val
@@ -433,11 +424,11 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
   CC.all_classes cc (fun repr ->
       let t_val = val_for_class repr in
       (* value for this class *)
-      N.iter_class repr (fun u ->
-          let t_u = N.term u in
-          if (not (N.equal u repr)) && not (Term.equal t_u t_val) then
+      E_node.iter_class repr (fun u ->
+          let t_u = E_node.term u in
+          if (not (E_node.equal u repr)) && not (Term.equal t_u t_val) then
             M.replace model t_u t_val));
-  Model.Map model
+  Model.Internal_.of_tbl model
 
 (* do theory combination using the congruence closure. Each theory
    can merge classes, *)
@@ -557,7 +548,7 @@ let check_ ~final (self : t) (acts : sat_acts) =
   in
   let iter = iter_atoms_ acts in
   Log.debugf 5 (fun k -> k "(smt-solver.assume :len %d)" (Iter.length iter));
-  self.on_progress ();
+  Event.emit self.on_progress ();
   assert_lits_ ~final self acts iter;
   Profile.exit pb
 
@@ -568,6 +559,28 @@ let[@inline] partial_check (self : t) (acts : Sidekick_sat.acts) : unit =
 (* perform final check of the model *)
 let[@inline] final_check (self : t) (acts : Sidekick_sat.acts) : unit =
   check_ ~final:true self acts
+
+let push_level self : unit =
+  self.level <- 1 + self.level;
+  CC.push_level (cc self);
+  push_lvl_ self.th_states
+
+let pop_levels self n : unit =
+  self.last_model <- None;
+  self.level <- self.level - n;
+  CC.pop_levels (cc self) n;
+  pop_lvls_ n self.th_states
+
+let n_levels self = self.level
+
+let to_sat_plugin (self : t) : (module Sidekick_sat.PLUGIN) =
+  (module struct
+    let has_theory = true
+    let push_level () = push_level self
+    let pop_levels n = pop_levels self n
+    let partial_check acts = partial_check self acts
+    let final_check acts = final_check self acts
+  end)
 
 let declare_pb_is_incomplete self =
   if self.complete then Log.debug 1 "(solver.declare-pb-is-incomplete)";
@@ -587,7 +600,7 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       stat;
       simp = Simplify.create tst ~proof;
       last_model = None;
-      on_progress = (fun () -> ());
+      on_progress = Event.Emitter.create ();
       preprocess = [];
       model_ask = [];
       model_complete = [];

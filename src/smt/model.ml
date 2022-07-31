@@ -22,3 +22,7 @@ let pp out = function
     in
     Fmt.fprintf out "(@[<hv>model@ %a@])" (Util.pp_iter pp_pair)
       (Term.Tbl.to_iter tbl)
+
+module Internal_ = struct
+  let of_tbl t = Map t
+end

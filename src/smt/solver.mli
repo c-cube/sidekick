@@ -14,31 +14,14 @@ type t
 val registry : t -> Registry.t
 (** A solver contains a registry so that theories can share data *)
 
-type theory = Theory.t
-type 'a theory_p = 'a Theory.p
-
 val mk_theory :
   name:string ->
   create_and_setup:(Solver_internal.t -> 'th) ->
   ?push_level:('th -> unit) ->
   ?pop_levels:('th -> int -> unit) ->
   unit ->
-  theory
+  Theory.t
 (** Helper to create a theory. *)
-
-(** Models
-
-      A model can be produced when the solver is found to be in a
-      satisfiable state after a call to {!solve}. *)
-module Model : sig
-  type t
-
-  val empty : t
-  val mem : t -> term -> bool
-  val find : t -> term -> term option
-  val eval : t -> term -> term option
-  val pp : t Fmt.printer
-end
 
 (* TODO *)
 module Unknown : sig
@@ -65,7 +48,7 @@ val create :
   ?size:[ `Big | `Tiny | `Small ] ->
   (* TODO? ?config:Config.t -> *)
   proof:proof_trace ->
-  theories:theory list ->
+  theories:Theory.t list ->
   Term.store ->
   unit ->
   t
@@ -82,15 +65,15 @@ val create :
       @param theories theories to load from the start. Other theories
       can be added using {!add_theory}. *)
 
-val add_theory : t -> theory -> unit
+val add_theory : t -> Theory.t -> unit
 (** Add a theory to the solver. This should be called before
       any call to {!solve} or to {!add_clause} and the likes (otherwise
       the theory will have a partial view of the problem). *)
 
-val add_theory_p : t -> 'a theory_p -> 'a
+val add_theory_p : t -> 'a Theory.p -> 'a
 (** Add the given theory and obtain its state *)
 
-val add_theory_l : t -> theory list -> unit
+val add_theory_l : t -> Theory.t list -> unit
 
 val mk_lit_t : t -> ?sign:bool -> term -> lit
 (** [mk_lit_t _ ~sign t] returns [lit'],

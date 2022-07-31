@@ -13,6 +13,7 @@
 *)
 
 include Sidekick_core
+module Simplify = Sidekick_simplify
 module CC = Sidekick_cc.CC
 module E_node = Sidekick_cc.E_node
 module CC_expl = Sidekick_cc.Expl

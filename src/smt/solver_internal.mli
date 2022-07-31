@@ -35,11 +35,13 @@ include Sidekick_sigs.BACKTRACKABLE0 with type t := t
 
 (** {3 Interface to SAT} *)
 
-include Sidekick_sat.PLUGIN_CDCL_T with type t := t
+val to_sat_plugin : t -> (module Sidekick_sat.PLUGIN)
 
 (** {3 Simplifiers} *)
 
 type simplify_hook = Simplify.hook
+
+val simplifier : t -> Simplify.t
 
 val add_simplifier : t -> Simplify.hook -> unit
 (** Add a simplifier hook for preprocessing. *)
@@ -89,6 +91,12 @@ type preprocess_hook = t -> preprocess_actions -> term -> unit
 
 val on_preprocess : t -> preprocess_hook -> unit
 (** Add a hook that will be called when terms are preprocessed *)
+
+val preprocess_clause : t -> lit list -> step_id -> lit list * step_id
+val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
+
+val simplify_and_preproc_lit : t -> lit -> lit * step_id option
+(** Simplify literal then preprocess it *)
 
 (** {3 hooks for the theory} *)
 
@@ -244,6 +252,26 @@ type model_completion_hook = t -> add:(term -> term -> unit) -> unit
 val on_model :
   ?ask:model_ask_hook -> ?complete:model_completion_hook -> t -> unit
 (** Add model production/completion hooks. *)
+
+val on_progress : t -> (unit, unit) Event.t
+
+val is_complete : t -> bool
+(** Are we still in a complete logic fragment? *)
+
+val last_model : t -> Model.t option
+
+(** {2 Delayed actions} *)
+
+module type PERFORM_ACTS = sig
+  type t
+
+  val add_clause : solver -> t -> keep:bool -> lit list -> step_id -> unit
+  val add_lit : solver -> t -> ?default_pol:bool -> lit -> unit
+end
+
+module Perform_delayed (A : PERFORM_ACTS) : sig
+  val top : t -> A.t -> unit
+end
 
 val add_theory_state :
   st:'a ->

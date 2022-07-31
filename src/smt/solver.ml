@@ -1,6 +1,7 @@
 open Sigs
 
 open struct
+  module SI = Solver_internal
   module P = Proof_trace
   module Rule_ = Proof_core
 end
@@ -30,7 +31,7 @@ end
      end)
 *)
 
-module Sat_solver = Sidekick_sat.Make_cdcl_t (Solver_internal)
+module Sat_solver = Sidekick_sat
 (** the parametrized SAT Solver *)
 
 (** {2 Result} *)
@@ -100,7 +101,7 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
       si;
       proof;
       last_res = None;
-      solver = Sat_solver.create ~proof ?size ~stat si;
+      solver = Sat_solver.create ~proof ?size ~stat (SI.to_sat_plugin si);
       stat;
       count_clause = Stat.mk_int stat "solver.add-clause";
       count_solve = Stat.mk_int stat "solver.solve";
@@ -127,11 +128,11 @@ let reset_last_res_ self = self.last_res <- None
 (* preprocess clause, return new proof *)
 let preprocess_clause_ (self : t) (c : lit array) (pr : step_id) :
     lit array * step_id =
-  Solver_internal.preprocess_clause_iarray_ self.si c pr
+  Solver_internal.preprocess_clause_array self.si c pr
 
 let mk_lit_t (self : t) ?sign (t : term) : lit =
   let lit = Lit.atom ?sign t in
-  let lit, _ = Solver_internal.simplify_and_preproc_lit_ self.si lit in
+  let lit, _ = Solver_internal.simplify_and_preproc_lit self.si lit in
   lit
 
 (** {2 Main} *)
@@ -171,15 +172,13 @@ let add_clause (self : t) (c : lit array) (proof : step_id) : unit =
 let add_clause_l self c p = add_clause self (CCArray.of_list c) p
 
 let assert_terms self c =
-  let c = CCList.map (fun t -> Lit.atom (tst self) t) c in
+  let c = CCList.map Lit.atom c in
   let pr_c =
-    P.add_step self.proof @@ A.Rule_sat.sat_input_clause (Iter.of_list c)
+    P.add_step self.proof @@ Proof_sat.sat_input_clause (Iter.of_list c)
   in
   add_clause_l self c pr_c
 
 let assert_term self t = assert_terms self [ t ]
-
-exception Resource_exhausted = Sidekick_sat.Resource_exhausted
 
 let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
     ?(should_stop = fun _ _ -> false) ~assumptions (self : t) : res =
@@ -194,14 +193,14 @@ let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
       if should_stop self !resource_counter then
         raise_notrace Resource_exhausted
   in
-  self.si.on_progress <- on_progress;
+  Event.on ~f:on_progress (SI.on_progress self.si);
 
   let res =
     match
       Stat.incr self.count_solve;
       Sat_solver.solve ~on_progress ~assumptions (solver self)
     with
-    | Sat_solver.Sat _ when not self.si.complete ->
+    | Sat_solver.Sat _ when not (SI.is_complete self.si) ->
       Log.debugf 1 (fun k ->
           k
             "(@[sidekick.smt-solver: SAT@ actual: UNKNOWN@ :reason \
@@ -212,14 +211,14 @@ let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
 
       Log.debugf 5 (fun k ->
           let ppc out n =
-            Fmt.fprintf out "{@[<hv>class@ %a@]}" (Util.pp_iter N.pp)
-              (N.iter_class n)
+            Fmt.fprintf out "{@[<hv>class@ %a@]}" (Util.pp_iter E_node.pp)
+              (E_node.iter_class n)
           in
           k "(@[sidekick.smt-solver.classes@ (@[%a@])@])" (Util.pp_iter ppc)
             (CC.all_classes @@ Solver_internal.cc self.si));
 
       let m =
-        match self.si.last_model with
+        match SI.last_model self.si with
         | Some m -> m
         | None -> assert false
       in
