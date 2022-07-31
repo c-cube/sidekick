@@ -1,140 +1,49 @@
-(** Linear Rational Arithmetic *)
-
 (* Reference:
    http://smtlib.cs.uiowa.edu/logics-all.shtml#QF_LRA *)
 
 open Sidekick_core
-module SMT = Sidekick_smt_solver
-module Predicate = Sidekick_simplex.Predicate
-module Linear_expr = Sidekick_simplex.Linear_expr
-module Linear_expr_intf = Sidekick_simplex.Linear_expr_intf
+open Sidekick_cc
+module Intf = Intf
+open Intf
+module SI = SMT.Solver_internal
 
-module type INT = Sidekick_arith.INT
-module type RATIONAL = Sidekick_arith.RATIONAL
+module type ARG = Intf.ARG
 
-module S_op = Sidekick_simplex.Op
+module Tag = struct
+  type t = Lit of Lit.t | CC_eq of E_node.t * E_node.t
 
-type term = Term.t
-type ty = Term.t
-type pred = Linear_expr_intf.bool_op = Leq | Geq | Lt | Gt | Eq | Neq
-type op = Linear_expr_intf.op = Plus | Minus
+  let pp out = function
+    | Lit l -> Fmt.fprintf out "(@[lit %a@])" Lit.pp l
+    | CC_eq (n1, n2) ->
+      Fmt.fprintf out "(@[cc-eq@ %a@ %a@])" E_node.pp n1 E_node.pp n2
 
-type ('num, 'a) lra_view =
-  | LRA_pred of pred * 'a * 'a
-  | LRA_op of op * 'a * 'a
-  | LRA_mult of 'num * 'a
-  | LRA_const of 'num
-  | LRA_other of 'a
-
-let map_view f (l : _ lra_view) : _ lra_view =
-  match l with
-  | LRA_pred (p, a, b) -> LRA_pred (p, f a, f b)
-  | LRA_op (p, a, b) -> LRA_op (p, f a, f b)
-  | LRA_mult (n, a) -> LRA_mult (n, f a)
-  | LRA_const q -> LRA_const q
-  | LRA_other x -> LRA_other (f x)
-
-module type ARG = sig
-  module Z : INT
-  module Q : RATIONAL with type bigint = Z.t
-
-  val view_as_lra : Term.t -> (Q.t, Term.t) lra_view
-  (** Project the Term.t into the theory view *)
-
-  val mk_lra : Term.store -> (Q.t, Term.t) lra_view -> Term.t
-  (** Make a Term.t from the given theory view *)
-
-  val ty_lra : Term.store -> ty
-
-  val has_ty_real : Term.t -> bool
-  (** Does this term have the type [Real] *)
-
-  val lemma_lra : Lit.t Iter.t -> Proof_term.t
-
-  module Gensym : sig
-    type t
-
-    val create : Term.store -> t
-    val tst : t -> Term.store
-    val copy : t -> t
-
-    val fresh_term : t -> pre:string -> ty -> term
-    (** Make a fresh term of the given type *)
-  end
+  let to_lits si = function
+    | Lit l -> [ l ]
+    | CC_eq (n1, n2) ->
+      let r = CC.explain_eq (SI.cc si) n1 n2 in
+      (* FIXME
+         assert (not (SI.CC.Resolved_expl.is_semantic r));
+      *)
+      r.lits
 end
 
-module type S = sig
-  module A : ARG
+module SimpVar : Linear_expr.VAR with type t = Term.t and type lit = Tag.t =
+struct
+  type t = Term.t
 
-  (*
-  module SimpVar : Sidekick_simplex.VAR with type lit = A.Lit.t
-  module LE_ : Linear_expr_intf.S with module Var = SimpVar
-  module LE = LE_.Expr
-     *)
+  let pp = Term.pp_debug
+  let compare = Term.compare
 
-  module SimpSolver : Sidekick_simplex.S
-  (** Simplexe *)
+  type lit = Tag.t
 
-  type state
+  let pp_lit = Tag.pp
 
-  val create : ?stat:Stat.t -> SMT.Solver_internal.t -> state
-
-  (* TODO: be able to declare some variables as ints *)
-
-  (*
-  val simplex : state -> Simplex.t
-     *)
-
-  val k_state : state SMT.Registry.key
-  (** Key to access the state from outside,
-      available when the theory has been setup *)
-
-  val theory : SMT.Theory.t
+  let not_lit = function
+    | Tag.Lit l -> Some (Tag.Lit (Lit.neg l))
+    | _ -> None
 end
 
 module Make (A : ARG) = (* : S with module A = A *) struct
-  module A = A
-  module SI = SMT.Solver_internal
-  open Sidekick_cc
-
-  open struct
-    module Pr = Proof_trace
-  end
-
-  module Tag = struct
-    type t = Lit of Lit.t | CC_eq of E_node.t * E_node.t
-
-    let pp out = function
-      | Lit l -> Fmt.fprintf out "(@[lit %a@])" Lit.pp l
-      | CC_eq (n1, n2) ->
-        Fmt.fprintf out "(@[cc-eq@ %a@ %a@])" E_node.pp n1 E_node.pp n2
-
-    let to_lits si = function
-      | Lit l -> [ l ]
-      | CC_eq (n1, n2) ->
-        let r = CC.explain_eq (SI.cc si) n1 n2 in
-        (* FIXME
-           assert (not (SI.CC.Resolved_expl.is_semantic r));
-        *)
-        r.lits
-  end
-
-  module SimpVar : Linear_expr.VAR with type t = Term.t and type lit = Tag.t =
-  struct
-    type t = Term.t
-
-    let pp = Term.pp_debug
-    let compare = Term.compare
-
-    type lit = Tag.t
-
-    let pp_lit = Tag.pp
-
-    let not_lit = function
-      | Tag.Lit l -> Some (Tag.Lit (Lit.neg l))
-      | _ -> None
-  end
-
   module LE_ = Linear_expr.Make (A.Q) (SimpVar)
   module LE = LE_.Expr
 
@@ -339,12 +248,12 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         proxy)
 
   let add_clause_lra_ ?using (module PA : SI.PREPROCESS_ACTS) lits =
-    let pr = Pr.add_step PA.proof @@ A.lemma_lra (Iter.of_list lits) in
+    let pr = Proof_trace.add_step PA.proof @@ A.lemma_lra (Iter.of_list lits) in
     let pr =
       match using with
       | None -> pr
       | Some using ->
-        Pr.add_step PA.proof
+        Proof_trace.add_step PA.proof
         @@ Proof_core.lemma_rw_clause pr ~res:(Iter.of_list lits) ~using
     in
     PA.add_clause lits pr
@@ -487,12 +396,12 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   let simplify (self : state) (_recurse : _) (t : Term.t) :
       (Term.t * Proof_step.id Iter.t) option =
     let proof_eq t u =
-      Pr.add_step self.proof
+      Proof_trace.add_step self.proof
       @@ A.lemma_lra (Iter.return (Lit.atom (Term.eq self.tst t u)))
     in
     let proof_bool t ~sign:b =
       let lit = Lit.atom ~sign:b t in
-      Pr.add_step self.proof @@ A.lemma_lra (Iter.return lit)
+      Proof_trace.add_step self.proof @@ A.lemma_lra (Iter.return lit)
     in
 
     match A.view_as_lra t with
@@ -557,7 +466,9 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       |> CCList.flat_map (Tag.to_lits si)
       |> List.rev_map Lit.neg
     in
-    let pr = Pr.add_step (SI.proof si) @@ A.lemma_lra (Iter.of_list confl) in
+    let pr =
+      Proof_trace.add_step (SI.proof si) @@ A.lemma_lra (Iter.of_list confl)
+    in
     SI.raise_conflict si acts confl pr
 
   let on_propagate_ si acts lit ~reason =
@@ -567,7 +478,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       SI.propagate si acts lit ~reason:(fun () ->
           let lits = CCList.flat_map (Tag.to_lits si) reason in
           let pr =
-            Pr.add_step (SI.proof si)
+            Proof_trace.add_step (SI.proof si)
             @@ A.lemma_lra Iter.(cons lit (of_list lits))
           in
           CCList.flat_map (Tag.to_lits si) reason, pr)
@@ -613,7 +524,9 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       if A.Q.(le_const <> zero) then (
         (* [c=0] when [c] is not 0 *)
         let lit = Lit.atom ~sign:false @@ Term.eq self.tst t1 t2 in
-        let pr = Pr.add_step self.proof @@ A.lemma_lra (Iter.return lit) in
+        let pr =
+          Proof_trace.add_step self.proof @@ A.lemma_lra (Iter.return lit)
+        in
         SI.add_clause_permanent si acts [ lit ] pr
       )
     ) else (
@@ -808,3 +721,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     SMT.Solver.mk_theory ~name:"th-lra" ~create_and_setup ~push_level
       ~pop_levels ()
 end
+
+let theory (module A : ARG) : SMT.theory =
+  let module M = Make (A) in
+  M.theory

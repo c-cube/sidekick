@@ -1,146 +1,43 @@
-(** Theory of boolean formulas.
+open Sidekick_core
+module Intf = Intf
+open Intf
+module SI = SMT.Solver_internal
+module T = Term
 
-    This handles formulas containing "and", "or", "=>", "if-then-else", etc.
-    *)
+module type ARG = Intf.ARG
 
-open Sidekick_sigs_smt
+module Make (A : ARG) : sig
+  val theory : SMT.theory
+end = struct
+  type state = { tst: T.store; gensym: A.Gensym.t }
 
-(** Boolean-oriented view of terms *)
-type ('a, 'args) bool_view =
-  | B_bool of bool
-  | B_not of 'a
-  | B_and of 'args
-  | B_or of 'args
-  | B_imply of 'args * 'a
-  | B_equiv of 'a * 'a
-  | B_xor of 'a * 'a
-  | B_eq of 'a * 'a
-  | B_neq of 'a * 'a
-  | B_ite of 'a * 'a * 'a
-  | B_opaque_bool of 'a (* do not enter *)
-  | B_atom of 'a
-
-module type PROOF_RULES = sig
-  type rule
-  type term
-  type lit
-
-  val lemma_bool_tauto : lit Iter.t -> rule
-  (** Boolean tautology lemma (clause) *)
-
-  val lemma_bool_c : string -> term list -> rule
-  (** Basic boolean logic lemma for a clause [|- c].
-      [proof_bool_c b name cs] is the rule designated by [name]. *)
-
-  val lemma_bool_equiv : term -> term -> rule
-  (** Boolean tautology lemma (equivalence) *)
-
-  val lemma_ite_true : ite:term -> rule
-  (** lemma [a ==> ite a b c = b] *)
-
-  val lemma_ite_false : ite:term -> rule
-  (** lemma [¬a ==> ite a b c = c] *)
-end
-
-(** Argument to the theory *)
-module type ARG = sig
-  module S : SOLVER
-
-  type term = S.T.Term.t
-
-  val view_as_bool : term -> (term, term Iter.t) bool_view
-  (** Project the term into the boolean view. *)
-
-  val mk_bool : S.T.Term.store -> (term, term array) bool_view -> term
-  (** Make a term from the given boolean view. *)
-
-  module P :
-    PROOF_RULES
-      with type rule := S.Proof_trace.A.rule
-       and type lit := S.Lit.t
-       and type term := S.T.Term.t
-
-  (** Fresh symbol generator.
-
-      The theory needs to be able to create new terms with fresh names,
-      to be used as placeholders for complex formulas during Tseitin
-      encoding. *)
-  module Gensym : sig
-    type t
-
-    val create : S.T.Term.store -> t
-    (** New (stateful) generator instance. *)
-
-    val fresh_term : t -> pre:string -> S.T.Ty.t -> term
-    (** Make a fresh term of the given type *)
-  end
-end
-
-(** Signature *)
-module type S = sig
-  module A : ARG
-
-  type state
-
-  val create : A.S.T.Term.store -> A.S.T.Ty.store -> state
-
-  val simplify : state -> A.S.Solver_internal.simplify_hook
-  (** Simplify given term *)
-
-  val cnf : state -> A.S.Solver_internal.preprocess_hook
-  (** preprocesses formulas by giving them names and
-      adding clauses to equate the name with the boolean formula. *)
-
-  val theory : A.S.theory
-  (** A theory that can be added to the solver {!A.S}.
-
-      This theory does most of its work during preprocessing,
-      turning boolean formulas into SAT clauses via
-      the {{: https://en.wikipedia.org/wiki/Tseytin_transformation}
-          Tseitin encoding} . *)
-end
-
-module Make (A : ARG) : S with module A = A = struct
-  module A = A
-  module Ty = A.S.T.Ty
-  module T = A.S.T.Term
-  module Lit = A.S.Solver_internal.Lit
-  module SI = A.S.Solver_internal
-
-  (* utils *)
-  open struct
-    module Pr = A.S.Proof_trace
-  end
-
-  type state = { tst: T.store; ty_st: Ty.store; gensym: A.Gensym.t }
-
-  let create tst ty_st : state = { tst; ty_st; gensym = A.Gensym.create tst }
+  let create tst : state = { tst; gensym = A.Gensym.create tst }
   let[@inline] not_ tst t = A.mk_bool tst (B_not t)
   let[@inline] eq tst a b = A.mk_bool tst (B_eq (a, b))
 
   let is_true t =
-    match T.as_bool t with
+    match T.as_bool_val t with
     | Some true -> true
     | _ -> false
 
   let is_false t =
-    match T.as_bool t with
+    match T.as_bool_val t with
     | Some false -> true
     | _ -> false
 
-  let simplify (self : state) (simp : SI.Simplify.t) (t : T.t) :
-      (T.t * SI.step_id Iter.t) option =
+  let simplify (self : state) (simp : Simplify.t) (t : T.t) :
+      (T.t * Proof_step.id Iter.t) option =
     let tst = self.tst in
 
-    let proof = SI.Simplify.proof simp in
+    let proof = Simplify.proof simp in
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
-    let mk_step_ r = Pr.add_step proof r in
+    let mk_step_ r = Proof_trace.add_step proof r in
 
     let add_step_eq a b ~using ~c0 : unit =
       add_step_ @@ mk_step_
-      @@ SI.P_core_rules.lemma_rw_clause c0 ~using
-           ~res:(Iter.return (Lit.atom tst (A.mk_bool tst (B_eq (a, b)))))
+      @@ Proof_core.lemma_rw_clause c0 ~using
+           ~res:(Iter.return (Lit.atom (A.mk_bool tst (B_eq (a, b)))))
     in
 
     let[@inline] ret u = Some (u, Iter.of_list !steps) in
@@ -152,35 +49,35 @@ module Make (A : ARG) : S with module A = A = struct
 
     match A.view_as_bool t with
     | B_bool _ -> None
-    | B_not u when is_true u -> ret_bequiv t (T.bool tst false)
-    | B_not u when is_false u -> ret_bequiv t (T.bool tst true)
+    | B_not u when is_true u -> ret_bequiv t (T.false_ tst)
+    | B_not u when is_false u -> ret_bequiv t (T.true_ tst)
     | B_not _ -> None
     | B_opaque_bool _ -> None
     | B_and a ->
       if Iter.exists is_false a then
-        ret (T.bool tst false)
+        ret (T.false_ tst)
       else if Iter.for_all is_true a then
-        ret (T.bool tst true)
+        ret (T.true_ tst)
       else
         None
     | B_or a ->
       if Iter.exists is_true a then
-        ret (T.bool tst true)
+        ret (T.true_ tst)
       else if Iter.for_all is_false a then
-        ret (T.bool tst false)
+        ret (T.false_ tst)
       else
         None
     | B_imply (args, u) ->
       if Iter.exists is_false args then
-        ret (T.bool tst true)
+        ret (T.true_ tst)
       else if is_true u then
-        ret (T.bool tst true)
+        ret (T.true_ tst)
       else
         None
     | B_ite (a, b, c) ->
       (* directly simplify [a] so that maybe we never will simplify one
          of the branches *)
-      let a, prf_a = SI.Simplify.normalize_t simp a in
+      let a, prf_a = Simplify.normalize_t simp a in
       Option.iter add_step_ prf_a;
       (match A.view_as_bool a with
       | B_bool true ->
@@ -201,27 +98,28 @@ module Make (A : ARG) : S with module A = A = struct
     | B_xor (a, b) when is_false b -> ret_bequiv t a
     | B_xor (a, b) when is_true b -> ret_bequiv t (not_ tst a)
     | B_equiv _ | B_xor _ -> None
-    | B_eq (a, b) when T.equal a b -> ret_bequiv t (T.bool tst true)
-    | B_neq (a, b) when T.equal a b -> ret_bequiv t (T.bool tst true)
+    | B_eq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
+    | B_neq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
     | B_eq _ | B_neq _ -> None
     | B_atom _ -> None
 
   let fresh_term self ~for_t ~pre ty =
     let u = A.Gensym.fresh_term self.gensym ~pre ty in
     Log.debugf 20 (fun k ->
-        k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])" T.pp u T.pp for_t);
-    assert (Ty.equal ty (T.ty u));
+        k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])" T.pp_debug u T.pp_debug
+          for_t);
+    assert (Term.equal ty (T.ty u));
     u
 
   let fresh_lit (self : state) ~for_t ~mk_lit ~pre : T.t * Lit.t =
-    let proxy = fresh_term ~for_t ~pre self (Ty.bool self.ty_st) in
+    let proxy = fresh_term ~for_t ~pre self (Term.bool self.tst) in
     proxy, mk_lit proxy
 
   (* TODO: polarity? *)
   let cnf (self : state) (si : SI.t) (module PA : SI.PREPROCESS_ACTS) (t : T.t)
       : unit =
-    Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp t);
-    let[@inline] mk_step_ r = Pr.add_step PA.proof r in
+    Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp_debug t);
+    let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
 
     (* handle boolean equality *)
     let equiv_ _si ~is_xor ~t t_a t_b : unit =
@@ -332,10 +230,14 @@ module Make (A : ARG) : S with module A = A = struct
 
   let create_and_setup si =
     Log.debug 2 "(th-bool.setup)";
-    let st = create (SI.tst si) (SI.ty_st si) in
+    let st = create (SI.tst si) in
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (cnf st);
     st
 
-  let theory = A.S.mk_theory ~name:"th-bool" ~create_and_setup ()
+  let theory = SMT.Solver.mk_theory ~name:"th-bool" ~create_and_setup ()
 end
+
+let theory (module A : ARG) : SMT.theory =
+  let module M = Make (A) in
+  M.theory
