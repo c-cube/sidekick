@@ -1,6 +1,0 @@
-(library
- (name sidekick_proof_trace_dyn)
- (public_name sidekick.proof-trace.dyn)
- (synopsis "Dynamic version of the proof trace")
- (libraries sidekick.util sidekick.sigs.proof-trace)
- (flags :standard -open Sidekick_util))
