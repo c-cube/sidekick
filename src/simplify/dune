@@ -1,0 +1,6 @@
+(library
+ (name Sidekick_simplify)
+ (public_name sidekick.simplify)
+ (synopsis "Simplifier")
+ (libraries containers iter sidekick.core sidekick.util)
+ (flags :standard -w +32 -open Sidekick_util))
