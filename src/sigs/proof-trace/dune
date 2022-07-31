@@ -1,5 +1,0 @@
-(library
- (name sidekick_sigs_proof_trace)
- (public_name sidekick.sigs.proof-trace)
- (synopsis "Common definition for proof traces")
- (libraries containers iter sidekick.sigs sidekick.util))

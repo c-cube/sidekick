@@ -1,6 +1,0 @@
-(library
- (name sidekick_sigs_proof_core)
- (public_name sidekick.sigs.proof.core)
- (synopsis "Common rules for proof traces")
- (flags :standard -open Sidekick_util)
- (libraries containers iter sidekick.util sidekick.sigs))

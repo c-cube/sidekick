@@ -1,9 +1,0 @@
-
-(library
- (name sidekick_sigs_cc)
- (public_name sidekick.sigs.cc)
- (synopsis "Signatures for the congruence closure")
- (flags :standard -open Sidekick_util)
- (libraries containers iter sidekick.sigs sidekick.sigs.term
-   sidekick.sigs.lit sidekick.sigs.proof-trace sidekick.sigs.proof.core
-   sidekick.util))
