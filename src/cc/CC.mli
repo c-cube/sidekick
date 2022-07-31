@@ -1,3 +1,5 @@
+(** Main congruence closure type. *)
+
 open Sidekick_core
 
 type e_node = E_node.t
@@ -274,6 +276,20 @@ end
 
 module Make (_ : ARG) : BUILD
 module Default : BUILD
+
+val create :
+  (module ARG) ->
+  ?stat:Stat.t ->
+  ?size:[ `Small | `Big ] ->
+  Term.store ->
+  Proof_trace.t ->
+  t
+(** Create a new congruence closure.
+
+      @param term_store used to be able to create new terms. All terms
+      interacting with this congruence closure must belong in this term state
+      as well.
+  *)
 
 (**/**)
 

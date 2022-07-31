@@ -39,6 +39,12 @@ let bool store = const store @@ Const.make C_bool ops ~ty:(type_ store)
 let true_ store = const store @@ Const.make C_true ops ~ty:(bool store)
 let false_ store = const store @@ Const.make C_false ops ~ty:(bool store)
 
+let bool_val store b =
+  if b then
+    true_ store
+  else
+    false_ store
+
 let c_eq store =
   let type_ = type_ store in
   let v = bvar_i store 0 ~ty:type_ in

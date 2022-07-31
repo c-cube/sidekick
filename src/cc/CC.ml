@@ -969,3 +969,6 @@ module Default = struct
         | _ -> View.Opaque t)
   end)
 end
+
+let create (module A : ARG) ?stat ?size tst proof : t =
+  create_ ?stat ?size tst proof ~view_as_cc:A.view_as_cc

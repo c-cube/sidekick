@@ -32,3 +32,5 @@ module Proof_trace = Proof_trace
 module Proof_term = Proof_term
 module Subst = Sidekick_core_logic.Subst
 module Var = Sidekick_core_logic.Var
+
+exception Resource_exhausted

@@ -11,6 +11,7 @@ val c_eq : store -> t
 val c_ite : store -> t
 val true_ : store -> t
 val false_ : store -> t
+val bool_val : store -> bool -> t
 
 val eq : store -> t -> t -> t
 (** [eq a b] is [a = b] *)
