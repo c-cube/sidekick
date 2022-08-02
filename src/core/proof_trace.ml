@@ -1,6 +1,5 @@
 type lit = Lit.t
 type step_id = Proof_step.id
-type proof_term = Proof_term.t
 
 module Step_vec = struct
   type elt = step_id
@@ -26,7 +25,7 @@ end
 
 module type DYN = sig
   val enabled : unit -> bool
-  val add_step : proof_term -> step_id
+  val add_step : Proof_term.delayed -> step_id
   val add_unsat : step_id -> unit
   val delete : step_id -> unit
 end

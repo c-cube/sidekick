@@ -17,8 +17,6 @@ type step_id = Proof_step.id
 module Step_vec : Vec_sig.BASE with type elt = step_id
 (** A vector indexed by steps. *)
 
-type proof_term = Proof_term.t
-
 (** {2 Traces} *)
 
 type t
@@ -34,7 +32,7 @@ type t
 val enabled : t -> bool
 (** Is proof tracing enabled? *)
 
-val add_step : t -> proof_term -> step_id
+val add_step : t -> Proof_term.delayed -> step_id
 (** Create a new step in the trace. *)
 
 val add_unsat : t -> step_id -> unit
@@ -57,7 +55,7 @@ val dummy : t
 
 module type DYN = sig
   val enabled : unit -> bool
-  val add_step : proof_term -> step_id
+  val add_step : Proof_term.delayed -> step_id
   val add_unsat : step_id -> unit
   val delete : step_id -> unit
 end

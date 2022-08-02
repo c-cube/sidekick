@@ -44,7 +44,7 @@ end = struct
     let[@inline] ret u = Some (u, Iter.of_list !steps) in
     (* proof is [t <=> u] *)
     let ret_bequiv t1 u =
-      add_step_ @@ mk_step_ @@ A.P.lemma_bool_equiv t1 u;
+      (add_step_ @@ mk_step_ @@ fun () -> A.P.lemma_bool_equiv t1 u);
       ret u
     in
 
@@ -83,11 +83,11 @@ end = struct
       (match A.view_as_bool a with
       | B_bool true ->
         add_step_eq t b ~using:(Option.to_list prf_a)
-          ~c0:(mk_step_ @@ A.P.lemma_ite_true ~ite:t);
+          ~c0:(mk_step_ @@ fun () -> A.P.lemma_ite_true ~ite:t);
         ret b
       | B_bool false ->
         add_step_eq t c ~using:(Option.to_list prf_a)
-          ~c0:(mk_step_ @@ A.P.lemma_ite_false ~ite:t);
+          ~c0:(mk_step_ @@ fun () -> A.P.lemma_ite_false ~ite:t);
         ret c
       | _ -> None)
     | B_equiv (a, b) when is_true a -> ret_bequiv t b
@@ -140,26 +140,26 @@ end = struct
       PA.add_clause
         [ Lit.neg lit; Lit.neg a; b ]
         (if is_xor then
-          mk_step_ @@ A.P.lemma_bool_c "xor-e+" [ t ]
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "xor-e+" [ t ]
         else
-          mk_step_ @@ A.P.lemma_bool_c "eq-e" [ t; t_a ]);
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "eq-e" [ t; t_a ]);
       PA.add_clause
         [ Lit.neg lit; Lit.neg b; a ]
         (if is_xor then
-          mk_step_ @@ A.P.lemma_bool_c "xor-e-" [ t ]
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "xor-e-" [ t ]
         else
-          mk_step_ @@ A.P.lemma_bool_c "eq-e" [ t; t_b ]);
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "eq-e" [ t; t_b ]);
       PA.add_clause [ lit; a; b ]
         (if is_xor then
-          mk_step_ @@ A.P.lemma_bool_c "xor-i" [ t; t_a ]
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "xor-i" [ t; t_a ]
         else
-          mk_step_ @@ A.P.lemma_bool_c "eq-i+" [ t ]);
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "eq-i+" [ t ]);
       PA.add_clause
         [ lit; Lit.neg a; Lit.neg b ]
         (if is_xor then
-          mk_step_ @@ A.P.lemma_bool_c "xor-i" [ t; t_b ]
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "xor-i" [ t; t_b ]
         else
-          mk_step_ @@ A.P.lemma_bool_c "eq-i-" [ t ])
+          mk_step_ @@ fun () -> A.P.lemma_bool_c "eq-i-" [ t ])
     in
 
     (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
@@ -177,11 +177,11 @@ end = struct
         (fun t_u u ->
           PA.add_clause
             [ Lit.neg lit; u ]
-            (mk_step_ @@ A.P.lemma_bool_c "and-e" [ t; t_u ]))
+            (mk_step_ @@ fun () -> A.P.lemma_bool_c "and-e" [ t; t_u ]))
         t_subs subs;
       PA.add_clause
         (lit :: List.map Lit.neg subs)
-        (mk_step_ @@ A.P.lemma_bool_c "and-i" [ t ])
+        (mk_step_ @@ fun () -> A.P.lemma_bool_c "and-i" [ t ])
     | B_or l ->
       let t_subs = Iter.to_list l in
       let subs = List.map PA.mk_lit t_subs in
@@ -192,10 +192,10 @@ end = struct
         (fun t_u u ->
           PA.add_clause
             [ Lit.neg u; lit ]
-            (mk_step_ @@ A.P.lemma_bool_c "or-i" [ t; t_u ]))
+            (mk_step_ @@ fun () -> A.P.lemma_bool_c "or-i" [ t; t_u ]))
         t_subs subs;
       PA.add_clause (Lit.neg lit :: subs)
-        (mk_step_ @@ A.P.lemma_bool_c "or-e" [ t ])
+        (mk_step_ @@ fun () -> A.P.lemma_bool_c "or-e" [ t ])
     | B_imply (t_args, t_u) ->
       (* transform into [¬args \/ u] on the fly *)
       let t_args = Iter.to_list t_args in
@@ -211,18 +211,18 @@ end = struct
         (fun t_u u ->
           PA.add_clause
             [ Lit.neg u; lit ]
-            (mk_step_ @@ A.P.lemma_bool_c "imp-i" [ t; t_u ]))
+            (mk_step_ @@ fun () -> A.P.lemma_bool_c "imp-i" [ t; t_u ]))
         (t_u :: t_args) subs;
       PA.add_clause (Lit.neg lit :: subs)
-        (mk_step_ @@ A.P.lemma_bool_c "imp-e" [ t ])
+        (mk_step_ @@ fun () -> A.P.lemma_bool_c "imp-e" [ t ])
     | B_ite (a, b, c) ->
       let lit_a = PA.mk_lit a in
       PA.add_clause
         [ Lit.neg lit_a; PA.mk_lit (eq self.tst t b) ]
-        (mk_step_ @@ A.P.lemma_ite_true ~ite:t);
+        (mk_step_ @@ fun () -> A.P.lemma_ite_true ~ite:t);
       PA.add_clause
         [ lit_a; PA.mk_lit (eq self.tst t c) ]
-        (mk_step_ @@ A.P.lemma_ite_false ~ite:t)
+        (mk_step_ @@ fun () -> A.P.lemma_ite_false ~ite:t)
     | B_eq _ | B_neq _ -> ()
     | B_equiv (a, b) -> equiv_ si ~t ~is_xor:false a b
     | B_xor (a, b) -> equiv_ si ~t ~is_xor:true a b

@@ -44,7 +44,7 @@ module type ARG = sig
   val has_ty_real : Term.t -> bool
   (** Does this term have the type [Real] *)
 
-  val lemma_lra : Lit.t list -> Proof_term.data
+  val lemma_lra : Lit.t list -> Proof_term.t
 
   module Gensym : sig
     type t
