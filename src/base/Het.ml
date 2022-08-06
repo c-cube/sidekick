@@ -74,58 +74,6 @@ let pair_of_e_pair (E_pair (k, e)) =
   | K.Store v -> Pair (k, v)
   | _ -> assert false
 
-module Tbl = struct
-  module M = Hashtbl.Make (struct
-    type t = int
-
-    let equal (i : int) j = i = j
-    let hash (i : int) = Hashtbl.hash i
-  end)
-
-  type t = exn_pair M.t
-
-  let create ?(size = 16) () = M.create size
-  let mem t k = M.mem t (Key.id k)
-
-  let find_exn (type a) t (k : a Key.t) : a =
-    let module K = (val k) in
-    let (E_pair (_, v)) = M.find t K.id in
-    match v with
-    | K.Store v -> v
-    | _ -> assert false
-
-  let find t k = try Some (find_exn t k) with Not_found -> None
-
-  let add_pair_ t p =
-    let (Pair (k, v)) = p in
-    let module K = (val k) in
-    let p = E_pair (k, K.Store v) in
-    M.replace t K.id p
-
-  let add t k v = add_pair_ t (Pair (k, v))
-
-  let remove (type a) t (k : a Key.t) =
-    let module K = (val k) in
-    M.remove t K.id
-
-  let length t = M.length t
-  let iter f t = M.iter (fun _ pair -> f (pair_of_e_pair pair)) t
-  let to_iter t yield = iter yield t
-  let to_list t = M.fold (fun _ p l -> pair_of_e_pair p :: l) t []
-  let add_list t l = List.iter (add_pair_ t) l
-  let add_iter t seq = seq (add_pair_ t)
-
-  let of_list l =
-    let t = create () in
-    add_list t l;
-    t
-
-  let of_iter seq =
-    let t = create () in
-    add_iter t seq;
-    t
-end
-
 module Map = struct
   module M = Map.Make (struct
     type t = int

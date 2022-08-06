@@ -1,17 +1,19 @@
 (** Basic type definitions for Sidekick_base *)
 
-module Vec = Sidekick_util.Vec
-module Log = Sidekick_util.Log
-module Fmt = CCFormat
-module CC_view = Sidekick_sigs_cc.View
-module Proof_ser = Sidekick_base_proof_trace.Proof_ser
-module Storage = Sidekick_base_proof_trace.Storage
+(*
+
+open Sidekick_core
+module CC_view = Sidekick_cc.View
+(* FIXME
+   module Proof_ser = Sidekick_base_proof_trace.Proof_ser
+   module Storage = Sidekick_base_proof_trace.Storage
+*)
 
 let hash_z = Z.hash
 let[@inline] hash_q q = CCHash.combine2 (hash_z (Q.num q)) (hash_z (Q.den q))
 
 module LRA_pred = struct
-  type t = Sidekick_arith_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
+  type t = Sidekick_th_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
 
   let to_string = function
     | Lt -> "<"
@@ -25,7 +27,7 @@ module LRA_pred = struct
 end
 
 module LRA_op = struct
-  type t = Sidekick_arith_lra.op = Plus | Minus
+  type t = Sidekick_th_lra.op = Plus | Minus
 
   let to_string = function
     | Plus -> "+"
@@ -154,34 +156,12 @@ module LIA_view = struct
     | Var v -> LRA_view.Var (f v)
 end
 
-type term = {
-  mutable term_id: int; (* unique ID *)
-  mutable term_ty: ty;
-  term_view: term term_view;
-}
-(** Term.
+type term = Term.t
+type ty = Term.t
+type value = Term.t
 
-    A term, with its own view, type, and a unique identifier.
-    Do not create directly, see {!Term}. *)
-
-(** Shallow structure of a term.
-
-    A term is a DAG (direct acyclic graph) of nodes, each of which has a
-    term view. *)
-and 'a term_view =
-  | Bool of bool
-  | App_fun of fun_ * 'a array (* full, first-order application *)
-  | Eq of 'a * 'a
-  | Not of 'a
-  | Ite of 'a * 'a * 'a
-  | LRA of 'a LRA_view.t
-  | LIA of 'a LIA_view.t
-
-and fun_ = { fun_id: ID.t; fun_view: fun_view }
-(** type of function symbols *)
-
-and fun_view =
-  | Fun_undef of fun_ty (* simple undefined constant *)
+type fun_view =
+  | Fun_undef of ty (* simple undefined constant *)
   | Fun_select of select
   | Fun_cstor of cstor
   | Fun_is_a of cstor
@@ -202,19 +182,9 @@ and fun_view =
       congruence but not for evaluation.
 *)
 
-and fun_ty = { fun_ty_args: ty list; fun_ty_ret: ty }
-(** Function type *)
-
-and ty = { mutable ty_id: int; ty_view: ty_view }
-(** Hashconsed type *)
-
 and ty_view =
-  | Ty_bool
-  | Ty_real
   | Ty_int
-  | Ty_atomic of { def: ty_def; args: ty list; mutable finite: bool }
-
-and ty_def =
+  | Ty_real
   | Ty_uninterpreted of ID.t
   | Ty_data of { data: data }
   | Ty_def of {
@@ -245,21 +215,22 @@ and select = {
   select_i: int;
 }
 
-(** Semantic values, used for models (and possibly model-constructing calculi) *)
-and value =
-  | V_bool of bool
-  | V_element of { id: ID.t; ty: ty }
-      (** a named constant, distinct from any other constant *)
-  | V_cstor of { c: cstor; args: value list }
-  | V_custom of {
-      view: value_custom_view;
-      pp: value_custom_view Fmt.printer;
-      eq: value_custom_view -> value_custom_view -> bool;
-      hash: value_custom_view -> int;
-    }  (** Custom value *)
-  | V_real of Q.t
+(* FIXME: just use  terms; introduce a Const.view for V_element
+   (** Semantic values, used for models (and possibly model-constructing calculi) *)
+   type value_view =
+     | V_element of { id: ID.t; ty: ty }
+         (** a named constant, distinct from any other constant *)
+     | V_cstor of { c: cstor; args: value list }
+     | V_custom of {
+         view: value_custom_view;
+         pp: value_custom_view Fmt.printer;
+         eq: value_custom_view -> value_custom_view -> bool;
+         hash: value_custom_view -> int;
+       }  (** Custom value *)
+     | V_real of Q.t
 
-and value_custom_view = ..
+   and value_custom_view = ..
+*)
 
 type definition = ID.t * ty * term
 
@@ -278,15 +249,50 @@ type statement =
   | Stmt_get_value of term list
   | Stmt_exit
 
-let[@inline] term_equal_ (a : term) b = a == b
-let[@inline] term_hash_ a = a.term_id
-let[@inline] term_cmp_ a b = CCInt.compare a.term_id b.term_id
-let fun_compare a b = ID.compare a.fun_id b.fun_id
-let pp_fun out a = ID.pp out a.fun_id
-let id_of_fun a = a.fun_id
-let[@inline] eq_ty a b = a.ty_id = b.ty_id
-let eq_cstor c1 c2 = ID.equal c1.cstor_id c2.cstor_id
+type Const.view += Ty of ty_view
 
+let ops_ty : Const.ops =
+  (module struct
+    let pp out = function
+      | Ty ty ->
+        (match ty with
+        | Ty_real -> Fmt.string out "Real"
+        | Ty_int -> Fmt.string out "Int"
+        | Ty_atomic { def = Ty_uninterpreted id; args = []; _ } -> ID.pp out id
+        | Ty_atomic { def = Ty_uninterpreted id; args; _ } ->
+          Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args
+        | Ty_atomic { def = Ty_def def; args; _ } -> def.pp pp_ty out args
+        | Ty_atomic { def = Ty_data d; args = []; _ } ->
+          ID.pp out d.data.data_id
+        | Ty_atomic { def = Ty_data d; args; _ } ->
+          Fmt.fprintf out "(@[%a@ %a@])" ID.pp d.data.data_id
+            (Util.pp_list pp_ty) args)
+      | _ -> ()
+
+    let equal a b =
+      match a, b with
+      | Ty a, Ty b ->
+        (match a, b with
+        | Ty_bool, Ty_bool | Ty_int, Ty_int | Ty_real, Ty_real -> true
+        | Ty_atomic a1, Ty_atomic a2 ->
+          equal_def a1.def a2.def && CCList.equal equal a1.args a2.args
+        | (Ty_bool | Ty_atomic _ | Ty_real | Ty_int), _ -> false)
+      | _ -> false
+
+    let hash t =
+      match t.ty_view with
+      | Ty_bool -> Hash.int 1
+      | Ty_real -> Hash.int 2
+      | Ty_int -> Hash.int 3
+      | Ty_atomic { def = Ty_uninterpreted id; args; _ } ->
+        Hash.combine3 10 (ID.hash id) (Hash.list hash args)
+      | Ty_atomic { def = Ty_def d; args; _ } ->
+        Hash.combine3 20 (ID.hash d.id) (Hash.list hash args)
+      | Ty_atomic { def = Ty_data d; args; _ } ->
+        Hash.combine3 30 (ID.hash d.data.data_id) (Hash.list hash args)
+  end)
+
+(*
 let rec eq_value a b =
   match a, b with
   | V_bool a, V_bool b -> a = b
@@ -314,22 +320,7 @@ let rec pp_value out = function
   | V_cstor { c; args } ->
     Fmt.fprintf out "(@[%a@ %a@])" ID.pp c.cstor_id (Util.pp_list pp_value) args
   | V_real x -> Q.pp_print out x
-
-let pp_db out (i, _) = Format.fprintf out "%%%d" i
-
-let rec pp_ty out t =
-  match t.ty_view with
-  | Ty_bool -> Fmt.string out "Bool"
-  | Ty_real -> Fmt.string out "Real"
-  | Ty_int -> Fmt.string out "Int"
-  | Ty_atomic { def = Ty_uninterpreted id; args = []; _ } -> ID.pp out id
-  | Ty_atomic { def = Ty_uninterpreted id; args; _ } ->
-    Fmt.fprintf out "(@[%a@ %a@])" ID.pp id (Util.pp_list pp_ty) args
-  | Ty_atomic { def = Ty_def def; args; _ } -> def.pp pp_ty out args
-  | Ty_atomic { def = Ty_data d; args = []; _ } -> ID.pp out d.data.data_id
-  | Ty_atomic { def = Ty_data d; args; _ } ->
-    Fmt.fprintf out "(@[%a@ %a@])" ID.pp d.data.data_id (Util.pp_list pp_ty)
-      args
+  *)
 
 let pp_term_view_gen ~pp_id ~pp_t out = function
   | Bool true -> Fmt.string out "true"
@@ -1396,3 +1387,5 @@ module Statement = struct
     | Stmt_define _ -> assert false
   (* TODO *)
 end
+
+*)

@@ -21,8 +21,7 @@ let pp_name out a = CCFormat.string out a.name
 let to_string_full a = Printf.sprintf "%s/%d" a.name a.id
 
 module AsKey = struct
-  type t_ = t
-  type t = t_
+  type nonrec t = t
 
   let equal = equal
   let compare = compare

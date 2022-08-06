@@ -2,8 +2,8 @@
 
 type 'a sequence = ('a -> unit) -> unit
 
-module Key = CCHet.Key
+module Key = Het.Key
 
-type pair = CCHet.pair = Pair : 'a Key.t * 'a -> pair
+type pair = Het.pair = Pair : 'a Key.t * 'a -> pair
 
-include CCHet.Map
+include Het.Map

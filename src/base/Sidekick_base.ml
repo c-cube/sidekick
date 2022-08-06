@@ -16,15 +16,12 @@
 
     *)
 
+module Term = Sidekick_core.Term
 module Base_types = Base_types
 module ID = ID
-module Fun = Base_types.Fun
 module Stat = Stat
-module Model = Model
-module Term = Base_types.Term
 module Value = Base_types.Value
 module Term_cell = Base_types.Term_cell
-module Ty = Base_types.Ty
 module Statement = Base_types.Statement
 module Data = Base_types.Data
 module Select = Base_types.Select
@@ -37,6 +34,6 @@ module LIA_pred = Base_types.LIA_pred
 module LIA_op = Base_types.LIA_op
 module Solver_arg = Solver_arg
 module Lit = Lit
-module Proof_dummy = Proof_dummy
 module Proof = Proof
 module Proof_quip = Proof_quip
+module Types_ = Types_

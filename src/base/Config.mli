@@ -1,4 +1,4 @@
-(** {1 Configuration} *)
+(** Configuration *)
 
 type 'a sequence = ('a -> unit) -> unit
 
