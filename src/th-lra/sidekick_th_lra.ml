@@ -4,10 +4,8 @@
 open Sidekick_core
 open Sidekick_cc
 module Intf = Intf
-open Intf
+include Intf
 module SI = SMT.Solver_internal
-
-module type ARG = Intf.ARG
 
 module Tag = struct
   type t = Lit of Lit.t | CC_eq of E_node.t * E_node.t

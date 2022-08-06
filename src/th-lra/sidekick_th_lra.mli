@@ -1,9 +1,10 @@
 (** Linear Rational Arithmetic *)
 
 module Intf = Intf
-open Intf
 
-module type ARG = Intf.ARG
+include module type of struct
+  include Intf
+end
 
 (* TODO
    type state
