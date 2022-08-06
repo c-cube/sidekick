@@ -4,7 +4,6 @@
 
 open Types_
 
-type t = const
 type view = const_view = ..
 
 module type DYN_OPS = sig
@@ -14,6 +13,7 @@ module type DYN_OPS = sig
 end
 
 type ops = (module DYN_OPS)
+type t = const = { c_view: view; c_ops: ops; c_ty: term }
 
 val view : t -> view
 val make : view -> ops -> ty:term -> t
