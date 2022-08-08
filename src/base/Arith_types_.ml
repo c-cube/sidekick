@@ -1,5 +1,7 @@
-let hash_z = Z.hash
-let[@inline] hash_q q = CCHash.combine2 (hash_z (Q.num q)) (hash_z (Q.den q))
+open struct
+  let hash_z = Z.hash
+  let[@inline] hash_q q = CCHash.combine2 (hash_z (Q.num q)) (hash_z (Q.den q))
+end
 
 module LRA_pred = struct
   type t = Sidekick_th_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq

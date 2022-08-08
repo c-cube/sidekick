@@ -1,4 +1,4 @@
-(** {1 Sidekick base}
+(** Sidekick base
 
     This library is a starting point for writing concrete implementations
     of SMT solvers with Sidekick.
@@ -14,26 +14,35 @@
     etc. Logic formats such as SMT-LIB 2.6 are in fact based on a similar
     notion of statements, and a [.smt2] files contains a list of statements.
 
-    *)
+*)
 
-module Term = Sidekick_core.Term
-module Base_types = Base_types
-module ID = ID
-module Stat = Stat
-module Value = Base_types.Value
-module Term_cell = Base_types.Term_cell
-module Statement = Base_types.Statement
-module Data = Base_types.Data
-module Select = Base_types.Select
-module Form = Form
-module LRA_view = Base_types.LRA_view
-module LRA_pred = Base_types.LRA_pred
-module LRA_op = Base_types.LRA_op
-module LIA_view = Base_types.LIA_view
-module LIA_pred = Base_types.LIA_pred
-module LIA_op = Base_types.LIA_op
-module Solver_arg = Solver_arg
-module Lit = Lit
-module Proof = Proof
-module Proof_quip = Proof_quip
 module Types_ = Types_
+module Term = Sidekick_core.Term
+module Ty = Ty
+module ID = ID
+module Form = Form
+include Arith_types_
+module Data_ty = Data_ty
+module Cstor = Data_ty.Cstor
+module Select = Data_ty.Select
+module Statement = Statement
+module Uconst = Uconst
+
+(* TODO
+
+   module Value = Value
+   module Statement = Statement
+   module Data = Data
+   module Select = Select
+
+      module LRA_view = Types_.LRA_view
+      module LRA_pred = Base_types.LRA_pred
+      module LRA_op = Base_types.LRA_op
+      module LIA_view = Base_types.LIA_view
+      module LIA_pred = Base_types.LIA_pred
+      module LIA_op = Base_types.LIA_op
+*)
+
+(*
+module Proof_quip = Proof_quip
+*)

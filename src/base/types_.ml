@@ -9,33 +9,16 @@ type term = Term.t
 type ty = Term.t
 type value = Term.t
 
-type fun_view =
-  | Fun_undef of ty (* simple undefined constant *)
-  | Fun_select of select
-  | Fun_cstor of cstor
-  | Fun_is_a of cstor
-  | Fun_def of {
-      pp: 'a. ('a Fmt.printer -> 'a array Fmt.printer) option;
-      abs: self:term -> term array -> term * bool; (* remove the sign? *)
-      do_cc: bool; (* participate in congruence closure? *)
-      relevant: 'a. ID.t -> 'a array -> int -> bool; (* relevant argument? *)
-      ty: ID.t -> term array -> ty; (* compute type *)
-      eval: value array -> value; (* evaluate term *)
-    }
-      (** Methods on the custom term view whose arguments are ['a].
-    Terms must be printable, and provide some additional theory handles.
+type uconst = { uc_id: ID.t; uc_ty: ty }
+(** Uninterpreted constant. *)
 
-    - [relevant] must return a subset of [args] (possibly the same set).
-      The terms it returns will be activated and evaluated whenever possible.
-      Terms in [args \ relevant args] are considered for
-      congruence but not for evaluation.
-*)
-
-and ty_view =
+type ty_view =
   | Ty_int
   | Ty_real
   | Ty_uninterpreted of { id: ID.t; mutable finite: bool }
-  | Ty_data of { data: data }
+(* TODO: remove (lives in Data_ty now)
+   | Ty_data of { data: data }
+*)
 
 and data = {
   data_id: ID.t;

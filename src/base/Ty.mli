@@ -7,11 +7,12 @@ end
 type t = ty
 type data = Types_.data
 
+include Sidekick_sigs.EQ_ORD_HASH_PRINT with type t := t
+
 val bool : store -> t
 val real : store -> t
 val int : store -> t
 val uninterpreted : store -> ID.t -> t
-val data : store -> data -> t
 val is_uninterpreted : t -> bool
 
 (* TODO: separate functor?
