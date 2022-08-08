@@ -103,8 +103,8 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
       last_res = None;
       solver = Sat_solver.create ~proof ?size ~stat (SI.to_sat_plugin si);
       stat;
-      count_clause = Stat.mk_int stat "solver.add-clause";
-      count_solve = Stat.mk_int stat "solver.solve";
+      count_clause = Stat.mk_int stat "smt.solver.add-clause";
+      count_solve = Stat.mk_int stat "smt.solver.solve";
     }
   in
   add_theory_l self theories;
