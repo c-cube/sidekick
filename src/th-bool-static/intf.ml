@@ -6,7 +6,7 @@ type term = Term.t
 type ty = Term.t
 
 (** Boolean-oriented view of terms *)
-type ('a, 'args) bool_view =
+type ('a, 'args) bool_view = ('a, 'args) Bool_view.t =
   | B_bool of bool
   | B_not of 'a
   | B_and of 'args
@@ -17,7 +17,6 @@ type ('a, 'args) bool_view =
   | B_eq of 'a * 'a
   | B_neq of 'a * 'a
   | B_ite of 'a * 'a * 'a
-  | B_opaque_bool of 'a (* do not enter *)
   | B_atom of 'a
 
 module type PROOF_RULES = sig

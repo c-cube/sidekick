@@ -53,7 +53,7 @@ end = struct
     | B_not u when is_true u -> ret_bequiv t (T.false_ tst)
     | B_not u when is_false u -> ret_bequiv t (T.true_ tst)
     | B_not _ -> None
-    | B_opaque_bool _ -> None
+    | B_atom _ -> None
     | B_and a ->
       if Iter.exists is_false a then
         ret (T.false_ tst)
@@ -102,7 +102,6 @@ end = struct
     | B_eq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
     | B_neq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
     | B_eq _ | B_neq _ -> None
-    | B_atom _ -> None
 
   let fresh_term self ~for_t ~pre ty =
     let u = A.Gensym.fresh_term self.gensym ~pre ty in
@@ -164,7 +163,6 @@ end = struct
 
     (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
     (match A.view_as_bool t with
-    | B_opaque_bool _ -> ()
     | B_bool _ -> ()
     | B_not _ -> ()
     | B_and l ->

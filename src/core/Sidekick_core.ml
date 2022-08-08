@@ -23,6 +23,7 @@ module Term = struct
   include Sidekick_core_logic.T_builtins
 end
 
+module Bool_view = Bool_view
 module Bvar = Sidekick_core_logic.Bvar
 module Lit = Lit
 module Proof_step = Proof_step
