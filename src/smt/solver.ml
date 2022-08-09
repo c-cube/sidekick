@@ -69,8 +69,6 @@ type t = {
   count_solve: int Stat.counter; (* config: Config.t *)
 }
 
-type solver = t
-
 (** {2 Main} *)
 
 type theory = Theory.t
@@ -117,7 +115,6 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
   self
 
 let[@inline] solver self = self.solver
-let[@inline] cc self = Solver_internal.cc self.si
 let[@inline] stats self = self.stat
 let[@inline] tst self = Solver_internal.tst self.si
 let[@inline] proof self = self.proof

@@ -2,5 +2,5 @@
  (name sidekick_smtlib)
  (public_name sidekick-bin.smtlib)
  (libraries containers zarith sidekick.core sidekick.util sidekick-base
-   smtlib-utils sidekick.tef)
+   sidekick.mini-cc smtlib-utils sidekick.tef)
  (flags :standard -warn-error -a+8 -open Sidekick_util))

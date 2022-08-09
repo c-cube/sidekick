@@ -14,6 +14,8 @@ type t
 val registry : t -> Registry.t
 (** A solver contains a registry so that theories can share data *)
 
+type theory = Theory.t
+
 val mk_theory :
   name:string ->
   create_and_setup:(Solver_internal.t -> 'th) ->

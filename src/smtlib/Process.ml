@@ -1,8 +1,8 @@
 (** {2 Conversion into {!Term.t}} *)
 
+open Sidekick_core
 module Profile = Sidekick_util.Profile
 open! Sidekick_base
-module SBS = Sidekick_base_solver
 
 [@@@ocaml.warning "-32"]
 
@@ -10,12 +10,11 @@ type 'a or_error = ('a, string) CCResult.t
 
 module E = CCResult
 module Fmt = CCFormat
-module Solver = SBS.Solver
+module Solver = Sidekick_smt_solver.Solver
 
 module Check_cc = struct
-  module Lit = Solver.Solver_internal.Lit
-  module SI = Solver.Solver_internal
-  module MCC = Sidekick_mini_cc.Make (SBS.Solver_arg)
+  module SI = Sidekick_smt_solver.Solver_internal
+  module MCC = Sidekick_mini_cc
 
   let pp_c out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∨ " Lit.pp) c
 
@@ -30,7 +29,7 @@ module Check_cc = struct
   let check_conflict si _cc (confl : Lit.t list) : unit =
     Log.debugf 15 (fun k -> k "(@[check-cc-conflict@ %a@])" pp_c confl);
     let tst = SI.tst si in
-    let cc = MCC.create tst in
+    let cc = MCC.create_default tst in
     (* add [¬confl] and check it's unsat *)
     List.iter (fun lit -> add_cc_lit cc @@ Lit.neg lit) confl;
     if MCC.check_sat cc then
@@ -46,7 +45,7 @@ module Check_cc = struct
     Log.debugf 15 (fun k ->
         k "(@[check-cc-prop@ %a@ :reason %a@])" Lit.pp p pp_and reason);
     let tst = SI.tst si in
-    let cc = MCC.create tst in
+    let cc = MCC.create_default tst in
     (* add [reason & ¬lit] and check it's unsat *)
     List.iter (add_cc_lit cc) reason;
     add_cc_lit cc (Lit.neg p);
@@ -62,10 +61,8 @@ module Check_cc = struct
   let theory =
     Solver.mk_theory ~name:"cc-check"
       ~create_and_setup:(fun si ->
-        let n_calls =
-          Stat.mk_int (Solver.Solver_internal.stats si) "check-cc.call"
-        in
-        Solver.Solver_internal.on_cc_conflict si (fun { cc; th; c } ->
+        let n_calls = Stat.mk_int (SI.stats si) "check-cc.call" in
+        SI.on_cc_conflict si (fun { cc; th; c } ->
             if not th then (
               Stat.incr n_calls;
               check_conflict si cc c
@@ -184,7 +181,7 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
   | Solver.Sat m ->
     if pp_model then
       (* TODO: use actual {!Model} in the solver? or build it afterwards *)
-      Format.printf "(@[<hv1>model@ %a@])@." Solver.Model.pp m;
+      Format.printf "(@[<hv1>model@ %a@])@." Sidekick_smt_solver.Model.pp m;
     (* TODO
        if check then (
          Solver.check_model s;
@@ -210,12 +207,16 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
       | Some step_id ->
         let proof = Solver.proof s in
         let proof_quip =
-          Profile.with_ "proof.to-quip" @@ fun () ->
-          Proof_quip.of_proof proof ~unsat:step_id
+          Profile.with_ "proof.to-quip" @@ fun () -> assert false
+          (* TODO
+             Proof_quip.of_proof proof ~unsat:step_id
+          *)
         in
         Profile.with_ "proof.write-file" @@ fun () ->
         with_file_out file @@ fun oc ->
-        Proof_quip.output oc proof_quip;
+        (* TODO
+           Proof_quip.output oc proof_quip;
+        *)
         flush oc)
     | _ -> ());
 
@@ -248,7 +249,7 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
     (* TODO: more? *)
   in
 
-  let add_step r = Solver.Proof_trace.add_step (Solver.proof solver) r in
+  let add_step r = Proof_trace.add_step (Solver.proof solver) r in
 
   match stmt with
   | Statement.Stmt_set_logic logic ->
@@ -283,7 +284,7 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
     if pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
     let lit = Solver.mk_lit_t solver t in
     Solver.add_clause solver [| lit |]
-      (add_step @@ Proof.Rule_sat.sat_input_clause (Iter.singleton lit));
+      (add_step @@ fun () -> Proof_sat.sat_input_clause [ lit ]);
     E.return ()
   | Statement.Stmt_assert_clause c_ts ->
     if pp_cnf then
@@ -293,16 +294,16 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
 
     (* proof of assert-input + preprocessing *)
     let pr =
-      let tst = Solver.tst solver in
-      let lits = Iter.of_list c_ts |> Iter.map (Lit.atom tst) in
-      add_step @@ Proof.Rule_sat.sat_input_clause lits
+      add_step @@ fun () ->
+      let lits = List.map Lit.atom c_ts in
+      Proof_sat.sat_input_clause lits
     in
 
     Solver.add_clause solver (CCArray.of_list c) pr;
     E.return ()
   | Statement.Stmt_get_model ->
     (match Solver.last_res solver with
-    | Some (Solver.Sat m) -> Fmt.printf "%a@." Solver.Model.pp m
+    | Some (Solver.Sat m) -> Fmt.printf "%a@." Sidekick_smt_solver.Model.pp m
     | _ -> Error.errorf "cannot access model");
     E.return ()
   | Statement.Stmt_get_value l ->
@@ -311,7 +312,7 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
       let l =
         List.map
           (fun t ->
-            match Solver.Model.eval m t with
+            match Sidekick_smt_solver.Model.eval m t with
             | None -> Error.errorf "cannot evaluate %a" Term.pp t
             | Some u -> t, u)
           l
