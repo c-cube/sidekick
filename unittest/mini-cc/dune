@@ -1,0 +1,4 @@
+(test
+ (name sidekick_test_minicc)
+ (libraries sidekick.mini-cc sidekick-base alcotest)
+ (flags :standard -warn-error -a+8))
