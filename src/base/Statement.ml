@@ -1,4 +1,3 @@
-open Sidekick_core
 open Types_
 
 type t = statement =

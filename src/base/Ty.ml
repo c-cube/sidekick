@@ -1,6 +1,5 @@
 (** Core types *)
 
-open Sidekick_core
 include Sidekick_core.Term
 open Types_
 
