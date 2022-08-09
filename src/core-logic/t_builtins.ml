@@ -61,7 +61,7 @@ let c_ite store =
     DB.pi_db ~var_name:"A" store ~var_ty:type_
     @@ arrow_l store [ bool store; v; v ] v
   in
-  const store @@ Const.make C_eq ops ~ty
+  const store @@ Const.make C_ite ops ~ty
 
 let c_not store =
   let b = bool store in
