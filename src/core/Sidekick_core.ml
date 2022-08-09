@@ -21,6 +21,7 @@ module Const = Sidekick_core_logic.Const
 module Term = struct
   include Sidekick_core_logic.Term
   include Sidekick_core_logic.T_builtins
+  include T_printer
 end
 
 (** {2 view} *)
