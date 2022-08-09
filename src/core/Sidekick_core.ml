@@ -14,7 +14,7 @@
 
 module Fmt = CCFormat
 
-(* re-export *)
+(** {2 Re-exports from core-logic} *)
 
 module Const = Sidekick_core_logic.Const
 
@@ -23,7 +23,14 @@ module Term = struct
   include Sidekick_core_logic.T_builtins
 end
 
+(** {2 view} *)
+
 module Bool_view = Bool_view
+module CC_view = CC_view
+module Default_cc_view = Default_cc_view
+
+(** {2 Main modules} *)
+
 module Bvar = Sidekick_core_logic.Bvar
 module Lit = Lit
 module Proof_step = Proof_step
