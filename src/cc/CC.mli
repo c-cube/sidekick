@@ -255,7 +255,7 @@ val pop_levels : t -> int -> unit
 val get_model : t -> E_node.t Iter.t Iter.t
 (** get all the equivalence classes so they can be merged in the model *)
 
-type view_as_cc = Term.t -> (Const.t, Term.t, Term.t Iter.t) View.t
+type view_as_cc = Term.t -> (Const.t, Term.t, Term.t list) CC_view.t
 
 (** Arguments to a congruence closure's implementation *)
 module type ARG = sig
@@ -275,7 +275,6 @@ module type BUILD = sig
 end
 
 module Make (_ : ARG) : BUILD
-module Default : BUILD
 
 val create :
   (module ARG) ->
@@ -290,6 +289,10 @@ val create :
       interacting with this congruence closure must belong in this term state
       as well.
   *)
+
+val create_default :
+  ?stat:Stat.t -> ?size:[ `Small | `Big ] -> Term.store -> Proof_trace.t -> t
+(** Same as {!create} but with the default CC view *)
 
 (**/**)
 

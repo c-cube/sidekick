@@ -1,13 +1,13 @@
 (** A signature is a shallow term shape where immediate subterms
       are representative *)
 
-open View
+open Sidekick_core.CC_view
 open Types_
 
 type t = signature
 
 let equal (s1 : t) s2 : bool =
-  let open View in
+  let open CC_view in
   match s1, s2 with
   | Bool b1, Bool b2 -> b1 = b2
   | App_fun (f1, []), App_fun (f2, []) -> Const.equal f1 f2

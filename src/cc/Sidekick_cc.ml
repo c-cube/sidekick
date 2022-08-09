@@ -1,4 +1,3 @@
-open Sidekick_core
 module View = View
 module E_node = E_node
 module Expl = Expl

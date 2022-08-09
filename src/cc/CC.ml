@@ -1,6 +1,6 @@
 open Types_
 
-type view_as_cc = Term.t -> (Const.t, Term.t, Term.t Iter.t) View.t
+type view_as_cc = Term.t -> (Const.t, Term.t, Term.t list) CC_view.t
 
 type e_node = E_node.t
 (** A node of the congruence closure *)
@@ -165,7 +165,7 @@ end
 
 (* compute up-to-date signature *)
 let update_sig (s : signature) : Signature.t =
-  View.map_view s ~f_f:(fun x -> x) ~f_t:find_ ~f_ts:(List.map find_)
+  CC_view.map_view s ~f_f:(fun x -> x) ~f_t:find_ ~f_ts:(List.map find_)
 
 (* find whether the given (parent) term corresponds to some signature
    in [signatures_] *)
@@ -466,19 +466,19 @@ and compute_sig0 (self : t) (n : e_node) : Signature.t option =
   | Eq (a, b) ->
     let a = deref_sub a in
     let b = deref_sub b in
-    return @@ View.Eq (a, b)
-  | Not u -> return @@ View.Not (deref_sub u)
+    return @@ CC_view.Eq (a, b)
+  | Not u -> return @@ CC_view.Not (deref_sub u)
   | App_fun (f, args) ->
-    let args = args |> Iter.map deref_sub |> Iter.to_list in
+    let args = List.map deref_sub args in
     if args <> [] then
-      return @@ View.App_fun (f, args)
+      return @@ CC_view.App_fun (f, args)
     else
       None
   | App_ho (f, a) ->
     let f = deref_sub f in
     let a = deref_sub a in
-    return @@ View.App_ho (f, a)
-  | If (a, b, c) -> return @@ View.If (deref_sub a, deref_sub b, deref_sub c)
+    return @@ CC_view.App_ho (f, a)
+  | If (a, b, c) -> return @@ CC_view.If (deref_sub a, deref_sub b, deref_sub c)
 
 let[@inline] add_term self t : e_node = add_term_rec_ self t
 let mem_term = mem
@@ -950,19 +950,9 @@ module Make (A : ARG) : BUILD = struct
     create_ ?stat ?size tst proof ~view_as_cc:A.view_as_cc
 end
 
-module Default = struct
-  include Make (struct
-    let view_as_cc (t : Term.t) : _ View.t =
-      let f, args = Term.unfold_app t in
-      match Term.view f, args with
-      | _, [ _; t; u ] when Term.is_eq f -> View.Eq (t, u)
-      | _ ->
-        (match Term.view t with
-        | Term.E_app (f, a) -> View.App_ho (f, a)
-        | Term.E_const c -> View.App_fun (c, Iter.empty)
-        | _ -> View.Opaque t)
-  end)
-end
+module Default = Make (Sidekick_core.Default_cc_view)
 
 let create (module A : ARG) ?stat ?size tst proof : t =
   create_ ?stat ?size tst proof ~view_as_cc:A.view_as_cc
+
+let create_default = Default.create

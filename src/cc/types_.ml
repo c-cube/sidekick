@@ -18,7 +18,7 @@ type e_node = {
       An equivalence class is represented by its "root" element,
       the representative. *)
 
-and signature = (Const.t, e_node, e_node list) View.t
+and signature = (Const.t, e_node, e_node list) CC_view.t
 
 and explanation_forest_link =
   | FL_none
