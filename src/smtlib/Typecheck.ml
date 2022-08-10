@@ -8,7 +8,7 @@ module PA = Smtlib_utils.V_2_6.Ast
 module BT = Sidekick_base
 module Ty = BT.Ty
 module T = BT.Term
-module Fun = BT.Fun
+module Uconst = BT.Uconst
 module Form = BT.Form
 module Stmt = BT.Statement
 
@@ -21,8 +21,8 @@ let pp_loc_opt = Loc.pp_opt
 module StrTbl = CCHashtbl.Make (CCString)
 
 module Ctx = struct
-  type kind = K_ty of ty_kind | K_fun of Fun.t
-  and ty_kind = K_atomic of Ty.def
+  type kind = K_ty of ty_kind | K_fun of Term.t
+  and ty_kind = K_atomic of Ty.t
 
   type default_num = [ `Real | `Int ]
 
@@ -58,7 +58,7 @@ module Ctx = struct
     CCFun.finally ~f ~h:(fun () ->
         List.iter (fun (v, _) -> StrTbl.remove self.lets v) bs)
 
-  let find_ty_def self (s : string) : Ty.def =
+  let find_ty_def self (s : string) : Ty.t =
     match StrTbl.get self.names s with
     | Some (_, K_ty (K_atomic def)) -> def
     | _ -> Error.errorf "expected %s to be an atomic type" s
@@ -69,8 +69,8 @@ let errorf_ctx ctx msg =
 
 let ill_typed ctx fmt = errorf_ctx ctx ("ill-typed: " ^^ fmt)
 
-let check_bool_ ctx t =
-  if not (Ty.equal (T.ty t) (Ty.bool ())) then
+let check_bool_ (ctx : Ctx.t) t =
+  if not (Ty.equal (T.ty t) (Ty.bool ctx.tst)) then
     ill_typed ctx "expected bool, got `@[%a : %a@]`" T.pp t Ty.pp (T.ty t)
 
 let find_id_ ctx (s : string) : ID.t * Ctx.kind =
@@ -78,15 +78,15 @@ let find_id_ ctx (s : string) : ID.t * Ctx.kind =
   with Not_found -> errorf_ctx ctx "name `%s` not in scope" s
 
 (* parse a type *)
-let rec conv_ty ctx (t : PA.ty) : Ty.t =
+let rec conv_ty (ctx : Ctx.t) (t : PA.ty) : Ty.t =
   match t with
-  | PA.Ty_bool -> Ty.bool ()
-  | PA.Ty_real -> Ty.real ()
-  | PA.Ty_app ("Int", []) -> Ty.int ()
+  | PA.Ty_bool -> Ty.bool ctx.tst
+  | PA.Ty_real -> Ty.real ctx.tst
+  | PA.Ty_app ("Int", []) -> Ty.int ctx.tst
   | PA.Ty_app (f, l) ->
-    let def = Ctx.find_ty_def ctx f in
+    let ty_f = Ctx.find_ty_def ctx f in
     let l = List.map (conv_ty ctx) l in
-    Ty.atomic def l
+    Ty.app_l ctx.tst ty_f l
   | PA.Ty_arrow _ -> ill_typed ctx "cannot handle arrow types"
 
 let is_num s =
@@ -113,122 +113,127 @@ let string_as_q (s : string) : Q.t option =
     Some x
   with _ -> None
 
-let t_as_q t =
-  match Term.view t with
-  | T.LRA (Const n) -> Some n
-  | T.LIA (Const n) -> Some (Q.of_bigint n)
-  | _ -> None
+(* TODO
+   let t_as_q t =
+     match Term.view t with
+     | T.LRA (Const n) -> Some n
+     | T.LIA (Const n) -> Some (Q.of_bigint n)
+     | _ -> None
 
-let t_as_z t =
-  match Term.view t with
-  | T.LIA (Const n) -> Some n
-  | _ -> None
+   let t_as_z t =
+     match Term.view t with
+     | T.LIA (Const n) -> Some n
+     | _ -> None
 
-let[@inline] is_real t = Ty.equal (T.ty t) (Ty.real ())
+   let is_real = Ty.is_real
 
-(* convert [t] to a real term *)
-let cast_to_real (ctx : Ctx.t) (t : T.t) : T.t =
-  let rec conv t =
-    match T.view t with
-    | T.LRA _ -> t
-    | _ when Ty.equal (T.ty t) (Ty.real ()) -> t
-    | T.LIA (Const n) -> T.lra ctx.tst (Const (Q.of_bigint n))
-    | T.LIA l ->
-      (* convert the whole structure to reals *)
-      let l = LIA_view.to_lra conv l in
-      T.lra ctx.tst l
-    | T.Ite (a, b, c) -> T.ite ctx.tst a (conv b) (conv c)
-    | _ -> errorf_ctx ctx "cannot cast term to real@ :term %a" T.pp t
-  in
-  conv t
+   (* convert [t] to a real term *)
+   let cast_to_real (ctx : Ctx.t) (t : T.t) : T.t =
+     let rec conv t =
+       match T.view t with
+       | T.LRA _ -> t
+       | _ when Ty.equal (T.ty t) (Ty.real ()) -> t
+       | T.LIA (Const n) -> T.lra ctx.tst (Const (Q.of_bigint n))
+       | T.LIA l ->
+         (* convert the whole structure to reals *)
+         let l = LIA_view.to_lra conv l in
+         T.lra ctx.tst l
+       | T.Ite (a, b, c) -> T.ite ctx.tst a (conv b) (conv c)
+       | _ -> errorf_ctx ctx "cannot cast term to real@ :term %a" T.pp t
+     in
+     conv t
 
-let conv_arith_op (ctx : Ctx.t) t (op : PA.arith_op) (l : T.t list) : T.t =
-  let tst = ctx.Ctx.tst in
+   let conv_arith_op (ctx : Ctx.t) t (op : PA.arith_op) (l : T.t list) : T.t =
+     let tst = ctx.Ctx.tst in
 
-  let mk_pred p a b =
-    if is_real a || is_real b then
-      T.lra tst (Pred (p, cast_to_real ctx a, cast_to_real ctx b))
-    else
-      T.lia tst (Pred (p, a, b))
-  and mk_op o a b =
-    if is_real a || is_real b then
-      T.lra tst (Op (o, cast_to_real ctx a, cast_to_real ctx b))
-    else
-      T.lia tst (Op (o, a, b))
-  in
+     let mk_pred p a b =
+       if is_real a || is_real b then
+         T.lra tst (Pred (p, cast_to_real ctx a, cast_to_real ctx b))
+       else
+         T.lia tst (Pred (p, a, b))
+     and mk_op o a b =
+       if is_real a || is_real b then
+         T.lra tst (Op (o, cast_to_real ctx a, cast_to_real ctx b))
+       else
+         T.lia tst (Op (o, a, b))
+     in
 
-  match op, l with
-  | PA.Leq, [ a; b ] -> mk_pred Leq a b
-  | PA.Lt, [ a; b ] -> mk_pred Lt a b
-  | PA.Geq, [ a; b ] -> mk_pred Geq a b
-  | PA.Gt, [ a; b ] -> mk_pred Gt a b
-  | PA.Add, [ a; b ] -> mk_op Plus a b
-  | PA.Add, a :: l -> List.fold_left (fun a b -> mk_op Plus a b) a l
-  | PA.Minus, [ a ] ->
-    (match t_as_q a, t_as_z a with
-    | _, Some n -> T.lia tst (Const (Z.neg n))
-    | Some q, None -> T.lra tst (Const (Q.neg q))
-    | None, None ->
-      let zero =
-        if is_real a then
-          T.lra tst (Const Q.zero)
-        else
-          T.lia tst (Const Z.zero)
-      in
+     match op, l with
+     | PA.Leq, [ a; b ] -> mk_pred Leq a b
+     | PA.Lt, [ a; b ] -> mk_pred Lt a b
+     | PA.Geq, [ a; b ] -> mk_pred Geq a b
+     | PA.Gt, [ a; b ] -> mk_pred Gt a b
+     | PA.Add, [ a; b ] -> mk_op Plus a b
+     | PA.Add, a :: l -> List.fold_left (fun a b -> mk_op Plus a b) a l
+     | PA.Minus, [ a ] ->
+       (match t_as_q a, t_as_z a with
+       | _, Some n -> T.lia tst (Const (Z.neg n))
+       | Some q, None -> T.lra tst (Const (Q.neg q))
+       | None, None ->
+         let zero =
+           if is_real a then
+             T.lra tst (Const Q.zero)
+           else
+             T.lia tst (Const Z.zero)
+         in
 
-      mk_op Minus zero a)
-  | PA.Minus, [ a; b ] -> mk_op Minus a b
-  | PA.Minus, a :: l -> List.fold_left (fun a b -> mk_op Minus a b) a l
-  | PA.Mult, [ a; b ] when is_real a || is_real b ->
-    (match t_as_q a, t_as_q b with
-    | Some a, Some b -> T.lra tst (Const (Q.mul a b))
-    | Some a, _ -> T.lra tst (Mult (a, b))
-    | _, Some b -> T.lra tst (Mult (b, a))
-    | None, None ->
-      errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
-  | PA.Mult, [ a; b ] ->
-    (match t_as_z a, t_as_z b with
-    | Some a, Some b -> T.lia tst (Const (Z.mul a b))
-    | Some a, _ -> T.lia tst (Mult (a, b))
-    | _, Some b -> T.lia tst (Mult (b, a))
-    | None, None ->
-      errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
-  | PA.Div, [ a; b ] when is_real a || is_real b ->
-    (match t_as_q a, t_as_q b with
-    | Some a, Some b -> T.lra tst (Const (Q.div a b))
-    | _, Some b -> T.lra tst (Mult (Q.inv b, a))
-    | _, None -> errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t)
-  | PA.Div, [ a; b ] ->
-    (* becomes a real *)
-    (match t_as_q a, t_as_q b with
-    | Some a, Some b -> T.lra tst (Const (Q.div a b))
-    | _, Some b ->
-      let a = cast_to_real ctx a in
-      T.lra tst (Mult (Q.inv b, a))
-    | _, None -> errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t)
-  | _ -> errorf_ctx ctx "cannot handle arith construct %a" PA.pp_term t
+         mk_op Minus zero a)
+     | PA.Minus, [ a; b ] -> mk_op Minus a b
+     | PA.Minus, a :: l -> List.fold_left (fun a b -> mk_op Minus a b) a l
+     | PA.Mult, [ a; b ] when is_real a || is_real b ->
+       (match t_as_q a, t_as_q b with
+       | Some a, Some b -> T.lra tst (Const (Q.mul a b))
+       | Some a, _ -> T.lra tst (Mult (a, b))
+       | _, Some b -> T.lra tst (Mult (b, a))
+       | None, None ->
+         errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
+     | PA.Mult, [ a; b ] ->
+       (match t_as_z a, t_as_z b with
+       | Some a, Some b -> T.lia tst (Const (Z.mul a b))
+       | Some a, _ -> T.lia tst (Mult (a, b))
+       | _, Some b -> T.lia tst (Mult (b, a))
+       | None, None ->
+         errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
+     | PA.Div, [ a; b ] when is_real a || is_real b ->
+       (match t_as_q a, t_as_q b with
+       | Some a, Some b -> T.lra tst (Const (Q.div a b))
+       | _, Some b -> T.lra tst (Mult (Q.inv b, a))
+       | _, None -> errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t)
+     | PA.Div, [ a; b ] ->
+       (* becomes a real *)
+       (match t_as_q a, t_as_q b with
+       | Some a, Some b -> T.lra tst (Const (Q.div a b))
+       | _, Some b ->
+         let a = cast_to_real ctx a in
+         T.lra tst (Mult (Q.inv b, a))
+       | _, None -> errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t)
+     | _ -> errorf_ctx ctx "cannot handle arith construct %a" PA.pp_term t
+*)
 
 (* conversion of terms *)
 let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
   let tst = ctx.Ctx.tst in
   match t with
   | PA.True -> T.true_ tst
-  | PA.False -> T.false_ tst
-  | PA.Const s when is_num s ->
-    (match string_as_z s, ctx.default_num with
-    | Some n, `Int -> T.lia tst (Const n)
-    | Some n, `Real -> T.lra tst (Const (Q.of_bigint n))
-    | None, _ ->
-      (match string_as_q s with
-      | Some n -> T.lra tst (Const n)
-      | None -> errorf_ctx ctx "expected a number for %a" PA.pp_term t))
+  | PA.False ->
+    T.false_ tst
+    (* FIXME
+       | PA.Const s when is_num s ->
+         (match string_as_z s, ctx.default_num with
+         | Some n, `Int -> T.lia tst (Const n)
+         | Some n, `Real -> T.lra tst (Const (Q.of_bigint n))
+         | None, _ ->
+           (match string_as_q s with
+           | Some n -> T.lra tst (Const n)
+           | None -> errorf_ctx ctx "expected a number for %a" PA.pp_term t))
+    *)
   | PA.Const f | PA.App (f, []) ->
     (* lookup in `let` table, then in type defs *)
     (match StrTbl.find ctx.Ctx.lets f with
     | u -> u
     | exception Not_found ->
       (match find_id_ ctx f with
-      | _, Ctx.K_fun f -> T.const tst f
+      | _, Ctx.K_fun f -> f
       | _, Ctx.K_ty _ -> errorf_ctx ctx "expected term, not type; got `%s`" f))
   | PA.App ("xor", [ a; b ]) ->
     let a = conv_term ctx a in
@@ -237,7 +242,7 @@ let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
   | PA.App (f, args) ->
     let args = List.map (conv_term ctx) args in
     (match find_id_ ctx f with
-    | _, Ctx.K_fun f -> T.app_fun tst f (CCArray.of_list args)
+    | _, Ctx.K_fun f -> T.app_l tst f args
     | _, Ctx.K_ty _ ->
       errorf_ctx ctx "expected function, got type `%s` instead" f)
   | PA.If (a, b, c) ->
@@ -271,20 +276,26 @@ let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
   | PA.Eq (a, b) ->
     let a = conv_term ctx a in
     let b = conv_term ctx b in
-    if is_real a || is_real b then
-      Form.eq tst (cast_to_real ctx a) (cast_to_real ctx b)
-    else
-      Form.eq tst a b
+    (* FIXME
+       if is_real a || is_real b then
+         Form.eq tst (cast_to_real ctx a) (cast_to_real ctx b)
+       else
+    *)
+    Form.eq tst a b
   | PA.Imply (a, b) ->
     let a = conv_term ctx a in
     let b = conv_term ctx b in
     Form.imply tst a b
   | PA.Is_a (s, u) ->
     let u = conv_term ctx u in
+    let fail () = errorf_ctx ctx "expected `%s` to be a constructor" s in
     (match find_id_ ctx s with
-    | _, Ctx.K_fun { Fun.fun_view = Base_types.Fun_cstor c; _ } ->
-      Term.is_a tst c u
-    | _ -> errorf_ctx ctx "expected `%s` to be a constructor" s)
+    | _, Ctx.K_fun f ->
+      (match Term.view f with
+      | E_const { Const.c_view = Data_ty.Cstor c; _ } ->
+        Term.app tst (Data_ty.is_a tst c) u
+      | _ -> fail ())
+    | _ -> fail ())
   | PA.Match (_lhs, _l) ->
     errorf_ctx ctx "TODO: support match in %a" PA.pp_term t
     (* FIXME: do that properly, using [with_lets] with selectors
@@ -360,9 +371,12 @@ let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
         in
         A.match_ lhs cases
     *)
-  | PA.Arith (op, l) ->
-    let l = List.map (conv_term ctx) l in
-    conv_arith_op ctx t op l
+
+    (* FIXME
+       | PA.Arith (op, l) ->
+         let l = List.map (conv_term ctx) l in
+         conv_arith_op ctx t op l
+    *)
   | PA.Cast (t, ty_expect) ->
     let t = conv_term ctx t in
     let ty_expect = conv_ty ctx ty_expect in
@@ -414,8 +428,8 @@ let rec conv_statement ctx (s : PA.statement) : Stmt.t list =
   Ctx.set_loc ctx ?loc:(PA.loc s);
   conv_statement_aux ctx s
 
-and conv_statement_aux ctx (stmt : PA.statement) : Stmt.t list =
-  let tst = ctx.Ctx.tst in
+and conv_statement_aux (ctx : Ctx.t) (stmt : PA.statement) : Stmt.t list =
+  let tst = ctx.tst in
   match PA.view stmt with
   | PA.Stmt_set_logic logic ->
     if is_lia logic then
@@ -428,12 +442,14 @@ and conv_statement_aux ctx (stmt : PA.statement) : Stmt.t list =
   | PA.Stmt_exit -> [ Stmt.Stmt_exit ]
   | PA.Stmt_decl_sort (s, n) ->
     let id = ID.make s in
-    Ctx.add_id_ ctx s id (Ctx.K_ty (Ctx.K_atomic (Ty.Ty_uninterpreted id)));
+    let ty = Ty.uninterpreted tst id in
+    Ctx.add_id_ ctx s id (Ctx.K_ty (Ctx.K_atomic ty));
     [ Stmt.Stmt_ty_decl (id, n) ]
   | PA.Stmt_decl fr ->
     let f, args, ret = conv_fun_decl ctx fr in
     let id = ID.make f in
-    Ctx.add_id_ ctx f id (Ctx.K_fun (Fun.mk_undef' id args ret));
+    let c_f = Uconst.uconst_of_id' tst id args ret in
+    Ctx.add_id_ ctx f id (Ctx.K_fun c_f);
     [ Stmt.Stmt_decl (id, args, ret) ]
   | PA.Stmt_data l ->
     (* first, read and declare each datatype (it can occur in the other
@@ -448,7 +464,7 @@ and conv_statement_aux ctx (stmt : PA.statement) : Stmt.t list =
        in
        let l = List.map pre_parse l in
     *)
-    let module Cstor = Base_types.Cstor in
+    let module Cstor = Data_ty.Cstor in
     let cstors_of_data data (cstors : PA.cstor list) : Cstor.t ID.Map.t =
       let parse_case { PA.cstor_name; cstor_args; cstor_ty_vars } =
         if cstor_ty_vars <> [] then
@@ -461,30 +477,32 @@ and conv_statement_aux ctx (stmt : PA.statement) : Stmt.t list =
               let select_id = ID.make name in
               let sel =
                 {
-                  Select.select_id;
+                  Data_ty.select_id;
                   select_ty = lazy (conv_ty ctx ty);
                   select_cstor = cstor;
                   select_i = i;
                 }
               in
               (* now declare the selector *)
-              Ctx.add_id_ ctx name select_id (Ctx.K_fun (Fun.select sel));
+              let c_sel = Data_ty.select tst sel in
+              Ctx.add_id_ ctx name select_id (Ctx.K_fun c_sel);
               sel)
             cstor_args
         in
         let rec cstor =
           {
-            Cstor.cstor_id;
+            Data_ty.cstor_id;
             cstor_is_a = ID.makef "(is _ %s)" cstor_name;
             (* every fun needs a name *)
             cstor_args = lazy (mk_selectors cstor);
             cstor_arity = 0;
             cstor_ty_as_data = data;
-            cstor_ty = data.Base_types.data_as_ty;
+            cstor_ty = data.data_as_ty;
           }
         in
         (* declare cstor *)
-        Ctx.add_id_ ctx cstor_name cstor_id (Ctx.K_fun (Fun.cstor cstor));
+        let c_cstor = Data_ty.cstor tst cstor in
+        Ctx.add_id_ ctx cstor_name cstor_id (Ctx.K_fun c_cstor);
         cstor_id, cstor
       in
       let cstors = List.map parse_case cstors in
@@ -500,25 +518,22 @@ and conv_statement_aux ctx (stmt : PA.statement) : Stmt.t list =
           let data_id = ID.make data_name in
           let rec data =
             {
-              Data.data_id;
+              Data_ty.data_id;
               data_cstors = lazy (cstors_of_data data cstors);
-              data_as_ty =
-                lazy
-                  (let def = Ty.Ty_data { data } in
-                   Ty.atomic def []);
+              data_as_ty = lazy (Data_ty.data tst data);
             }
           in
-          Ctx.add_id_ ctx data_name data_id
-            (Ctx.K_ty (Ctx.K_atomic (Ty.Ty_data { data })));
+          let ty_data = Data_ty.data tst data in
+          Ctx.add_id_ ctx data_name data_id (Ctx.K_ty (Ctx.K_atomic ty_data));
           data)
         l
     in
     (* now force definitions *)
     List.iter
-      (fun { Data.data_cstors = (lazy m); data_as_ty = (lazy _); _ } ->
+      (fun { Data_ty.data_cstors = (lazy m); data_as_ty = (lazy _); _ } ->
         ID.Map.iter
-          (fun _ ({ Cstor.cstor_args = (lazy l); _ } as r) ->
-            r.Base_types.cstor_arity <- List.length l)
+          (fun _ ({ Data_ty.cstor_args = (lazy l); _ } as r) ->
+            r.cstor_arity <- List.length l)
           m;
         ())
       l;
@@ -541,13 +556,10 @@ and conv_statement_aux ctx (stmt : PA.statement) : Stmt.t list =
     (* turn [def f : ret := body] into [decl f : ret; assert f=body] *)
     let ret = conv_ty ctx fun_ret in
     let id = ID.make fun_name in
-    let f = Fun.mk_undef_const id ret in
+    let f = Uconst.uconst_of_id tst id ret in
     Ctx.add_id_ ctx fun_name id (Ctx.K_fun f);
     let rhs = conv_term ctx fr_body in
-    [
-      Stmt.Stmt_decl (id, [], ret);
-      Stmt.Stmt_assert (Form.eq tst (T.const tst f) rhs);
-    ]
+    [ Stmt.Stmt_decl (id, [], ret); Stmt.Stmt_assert (Form.eq tst f rhs) ]
   | PA.Stmt_fun_rec _ | PA.Stmt_fun_def _ ->
     errorf_ctx ctx "unsupported definition: %a" PA.pp_stmt stmt
   | PA.Stmt_assert t ->

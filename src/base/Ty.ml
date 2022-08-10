@@ -46,6 +46,16 @@ end
 let int tst : ty = mk_ty0 tst Ty_int
 let real tst : ty = mk_ty0 tst Ty_real
 
+let is_real t =
+  match Term.view t with
+  | E_const { Const.c_view = Ty Ty_real; _ } -> true
+  | _ -> false
+
+let is_int t =
+  match Term.view t with
+  | E_const { Const.c_view = Ty Ty_int; _ } -> true
+  | _ -> false
+
 let uninterpreted tst id : t =
   mk_ty0 tst (Ty_uninterpreted { id; finite = false })
 

@@ -10,7 +10,7 @@ module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
 module Process = Process
 module Solver = Process.Solver
-module Proof = Sidekick_base.Proof
+module Proof_trace = Sidekick_core.Proof_trace
 
 val parse : Term.store -> string -> Stmt.t list or_error
 val parse_stdin : Term.store -> Stmt.t list or_error

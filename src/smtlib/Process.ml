@@ -326,9 +326,9 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
   | Statement.Stmt_data _ -> E.return ()
   | Statement.Stmt_define _ -> Error.errorf "cannot deal with definitions yet"
 
-module Th_data = SBS.Th_data
-module Th_bool = SBS.Th_bool
-module Th_lra = SBS.Th_lra
+module Th_data = Th_data
+module Th_bool = Th_bool
+module Th_lra = Th_lra
 
 let th_bool : Solver.theory = Th_bool.theory
 let th_data : Solver.theory = Th_data.theory

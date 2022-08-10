@@ -18,6 +18,7 @@
 
 module Types_ = Types_
 module Term = Sidekick_core.Term
+module Const = Sidekick_core.Const
 module Ty = Ty
 module ID = ID
 module Form = Form

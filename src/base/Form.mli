@@ -35,6 +35,7 @@ val imply : Term.store -> term -> term -> term
 val equiv : Term.store -> term -> term -> term
 val xor : Term.store -> term -> term -> term
 val ite : Term.store -> term -> term -> term -> term
+val distinct_l : Term.store -> term list -> term
 
 (* *)
 

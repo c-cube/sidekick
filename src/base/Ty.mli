@@ -14,6 +14,8 @@ val real : store -> t
 val int : store -> t
 val uninterpreted : store -> ID.t -> t
 val is_uninterpreted : t -> bool
+val is_real : t -> bool
+val is_int : t -> bool
 
 (* TODO: separate functor?
       val finite : t -> bool
