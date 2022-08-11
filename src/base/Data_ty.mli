@@ -40,6 +40,9 @@ end
 module Cstor : sig
   type t = cstor
 
+  val ty_args : t -> ty list
+  val select_idx : t -> int -> select
+
   include Sidekick_sigs.EQ_HASH_PRINT with type t := t
 end
 
@@ -49,3 +52,8 @@ val select : Term.store -> select -> Term.t
 val is_a : Term.store -> cstor -> Term.t
 
 (* TODO: select_ : store -> cstor -> int -> term *)
+
+val as_data : ty -> data option
+val as_select : term -> select option
+val as_cstor : term -> cstor option
+val as_is_a : term -> cstor option

@@ -17,7 +17,7 @@
 *)
 
 module Types_ = Types_
-module Term = Sidekick_core.Term
+module Term = Term
 module Const = Sidekick_core.Const
 module Ty = Ty
 module ID = ID
@@ -27,7 +27,19 @@ module Data_ty = Data_ty
 module Cstor = Data_ty.Cstor
 module Select = Data_ty.Select
 module Statement = Statement
+module Solver = Solver
 module Uconst = Uconst
+module Th_data = Th_data
+module Th_bool = Th_bool
+(* FIXME
+   module Th_lra = Th_lra
+*)
+
+let th_bool : Solver.theory = Th_bool.theory
+let th_data : Solver.theory = Th_data.theory
+(* FIXME
+   let th_lra : Solver.theory = Th_lra.theory
+*)
 
 (* TODO
 

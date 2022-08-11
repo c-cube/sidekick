@@ -64,7 +64,13 @@ module Cstor = struct
 
   let id c = c.cstor_id
   let hash c = ID.hash c.cstor_id
-  let ty_args c = Lazy.force c.cstor_args |> Iter.of_list |> Iter.map Select.ty
+  let ty_args c = Lazy.force c.cstor_args |> List.map Select.ty
+
+  let select_idx c i =
+    let (lazy sels) = c.cstor_args in
+    if i >= List.length sels then invalid_arg "cstor.select_idx: out of bound";
+    List.nth sels i
+
   let equal a b = ID.equal a.cstor_id b.cstor_id
   let pp out c = ID.pp out c.cstor_id
 end
@@ -111,3 +117,23 @@ let select tst s : Term.t =
 
 let is_a tst c : Term.t =
   Term.const tst @@ Const.make (Is_a c) ops ~ty:(Term.bool tst)
+
+let as_data t =
+  match Term.view t with
+  | E_const { Const.c_view = Data d; _ } -> Some d
+  | _ -> None
+
+let as_cstor t =
+  match Term.view t with
+  | E_const { Const.c_view = Cstor c; _ } -> Some c
+  | _ -> None
+
+let as_select t =
+  match Term.view t with
+  | E_const { Const.c_view = Select s; _ } -> Some s
+  | _ -> None
+
+let as_is_a t =
+  match Term.view t with
+  | E_const { Const.c_view = Is_a c; _ } -> Some c
+  | _ -> None
