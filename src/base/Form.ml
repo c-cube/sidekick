@@ -5,12 +5,12 @@ module T = Term
 type ty = Term.t
 type term = Term.t
 
-type ('a, 'args) view = ('a, 'args) Sidekick_core.Bool_view.t =
+type 'a view = 'a Sidekick_core.Bool_view.t =
   | B_bool of bool
   | B_not of 'a
-  | B_and of 'args
-  | B_or of 'args
-  | B_imply of 'args * 'a
+  | B_and of 'a * 'a
+  | B_or of 'a * 'a
+  | B_imply of 'a * 'a
   | B_equiv of 'a * 'a
   | B_xor of 'a * 'a
   | B_eq of 'a * 'a
@@ -29,18 +29,13 @@ let id_imply = ID.make "=>"
 exception Not_a_th_term
 
 let view_id_ fid args =
-  if ID.equal fid id_and then
-    B_and args
-  else if ID.equal fid id_or then
-    B_or args
-  else if ID.equal fid id_imply then (
-    match args with
-    | [ arg; concl ] -> B_imply ([ arg ], concl)
-    | _ -> raise_notrace Not_a_th_term
-  ) else
-    raise_notrace Not_a_th_term
+  match args with
+  | [ a; b ] when ID.equal fid id_and -> B_and (a, b)
+  | [ a; b ] when ID.equal fid id_or -> B_or (a, b)
+  | [ a; b ] when ID.equal fid id_imply -> B_imply (a, b)
+  | _ -> raise_notrace Not_a_th_term
 
-let view (t : T.t) : (T.t, _) view =
+let view (t : T.t) : T.t view =
   let hd, args = T.unfold_app t in
   match T.view hd, args with
   | E_const { Const.c_view = T.C_true; _ }, [] -> B_bool true
@@ -118,9 +113,9 @@ let distinct_l tst l =
 let mk_of_view tst = function
   | B_bool b -> T.bool_val tst b
   | B_atom t -> t
-  | B_and l -> and_l tst l
-  | B_or l -> or_l tst l
-  | B_imply (a, b) -> imply_l tst a b
+  | B_and (a, b) -> and_ tst a b
+  | B_or (a, b) -> or_ tst a b
+  | B_imply (a, b) -> imply tst a b
   | B_ite (a, b, c) -> ite tst a b c
   | B_equiv (a, b) -> equiv tst a b
   | B_xor (a, b) -> not_ tst (equiv tst a b)

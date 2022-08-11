@@ -11,12 +11,12 @@ open Types_
 
 type term = Term.t
 
-type ('a, 'args) view = ('a, 'args) Sidekick_core.Bool_view.t =
+type 'a view = 'a Sidekick_core.Bool_view.t =
   | B_bool of bool
   | B_not of 'a
-  | B_and of 'args
-  | B_or of 'args
-  | B_imply of 'args * 'a
+  | B_and of 'a * 'a
+  | B_or of 'a * 'a
+  | B_imply of 'a * 'a
   | B_equiv of 'a * 'a
   | B_xor of 'a * 'a
   | B_eq of 'a * 'a
@@ -24,7 +24,7 @@ type ('a, 'args) view = ('a, 'args) Sidekick_core.Bool_view.t =
   | B_ite of 'a * 'a * 'a
   | B_atom of 'a
 
-val view : term -> (term, term list) view
+val view : term -> term view
 val bool : Term.store -> bool -> term
 val not_ : Term.store -> term -> term
 val and_ : Term.store -> term -> term -> term
@@ -42,7 +42,7 @@ val distinct_l : Term.store -> term list -> term
 val and_l : Term.store -> term list -> term
 val or_l : Term.store -> term list -> term
 val imply_l : Term.store -> term list -> term -> term
-val mk_of_view : Term.store -> (term, term list) view -> term
+val mk_of_view : Term.store -> term view -> term
 
 (* TODO?
    val make : Term.store -> (term, term list) view -> term

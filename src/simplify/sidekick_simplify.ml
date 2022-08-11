@@ -26,10 +26,14 @@ let normalize (self : t) (t : Term.t) : (Term.t * Proof_step.id) option =
     match Term.Tbl.find self.cache t with
     | res -> res
     | exception Not_found ->
-      let steps_u = ref Bag.empty in
-      let u = aux_rec ~steps:steps_u t self.hooks in
-      Term.Tbl.add self.cache t (u, !steps_u);
-      u, !steps_u
+      if Term.is_a_type t then
+        t, Bag.empty
+      else (
+        let steps_u = ref Bag.empty in
+        let u = aux_rec ~steps:steps_u t self.hooks in
+        Term.Tbl.add self.cache t (u, !steps_u);
+        u, !steps_u
+      )
   and loop_add ~steps t =
     let u, pr_u = loop t in
     steps := Bag.append !steps pr_u;
@@ -39,7 +43,7 @@ let normalize (self : t) (t : Term.t) : (Term.t * Proof_step.id) option =
     match hooks with
     | [] ->
       let u =
-        Term.map_shallow self.tst ~f:(fun _inb u -> loop_add ~steps u) t
+        Term.map_shallow self.tst t ~f:(fun _inb sub_t -> loop_add ~steps sub_t)
       in
       if Term.equal t u then
         t

@@ -55,25 +55,25 @@ end = struct
     | B_not u when is_false u -> ret_bequiv t (T.true_ tst)
     | B_not _ -> None
     | B_atom _ -> None
-    | B_and a ->
-      if List.exists is_false a then
+    | B_and (a, b) ->
+      if is_false a || is_false b then
         ret (T.false_ tst)
-      else if List.for_all is_true a then
+      else if is_true a && is_true b then
         ret (T.true_ tst)
       else
         None
-    | B_or a ->
-      if List.exists is_true a then
+    | B_or (a, b) ->
+      if is_true a || is_true b then
         ret (T.true_ tst)
-      else if List.for_all is_false a then
+      else if is_false a && is_false b then
         ret (T.false_ tst)
       else
         None
-    | B_imply (args, u) ->
-      if List.exists is_false args then
+    | B_imply (a, b) ->
+      if is_false a || is_true b then
         ret (T.true_ tst)
-      else if is_true u then
-        ret (T.true_ tst)
+      else if is_true a && is_false b then
+        ret (T.false_ tst)
       else
         None
     | B_ite (a, b, c) ->
@@ -166,49 +166,52 @@ end = struct
     (match A.view_as_bool t with
     | B_bool _ -> ()
     | B_not _ -> ()
-    | B_and l ->
+    | B_and (a, b) ->
       let lit = PA.mk_lit t in
-      let subs = List.map PA.mk_lit l in
+      let subs = List.map PA.mk_lit [ a; b ] in
 
       (* add clauses *)
-      List.iter2
-        (fun t_u u ->
+      List.iter
+        (fun u ->
+          let t_u = Lit.term u in
           PA.add_clause
             [ Lit.neg lit; u ]
             (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-e" [ t; t_u ]))
-        l subs;
+        subs;
       PA.add_clause
         (lit :: List.map Lit.neg subs)
         (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-i" [ t ])
-    | B_or l ->
-      let subs = List.map PA.mk_lit l in
+    | B_or (a, b) ->
+      let subs = List.map PA.mk_lit [ a; b ] in
       let lit = PA.mk_lit t in
 
       (* add clauses *)
-      List.iter2
-        (fun t_u u ->
+      List.iter
+        (fun u ->
+          let t_u = Lit.term u in
           PA.add_clause
             [ Lit.neg u; lit ]
             (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-i" [ t; t_u ]))
-        l subs;
+        subs;
       PA.add_clause (Lit.neg lit :: subs)
         (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-e" [ t ])
-    | B_imply (t_args, t_u) ->
-      (* transform into [¬args \/ u] on the fly *)
-      let args = List.map (fun t -> Lit.neg (PA.mk_lit t)) t_args in
-      let u = PA.mk_lit t_u in
-      let subs = u :: args in
+    | B_imply (a, b) ->
+      (* transform into [¬a \/ b] on the fly *)
+      let n_a = PA.mk_lit ~sign:false a in
+      let b = PA.mk_lit b in
+      let subs = [ n_a; b ] in
 
       (* now the or-encoding *)
       let lit = PA.mk_lit t in
 
       (* add clauses *)
-      List.iter2
-        (fun t_u u ->
+      List.iter
+        (fun u ->
+          let t_u = Lit.term u in
           PA.add_clause
             [ Lit.neg u; lit ]
             (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-i" [ t; t_u ]))
-        (t_u :: t_args) subs;
+        subs;
       PA.add_clause (Lit.neg lit :: subs)
         (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-e" [ t ])
     | B_ite (a, b, c) ->
