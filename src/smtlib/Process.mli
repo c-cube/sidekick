@@ -1,11 +1,13 @@
 (** {1 Process Statements} *)
 
 open Sidekick_base
-module Solver = Sidekick_smt_solver.Solver
+module Solver = Sidekick_base.Solver
 
 val th_bool : Solver.theory
 val th_data : Solver.theory
-val th_lra : Solver.theory
+(* FIXME
+   val th_lra : Solver.theory
+*)
 
 type 'a or_error = ('a, string) CCResult.t
 

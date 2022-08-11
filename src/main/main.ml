@@ -9,6 +9,7 @@ module Fmt = CCFormat
 module Term = Sidekick_base.Term
 module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
+module Proof = Sidekick_smtlib.Proof_trace
 open E.Infix
 
 type 'a or_error = ('a, string) E.t
@@ -121,8 +122,7 @@ let check_limits () =
     raise Out_of_space
 
 let main_smt () : _ result =
-  let module Proof = Sidekick_smtlib.Proof in
-  let tst = Term.create ~size:4_096 () in
+  let tst = Term.Store.create ~size:4_096 () in
 
   let enable_proof_ = !check || !p_proof || !proof_file <> "" in
   Log.debugf 1 (fun k -> k "(@[proof-enable@ %B@])" enable_proof_);
@@ -144,23 +144,26 @@ let main_smt () : _ result =
   run_with_tmp_file @@ fun temp_proof_file ->
   Log.debugf 1 (fun k -> k "(@[temp-proof-file@ %S@])" temp_proof_file);
 
-  let config =
-    if enable_proof_ then
-      Proof.Config.default |> Proof.Config.enable true
-      |> Proof.Config.store_on_disk_at temp_proof_file
-    else
-      Proof.Config.empty
-  in
+  (* FIXME
+     let config =
+       if enable_proof_ then
+         Proof.Config.default |> Proof.Config.enable true
+         |> Proof.Config.store_on_disk_at temp_proof_file
+       else
+         Proof.Config.empty
+     in
 
-  (* main proof object *)
-  let proof = Proof.create ~config () in
+     (* main proof object *)
+     let proof = Proof.create ~config () in
+  *)
+  let proof = Proof.dummy in
 
   let solver =
     let theories =
       (* TODO: probes, to load only required theories *)
-      [ Process.th_bool; Process.th_data; Process.th_lra ]
+      [ Process.th_bool; Process.th_data (* FIXME Process.th_lra *) ]
     in
-    Process.Solver.create ~proof ~theories tst () ()
+    Process.Solver.create_default ~proof ~theories tst
   in
 
   let finally () =
@@ -192,16 +195,17 @@ let main_smt () : _ result =
   res
 
 let main_cnf () : _ result =
-  let module Proof = Pure_sat_solver.Proof in
   let module S = Pure_sat_solver in
   let proof, in_memory_proof =
-    if !check then (
-      let pr, inmp = Proof.create_in_memory () in
-      pr, Some inmp
-    ) else if !proof_file <> "" then
-      Proof.create_to_file !proof_file, None
-    else
-      Proof.dummy, None
+    (* FIXME
+       if !check then (
+         let pr, inmp = Proof.create_in_memory () in
+         pr, Some inmp
+       ) else if !proof_file <> "" then
+         Proof.create_to_file !proof_file, None
+       else
+    *)
+    Proof.dummy, None
   in
 
   let stat = Stat.create () in
@@ -211,9 +215,10 @@ let main_cnf () : _ result =
     Proof.close proof
   in
   CCFun.protect ~finally @@ fun () ->
-  let solver = S.SAT.create ~size:`Big ~proof ~stat () in
+  let tst = Term.Store.create () in
+  let solver = S.SAT.create_pure_sat ~size:`Big ~proof ~stat () in
 
-  S.Dimacs.parse_file solver !file >>= fun () ->
+  S.Dimacs.parse_file solver tst !file >>= fun () ->
   let r = S.solve ~check:!check ?in_memory_proof solver in
   (* FIXME: if in memory proof and !proof_file<>"",
      then dump proof into file now *)

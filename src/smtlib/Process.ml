@@ -10,7 +10,7 @@ type 'a or_error = ('a, string) CCResult.t
 
 module E = CCResult
 module Fmt = CCFormat
-module Solver = Sidekick_smt_solver.Solver
+module Solver = Sidekick_base.Solver
 
 module Check_cc = struct
   module SI = Sidekick_smt_solver.Solver_internal
@@ -326,10 +326,14 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
   | Statement.Stmt_data _ -> E.return ()
   | Statement.Stmt_define _ -> Error.errorf "cannot deal with definitions yet"
 
-module Th_data = Th_data
-module Th_bool = Th_bool
-module Th_lra = Th_lra
+module Th_data = Sidekick_base.Th_data
+module Th_bool = Sidekick_base.Th_bool
+(* FIXME
+   module Th_lra = Sidekick_base.Th_lra
+*)
 
 let th_bool : Solver.theory = Th_bool.theory
 let th_data : Solver.theory = Th_data.theory
-let th_lra : Solver.theory = Th_lra.theory
+(* FIXME
+   let th_lra : Solver.theory = Th_lra.theory
+*)
