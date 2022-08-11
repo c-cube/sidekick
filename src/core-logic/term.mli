@@ -99,7 +99,7 @@ val ty : t -> t
 module Store : sig
   type t = store
 
-  val create : unit -> t
+  val create : ?size:int -> unit -> t
 end
 
 val type_ : store -> t

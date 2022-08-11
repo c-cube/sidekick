@@ -157,10 +157,10 @@ module Store = struct
   (* TODO: use atomic? CCAtomic? *)
   let n = ref 0
 
-  let create () : t =
+  let create ?(size = 256) () : t =
     let s_uid = !n in
     incr n;
-    { s_uid; s_exprs = Hcons.create ~size:256 () }
+    { s_uid; s_exprs = Hcons.create ~size () }
 
   (* check that [e] belongs in this store *)
   let[@inline] check_e_uid (self : t) (e : term) =
