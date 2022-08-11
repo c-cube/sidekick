@@ -27,8 +27,8 @@ module C = struct
     | Finite, Finite -> Finite
     | _ -> Infinite
 
-  let sum = Iter.fold ( + ) Finite
-  let product = Iter.fold ( * ) Finite
+  let sum = List.fold_left ( + ) Finite
+  let product = List.fold_left ( * ) Finite
 
   let to_string = function
     | Finite -> "finite"
@@ -65,18 +65,19 @@ end = struct
         (* cut infinite loop *)
         let res =
           match A.as_datatype ty with
-          | Ty_other -> false
+          | Ty_other { sub = [] } -> false
+          | Ty_other { sub } -> List.exists is_direct_recursion sub
           | Ty_arrow (_, ret) -> is_direct_recursion ret
-          | Ty_app { args } -> Iter.exists is_direct_recursion args
           | Ty_data { cstors } ->
-            Iter.flat_map A.Cstor.ty_args cstors
-            |> Iter.exists is_direct_recursion
+            List.exists
+              (fun c -> List.exists is_direct_recursion @@ A.Cstor.ty_args c)
+              cstors
         in
         Ty_tbl.replace dr_tbl ty res;
         res
     in
     let is_direct_recursion_cstor (c : A.Cstor.t) : bool =
-      Iter.exists is_direct_recursion (A.Cstor.ty_args c)
+      List.exists is_direct_recursion (A.Cstor.ty_args c)
     in
 
     let rec get_cell (ty : ty) : ty_cell =
@@ -88,20 +89,20 @@ end = struct
         Ty_tbl.add self.cards ty cell;
         let card =
           match A.as_datatype ty with
-          | Ty_other ->
+          | Ty_other { sub = [] } ->
             if A.ty_is_finite ty then
               C.Finite
             else
               C.Infinite
-          | Ty_app { args } -> Iter.map get_card args |> C.product
+          | Ty_other { sub } -> List.map get_card sub |> C.product
           | Ty_arrow (args, ret) ->
-            C.(get_card ret ^ C.product @@ Iter.map get_card args)
+            C.(get_card ret ^ C.product @@ List.map get_card args)
           | Ty_data { cstors } ->
             let c =
               cstors
-              |> Iter.map (fun c ->
+              |> List.map (fun c ->
                      let card =
-                       C.product (Iter.map get_card @@ A.Cstor.ty_args c)
+                       C.product (List.map get_card @@ A.Cstor.ty_args c)
                      in
                      (* we can use [c] as base constructor if it's finite,
                         or at least if it doesn't directly depend on [ty] in
@@ -150,17 +151,17 @@ end = struct
     let name = "th-data.cstor"
 
     (* associate to each class a unique constructor term in the class (if any) *)
-    type t = { c_n: E_node.t; c_cstor: A.Cstor.t; c_args: E_node.t array }
+    type t = { c_n: E_node.t; c_cstor: A.Cstor.t; c_args: E_node.t list }
 
     let pp out (v : t) =
       Fmt.fprintf out "(@[%s@ :cstor %a@ :n %a@ :args [@[%a@]]@])" name
-        A.Cstor.pp v.c_cstor E_node.pp v.c_n (Util.pp_array E_node.pp) v.c_args
+        A.Cstor.pp v.c_cstor E_node.pp v.c_n (Util.pp_list E_node.pp) v.c_args
 
     (* attach data to constructor terms *)
     let of_term cc n (t : Term.t) : _ option * _ list =
       match A.view_as_data t with
       | T_cstor (cstor, args) ->
-        let args = CCArray.map (CC.add_term cc) args in
+        let args = List.map (CC.add_term cc) args in
         Some { c_n = n; c_cstor = cstor; c_args = args }, []
       | _ -> None, []
 
@@ -186,20 +187,22 @@ end = struct
           let t1 = E_node.term c1.c_n in
           let t2 = E_node.term c2.c_n in
           mk_expl t1 t2 @@ Proof_trace.add_step proof
-          @@ fun () -> A.P.lemma_cstor_inj t1 t2 i
+          @@ fun () -> Proof_rules.lemma_cstor_inj t1 t2 i
         in
 
-        assert (CCArray.length c1.c_args = CCArray.length c2.c_args);
+        assert (List.length c1.c_args = List.length c2.c_args);
         let acts = ref [] in
-        Util.array_iteri2 c1.c_args c2.c_args ~f:(fun i u1 u2 ->
-            acts := CC.Handler_action.Act_merge (u1, u2, expl_merge i) :: !acts);
+        CCList.iteri2
+          (fun i u1 u2 ->
+            acts := CC.Handler_action.Act_merge (u1, u2, expl_merge i) :: !acts)
+          c1.c_args c2.c_args;
         Ok (c1, !acts)
       ) else (
         (* different function: disjointness *)
         let expl =
           let t1 = E_node.term c1.c_n and t2 = E_node.term c2.c_n in
           mk_expl t1 t2 @@ Proof_trace.add_step proof
-          @@ fun () -> A.P.lemma_cstor_distinct t1 t2
+          @@ fun () -> Proof_rules.lemma_cstor_distinct t1 t2
         in
 
         Error (CC.Handler_action.Conflict expl)
@@ -310,7 +313,7 @@ end = struct
     match A.view_as_data t, A.as_datatype ty with
     | T_cstor _, _ -> ()
     | _, Ty_data { cstors; _ } ->
-      (match Iter.take 2 cstors |> Iter.to_rev_list with
+      (match cstors with
       | [ cstor ] when not (Term.Tbl.mem self.single_cstor_preproc_done t) ->
         (* single cstor: assert [t = cstor (sel-c-0 t, …, sel-c n t)] *)
         Log.debugf 50 (fun k ->
@@ -322,8 +325,7 @@ end = struct
         let u =
           let sel_args =
             A.Cstor.ty_args cstor
-            |> Iter.mapi (fun i _ty -> A.mk_sel self.tst cstor i t)
-            |> Iter.to_array
+            |> List.mapi (fun i _ty -> A.mk_sel self.tst cstor i t)
           in
           A.mk_cstor self.tst cstor sel_args
         in
@@ -333,10 +335,11 @@ end = struct
         let proof =
           let pr_isa =
             Proof_trace.add_step self.proof @@ fun () ->
-            A.P.lemma_isa_split t [ Lit.atom (A.mk_is_a self.tst cstor t) ]
+            Proof_rules.lemma_isa_split t
+              [ Lit.atom (A.mk_is_a self.tst cstor t) ]
           and pr_eq_sel =
             Proof_trace.add_step self.proof @@ fun () ->
-            A.P.lemma_select_cstor ~cstor_t:u t
+            Proof_rules.lemma_select_cstor ~cstor_t:u t
           in
           Proof_trace.add_step self.proof @@ fun () ->
           Proof_core.proof_r1 pr_isa pr_eq_sel
@@ -394,7 +397,7 @@ end = struct
               name Term.pp_debug t is_true E_node.pp n Monoid_cstor.pp cstor);
         let pr =
           Proof_trace.add_step self.proof @@ fun () ->
-          A.P.lemma_isa_cstor ~cstor_t:(E_node.term cstor.c_n) t
+          Proof_rules.lemma_isa_cstor ~cstor_t:(E_node.term cstor.c_n) t
         in
         let n_bool = CC.n_bool cc is_true in
         let expl =
@@ -417,11 +420,11 @@ end = struct
         Log.debugf 5 (fun k ->
             k "(@[%s.on-new-term.select.reduce@ :n %a@ :sel get[%d]-%a@])" name
               E_node.pp n i A.Cstor.pp c_t);
-        assert (i < CCArray.length cstor.c_args);
-        let u_i = CCArray.get cstor.c_args i in
+        assert (i < List.length cstor.c_args);
+        let u_i = List.nth cstor.c_args i in
         let pr =
           Proof_trace.add_step self.proof @@ fun () ->
-          A.P.lemma_select_cstor ~cstor_t:(E_node.term cstor.c_n) t
+          Proof_rules.lemma_select_cstor ~cstor_t:(E_node.term cstor.c_n) t
         in
         let expl =
           Expl.(
@@ -441,7 +444,7 @@ end = struct
         [])
     | T_cstor _ | T_other _ -> []
 
-  let cstors_of_ty (ty : ty) : A.Cstor.t Iter.t =
+  let cstors_of_ty (ty : ty) : A.Cstor.t list =
     match A.as_datatype ty with
     | Ty_data { cstors } -> cstors
     | _ -> assert false
@@ -458,7 +461,7 @@ end = struct
             Monoid_cstor.pp c1);
       let pr =
         Proof_trace.add_step self.proof @@ fun () ->
-        A.P.lemma_isa_cstor ~cstor_t:(E_node.term c1.c_n)
+        Proof_rules.lemma_isa_cstor ~cstor_t:(E_node.term c1.c_n)
           (E_node.term is_a2.is_a_n)
       in
       let n_bool = CC.n_bool cc is_true in
@@ -484,13 +487,13 @@ end = struct
         Log.debugf 5 (fun k ->
             k "(@[%s.on-merge.select.reduce@ :n2 %a@ :sel get[%d]-%a@])" name
               E_node.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
-        assert (sel2.sel_idx < CCArray.length c1.c_args);
+        assert (sel2.sel_idx < List.length c1.c_args);
         let pr =
           Proof_trace.add_step self.proof @@ fun () ->
-          A.P.lemma_select_cstor ~cstor_t:(E_node.term c1.c_n)
+          Proof_rules.lemma_select_cstor ~cstor_t:(E_node.term c1.c_n)
             (E_node.term sel2.sel_n)
         in
-        let u_i = CCArray.get c1.c_args sel2.sel_idx in
+        let u_i = List.nth c1.c_args sel2.sel_idx in
         let expl =
           Expl.mk_theory (E_node.term sel2.sel_n) (E_node.term u_i)
             [
@@ -563,7 +566,7 @@ end = struct
     let mk_graph (self : t) cc : graph =
       let g : graph = N_tbl.create ~size:32 () in
       let traverse_sub cstor : _ list =
-        Util.array_to_list_map
+        List.map
           (fun sub_n -> sub_n, CC.find cc sub_n)
           cstor.Monoid_cstor.c_args
       in
@@ -603,7 +606,7 @@ end = struct
                 (fun (a, b) -> E_node.term a, E_node.term b.repr)
                 path
             in
-            A.P.lemma_acyclicity path
+            Proof_rules.lemma_acyclicity path
           in
           let expl =
             let subs =
@@ -648,8 +651,7 @@ end = struct
         let rhs =
           let args =
             A.Cstor.ty_args c
-            |> Iter.mapi (fun i _ty -> A.mk_sel self.tst c i u)
-            |> Iter.to_list |> CCArray.of_list
+            |> List.mapi (fun i _ty -> A.mk_sel self.tst c i u)
           in
           A.mk_cstor self.tst c args
         in
@@ -657,7 +659,8 @@ end = struct
             k "(@[%s.assign-is-a@ :lhs %a@ :rhs %a@ :lit %a@])" name
               Term.pp_debug u Term.pp_debug rhs Lit.pp lit);
         let pr =
-          Proof_trace.add_step self.proof @@ fun () -> A.P.lemma_isa_sel t
+          Proof_trace.add_step self.proof @@ fun () ->
+          Proof_rules.lemma_isa_sel t
         in
         (* merge [u] and [rhs] *)
         CC.merge_t (SI.cc solver) u rhs
@@ -676,19 +679,19 @@ end = struct
       Term.Tbl.add self.case_split_done t ();
       let c =
         cstors_of_ty (Term.ty t)
-        |> Iter.map (fun c -> A.mk_is_a self.tst c t)
-        |> Iter.map (fun t ->
+        |> List.map (fun c ->
+               let t = A.mk_is_a self.tst c t in
                let lit = SI.mk_lit solver t in
                (* TODO: set default polarity, depending on n° of args? *)
                lit)
-        |> Iter.to_rev_list
       in
       SI.add_clause_permanent solver acts c
-        (Proof_trace.add_step self.proof @@ fun () -> A.P.lemma_isa_split t c);
+        ( Proof_trace.add_step self.proof @@ fun () ->
+          Proof_rules.lemma_isa_split t c );
       Iter.diagonal_l c (fun (l1, l2) ->
           let pr =
             Proof_trace.add_step self.proof @@ fun () ->
-            A.P.lemma_isa_disj (Lit.neg l1) (Lit.neg l2)
+            Proof_rules.lemma_isa_disj (Lit.neg l1) (Lit.neg l2)
           in
           SI.add_clause_permanent solver acts [ Lit.neg l1; Lit.neg l2 ] pr)
     )
@@ -752,8 +755,7 @@ end = struct
         let cstor_app =
           let args =
             A.Cstor.ty_args base_cstor
-            |> Iter.mapi (fun i _ -> A.mk_sel self.tst base_cstor i t)
-            |> Iter.to_array
+            |> List.mapi (fun i _ -> A.mk_sel self.tst base_cstor i t)
           in
           A.mk_cstor self.tst base_cstor args
         in
@@ -776,7 +778,7 @@ end = struct
     | Some c ->
       Log.debugf 5 (fun k ->
           k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
-      let args = CCArray.map (recurse si) c.c_args in
+      let args = List.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
       Some t
 
