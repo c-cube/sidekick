@@ -30,13 +30,16 @@ let[@inline] has_fvars e = (e.flags lsr store_id_bits) land 1 == 1
 let[@inline] store_uid e : int = e.flags land store_id_mask
 let[@inline] is_closed e : bool = db_depth e == 0
 
+(* slow path *)
+let[@inline never] ty_force_delayed_ e f =
+  let ty = f () in
+  e.ty <- T_ty ty;
+  ty
+
 let[@inline] ty e : term =
   match e.ty with
   | T_ty t -> t
-  | T_ty_delayed f ->
-    let ty = f () in
-    e.ty <- T_ty ty;
-    ty
+  | T_ty_delayed f -> ty_force_delayed_ e f
 
 (* open an application *)
 let unfold_app (e : term) : term * term list =
@@ -225,16 +228,18 @@ let map_shallow_ ~make ~f (e : term) : term =
 
 exception IsSub
 
-let[@inline] is_type_ e =
+let[@inline] is_type e =
   match e.view with
   | E_type _ -> true
   | _ -> false
+
+let[@inline] is_a_type (t : t) = is_type (ty t)
 
 let iter_dag ?(seen = Tbl.create 8) ~iter_ty ~f e : unit =
   let rec loop e =
     if not (Tbl.mem seen e) then (
       Tbl.add seen e ();
-      if iter_ty && not (is_type_ e) then loop (ty e);
+      if iter_ty && not (is_type e) then loop (ty e);
       f e;
       iter_shallow e ~f:(fun _ u -> loop u)
     )
@@ -276,7 +281,7 @@ let free_vars ?(init = Var.Set.empty) e : Var.Set.t =
 
 module Make_ = struct
   let compute_db_depth_ e : int =
-    if is_type_ e then
+    if is_type e then
       0
     else (
       let d1 = db_depth @@ ty e in
@@ -292,7 +297,7 @@ module Make_ = struct
     )
 
   let compute_has_fvars_ e : bool =
-    if is_type_ e then
+    if is_type e then
       false
     else
       has_fvars (ty e)
@@ -325,7 +330,7 @@ module Make_ = struct
     let rec loop e k : term =
       if is_closed e then
         e
-      else if is_type_ e then
+      else if is_type e then
         e
       else (
         match view e with
@@ -356,7 +361,7 @@ module Make_ = struct
     (* recurse in subterm [e], under [k] intermediate binders (so any
        bound variable under k is bound by them) *)
     let rec aux e k : term =
-      if is_type_ e then
+      if is_type e then
         e
       else if db_depth e < k then
         e
@@ -425,8 +430,9 @@ module Make_ = struct
         db_0_replace_ ~make ty_bod_f ~by:a
       | _ ->
         Error.errorf
-          "@[<2>cannot apply %a,@ must have Pi type, but actual type is %a@]"
-          pp_debug f pp_debug ty_f)
+          "@[<2>cannot apply %a@ (to %a),@ must have Pi type, but actual type \
+           is %a@]"
+          pp_debug f pp_debug a pp_debug ty_f)
     | E_pi (_, ty, bod) ->
       (* TODO: check the actual triplets for COC *)
       (*Fmt.printf "pi %a %a@." pp_debug ty pp_debug bod;*)
@@ -440,6 +446,7 @@ module Make_ = struct
   (* hashconsing + computing metadata + computing type (for new terms) *)
   let rec make_ (store : store) view : term =
     let e = { view; ty = T_ty_delayed ty_assert_false_; id = -1; flags = 0 } in
+    Log.debugf 50 (fun k -> k "term.make `%a`" pp_debug_with_ids e);
     let e2 = Hcons.hashcons store.s_exprs e in
     if e == e2 then (
       (* new term, compute metadata *)
@@ -485,7 +492,7 @@ module Make_ = struct
     let cache_ = T_int_tbl.create 16 in
 
     let rec loop k e =
-      if is_type_ e then
+      if is_type e then
         e
       else if not (has_fvars e) then
         (* no free variables, cannot change *)
@@ -602,8 +609,6 @@ let map_shallow store ~f e : t = map_shallow_ ~make:(make_ store) ~f e
 
 (* re-export some internal things *)
 module Internal_ = struct
-  let is_type_ = is_type_
-
   let subst_ store ~recursive t subst =
     subst_ ~make:(make_ store) ~recursive t subst
 end

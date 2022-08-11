@@ -83,6 +83,12 @@ val contains : t -> sub:t -> bool
 val free_vars_iter : t -> var Iter.t
 val free_vars : ?init:Var.Set.t -> t -> Var.Set.t
 
+val is_type : t -> bool
+(** [is_type t] is true iff [view t] is [Type _] *)
+
+val is_a_type : t -> bool
+(** [is_a_type t] is true if [is_ty (ty t)] *)
+
 val is_closed : t -> bool
 (** Is the term closed (all bound variables are paired with a binder)?
  time: O(1) *)
@@ -153,7 +159,6 @@ end
 (**/**)
 
 module Internal_ : sig
-  val is_type_ : t -> bool
   val subst_ : store -> recursive:bool -> t -> subst -> t
 end
 
