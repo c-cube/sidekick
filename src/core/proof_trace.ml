@@ -28,6 +28,7 @@ module type DYN = sig
   val add_step : Proof_term.delayed -> step_id
   val add_unsat : step_id -> unit
   val delete : step_id -> unit
+  val close : unit -> unit
 end
 
 type t = (module DYN)
@@ -36,6 +37,7 @@ let[@inline] enabled ((module Tr) : t) : bool = Tr.enabled ()
 let[@inline] add_step ((module Tr) : t) rule : step_id = Tr.add_step rule
 let[@inline] add_unsat ((module Tr) : t) s : unit = Tr.add_unsat s
 let[@inline] delete ((module Tr) : t) s : unit = Tr.delete s
+let[@inline] close ((module Tr) : t) : unit = Tr.close ()
 let make (d : (module DYN)) : t = d
 let dummy_step_id : step_id = -1l
 
@@ -45,4 +47,5 @@ let dummy : t =
     let add_step _ = dummy_step_id
     let add_unsat _ = ()
     let delete _ = ()
+    let close _ = ()
   end)

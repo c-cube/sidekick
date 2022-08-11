@@ -14,6 +14,7 @@ type rule_apply = {
   term_args: Term.t list;
   subst_args: Subst.t list;
   premises: step_id list;
+  indices: int list;
 }
 
 type t =
@@ -35,5 +36,6 @@ val apply_rule :
   ?terms:Term.t list ->
   ?substs:Subst.t list ->
   ?premises:step_id list ->
+  ?indices:int list ->
   string ->
   t

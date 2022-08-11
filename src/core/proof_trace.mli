@@ -42,6 +42,9 @@ val delete : t -> step_id -> unit
 (** Forget a step that won't be used in the rest of the trace.
     Only useful for performance/memory considerations. *)
 
+val close : t -> unit
+(** [close p] closes the proof, and can dispose of underlying resources *)
+
 (** {2 Dummy backend} *)
 
 val dummy_step_id : step_id
@@ -58,6 +61,7 @@ module type DYN = sig
   val add_step : Proof_term.delayed -> step_id
   val add_unsat : step_id -> unit
   val delete : step_id -> unit
+  val close : unit -> unit
 end
 
 val make : (module DYN) -> t

@@ -10,6 +10,7 @@ type rule_apply = {
   term_args: Term.t list;
   subst_args: Subst.t list;
   premises: step_id list;
+  indices: int list;
 }
 
 type t =
@@ -31,7 +32,7 @@ let let_ bs r =
   | _ -> P_let (bs, r)
 
 let apply_rule ?(lits = []) ?(terms = []) ?(substs = []) ?(premises = [])
-    rule_name : t =
+    ?(indices = []) rule_name : t =
   P_apply
     {
       rule_name;
@@ -39,4 +40,5 @@ let apply_rule ?(lits = []) ?(terms = []) ?(substs = []) ?(premises = [])
       subst_args = substs;
       term_args = terms;
       premises;
+      indices;
     }

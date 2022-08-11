@@ -24,6 +24,8 @@ module Term = struct
   include T_printer
 end
 
+module Gensym = Gensym
+
 (** {2 view} *)
 
 module Bool_view = Bool_view
