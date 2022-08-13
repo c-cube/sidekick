@@ -154,6 +154,25 @@ val check_sat_propagations_only :
 
 val plugin_cdcl_t : (module THEORY_CDCL_T) -> (module PLUGIN)
 
+val mk_plugin_cdcl_t :
+  push_level:(unit -> unit) ->
+  pop_levels:(int -> unit) ->
+  ?partial_check:(acts -> unit) ->
+  final_check:(acts -> unit) ->
+  unit ->
+  (module PLUGIN)
+(** Create a plugin
+    @param push_level create a new backtrack level
+    @param pop_levels Pop [n] levels of the plugin
+    @param partial_check Assume the lits in the slice, possibly using the [slice]
+      to push new lits to be propagated or to raising a conflict or to add
+      new lemmas.
+      @param final_check Called at the end of the search in case a model has been found.
+      If no new clause is pushed, then proof search ends and "sat" is returned;
+      if lemmas are added, search is resumed;
+      if a conflict clause is added, search backtracks and then resumes.
+   *)
+
 val create :
   ?stat:Stat.t ->
   ?size:[ `Tiny | `Small | `Big ] ->

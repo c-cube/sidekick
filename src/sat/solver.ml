@@ -2022,6 +2022,16 @@ let plugin_cdcl_t (module P : THEORY_CDCL_T) : (module PLUGIN) =
     let has_theory = true
   end)
 
+let mk_plugin_cdcl_t ~push_level ~pop_levels ?(partial_check = ignore)
+    ~final_check () : (module PLUGIN) =
+  (module struct
+    let push_level = push_level
+    let pop_levels = pop_levels
+    let partial_check = partial_check
+    let final_check = final_check
+    let has_theory = true
+  end)
+
 let plugin_pure_sat : plugin =
   (module struct
     let push_level () = ()
