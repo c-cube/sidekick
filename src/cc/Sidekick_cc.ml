@@ -495,6 +495,7 @@ module Make (A : ARG) :
     Vec.clear cc.combine;
     Event.emit cc.on_conflict { cc; th; c = e };
     Stat.incr cc.count_conflict;
+    Vec.clear cc.res_acts;
     raise (E_confl (Conflict (e, p)))
 
   let[@inline] all_classes self : repr Iter.t =
