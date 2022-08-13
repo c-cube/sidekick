@@ -110,10 +110,19 @@ let data tst d : Term.t =
   Term.const tst @@ Const.make (Data d) ops ~ty:(Term.type_ tst)
 
 let cstor tst c : Term.t =
-  Term.const tst @@ Const.make (Cstor c) ops ~ty:(Lazy.force c.cstor_ty)
+  let ty_ret = Lazy.force c.cstor_ty in
+  let ty_args =
+    List.map (fun s -> Lazy.force s.select_ty) (Lazy.force c.cstor_args)
+  in
+  let ty = Term.arrow_l tst ty_args ty_ret in
+  Log.debugf 50 (fun k -> k "cstor %a (ty %a)" Cstor.pp c Term.pp ty);
+  Term.const tst @@ Const.make (Cstor c) ops ~ty
 
 let select tst s : Term.t =
-  Term.const tst @@ Const.make (Select s) ops ~ty:(Lazy.force s.select_ty)
+  let ty_ret = Lazy.force s.select_ty in
+  let ty_arg = data tst s.select_cstor.cstor_ty_as_data in
+  let ty = Term.arrow tst ty_arg ty_ret in
+  Term.const tst @@ Const.make (Select s) ops ~ty
 
 let is_a tst c : Term.t =
   Term.const tst @@ Const.make (Is_a c) ops ~ty:(Term.bool tst)
