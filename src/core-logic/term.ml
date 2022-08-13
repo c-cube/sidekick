@@ -446,7 +446,6 @@ module Make_ = struct
   (* hashconsing + computing metadata + computing type (for new terms) *)
   let rec make_ (store : store) view : term =
     let e = { view; ty = T_ty_delayed ty_assert_false_; id = -1; flags = 0 } in
-    Log.debugf 50 (fun k -> k "term.make `%a`" pp_debug_with_ids e);
     let e2 = Hcons.hashcons store.s_exprs e in
     if e == e2 then (
       (* new term, compute metadata *)
