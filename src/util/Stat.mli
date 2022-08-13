@@ -18,7 +18,8 @@ type ex_counter
 (** Existential counter *)
 
 val all : t -> ex_counter Iter.t
-val pp_all : ex_counter Iter.t Fmt.printer
+val pp_counters : ex_counter Iter.t Fmt.printer
+val pp : t Fmt.printer
 
 val global : t
 (** Global statistics, by default *)

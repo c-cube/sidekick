@@ -211,7 +211,7 @@ let main_cnf () : _ result =
   let stat = Stat.create () in
 
   let finally () =
-    if !p_stat then Fmt.printf "%a@." Stat.pp_all (Stat.all stat);
+    if !p_stat then Fmt.printf "%a@." Stat.pp stat;
     Proof.close proof
   in
   CCFun.protect ~finally @@ fun () ->

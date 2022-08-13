@@ -134,7 +134,7 @@ let mk_lit_t (self : t) ?sign (t : term) : lit =
 
 (** {2 Main} *)
 
-let pp_stats out (self : t) : unit = Stat.pp_all out (Stat.all @@ stats self)
+let pp_stats out (self : t) : unit = Stat.pp out (stats self)
 
 (* add [c], without preprocessing its literals *)
 let add_clause_nopreproc_ (self : t) (c : lit array) (proof : step_id) : unit =
