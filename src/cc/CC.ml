@@ -218,6 +218,7 @@ let raise_conflict_ (cc : t) ~th (e : Lit.t list) (p : Proof_term.step_id) : _ =
   Vec.clear cc.combine;
   Event.emit cc.on_conflict { cc; th; c = e };
   Stat.incr cc.count_conflict;
+  Vec.clear cc.res_acts;
   raise (E_confl (Conflict (e, p)))
 
 let[@inline] all_classes self : repr Iter.t =
