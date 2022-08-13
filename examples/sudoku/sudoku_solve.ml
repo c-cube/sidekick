@@ -1,9 +1,6 @@
 (** simple sudoku solver *)
 
-module Fmt = CCFormat
-module Vec = Sidekick_util.Vec
-module Log = Sidekick_util.Log
-module Profile = Sidekick_util.Profile
+open Sidekick_util
 
 let errorf msg = Fmt.kasprintf failwith msg
 
@@ -147,74 +144,73 @@ module Solver : sig
   val create : Grid.t -> t
   val solve : t -> Grid.t option
 end = struct
-  open Sidekick_sat.Solver_intf
+  open Sidekick_core
 
-  (* formulas *)
-  module F = struct
-    type t = bool * int * int * Cell.t
+  type Const.view += Cell_is of { x: int; y: int; value: Cell.t }
 
-    let equal (sign1, x1, y1, c1) (sign2, x2, y2, c2) =
-      sign1 = sign2 && x1 = x2 && y1 = y2 && Cell.equal c1 c2
+  let ops =
+    (module struct
+      let pp out = function
+        | Cell_is { x; y; value } ->
+          Fmt.fprintf out "(%d:%d=%a)" x y Cell.pp value
+        | _ -> ()
 
-    let hash (sign, x, y, c) =
-      CCHash.(combine4 (bool sign) (int x) (int y) (Cell.hash c))
+      let hash = function
+        | Cell_is { x; y; value } ->
+          Hash.(combine3 (int x) (int y) (Cell.hash value))
+        | _ -> assert false
 
-    let pp out (sign, x, y, c) =
-      Fmt.fprintf out "[@[(%d,%d) %s %a@]]" x y
-        (if sign then
-          "="
-        else
-          "!=")
-        Cell.pp c
+      let equal a b =
+        match a, b with
+        | Cell_is a, Cell_is b ->
+          a.x = b.x && a.y = b.y && Cell.equal a.value b.value
+        | _ -> false
+    end : Const.DYN_OPS)
 
-    let neg (sign, x, y, c) = not sign, x, y, c
+  module Sat = Sidekick_sat
 
-    let norm_sign ((sign, _, _, _) as f) =
-      if sign then
-        f, true
-      else
-        neg f, false
+  let mk_cell tst x y value : Term.t =
+    Term.const tst
+    @@ Const.make (Cell_is { x; y; value }) ops ~ty:(Term.bool tst)
 
-    let make sign x y (c : Cell.t) : t = sign, x, y, c
-  end
+  let mk_cell_lit ?sign tst x y value : Lit.t =
+    Lit.atom ?sign @@ mk_cell tst x y value
 
-  module Theory = struct
-    include Sidekick_sat.Proof_dummy.Make (F)
+  module Theory : sig
+    type t
 
-    type proof = unit
-    type proof_step = unit
+    val grid : t -> Grid.t
+    val create : Term.store -> Grid.t -> t
+    val to_plugin : t -> Sat.plugin
+  end = struct
+    type t = { tst: Term.store; grid: Grid.t B_ref.t }
 
-    module Lit = F
-
-    type lit = Lit.t
-    type t = { grid: Grid.t B_ref.t }
-
-    let create g : t = { grid = B_ref.create g }
     let[@inline] grid self : Grid.t = B_ref.get self.grid
     let[@inline] set_grid self g : unit = B_ref.set self.grid g
     let push_level self = B_ref.push_level self.grid
     let pop_levels self n = B_ref.pop_levels self.grid n
-    let pp_c_ = Fmt.(list ~sep:(return "@ ∨ ")) F.pp
+    let pp_c_ = Fmt.(list ~sep:(return "@ ∨ ")) Lit.pp
 
     let[@inline] logs_conflict kind c : unit =
       Log.debugf 4 (fun k -> k "(@[conflict.%s@ %a@])" kind pp_c_ c)
 
     (* check that all cells are full *)
-    let check_full_ (self : t) (acts : (Lit.t, proof, proof_step) acts) : unit =
-      Profile.with_ "check-full" @@ fun () ->
+    let check_full_ (self : t) (acts : Sat.acts) : unit =
+      (*let@ () = Profile.with_ "check-full" in*)
       let (module A) = acts in
       Grid.all_cells (grid self) (fun (x, y, c) ->
           if Cell.is_empty c then (
             let c =
-              CCList.init 9 (fun c -> F.make true x y (Cell.make (c + 1)))
+              CCList.init 9 (fun c ->
+                  mk_cell_lit self.tst x y (Cell.make (c + 1)))
             in
             Log.debugf 4 (fun k -> k "(@[add-clause@ %a@])" pp_c_ c);
-            A.add_clause ~keep:true c ()
+            A.add_clause ~keep:true c Proof_trace.dummy_step_id
           ))
 
     (* check constraints *)
-    let check_ (self : t) (acts : (Lit.t, proof, proof_step) acts) : unit =
-      Profile.with_ "check-constraints" @@ fun () ->
+    let check_ (self : t) (acts : Sat.acts) : unit =
+      (*let@ () = Profile.with_ "check-constraints" in*)
       Log.debugf 4 (fun k ->
           k "(@[sudoku.check@ @[:g %a@]@])" Grid.pp (B_ref.get self.grid));
       let (module A) = acts in
@@ -229,9 +225,14 @@ end = struct
         pairs (fun ((x1, y1, c1), (x2, y2, c2)) ->
             if Cell.equal c1 c2 then (
               assert (x1 <> x2 || y1 <> y2);
-              let c = [ F.make false x1 y1 c1; F.make false x2 y2 c2 ] in
+              let c =
+                [
+                  mk_cell_lit self.tst ~sign:false x1 y1 c1;
+                  mk_cell_lit self.tst ~sign:false x2 y2 c2;
+                ]
+              in
               logs_conflict ("all-diff." ^ kind) c;
-              A.raise_conflict c ()
+              A.raise_conflict c Proof_trace.dummy_step_id
             ))
       in
       all_diff "rows" Grid.rows;
@@ -239,67 +240,88 @@ end = struct
       all_diff "squares" Grid.squares;
       ()
 
-    let trail_ (acts : (Lit.t, proof, proof_step) acts) =
+    let trail_ (acts : Sat.acts) =
       let (module A) = acts in
       A.iter_assumptions
 
     (* update current grid with the given slice *)
-    let add_slice (self : t) (acts : (Lit.t, proof, proof_step) acts) : unit =
+    let add_slice (self : t) (acts : Sat.acts) : unit =
       let (module A) = acts in
-      trail_ acts (function
-        | false, _, _, _ -> ()
-        | true, x, y, c ->
-          assert (Cell.is_full c);
-          let grid = grid self in
-          let c' = Grid.get grid x y in
-          if Cell.is_empty c' then
-            set_grid self (Grid.set grid x y c)
-          else if Cell.neq c c' then (
-            (* conflict: at most one value *)
-            let c = [ F.make false x y c; F.make false x y c' ] in
-            logs_conflict "at-most-one" c;
-            A.raise_conflict c ()
-          ))
+      trail_ acts (fun lit ->
+          match Lit.sign lit, Term.view (Lit.term lit) with
+          | true, E_const { Const.c_view = Cell_is { x; y; value = c }; _ } ->
+            assert (Cell.is_full c);
+            let grid = grid self in
+            let c' = Grid.get grid x y in
+            if Cell.is_empty c' then
+              set_grid self (Grid.set grid x y c)
+            else if Cell.neq c c' then (
+              (* conflict: at most one value *)
+              let c =
+                [
+                  mk_cell_lit self.tst ~sign:false x y c;
+                  mk_cell_lit self.tst ~sign:false x y c';
+                ]
+              in
+              logs_conflict "at-most-one" c;
+              A.raise_conflict c Proof_trace.dummy_step_id
+            )
+          | _ -> ())
 
     let partial_check (self : t) acts : unit =
-      Profile.with_ "partial-check" @@ fun () ->
+      (* let@ () = Profile.with_ "partial-check" in*)
       Log.debugf 4 (fun k ->
-          k "(@[sudoku.partial-check@ :trail [@[%a@]]@])" (Fmt.list F.pp)
-            (trail_ acts |> Iter.to_list));
+          k "(@[sudoku.partial-check@ :trail [@[%a@]]@])" (Fmt.iter Lit.pp)
+            (trail_ acts));
       add_slice self acts;
       check_ self acts
 
     let final_check (self : t) acts : unit =
-      Profile.with_ "final-check" @@ fun () ->
+      (*let@ () = Profile.with_ "final-check" in*)
       Log.debugf 4 (fun k -> k "(@[sudoku.final-check@])");
       check_full_ self acts;
       check_ self acts
+
+    let create tst g : t = { tst; grid = B_ref.create g }
+
+    let to_plugin (self : t) : Sat.plugin =
+      Sat.mk_plugin_cdcl_t
+        ~push_level:(fun () -> push_level self)
+        ~pop_levels:(fun n -> pop_levels self n)
+        ~partial_check:(partial_check self) ~final_check:(final_check self) ()
   end
 
-  module S = Sidekick_sat.Make_cdcl_t (Theory)
-
-  type t = { grid0: Grid.t; solver: S.t }
+  type t = { grid0: Grid.t; tst: Term.store; theory: Theory.t; solver: Sat.t }
 
   let solve (self : t) : _ option =
-    Profile.with_ "sudoku.solve" @@ fun () ->
+    let@ () = Profile.with_ "sudoku.solve" in
     let assumptions =
       Grid.all_cells self.grid0
       |> Iter.filter (fun (_, _, c) -> Cell.is_full c)
-      |> Iter.map (fun (x, y, c) -> F.make true x y c)
+      |> Iter.map (fun (x, y, c) -> mk_cell_lit self.tst x y c)
       |> Iter.to_rev_list
     in
     Log.debugf 2 (fun k ->
-        k "(@[sudoku.solve@ :assumptions %a@])" (Fmt.Dump.list F.pp) assumptions);
+        k "(@[sudoku.solve@ :assumptions %a@])" (Fmt.Dump.list Lit.pp)
+          assumptions);
     let r =
-      match S.solve self.solver ~assumptions with
-      | S.Sat _ -> Some (Theory.grid (S.theory self.solver))
-      | S.Unsat _ -> None
+      match Sat.solve self.solver ~assumptions with
+      | Sat.Sat _ -> Some (Theory.grid self.theory)
+      | Sat.Unsat _ -> None
     in
     (* TODO: print some stats *)
     r
 
   let create g : t =
-    { solver = S.create ~proof:() (Theory.create g); grid0 = g }
+    let tst = Term.Store.create () in
+    let theory = Theory.create tst g in
+    let plugin : Sat.plugin = Theory.to_plugin theory in
+    {
+      tst;
+      solver = Sat.create ~proof:Proof_trace.dummy plugin;
+      theory;
+      grid0 = g;
+    }
 end
 
 let solve_grid (g : Grid.t) : Grid.t option =
@@ -320,7 +342,7 @@ let chrono ~pp_time : (module CHRONO) =
   (module M)
 
 let solve_file ~pp_time file =
-  Profile.with_ "solve-file" @@ fun () ->
+  let@ () = Profile.with_ "solve-file" in
   let open (val chrono ~pp_time) in
   Format.printf "solve grids in file %S@." file;
 
@@ -360,7 +382,7 @@ let solve_file ~pp_time file =
   ()
 
 let () =
-  Sidekick_tef.with_setup @@ fun () ->
+  let@ () = Sidekick_tef.with_setup in
   Fmt.set_color_default true;
   let files = ref [] in
   let debug = ref 0 in
