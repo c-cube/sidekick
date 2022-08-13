@@ -141,7 +141,7 @@ module B_ref = Sidekick_util.Backtrackable_ref
 module Solver : sig
   type t
 
-  val create : Grid.t -> t
+  val create : stat:Stat.t -> Grid.t -> t
   val solve : t -> Grid.t option
 end = struct
   open Sidekick_core
@@ -180,15 +180,18 @@ end = struct
     type t
 
     val grid : t -> Grid.t
-    val create : Term.store -> Grid.t -> t
+    val create : stat:Stat.t -> Term.store -> Grid.t -> t
     val to_plugin : t -> Sat.plugin
   end = struct
-    type t = { tst: Term.store; grid: Grid.t B_ref.t }
+    type t = {
+      tst: Term.store;
+      grid: Grid.t B_ref.t;
+      stat_check_full: int Stat.counter;
+      stat_conflict: int Stat.counter;
+    }
 
     let[@inline] grid self : Grid.t = B_ref.get self.grid
     let[@inline] set_grid self g : unit = B_ref.set self.grid g
-    let push_level self = B_ref.push_level self.grid
-    let pop_levels self n = B_ref.pop_levels self.grid n
     let pp_c_ = Fmt.(list ~sep:(return "@ ∨ ")) Lit.pp
 
     let[@inline] logs_conflict kind c : unit =
@@ -200,6 +203,7 @@ end = struct
       let (module A) = acts in
       Grid.all_cells (grid self) (fun (x, y, c) ->
           if Cell.is_empty c then (
+            Stat.incr self.stat_check_full;
             let c =
               CCList.init 9 (fun c ->
                   mk_cell_lit self.tst x y (Cell.make (c + 1)))
@@ -214,7 +218,7 @@ end = struct
       Log.debugf 4 (fun k ->
           k "(@[sudoku.check@ @[:g %a@]@])" Grid.pp (B_ref.get self.grid));
       let (module A) = acts in
-      let[@inline] all_diff kind f =
+      let[@inline] all_diff c_kind f =
         let pairs =
           f (grid self)
           |> Iter.flat_map (fun set ->
@@ -231,7 +235,8 @@ end = struct
                   mk_cell_lit self.tst ~sign:false x2 y2 c2;
                 ]
               in
-              logs_conflict ("all-diff." ^ kind) c;
+              Stat.incr self.stat_conflict;
+              logs_conflict c_kind c;
               A.raise_conflict c Proof_trace.dummy_step_id
             ))
       in
@@ -282,12 +287,18 @@ end = struct
       check_full_ self acts;
       check_ self acts
 
-    let create tst g : t = { tst; grid = B_ref.create g }
+    let create ~stat tst g : t =
+      {
+        tst;
+        grid = B_ref.create g;
+        stat_check_full = Stat.mk_int stat "sudoku.check-cell-full";
+        stat_conflict = Stat.mk_int stat "sudoku.conflict";
+      }
 
     let to_plugin (self : t) : Sat.plugin =
       Sat.mk_plugin_cdcl_t
-        ~push_level:(fun () -> push_level self)
-        ~pop_levels:(fun n -> pop_levels self n)
+        ~push_level:(fun () -> B_ref.push_level self.grid)
+        ~pop_levels:(fun n -> B_ref.pop_levels self.grid n)
         ~partial_check:(partial_check self) ~final_check:(final_check self) ()
   end
 
@@ -312,20 +323,20 @@ end = struct
     (* TODO: print some stats *)
     r
 
-  let create g : t =
+  let create ~stat g : t =
     let tst = Term.Store.create () in
-    let theory = Theory.create tst g in
+    let theory = Theory.create ~stat tst g in
     let plugin : Sat.plugin = Theory.to_plugin theory in
     {
       tst;
-      solver = Sat.create ~proof:Proof_trace.dummy plugin;
+      solver = Sat.create ~stat ~proof:Proof_trace.dummy plugin;
       theory;
       grid0 = g;
     }
 end
 
-let solve_grid (g : Grid.t) : Grid.t option =
-  let s = Solver.create g in
+let solve_grid ~stat (g : Grid.t) : Grid.t option =
+  let s = Solver.create ~stat g in
   Solver.solve s
 
 module type CHRONO = sig
@@ -341,7 +352,7 @@ let chrono ~pp_time : (module CHRONO) =
   end in
   (module M)
 
-let solve_file ~pp_time file =
+let solve_file ~use_stats ~pp_time file =
   let@ () = Profile.with_ "solve-file" in
   let open (val chrono ~pp_time) in
   Format.printf "solve grids in file %S@." file;
@@ -365,7 +376,8 @@ let solve_file ~pp_time file =
       Format.printf
         "@[<v>@,#########################@,@[<2>solve grid:@ %a@]@]@." Grid.pp g;
       let open (val chrono ~pp_time) in
-      match solve_grid g with
+      let stat = Stat.create () in
+      (match solve_grid ~stat g with
       | None -> Format.printf "no solution%t@." pp_elapsed
       | Some g' when not @@ Grid.is_full g' ->
         errorf "grid %a@ is not full" Grid.pp g'
@@ -376,7 +388,8 @@ let solve_file ~pp_time file =
           g
       | Some g' ->
         Format.printf "@[<v>@[<2>solution%t:@ %a@]@,###################@]@."
-          pp_elapsed Grid.pp g')
+          pp_elapsed Grid.pp g');
+      if use_stats then Fmt.printf "stats: %a@." Stat.pp stat)
     grids;
   Format.printf "@.solved %d grids%t@." (List.length grids) pp_elapsed;
   ()
@@ -387,17 +400,22 @@ let () =
   let files = ref [] in
   let debug = ref 0 in
   let pp_time = ref true in
+  let use_stats = ref false in
   let opts =
     [
       "--debug", Arg.Set_int debug, " debug";
       "-d", Arg.Set_int debug, " debug";
       "--no-time", Arg.Clear pp_time, " do not print solve time";
+      "--stat", Arg.Set use_stats, " print statistics";
     ]
     |> Arg.align
   in
   Arg.parse opts (fun f -> files := f :: !files) "sudoku_solve [options] <file>";
   Log.set_debug !debug;
-  try List.iter (fun f -> solve_file ~pp_time:!pp_time f) !files
+  try
+    List.iter
+      (fun f -> solve_file ~pp_time:!pp_time ~use_stats:!use_stats f)
+      !files
   with Failure msg | Invalid_argument msg ->
     Format.printf "@{<Red>Error@}:@.%s@." msg;
     exit 1
