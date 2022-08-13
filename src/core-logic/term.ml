@@ -161,7 +161,8 @@ module Store = struct
   let n = ref 0
 
   let create ?(size = 256) () : t =
-    let s_uid = !n in
+    (* store id, modulo 2^5 *)
+    let s_uid = !n land store_id_mask in
     incr n;
     { s_uid; s_exprs = Hcons.create ~size () }
 
