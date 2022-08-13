@@ -19,7 +19,7 @@
  (targets basic.drup)
  (deps
   (:pb basic.cnf)
-  (:solver ../main/main.exe))
+  (:solver ../../src/main/main.exe))
  (action
   (run %{solver} %{pb} -t 2 -o %{targets})))
 
