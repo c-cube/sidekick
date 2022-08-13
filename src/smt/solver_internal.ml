@@ -73,10 +73,6 @@ let[@inline] cc (self : t) = self.cc
 let[@inline] tst self = self.tst
 let[@inline] proof self = self.proof
 let stats self = self.stat
-
-let[@inline] has_delayed_actions self =
-  not (Queue.is_empty self.delayed_actions)
-
 let registry self = self.registry
 let simplifier self = self.simp
 let simplify_t self (t : Term.t) : _ option = Simplify.normalize self.simp t

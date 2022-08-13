@@ -170,9 +170,9 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
   in
 
   let res =
-    Profile.with_ "solve" (fun () ->
-        Solver.solve ~assumptions ?on_progress ?should_stop s
-        (* ?gc ?restarts ?time ?memory ?progress *))
+    let@ () = Profile.with_ "process.solve" in
+    Solver.solve ~assumptions ?on_progress ?should_stop s
+    (* ?gc ?restarts ?time ?memory ?progress *)
   in
   let t2 = Sys.time () in
   Printf.printf "\r";
