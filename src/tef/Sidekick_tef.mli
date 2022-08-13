@@ -5,7 +5,7 @@
     profiling probes will emit TEF events.
 
     Profiling is enabled if {!setup} is called, and if
-    the environment variable "TEF" is set to "1" or "true".
+    the environment variable "TRACE" is set to "1" or "true".
     The trace is emitted in the file "trace.json.gz" in the directory
     where the solver is launched; you can open it in
     chrome/chromium at "chrome://tracing".
