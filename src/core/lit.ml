@@ -5,21 +5,16 @@ type term = T.t
 type t = { lit_term: term; lit_sign: bool }
 
 let[@inline] neg l = { l with lit_sign = not l.lit_sign }
-let[@inline] sign t = t.lit_sign
-let[@inline] abs t = { t with lit_sign = true }
-let[@inline] term (t : t) : term = t.lit_term
-let[@inline] signed_term t = term t, sign t
-let make ~sign t = { lit_sign = sign; lit_term = t }
+let[@inline] sign l = l.lit_sign
+let[@inline] abs l = { l with lit_sign = true }
+let[@inline] term (l : t) : term = l.lit_term
+let[@inline] signed_term l = term l, sign l
+let[@inline] make_ ~sign t : t = { lit_sign = sign; lit_term = t }
 
 let atom ?(sign = true) (t : term) : t =
   let sign', t = T_builtins.abs t in
-  let sign =
-    if not sign' then
-      not sign
-    else
-      sign
-  in
-  make ~sign t
+  let sign = sign = sign' in
+  make_ ~sign t
 
 let make_eq ?sign store t u : t =
   let p = T_builtins.eq store t u in
