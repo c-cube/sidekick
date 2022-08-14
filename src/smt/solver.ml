@@ -177,7 +177,7 @@ let assert_term self t = assert_terms self [ t ]
 
 let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
     ?(should_stop = fun _ _ -> false) ~assumptions (self : t) : res =
-  Profile.with_ "smt-solver.solve" @@ fun () ->
+  let@ () = Profile.with_ "smt-solver.solve" in
   let do_on_exit () = List.iter (fun f -> f ()) on_exit in
 
   let on_progress =
