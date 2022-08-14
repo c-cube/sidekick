@@ -15,17 +15,18 @@
    (run ./run_tests.exe alcotest) ; run regressions first
    (run ./run_tests.exe qcheck --verbose))))
 
-(rule
- (targets basic.drup)
- (deps
-  (:pb basic.cnf)
-  (:solver ../../src/main/main.exe))
- (action
-  (run %{solver} %{pb} -t 2 -o %{targets})))
-
-(rule
- (alias runtest)
- (locks /test)
- (package sidekick-bin)
- (action
-  (diff basic.drup.expected basic.drup)))
+; FIXME
+;(rule
+; (targets basic.drup)
+; (deps
+;  (:pb basic.cnf)
+;  (:solver ../../src/main/main.exe))
+; (action
+;  (run %{solver} %{pb} -t 2 -o %{targets})))
+;
+;(rule
+; (alias runtest)
+; (locks /test)
+; (package sidekick-bin)
+; (action
+;  (diff basic.drup.expected basic.drup)))
