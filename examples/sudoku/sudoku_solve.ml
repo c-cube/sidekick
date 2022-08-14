@@ -202,7 +202,7 @@ end = struct
 
     (* check that all cells are full *)
     let check_full_ (self : t) (acts : (Lit.t, proof, proof_step) acts) : unit =
-      Profile.with_ "check-full" @@ fun () ->
+      (*Profile.with_ "check-full" @@ fun () ->*)
       let (module A) = acts in
       Grid.all_cells (grid self) (fun (x, y, c) ->
           if Cell.is_empty c then (
@@ -215,7 +215,7 @@ end = struct
 
     (* check constraints *)
     let check_ (self : t) (acts : (Lit.t, proof, proof_step) acts) : unit =
-      Profile.with_ "check-constraints" @@ fun () ->
+      (*Profile.with_ "check-constraints" @@ fun () ->*)
       Log.debugf 4 (fun k ->
           k "(@[sudoku.check@ @[:g %a@]@])" Grid.pp (B_ref.get self.grid));
       let (module A) = acts in
@@ -263,7 +263,6 @@ end = struct
           ))
 
     let partial_check (self : t) acts : unit =
-      Profile.with_ "partial-check" @@ fun () ->
       Log.debugf 4 (fun k ->
           k "(@[sudoku.partial-check@ :trail [@[%a@]]@])" (Fmt.list F.pp)
             (trail_ acts |> Iter.to_list));
@@ -271,7 +270,6 @@ end = struct
       check_ self acts
 
     let final_check (self : t) acts : unit =
-      Profile.with_ "final-check" @@ fun () ->
       Log.debugf 4 (fun k -> k "(@[sudoku.final-check@])");
       check_full_ self acts;
       check_ self acts
