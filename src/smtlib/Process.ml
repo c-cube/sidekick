@@ -114,9 +114,9 @@ end
 *)
 
 let reset_line = "\x1b[2K\r"
+let start = Sys.time ()
 
 let mk_progress (_s : Solver.t) : _ -> unit =
-  let start = Sys.time () in
   let n = ref 0 in
   let syms = "|\\-/" in
   fun _s ->
@@ -146,7 +146,7 @@ let with_file_out (file : string) (f : out_channel -> 'a) : 'a =
 (* call the solver to check-sat *)
 let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
     ?time ?memory ?(progress = false) ~assumptions s : Solver.res =
-  let t1 = Sys.time () in
+  let t1 = Sys.time () -. start in
   let on_progress =
     if progress then
       Some (mk_progress s)
@@ -189,7 +189,8 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
        );
     *)
     let t3 = Sys.time () -. t2 in
-    Format.printf "Sat (%.3f/%.3f/%.3f)@." t1 (t2 -. t1) t3
+    Fmt.printf "sat@.";
+    Fmt.printf "; (%.3f/%.3f/%.3f)@." t1 (t2 -. t1) t3
   | Solver.Unsat { unsat_step_id; unsat_core = _ } ->
     if check then
       ()
@@ -221,9 +222,11 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
     | _ -> ());
 
     let t3 = Sys.time () -. t2 in
-    Format.printf "Unsat (%.3f/%.3f/%.3f)@." t1 (t2 -. t1) t3
+    Fmt.printf "unsat@.";
+    Fmt.printf "; (%.3f/%.3f/%.3f)@." t1 (t2 -. t1) t3
   | Solver.Unknown reas ->
-    Format.printf "Unknown (:reason %a)@." Solver.Unknown.pp reas
+    Fmt.printf "unknown@.";
+    Fmt.printf "; @[<h>:reason %a@]@." Solver.Unknown.pp reas
   | exception exn ->
     Printf.printf "%s%!" reset_line;
     raise exn);
