@@ -1,5 +1,4 @@
 open Sidekick_core
-open Sigs
 
 (* a boolean variable (positive int) *)
 module Var0 : sig
