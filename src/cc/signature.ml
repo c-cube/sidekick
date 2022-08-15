@@ -19,14 +19,7 @@ let equal (s1 : t) s2 : bool =
     E_node.equal a1 a2 && E_node.equal b1 b2 && E_node.equal c1 c2
   | Eq (a1, b1), Eq (a2, b2) -> E_node.equal a1 a2 && E_node.equal b1 b2
   | Opaque u1, Opaque u2 -> E_node.equal u1 u2
-  | Bool _, _
-  | App_fun _, _
-  | App_ho _, _
-  | If _, _
-  | Eq _, _
-  | Opaque _, _
-  | Not _, _ ->
-    false
+  | (Bool _ | App_fun _ | App_ho _ | If _ | Eq _ | Opaque _ | Not _), _ -> false
 
 let hash (s : t) : int =
   let module H = CCHash in
@@ -40,7 +33,7 @@ let hash (s : t) : int =
     H.combine4 60 (E_node.hash a) (E_node.hash b) (E_node.hash c)
   | Not u -> H.combine2 70 (E_node.hash u)
 
-let pp out = function
+let[@inline never] pp out = function
   | Bool b -> Fmt.bool out b
   | App_fun (f, []) -> Const.pp out f
   | App_fun (f, l) ->

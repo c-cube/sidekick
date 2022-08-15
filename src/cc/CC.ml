@@ -180,14 +180,15 @@ let add_signature self (s : signature) (n : e_node) : unit =
   on_backtrack self (fun () -> Sig_tbl.remove self.signatures_tbl s);
   Sig_tbl.add self.signatures_tbl s n
 
-let push_pending self t : unit =
+let[@inline] push_pending self t : unit =
   Log.debugf 50 (fun k -> k "(@[<hv1>cc.push-pending@ %a@])" E_node.pp t);
   Vec.push self.pending t
 
-let push_action self (a : Handler_action.t) : unit =
+let[@inline] push_action self (a : Handler_action.t) : unit =
   Vec.push self.combine (CT_act a)
 
-let push_action_l self (l : _ list) : unit = List.iter (push_action self) l
+let[@inline] push_action_l self (l : _ list) : unit =
+  List.iter (push_action self) l
 
 let merge_classes self t u e : unit =
   if t != u && not (same_class t u) then (
@@ -544,7 +545,7 @@ and task_pending_ self (n : e_node) : unit =
     )
   | Some s0 ->
     (* update the signature by using [find] on each sub-e_node *)
-    let s = update_sig s0 in
+    let s = (update_sig [@inlined]) s0 in
     (match find_signature self s with
     | None ->
       (* add to the signature table [sig(n) --> n] *)

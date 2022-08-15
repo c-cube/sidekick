@@ -1,4 +1,5 @@
-module View = View
+open Sidekick_core
+module View = CC_view
 module E_node = E_node
 module Expl = Expl
 module Signature = Signature

@@ -8,7 +8,7 @@ type ('f, 't, 'ts) t =
   | Opaque of 't
 (* do not enter *)
 
-let map_view ~f_f ~f_t ~f_ts (v : _ t) : _ t =
+let[@inline] map_view ~f_f ~f_t ~f_ts (v : _ t) : _ t =
   match v with
   | Bool b -> Bool b
   | App_fun (f, args) -> App_fun (f_f f, f_ts args)
@@ -18,7 +18,7 @@ let map_view ~f_f ~f_t ~f_ts (v : _ t) : _ t =
   | Eq (a, b) -> Eq (f_t a, f_t b)
   | Opaque t -> Opaque (f_t t)
 
-let iter_view ~f_f ~f_t ~f_ts (v : _ t) : unit =
+let[@inline] iter_view ~f_f ~f_t ~f_ts (v : _ t) : unit =
   match v with
   | Bool _ -> ()
   | App_fun (f, args) ->
