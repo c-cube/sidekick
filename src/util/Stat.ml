@@ -39,10 +39,10 @@ let[@inline] set c x : unit = c.count <- x
 
 let pp_counters out l =
   let pp_w out = function
-    | C_int { name; count } -> Fmt.fprintf out "@[:%s %d@]" name count
-    | C_float { name; count } -> Fmt.fprintf out "@[:%s %.4f@]" name count
+    | C_int { name; count } -> Fmt.fprintf out "(@[%s %d@])" name count
+    | C_float { name; count } -> Fmt.fprintf out "(@[%s %.4f@])" name count
   in
-  Fmt.fprintf out "(@[stats@ %a@])" Fmt.(iter ~sep:(return "@ ") pp_w) l
+  Fmt.fprintf out "(@[<1>stats@ %a@])" Fmt.(iter ~sep:(return "@ ") pp_w) l
 
 let pp out (self : t) = pp_counters out @@ all self
 let global = create ()
