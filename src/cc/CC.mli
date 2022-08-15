@@ -45,6 +45,7 @@ type t
 
 val term_store : t -> Term.store
 val proof : t -> Proof_trace.t
+val stat : t -> Stat.t
 
 val find : t -> e_node -> repr
 (** Current representative *)

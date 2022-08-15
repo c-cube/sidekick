@@ -150,6 +150,14 @@ end = struct
   module Monoid_cstor = struct
     let name = "th-data.cstor"
 
+    type state = { n_merges: int Stat.counter; n_conflict: int Stat.counter }
+
+    let create cc : state =
+      {
+        n_merges = Stat.mk_int (CC.stat cc) "th.data.cstor-merges";
+        n_conflict = Stat.mk_int (CC.stat cc) "th.data.cstor-conflicts";
+      }
+
     (* associate to each class a unique constructor term in the class (if any) *)
     type t = { c_n: E_node.t; c_cstor: A.Cstor.t; c_args: E_node.t list }
 
@@ -158,14 +166,14 @@ end = struct
         A.Cstor.pp v.c_cstor E_node.pp v.c_n (Util.pp_list E_node.pp) v.c_args
 
     (* attach data to constructor terms *)
-    let of_term cc n (t : Term.t) : _ option * _ list =
+    let of_term cc _ n (t : Term.t) : _ option * _ list =
       match A.view_as_data t with
       | T_cstor (cstor, args) ->
         let args = List.map (CC.add_term cc) args in
         Some { c_n = n; c_cstor = cstor; c_args = args }, []
       | _ -> None, []
 
-    let merge cc n1 c1 n2 c2 e_n1_n2 : _ result =
+    let merge cc state n1 c1 n2 c2 e_n1_n2 : _ result =
       Log.debugf 5 (fun k ->
           k "(@[%s.merge@ (@[:c1 %a@ %a@])@ (@[:c2 %a@ %a@])@])" name E_node.pp
             n1 pp c1 E_node.pp n2 pp c2);
@@ -194,8 +202,10 @@ end = struct
         let acts = ref [] in
         CCList.iteri2
           (fun i u1 u2 ->
+            Stat.incr state.n_merges;
             acts := CC.Handler_action.Act_merge (u1, u2, expl_merge i) :: !acts)
           c1.c_args c2.c_args;
+
         Ok (c1, !acts)
       ) else (
         (* different function: disjointness *)
@@ -205,6 +215,7 @@ end = struct
           @@ fun () -> Proof_rules.lemma_cstor_distinct t1 t2
         in
 
+        Stat.incr state.n_conflict;
         Error (CC.Handler_action.Conflict expl)
       )
   end
@@ -213,6 +224,10 @@ end = struct
       is the argument *)
   module Monoid_parents = struct
     let name = "th-data.parents"
+
+    type state = unit
+
+    let create _ = ()
 
     type select = {
       sel_n: E_node.t;
@@ -243,7 +258,7 @@ end = struct
         v.parent_is_a
 
     (* attach data to constructor terms *)
-    let of_term cc n (t : Term.t) : _ option * _ list =
+    let of_term cc () n (t : Term.t) : _ option * _ list =
       match A.view_as_data t with
       | T_select (c, i, u) ->
         let u = CC.add_term cc u in
@@ -266,7 +281,7 @@ end = struct
         None, [ u, m_sel ]
       | T_cstor _ | T_other _ -> None, []
 
-    let merge _cc n1 v1 n2 v2 _e : _ result =
+    let merge _cc () n1 v1 n2 v2 _e : _ result =
       Log.debugf 5 (fun k ->
           k "(@[%s.merge@ @[:c1 %a@ :v %a@]@ @[:c2 %a@ :v %a@]@])" name
             E_node.pp n1 pp v1 E_node.pp n2 pp v2);
@@ -795,7 +810,7 @@ end = struct
         case_split_done = Term.Tbl.create 16;
         cards = Card.create ();
         stat_acycl_conflict =
-          Stat.mk_int (SI.stats solver) "data.acycl.conflict";
+          Stat.mk_int (SI.stats solver) "th.data.acycl.conflict";
       }
     in
     Log.debugf 1 (fun k -> k "(setup :%s)" name);

@@ -49,6 +49,7 @@ type combine_task =
 type t = {
   view_as_cc: view_as_cc;
   tst: Term.store;
+  stat: Stat.t;
   proof: Proof_trace.t;
   tbl: e_node T_tbl.t; (* internalization [term -> e_node] *)
   signatures_tbl: e_node Sig_tbl.t;
@@ -108,6 +109,7 @@ let n_bool self b =
 
 let[@inline] term_store self = self.tst
 let[@inline] proof self = self.proof
+let[@inline] stat self = self.stat
 
 let allocate_bitfield self ~descr : bitfield =
   Log.debugf 5 (fun k -> k "(@[cc.allocate-bit-field@ :descr %s@])" descr);
@@ -851,6 +853,7 @@ let create_ ?(stat = Stat.global) ?(size = `Big) (tst : Term.store)
       view_as_cc;
       tst;
       proof;
+      stat;
       tbl = T_tbl.create size;
       signatures_tbl = Sig_tbl.create size;
       bitgen;

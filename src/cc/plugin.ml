@@ -33,6 +33,9 @@ module Make (M : MONOID_PLUGIN_ARG) :
     module CC = CC
     open A
 
+    (* plugin's state *)
+    let plugin_st = M.create cc
+
     (* repr -> value for the class *)
     let values : M.t Cls_tbl.t = Cls_tbl.create ?size ()
 
@@ -62,7 +65,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
     let on_new_term cc n (t : Term.t) : CC.Handler_action.t list =
       (*Log.debugf 50 (fun k->k "(@[monoid[%s].on-new-term.try@ %a@])" M.name N.pp n);*)
       let acts = ref [] in
-      let maybe_m, l = M.of_term cc n t in
+      let maybe_m, l = M.of_term cc plugin_st n t in
       (match maybe_m with
       | Some v ->
         Log.debugf 20 (fun k ->
@@ -84,7 +87,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
                 Error.errorf "node %a has bitfield but no value" E_node.pp n_u
             in
 
-            match M.merge cc n_u m_u n_u m_u' (Expl.mk_list []) with
+            match M.merge cc plugin_st n_u m_u n_u m_u' (Expl.mk_list []) with
             | Error (CC.Handler_action.Conflict expl) ->
               Error.errorf
                 "when merging@ @[for node %a@],@ values %a and %a:@ conflict %a"
@@ -118,7 +121,7 @@ module Make (M : MONOID_PLUGIN_ARG) :
                 "(@[monoid[%s].on_pre_merge@ (@[:n1 %a@ :val1 %a@])@ (@[:n2 \
                  %a@ :val2 %a@])@])"
                 M.name E_node.pp n1 M.pp v1 E_node.pp n2 M.pp v2);
-          (match M.merge cc n1 v1 n2 v2 e_n1_n2 with
+          (match M.merge cc plugin_st n1 v1 n2 v2 e_n1_n2 with
           | Ok (v', merge_acts) ->
             acts := merge_acts;
             Cls_tbl.remove values n2;
@@ -140,8 +143,8 @@ module Make (M : MONOID_PLUGIN_ARG) :
       in
       Fmt.fprintf out "(@[%a@])" (Fmt.iter pp_e) iter_all
 
-    (* setup *)
     let () =
+      (* hook into the CC's events *)
       Event.on (CC.on_new_term cc) ~f:(fun (_, r, t) -> on_new_term cc r t);
       Event.on (CC.on_pre_merge2 cc) ~f:(fun (_, ra, rb, expl) ->
           on_pre_merge cc ra rb expl);

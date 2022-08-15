@@ -78,6 +78,10 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   module Monoid_exprs = struct
     let name = "lra.const"
 
+    type state = unit
+
+    let create _ = ()
+
     type single = { le: LE.t; n: E_node.t }
     type t = single list
 
@@ -89,7 +93,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       | [ x ] -> pp_single out x
       | _ -> Fmt.fprintf out "(@[exprs@ %a@])" (Util.pp_list pp_single) self
 
-    let of_term _cc n t =
+    let of_term _cc () n t =
       match A.view_as_lra t with
       | LRA_const _ | LRA_op _ | LRA_mult _ ->
         let le = as_linexp t in
@@ -100,7 +104,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
     (* merge lists. If two linear expressions equal up to a constant are
        merged, conflict. *)
-    let merge _cc n1 l1 n2 l2 expl_12 : _ result =
+    let merge _cc () n1 l1 n2 l2 expl_12 : _ result =
       try
         let i = Iter.(product (of_list l1) (of_list l2)) in
         i (fun (s1, s2) ->
@@ -138,7 +142,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     mutable last_res: SimpSolver.result option;
   }
 
-  let create ?(stat = Stat.create ()) (si : SI.t) : state =
+  let create (si : SI.t) : state =
+    let stat = SI.stats si in
     let proof = SI.proof si in
     let tst = SI.tst si in
     {
@@ -692,8 +697,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   let create_and_setup si =
     Log.debug 2 "(th-lra.setup)";
-    let stat = SI.stats si in
-    let st = create ~stat si in
+    let st = create si in
     SMT.Registry.set (SI.registry si) k_state st;
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (preproc_lra st);

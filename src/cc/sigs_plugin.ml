@@ -15,12 +15,18 @@ module type MONOID_PLUGIN_ARG = sig
 
   include Sidekick_sigs.PRINT with type t := t
 
+  type state
+
+  val create : CC.t -> state
+  (** Initialize state from the congruence closure *)
+
   val name : string
   (** name of the monoid structure (short) *)
 
   (* FIXME: for subs, return list of e_nodes, and assume of_term already
      returned data for them. *)
-  val of_term : CC.t -> E_node.t -> Term.t -> t option * (E_node.t * t) list
+  val of_term :
+    CC.t -> state -> E_node.t -> Term.t -> t option * (E_node.t * t) list
   (** [of_term n t], where [t] is the Term.t annotating node [n],
       must return [maybe_m, l], where:
 
@@ -34,6 +40,7 @@ module type MONOID_PLUGIN_ARG = sig
 
   val merge :
     CC.t ->
+    state ->
     E_node.t ->
     t ->
     E_node.t ->

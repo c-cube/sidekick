@@ -23,18 +23,26 @@ end = struct
 
     let name = name
 
+    type state = { n_merges: int Stat.counter; n_conflict: int Stat.counter }
+
+    let create cc : state =
+      {
+        n_merges = Stat.mk_int (CC.stat cc) "th.cstor.merges";
+        n_conflict = Stat.mk_int (CC.stat cc) "th.cstor.conflicts";
+      }
+
     let pp out (v : t) =
       Fmt.fprintf out "(@[cstor %a@ :term %a@])" Const.pp v.cstor T.pp_debug v.t
 
     (* attach data to constructor terms *)
-    let of_term cc n (t : T.t) : _ option * _ =
+    let of_term cc _ n (t : T.t) : _ option * _ =
       match A.view_as_cstor t with
       | T_cstor (cstor, args) ->
         let args = CCArray.map (CC.add_term cc) args in
         Some { n; t; cstor; args }, []
       | _ -> None, []
 
-    let merge _cc n1 v1 n2 v2 e_n1_n2 : _ result =
+    let merge _cc state n1 v1 n2 v2 e_n1_n2 : _ result =
       Log.debugf 5 (fun k ->
           k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])" name
             E_node.pp n1 T.pp_debug v1.t E_node.pp n2 T.pp_debug v2.t);
@@ -50,14 +58,18 @@ end = struct
         assert (CCArray.length v1.args = CCArray.length v2.args);
         let acts =
           CCArray.map2
-            (fun u1 u2 -> CC.Handler_action.Act_merge (u1, u2, expl))
+            (fun u1 u2 ->
+              Stat.incr state.n_merges;
+              CC.Handler_action.Act_merge (u1, u2, expl))
             v1.args v2.args
           |> Array.to_list
         in
         Ok (v1, acts)
-      ) else
+      ) else (
         (* different function: disjointness *)
+        Stat.incr state.n_conflict;
         Error (CC.Handler_action.Conflict expl)
+      )
   end
 
   module ST = Sidekick_cc.Plugin.Make (Monoid)
