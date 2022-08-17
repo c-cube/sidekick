@@ -21,7 +21,6 @@ end = struct
     n_simplify: int Stat.counter;
     n_expanded: int Stat.counter;
     n_clauses: int Stat.counter;
-    n_propagate: int Stat.counter;
   }
 
   let create ~stat tst : state =
@@ -31,7 +30,6 @@ end = struct
       n_simplify = Stat.mk_int stat "th.bool.simplified";
       n_expanded = Stat.mk_int stat "th.bool.expanded";
       n_clauses = Stat.mk_int stat "th.bool.clauses";
-      n_propagate = Stat.mk_int stat "th.bool.propagations";
     }
 
   let[@inline] not_ tst t = A.mk_bool tst (B_not t)
@@ -232,11 +230,11 @@ end = struct
       let subs = List.map Lit.atom [ a; b ] in
 
       if Lit.sign lit then
-        (* propagate [(and …t_i) => t_i] *)
+        (* assert [(and …t_i) => t_i] *)
         List.iter
           (fun sub ->
-            Stat.incr self.n_propagate;
-            SI.propagate_l solver acts sub [ lit ]
+            add_axiom
+              [ Lit.neg lit; sub ]
               ( mk_step_ @@ fun () ->
                 Proof_rules.lemma_bool_c "and-e" [ t; Lit.term sub ] ))
           subs
@@ -253,8 +251,8 @@ end = struct
         (* propagate [¬sub_i \/ lit] *)
         List.iter
           (fun sub ->
-            Stat.incr self.n_propagate;
-            SI.propagate_l solver acts (Lit.neg sub) [ lit ]
+            add_axiom
+              [ Lit.neg lit; Lit.neg sub ]
               ( mk_step_ @@ fun () ->
                 Proof_rules.lemma_bool_c "or-i" [ t; Lit.term sub ] ))
           subs
