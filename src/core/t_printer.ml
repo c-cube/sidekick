@@ -30,7 +30,7 @@ let default_hooks = ref default_
 let expr_pp_with_ ~max_depth ~hooks out (e : term) : unit =
   let open Term in
   let rec loop k ~depth names out e =
-    let pp' = loop' k ~depth:(depth + 1) names in
+    let pp' = loop k ~depth:(depth + 1) names in
 
     let hook_fired = List.exists (fun h -> h ~recurse:pp' out e) hooks in
     if not hook_fired then (
@@ -48,7 +48,7 @@ let expr_pp_with_ ~max_depth ~hooks out (e : term) : unit =
       | (E_app _ | E_lam _) when depth > max_depth -> Fmt.fprintf out "@<1>…"
       | E_app _ ->
         let f, args = unfold_app e in
-        Fmt.fprintf out "%a@ %a" pp' f (Util.pp_list pp') args
+        Fmt.fprintf out "(%a@ %a)" pp' f (Util.pp_list pp') args
       | E_lam ("", _ty, bod) ->
         Fmt.fprintf out "(@[\\_:@[%a@].@ %a@])" pp' _ty
           (loop (k + 1) ~depth:(depth + 1) ("" :: names))
@@ -73,12 +73,6 @@ let expr_pp_with_ ~max_depth ~hooks out (e : term) : unit =
           (loop (k + 1) ~depth:(depth + 1) (n :: names))
           bod
     )
-  and loop' k ~depth names out e =
-    match Term.view e with
-    | E_type _ | E_var _ | E_bound_var _ | E_const _ ->
-      loop k ~depth names out e (* atomic expr *)
-    | E_app _ | E_lam _ | E_pi _ ->
-      Fmt.fprintf out "(%a)" (loop k ~depth names) e
   in
   Fmt.fprintf out "@[%a@]" (loop 0 ~depth:0 []) e
 
