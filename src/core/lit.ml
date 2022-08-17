@@ -28,12 +28,24 @@ let hash a =
 
 let pp out l =
   if l.lit_sign then
-    T.pp_debug out l.lit_term
+    T_printer.pp out l.lit_term
   else
-    Format.fprintf out "(@[@<1>¬@ %a@])" T.pp_debug l.lit_term
+    Format.fprintf out "(@[@<1>¬@ %a@])" T_printer.pp l.lit_term
 
 let norm_sign l =
   if l.lit_sign then
     l, true
   else
     neg l, false
+
+module As_key = struct
+  type nonrec t = t
+
+  let equal = equal
+  let hash = hash
+  let compare = compare
+end
+
+module Map = CCMap.Make (As_key)
+module Set = CCSet.Make (As_key)
+module Tbl = CCHashtbl.Make (As_key)

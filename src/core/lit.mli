@@ -42,3 +42,5 @@ val norm_sign : t -> t * bool
 (** [norm_sign (+t)] is [+t, true],
       and [norm_sign (-t)] is [+t, false].
       In both cases the term is positive, and the boolean reflects the initial sign. *)
+
+include Sidekick_sigs.WITH_SET_MAP_TBL with type t := t
