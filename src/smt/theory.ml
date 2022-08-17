@@ -31,6 +31,11 @@ type 'a p = (module S with type t = 'a)
 (** A theory that can be used for this particular solver, with state
       of type ['a]. *)
 
+(** Name of the theory *)
+let name (th : t) =
+  let (module T) = th in
+  T.name
+
 let make (type st) ~name ~create_and_setup ?(push_level = fun _ -> ())
     ?(pop_levels = fun _ _ -> ()) () : t =
   let module Th = struct
