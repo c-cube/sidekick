@@ -18,13 +18,13 @@ val proof : t -> Proof_trace.t
 type hook = t -> Term.t -> (Term.t * Proof_step.id Iter.t) option
 (** Given a Term.t, try to simplify it. Return [None] if it didn't change.
 
-        A simple example could be a hook that takes a Term.t [t],
-        and if [t] is [app "+" (const x) (const y)] where [x] and [y] are number,
-        returns [Some (const (x+y))], and [None] otherwise.
+    A simple example could be a hook that takes a Term.t [t],
+    and if [t] is [app "+" (const x) (const y)] where [x] and [y] are number,
+    returns [Some (const (x+y))], and [None] otherwise.
 
-        The simplifier will take care of simplifying the resulting Term.t further,
-        caching (so that work is not duplicated in subterms), etc.
-    *)
+    The simplifier will take care of simplifying the resulting Term.t further,
+    caching (so that work is not duplicated in subterms), etc.
+*)
 
 val add_hook : t -> hook -> unit
 
