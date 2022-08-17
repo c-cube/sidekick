@@ -4,5 +4,5 @@
  (synopsis "Base term definitions for the standalone SMT solver and library")
  (libraries containers iter sidekick.core sidekick.util sidekick.smt-solver
    sidekick.cc sidekick.quip sidekick.th-lra sidekick.th-bool-static
-   sidekick.th-data sidekick.zarith zarith)
+   sidekick.th-bool-dyn sidekick.th-data sidekick.zarith zarith)
  (flags :standard -w +32 -open Sidekick_util))

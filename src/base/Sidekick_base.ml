@@ -29,14 +29,19 @@ module Select = Data_ty.Select
 module Statement = Statement
 module Solver = Solver
 module Uconst = Uconst
+module Config = Config
 module Th_data = Th_data
 module Th_bool = Th_bool
 (* FIXME
    module Th_lra = Th_lra
 *)
 
-let th_bool : Solver.theory = Th_bool.theory
+let k_th_bool_config = Th_bool.k_config
+let th_bool = Th_bool.theory
+let th_bool_dyn : Solver.theory = Th_bool.theory_dyn
+let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
+
 (* FIXME
    let th_lra : Solver.theory = Th_lra.theory
 *)

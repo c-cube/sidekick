@@ -3,7 +3,9 @@
 open Sidekick_base
 module Solver = Sidekick_base.Solver
 
-val th_bool : Solver.theory
+val th_bool_dyn : Solver.theory
+val th_bool_static : Solver.theory
+val th_bool : Config.t -> Solver.theory
 val th_data : Solver.theory
 (* FIXME
    val th_lra : Solver.theory

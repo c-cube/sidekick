@@ -163,8 +163,14 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
       let memory = Option.value ~default:4e9 memory in
       (* default: 4 GB *)
       let stop _ _ =
-        Sys.time () -. t1 > time
-        || (Gc.quick_stat ()).Gc.major_words *. 8. > memory
+        if Sys.time () -. t1 > time then (
+          Log.debugf 0 (fun k -> k "timeout");
+          true
+        ) else if (Gc.quick_stat ()).Gc.major_words *. 8. > memory then (
+          Log.debugf 0 (fun k -> k "%S" "exceeded memory limit");
+          true
+        ) else
+          false
       in
       Some stop
   in
@@ -335,7 +341,9 @@ module Th_bool = Sidekick_base.Th_bool
    module Th_lra = Sidekick_base.Th_lra
 *)
 
-let th_bool : Solver.theory = Th_bool.theory
+let th_bool = Th_bool.theory
+let th_bool_dyn : Solver.theory = Th_bool.theory_dyn
+let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
 (* FIXME
    let th_lra : Solver.theory = Th_lra.theory

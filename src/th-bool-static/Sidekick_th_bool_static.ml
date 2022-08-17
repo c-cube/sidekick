@@ -270,7 +270,7 @@ end = struct
     SI.on_preprocess si (cnf st);
     st
 
-  let theory = SMT.Solver.mk_theory ~name:"th-bool" ~create_and_setup ()
+  let theory = SMT.Solver.mk_theory ~name:"th-bool.static" ~create_and_setup ()
 end
 
 let theory (module A : ARG) : SMT.theory =

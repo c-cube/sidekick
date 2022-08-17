@@ -7,6 +7,7 @@ Copyright 2014 Simon Cruanes
 module E = CCResult
 module Fmt = CCFormat
 module Term = Sidekick_base.Term
+module Config = Sidekick_base.Config
 module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
 module Proof = Sidekick_smtlib.Proof_trace
@@ -23,7 +24,7 @@ let p_proof = ref false
 let p_model = ref false
 let check = ref false
 let time_limit = ref 300.
-let size_limit = ref 1_000_000_000.
+let mem_limit = ref 1_000_000_000.
 let restarts = ref true
 let gc = ref true
 let p_stat = ref false
@@ -62,6 +63,7 @@ let int_arg r arg =
 let input_file s = file := s
 let usage = "Usage : main [options] <file>"
 let version = "%%version%%"
+let config = ref Config.empty
 
 let argspec =
   Arg.align
@@ -90,12 +92,23 @@ let argspec =
       "-o", Arg.Set_string proof_file, " file into which to output a proof";
       "--model", Arg.Set p_model, " print model";
       "--no-model", Arg.Clear p_model, " do not print model";
+      ( "--bool",
+        Arg.Symbol
+          ( [ "dyn"; "static" ],
+            function
+            | "dyn" ->
+              config := Config.add Sidekick_base.k_th_bool_config `Dyn !config
+            | "static" ->
+              config :=
+                Config.add Sidekick_base.k_th_bool_config `Static !config
+            | _s -> failwith "unknown" ),
+        " configure bool theory" );
       "--gc-stat", Arg.Set p_gc_stat, " outputs statistics about the GC";
       "-p", Arg.Set p_progress, " print progress bar";
       "--no-p", Arg.Clear p_progress, " no progress bar";
-      ( "--size",
-        Arg.String (int_arg size_limit),
-        " <s>[kMGT] sets the size limit for the sat solver" );
+      ( "--memory",
+        Arg.String (int_arg mem_limit),
+        " <s>[kMGT] sets the memory limit for the sat solver" );
       ( "--time",
         Arg.String (int_arg time_limit),
         " <t>[smhd] sets the time limit for the sat solver" );
@@ -118,10 +131,10 @@ let check_limits () =
   let s = float heap_size *. float Sys.word_size /. 8. in
   if t > !time_limit then
     raise Out_of_time
-  else if s > !size_limit then
+  else if s > !mem_limit then
     raise Out_of_space
 
-let main_smt () : _ result =
+let main_smt ~config () : _ result =
   let tst = Term.Store.create ~size:4_096 () in
 
   let enable_proof_ = !check || !p_proof || !proof_file <> "" in
@@ -159,9 +172,14 @@ let main_smt () : _ result =
   let proof = Proof.dummy in
 
   let solver =
+    (* TODO: probes, to load only required theories *)
     let theories =
-      (* TODO: probes, to load only required theories *)
-      [ Process.th_bool; Process.th_data (* FIXME Process.th_lra *) ]
+      let th_bool = Process.th_bool config in
+      Log.debugf 1 (fun k ->
+          k "(@[main.th-bool.pick@ %S@])"
+            (Sidekick_smt_solver.Theory.name th_bool));
+      Sidekick_smt_solver.Theory.
+        [ th_bool; Process.th_data (* FIXME Process.th_lra *) ]
     in
     Process.Solver.create_default ~proof ~theories tst
   in
@@ -187,7 +205,7 @@ let main_smt () : _ result =
       E.fold_l
         (fun () ->
           Process.process_stmt ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
-            ~time:!time_limit ~memory:!size_limit ~pp_model:!p_model ?proof_file
+            ~time:!time_limit ~memory:!mem_limit ~pp_model:!p_model ?proof_file
             ~check:!check ~progress:!p_progress solver)
         () input
     with Exit -> E.return ()
@@ -250,7 +268,7 @@ let main () =
     if is_cnf then
       main_cnf ()
     else
-      main_smt ()
+      main_smt ~config:!config ()
   in
   Gc.delete_alarm al;
   res
