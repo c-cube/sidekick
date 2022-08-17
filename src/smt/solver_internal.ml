@@ -79,6 +79,9 @@ let simplify_t self (t : Term.t) : _ option = Simplify.normalize self.simp t
 let simp_t self (t : Term.t) : Term.t * _ = Simplify.normalize_t self.simp t
 let add_simplifier (self : t) f : unit = Simplify.add_hook self.simp f
 
+let[@inline] has_delayed_actions self =
+  not (Queue.is_empty self.delayed_actions)
+
 let on_th_combination self f =
   self.on_th_combination <- f :: self.on_th_combination
 
@@ -490,37 +493,45 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
     List.iter (fun f -> f self acts lits) self.on_final_check;
     check_cc_with_acts_ self acts;
 
-    (match check_th_combination_ self acts lits with
-    | Ok m -> self.last_model <- Some m
-    | Error { lits; semantic } ->
-      (* bad model, we add a clause to remove it *)
-      Log.debugf 5 (fun k ->
-          k "(@[solver.th-comb.conflict@ :lits (@[%a@])@ :same-val (@[%a@])@])"
-            (Util.pp_list Lit.pp) lits
-            (Util.pp_list @@ Fmt.Dump.(triple bool Term.pp_debug Term.pp_debug))
-            semantic);
+    let new_work = has_delayed_actions self in
 
-      let c1 = List.rev_map Lit.neg lits in
-      let c2 =
-        semantic
-        |> List.rev_map (fun (sign, t, u) ->
-               let eqn = Term.eq self.tst t u in
-               let lit = Lit.atom ~sign:(not sign) eqn in
-               (* make sure to consider the new lit *)
-               add_lit self acts lit;
-               lit)
-      in
+    (* do actual theory combination if nothing changed by pure "final check" *)
+    if not new_work then (
+      match check_th_combination_ self acts lits with
+      | Ok m -> self.last_model <- Some m
+      | Error { lits; semantic } ->
+        (* bad model, we add a clause to remove it *)
+        Log.debugf 5 (fun k ->
+            k
+              "(@[solver.th-comb.conflict@ :lits (@[%a@])@ :same-val \
+               (@[%a@])@])"
+              (Util.pp_list Lit.pp) lits
+              (Util.pp_list
+              @@ Fmt.Dump.(triple bool Term.pp_debug Term.pp_debug))
+              semantic);
 
-      let c = List.rev_append c1 c2 in
-      let pr =
-        Proof_trace.add_step self.proof @@ fun () -> Proof_core.lemma_cc c
-      in
+        let c1 = List.rev_map Lit.neg lits in
+        let c2 =
+          semantic
+          |> List.rev_map (fun (sign, t, u) ->
+                 let eqn = Term.eq self.tst t u in
+                 let lit = Lit.atom ~sign:(not sign) eqn in
+                 (* make sure to consider the new lit *)
+                 add_lit self acts lit;
+                 lit)
+        in
 
-      Log.debugf 20 (fun k ->
-          k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
-            (Util.pp_list Lit.pp) c);
-      (* will add a delayed action *)
-      add_clause_temp self acts c pr);
+        let c = List.rev_append c1 c2 in
+        let pr =
+          Proof_trace.add_step self.proof @@ fun () -> Proof_core.lemma_cc c
+        in
+
+        Log.debugf 20 (fun k ->
+            k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
+              (Util.pp_list Lit.pp) c);
+        (* will add a delayed action *)
+        add_clause_temp self acts c pr
+    );
 
     Perform_delayed_th.top self acts
   ) else (
