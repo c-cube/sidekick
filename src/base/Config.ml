@@ -1,6 +1,4 @@
-(** {1 Configuration} *)
-
-type 'a sequence = ('a -> unit) -> unit
+(** Configuration *)
 
 module Key = Het.Key
 
