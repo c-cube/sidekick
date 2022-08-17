@@ -1240,15 +1240,15 @@ let acts_raise self (l : Lit.t list) (p : Proof_step.id) : 'a =
 let check_consequence_lits_false_ self l p : unit =
   let store = self.store in
   Log.debugf 50 (fun k ->
-      k "(@[sat.check-consequence-lits: %a@ :for %a@])"
+      k "(@[sat.check-consequence-lits:@ :consequence (@[%a@])@ :for %a@])"
         (Util.pp_list (Atom.debug store))
         l (Atom.debug store) p);
   match List.find (fun a -> Atom.is_true store a) l with
   | a ->
     invalid_argf
       "slice.acts_propagate:@ Consequence should contain only false literals,@ \
-       but @[%a@] is true"
-      (Atom.debug store) (Atom.neg a)
+       but @[%a@] is true@ when propagating %a"
+      (Atom.debug store) p (Atom.debug store) a
   | exception Not_found -> ()
 
 let acts_propagate (self : t) f (expl : reason) =
