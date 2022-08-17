@@ -146,7 +146,7 @@ let with_file_out (file : string) (f : out_channel -> 'a) : 'a =
 (* call the solver to check-sat *)
 let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
     ?time ?memory ?(progress = false) ~assumptions s : Solver.res =
-  let t1 = Sys.time () -. start in
+  let t1 = Sys.time () in
   let on_progress =
     if progress then
       Some (mk_progress s)
@@ -194,9 +194,9 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
          CCOpt.iter (fun h -> check_smt_model (Solver.solver s) h m) hyps;
        );
     *)
-    let t3 = Sys.time () -. t2 in
+    let t3 = Sys.time () in
     Fmt.printf "sat@.";
-    Fmt.printf "; (%.3f/%.3f/%.3f)@." t1 (t2 -. t1) t3
+    Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. start) (t2 -. t1) (t3 -. t2)
   | Solver.Unsat { unsat_step_id; unsat_core = _ } ->
     if check then
       ()
@@ -227,9 +227,9 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
         flush oc)
     | _ -> ());
 
-    let t3 = Sys.time () -. t2 in
+    let t3 = Sys.time () in
     Fmt.printf "unsat@.";
-    Fmt.printf "; (%.3f/%.3f/%.3f)@." t1 (t2 -. t1) t3
+    Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. start) (t2 -. t1) (t3 -. t2)
   | Solver.Unknown reas ->
     Fmt.printf "unknown@.";
     Fmt.printf "; @[<h>:reason %a@]@." Solver.Unknown.pp reas
