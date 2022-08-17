@@ -53,7 +53,7 @@ let unfold_app (e : term) : term * term list =
 (* debug printer *)
 let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
   let rec loop k ~depth names out e =
-    let pp' = loop' k ~depth:(depth + 1) names in
+    let pp' = loop k ~depth:(depth + 1) names in
     (match e.view with
     | E_type 0 -> Fmt.string out "Type"
     | E_type i -> Fmt.fprintf out "Type(%d)" i
@@ -69,7 +69,7 @@ let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
       Fmt.fprintf out "@<1>…/%d" e.id
     | E_app _ ->
       let f, args = unfold_app e in
-      Fmt.fprintf out "%a@ %a" pp' f (Util.pp_list pp') args
+      Fmt.fprintf out "(%a@ %a)" pp' f (Util.pp_list pp') args
     | E_lam ("", _ty, bod) ->
       Fmt.fprintf out "(@[\\_:@[%a@].@ %a@])" pp' _ty
         (loop (k + 1) ~depth:(depth + 1) ("" :: names))
@@ -94,12 +94,6 @@ let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
         (loop (k + 1) ~depth:(depth + 1) (n :: names))
         bod);
     if pp_ids then Fmt.fprintf out "/%d" e.id
-  and loop' k ~depth names out e =
-    match e.view with
-    | E_type _ | E_var _ | E_bound_var _ | E_const _ ->
-      loop k ~depth names out e (* atomic expr *)
-    | E_app _ | E_lam _ | E_pi _ ->
-      Fmt.fprintf out "(%a)" (loop k ~depth names) e
   in
   Fmt.fprintf out "@[%a@]" (loop 0 ~depth:0 []) e
 
