@@ -161,7 +161,7 @@ end = struct
     | _ -> ());
     ()
 
-  let tseitin ~final (self : state) solver (acts : SI.theory_actions)
+  let tseitin ~final:_ (self : state) solver (acts : SI.theory_actions)
       (lit : Lit.t) (t : term) (v : term bool_view) : unit =
     Log.debugf 50 (fun k -> k "(@[th-bool-dyn.tseitin@ %a@])" Lit.pp lit);
 
@@ -240,7 +240,7 @@ end = struct
               ( mk_step_ @@ fun () ->
                 Proof_rules.lemma_bool_c "and-e" [ t; Lit.term sub ] ))
           subs
-      else if final then (
+      else (
         (* axiom [¬(and …t_i)=> \/_i (¬ t_i)], only in final-check *)
         let c = Lit.neg lit :: List.map Lit.neg subs in
         add_axiom c
@@ -258,7 +258,7 @@ end = struct
               ( mk_step_ @@ fun () ->
                 Proof_rules.lemma_bool_c "or-i" [ t; Lit.term sub ] ))
           subs
-      else if final then (
+      else (
         (* axiom [lit => \/_i subs_i] *)
         let c = Lit.neg lit :: subs in
         add_axiom c (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-e" [ t ])
@@ -266,37 +266,35 @@ end = struct
     | B_imply (a, b) ->
       let a = Lit.atom a in
       let b = Lit.atom b in
-      if Lit.sign lit && final then (
+      if Lit.sign lit then (
         (* axiom [lit => a => b] *)
         let c = [ Lit.neg lit; Lit.neg a; b ] in
         add_axiom c
           (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-e" [ t ])
       ) else if not @@ Lit.sign lit then (
         (* propagate [¬ lit => ¬b] and [¬lit => a] *)
-        Stat.incr self.n_propagate;
-        SI.propagate_l solver acts a [ lit ]
+        add_axiom
+          [ a; Lit.neg lit ]
           ( mk_step_ @@ fun () ->
             Proof_rules.lemma_bool_c "imp-i" [ t; Lit.term a ] );
 
-        Stat.incr self.n_propagate;
-        SI.propagate_l solver acts (Lit.neg b) [ lit ]
+        add_axiom
+          [ Lit.neg b; Lit.neg lit ]
           ( mk_step_ @@ fun () ->
             Proof_rules.lemma_bool_c "imp-i" [ t; Lit.term b ] )
       )
     | B_ite (a, b, c) ->
       assert (T.is_bool b);
-      if final then (
-        (* boolean ite:
-           just add [a => (ite a b c <=> b)]
-           and [¬a => (ite a b c <=> c)] *)
-        let lit_a = Lit.atom a in
-        add_axiom
-          [ Lit.neg lit_a; Lit.make_eq self.tst t b ]
-          (mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
-        add_axiom
-          [ Lit.neg lit; lit_a; Lit.make_eq self.tst t c ]
-          (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t)
-      )
+      (* boolean ite:
+         just add [a => (ite a b c <=> b)]
+         and [¬a => (ite a b c <=> c)] *)
+      let lit_a = Lit.atom a in
+      add_axiom
+        [ Lit.neg lit_a; Lit.make_eq self.tst t b ]
+        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
+      add_axiom
+        [ Lit.neg lit; lit_a; Lit.make_eq self.tst t c ]
+        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t)
     | B_equiv (a, b) ->
       let a = Lit.atom a in
       let b = Lit.atom b in
@@ -337,10 +335,10 @@ end = struct
         expanded = Lit.Tbl.create 24;
         n_expanded = Stat.mk_int stat "th.bool.dyn.expanded";
         n_clauses = Stat.mk_int stat "th.bool.dyn.clauses";
-        n_propagate = Stat.mk_int stat "th.bool.dyn.propagate";
         n_simplify = Stat.mk_int stat "th.bool.dyn.simplify";
       }
     in
+    SI.add_simplifier solver (simplify self);
     SI.on_preprocess solver (preprocess_ self);
     SI.on_final_check solver (final_check self);
     SI.on_partial_check solver (partial_check self);
