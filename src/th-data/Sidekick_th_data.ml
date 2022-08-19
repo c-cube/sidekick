@@ -4,6 +4,7 @@ open Sidekick_core
 open Sidekick_cc
 include Th_intf
 module SI = SMT.Solver_internal
+module Model_builder = SMT.Model_builder
 
 let name = "th-data"
 
@@ -301,12 +302,10 @@ end = struct
     parents: ST_parents.t; (* repr -> parents for the class *)
     cards: Card.t; (* remember finiteness *)
     to_decide: unit N_tbl.t; (* set of terms to decide. *)
-    to_decide_for_complete_model: unit N_tbl.t;
-    (* infinite types but we need a cstor in model*)
     case_split_done: unit Term.Tbl.t;
     (* set of terms for which case split is done *)
     single_cstor_preproc_done: unit Term.Tbl.t; (* preprocessed terms *)
-    stat_acycl_conflict: int Stat.counter;
+    n_acycl_conflict: int Stat.counter;
         (* TODO: bitfield for types with less than 62 cstors, to quickly detect conflict? *)
   }
 
@@ -321,6 +320,11 @@ end = struct
     ST_parents.pop_levels self.parents n;
     N_tbl.pop_levels self.to_decide n;
     ()
+
+  let is_data_ty (t : Term.t) : bool =
+    match A.as_datatype t with
+    | Ty_data _ -> true
+    | _ -> false
 
   let preprocess (self : t) _si (acts : SI.preprocess_actions) (t : Term.t) :
       unit =
@@ -369,7 +373,8 @@ end = struct
       | _ -> ())
     | _ -> ()
 
-  (* remember terms of a datatype *)
+  (* find if we need to split [t] based on its type (if it's
+     a finite datatype) *)
   let on_new_term_look_at_ty (self : t) n (t : Term.t) : unit =
     let ty = Term.ty t in
     match A.as_datatype ty with
@@ -377,23 +382,22 @@ end = struct
       Log.debugf 20 (fun k ->
           k "(@[%s.on-new-term.has-data-ty@ %a@ :ty %a@])" name Term.pp_debug t
             Term.pp_debug ty);
-      if Card.is_finite self.cards ty && not (N_tbl.mem self.to_decide n) then (
-        (* must decide this term *)
+      if
+        Card.is_finite self.cards ty
+        && (not (N_tbl.mem self.to_decide n))
+        && not (Term.Tbl.mem self.case_split_done t)
+      then (
+        (* must decide this term in all extensions of the current trail *)
         Log.debugf 20 (fun k ->
             k "(@[%s.on-new-term.must-decide-finite-ty@ %a@])" name
               Term.pp_debug t);
         N_tbl.add self.to_decide n ()
-      ) else if
-          (not (N_tbl.mem self.to_decide n))
-          && not (N_tbl.mem self.to_decide_for_complete_model n)
-        then
-        (* must pick a constructor for this term in order to build a model *)
-        N_tbl.add self.to_decide_for_complete_model n ()
+      )
     | _ -> ()
 
   let on_new_term (self : t) ((cc, n, t) : _ * E_node.t * Term.t) : _ list =
+    (* might have to decide [t] based on its type *)
     on_new_term_look_at_ty self n t;
-    (* might have to decide [t] *)
     match A.view_as_data t with
     | T_is_a (c_t, u) ->
       let n_u = CC.add_term cc u in
@@ -569,14 +573,12 @@ end = struct
     let pp_path = Fmt.Dump.(list @@ pair E_node.pp pp_node)
 
     let pp_graph out (g : graph) : unit =
-      let pp_entry out (n, node) =
-        Fmt.fprintf out "@[<1>@[graph_node[%a]@]@ := %a@]" E_node.pp n pp_node
-          node
-      in
+      let pp_entry out (_n, node) = Fmt.fprintf out "@[<1>%a@]" pp_node node in
       if N_tbl.length g = 0 then
         Fmt.string out "(graph ø)"
       else
-        Fmt.fprintf out "(@[graph@ %a@])" (Fmt.iter pp_entry) (N_tbl.to_iter g)
+        Fmt.fprintf out "(@[<hv>graph@ %a@])" (Fmt.iter pp_entry)
+          (N_tbl.to_iter g)
 
     let mk_graph (self : t) cc : graph =
       let g : graph = N_tbl.create ~size:32 () in
@@ -637,7 +639,7 @@ end = struct
             in
             Expl.mk_theory (E_node.term n) (E_node.term cstor_n) subs pr
           in
-          Stat.incr self.stat_acycl_conflict;
+          Stat.incr self.n_acycl_conflict;
           Log.debugf 5 (fun k ->
               k "(@[%s.acyclicity.raise_confl@ %a@ @[:path %a@]@])" name Expl.pp
                 expl pp_path path);
@@ -691,7 +693,9 @@ end = struct
     let t = E_node.term n in
     (* [t] might have been expanded already, in case of duplicates in [l] *)
     if not @@ Term.Tbl.mem self.case_split_done t then (
+      Log.debugf 50 (fun k -> k "(@[th.data.split-on@ %a@])" Term.pp t);
       Term.Tbl.add self.case_split_done t ();
+
       let c =
         cstors_of_ty (Term.ty t)
         |> List.map (fun c ->
@@ -731,6 +735,7 @@ end = struct
              && not (Term.Tbl.mem self.case_split_done (E_node.term n)))
       |> Iter.to_rev_list
     in
+
     (match remaining_to_decide with
     | [] ->
       Log.debugf 10 (fun k ->
@@ -743,59 +748,35 @@ end = struct
             l);
       Profile.instant "data.case-split";
       List.iter (decide_class_ self solver acts) l);
-
-    if remaining_to_decide = [] then (
-      let next_decision =
-        N_tbl.to_iter self.to_decide_for_complete_model
-        |> Iter.map (fun (n, _) -> SI.cc_find solver n)
-        |> Iter.filter (fun n ->
-               (not (Term.Tbl.mem self.case_split_done (E_node.term n)))
-               && not (ST_cstors.mem self.cstors n))
-        |> Iter.head
-      in
-      match next_decision with
-      | None -> () (* all decided *)
-      | Some n ->
-        let t = E_node.term n in
-
-        Profile.instant "data.decide";
-
-        (* use a constructor that will not lead to an infinite loop *)
-        let base_cstor =
-          match Card.base_cstor self.cards (Term.ty t) with
-          | None ->
-            Error.errorf "th-data:@ %a should have base cstor" E_node.pp n
-          | Some c -> c
-        in
-        let cstor_app =
-          let args =
-            A.Cstor.ty_args base_cstor
-            |> List.mapi (fun i _ -> A.mk_sel self.tst base_cstor i t)
-          in
-          A.mk_cstor self.tst base_cstor args
-        in
-        let t_eq_cstor = A.mk_eq self.tst t cstor_app in
-        Log.debugf 20 (fun k ->
-            k "(@[th-data.final-check.model.decide-cstor@ %a@])" Term.pp_debug
-              t_eq_cstor);
-        let lit = SI.mk_lit solver t_eq_cstor in
-        SI.push_decision solver acts lit
-    );
     ()
 
-  let on_model_gen (self : t) ~recurse (si : SI.t) (n : E_node.t) :
-      Term.t option =
+  let on_model_gen (self : t) (si : SI.t) (model : Model_builder.t) (t : Term.t)
+      : _ option =
     (* TODO: option to complete model or not (by picking sth at leaves)? *)
     let cc = SI.cc si in
-    let repr = CC.find cc n in
+    let repr = CC.find_t cc t in
     match ST_cstors.get self.cstors repr with
-    | None -> None
     | Some c ->
       Log.debugf 5 (fun k ->
           k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
-      let args = List.map (recurse si) c.c_args in
+      let args = List.map E_node.term c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
-      Some t
+      Some (t, args)
+    | None when is_data_ty (Term.ty t) ->
+      (* datatype, use the base constructor for it *)
+      (match Card.base_cstor self.cards (Term.ty t) with
+      | None -> None
+      | Some c ->
+        (* invent new args *)
+        let args =
+          A.Cstor.ty_args c
+          |> List.map (fun ty -> Model_builder.gensym model ~pre:"c_arg" ~ty)
+        in
+        let c = A.mk_cstor self.tst c args in
+        Some (c, args))
+    | None ->
+      (* FIXME: here, if [t] is a datatype, pick default cstor, and add that to the CC? *)
+      None
 
   let create_and_setup (solver : SI.t) : t =
     let self =
@@ -805,11 +786,10 @@ end = struct
         cstors = ST_cstors.create_and_setup ~size:32 (SI.cc solver);
         parents = ST_parents.create_and_setup ~size:32 (SI.cc solver);
         to_decide = N_tbl.create ~size:16 ();
-        to_decide_for_complete_model = N_tbl.create ~size:16 ();
         single_cstor_preproc_done = Term.Tbl.create 8;
         case_split_done = Term.Tbl.create 16;
         cards = Card.create ();
-        stat_acycl_conflict =
+        n_acycl_conflict =
           Stat.mk_int (SI.stats solver) "th.data.acycl.conflict";
       }
     in
