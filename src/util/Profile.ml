@@ -5,6 +5,7 @@ module type BACKEND = sig
     name:string -> start:float -> end_:float -> unit -> unit
 
   val emit_instant_event : name:string -> ts:float -> unit -> unit
+  val emit_count_event : name:string -> ts:float -> (string * int) list -> unit
   val teardown : unit -> unit
 end
 
@@ -35,6 +36,15 @@ let[@inline] instant name =
   | Some (module B) ->
     let now = B.get_ts () in
     B.emit_instant_event ~name ~ts:now ()
+
+let[@inline] count name cs =
+  if cs <> [] then (
+    match !out_ with
+    | None -> ()
+    | Some (module B) ->
+      let now = B.get_ts () in
+      B.emit_count_event ~name ~ts:now cs
+  )
 
 (* slow path *)
 let[@inline never] exit_full_ (module B : BACKEND) name start =

@@ -14,6 +14,7 @@ val exit : probe -> unit
 val with_ : string -> (unit -> 'a) -> 'a
 val with1 : string -> ('a -> 'b) -> 'a -> 'b
 val with2 : string -> ('a -> 'b -> 'c) -> 'a -> 'b -> 'c
+val count : string -> (string * int) list -> unit
 
 module type BACKEND = sig
   val get_ts : unit -> float
@@ -22,6 +23,7 @@ module type BACKEND = sig
     name:string -> start:float -> end_:float -> unit -> unit
 
   val emit_instant_event : name:string -> ts:float -> unit -> unit
+  val emit_count_event : name:string -> ts:float -> (string * int) list -> unit
   val teardown : unit -> unit
 end
 

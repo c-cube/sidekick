@@ -59,6 +59,21 @@ module Make () : P.BACKEND = struct
       pid tid ts name;
     ()
 
+  let emit_count_event ~name ~ts (cs : _ list) : unit =
+    let pid = Unix.getpid () in
+    let tid = Thread.id (Thread.self ()) in
+    emit_sep_ ();
+    Printf.fprintf oc
+      {json|{"pid": %d,"cat":"","tid": %d,"ts": %.2f,"name":"%s","ph":"C","args":{|json}
+      pid tid ts name;
+    List.iteri
+      (fun i (n, value) ->
+        if i > 0 then Printf.fprintf oc ",";
+        Printf.fprintf oc {json|"%s":%d|json} n value)
+      cs;
+    Printf.fprintf oc {json|}}|json};
+    ()
+
   let teardown () = teardown_ oc
 end
 
