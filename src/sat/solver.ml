@@ -418,6 +418,11 @@ let clause_bump_activity self (c : clause) : unit =
     self.clause_incr <- self.clause_incr *. 1e-20
   )
 
+let emit_counters_ (self : t) =
+  if Profile.enabled () then
+    Profile.count "sat"
+      [ "decisions", decision_level self; "trail", AVec.size self.trail ]
+
 (* Simplification of clauses.
 
    When adding new clauses, it is desirable to 'simplify' them, i.e
@@ -644,8 +649,10 @@ let cancel_until (self : t) lvl =
     let (module P) = self.plugin in
     P.pop_levels n;
     Delayed_actions.clear_on_backtrack self.delayed_actions;
+
     (* TODO: for scoped clause pools, backtrack them *)
-    self.next_decisions <- []
+    self.next_decisions <- [];
+    emit_counters_ self
   );
   ()
 
@@ -1616,7 +1623,10 @@ let pick_branch_lit ~full self : bool =
       true
     )
   in
-  pick_lit ()
+
+  let res = pick_lit () in
+  emit_counters_ self;
+  res
 
 (* do some amount of search, until the number of conflicts or clause learnt
    reaches the given parameters *)
@@ -1697,13 +1707,15 @@ let solve_ ~on_progress (self : t) : unit =
     in
     while true do
       on_progress ();
+      emit_counters_ self;
       try
         self.max_clauses_learnt := int_of_float !max_learnt;
         search self ~on_progress ~max_conflicts:(int_of_float !max_conflicts)
       with
       | Restart ->
         max_conflicts := !max_conflicts *. restart_inc;
-        max_learnt := !max_learnt *. learntsize_inc
+        max_learnt := !max_learnt *. learntsize_inc;
+        emit_counters_ self
       | E_sat ->
         assert (
           self.elt_head = AVec.size self.trail
@@ -1975,6 +1987,8 @@ let solve ?(on_progress = fun _ -> ()) ?(assumptions = []) (self : t) : res =
   with_local_assumptions_ self assumptions @@ fun () ->
   try
     solve_ ~on_progress self;
+
+    Log.debug 3 "(sat.return Sat)";
     Sat (mk_sat self)
   with E_unsat us -> Unsat (mk_unsat self us)
 
