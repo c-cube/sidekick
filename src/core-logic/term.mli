@@ -159,7 +159,18 @@ end
 (**/**)
 
 module Internal_ : sig
+  type cache
+
+  val create_cache : int -> cache
   val subst_ : store -> recursive:bool -> t -> subst -> t
+
+  val replace_ :
+    ?cache:cache ->
+    store ->
+    recursive:bool ->
+    t ->
+    f:(recurse:(t -> t) -> t -> t option) ->
+    t
 end
 
 (**/**)

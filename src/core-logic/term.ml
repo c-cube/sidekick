@@ -478,13 +478,14 @@ module Make_ = struct
   let app store f a = make_ store (E_app (f, a))
   let app_l store f l = List.fold_left (app store) f l
 
+  type cache = t T_int_tbl.t
+
+  let create_cache : int -> cache = T_int_tbl.create
+
   (* general substitution, compatible with DB indices. We use this
      also to abstract on a free variable, because it subsumes it and
      it's better to minimize the number of DB indices manipulations *)
-  let subst_ ~make ~recursive e0 (subst : subst) : t =
-    (* cache for types and some terms *)
-    let cache_ = T_int_tbl.create 16 in
-
+  let replace_ ?(cache = create_cache 8) ~make ~recursive e0 ~f : t =
     let rec loop k e =
       if is_type e then
         e
@@ -492,27 +493,15 @@ module Make_ = struct
         (* no free variables, cannot change *)
         e
       else (
-        try T_int_tbl.find cache_ (e, k)
+        try T_int_tbl.find cache (e, k)
         with Not_found ->
           let r = loop_uncached_ k e in
-          T_int_tbl.add cache_ (e, k) r;
+          T_int_tbl.add cache (e, k) r;
           r
       )
     and loop_uncached_ k (e : t) : t =
-      match view e with
-      | E_var v ->
-        (* first, subst in type *)
-        let v = { v with v_ty = loop k v.v_ty } in
-        (match Var_.Map.find v subst.m with
-        | u ->
-          let u = db_shift_ ~make u k in
-          if recursive then
-            loop 0 u
-          else
-            u
-        | exception Not_found -> make (E_var v))
-      | E_const _ -> e
-      | _ ->
+      match f ~recurse:(loop k) e with
+      | None ->
         map_shallow_ e ~make ~f:(fun inb u ->
             loop
               (if inb then
@@ -520,12 +509,26 @@ module Make_ = struct
               else
                 k)
               u)
+      | Some u ->
+        let u = db_shift_ ~make u k in
+        if recursive then
+          loop 0 u
+        else
+          u
     in
+    loop 0 e0
 
+  let subst_ ~make ~recursive e0 (subst : subst) : t =
     if Var_.Map.is_empty subst.m then
       e0
     else
-      loop 0 e0
+      replace_ ~make ~recursive e0 ~f:(fun ~recurse e ->
+          match view e with
+          | E_var v ->
+            (* first, subst in type *)
+            let v = { v with v_ty = recurse v.v_ty } in
+            Var_.Map.find_opt v subst.m
+          | _ -> None)
 
   module DB = struct
     let subst_db0 store e ~by : t = db_0_replace_ ~make:(make_ store) e ~by
@@ -603,6 +606,13 @@ let map_shallow store ~f e : t = map_shallow_ ~make:(make_ store) ~f e
 
 (* re-export some internal things *)
 module Internal_ = struct
+  type nonrec cache = cache
+
+  let create_cache = create_cache
+
+  let replace_ ?cache store ~recursive t ~f =
+    replace_ ?cache ~make:(make_ store) ~recursive t ~f
+
   let subst_ store ~recursive t subst =
     subst_ ~make:(make_ store) ~recursive t subst
 end
