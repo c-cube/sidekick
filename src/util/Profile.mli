@@ -8,7 +8,7 @@ type probe
 
 val null_probe : probe
 val enabled : unit -> bool
-val instant : string -> unit
+val instant : ?args:(string * string) list -> string -> unit
 val begin_ : string -> probe
 val exit : probe -> unit
 val with_ : string -> (unit -> 'a) -> 'a
@@ -22,7 +22,9 @@ module type BACKEND = sig
   val emit_duration_event :
     name:string -> start:float -> end_:float -> unit -> unit
 
-  val emit_instant_event : name:string -> ts:float -> unit -> unit
+  val emit_instant_event :
+    name:string -> ts:float -> args:(string * string) list -> unit -> unit
+
   val emit_count_event : name:string -> ts:float -> (string * int) list -> unit
   val teardown : unit -> unit
 end

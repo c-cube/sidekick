@@ -39,6 +39,28 @@ module Make () : P.BACKEND = struct
     else
       output_string oc ",\n"
 
+  let char = output_char
+  let raw_string = output_string
+  let int oc i = Printf.fprintf oc "%d" i
+
+  let str_val oc (s : string) =
+    char oc '"';
+    let encode_char c =
+      match c with
+      | '"' -> raw_string oc {|\"|}
+      | '\\' -> raw_string oc {|\\|}
+      | '\n' -> raw_string oc {|\n|}
+      | '\b' -> raw_string oc {|\b|}
+      | '\r' -> raw_string oc {|\r|}
+      | '\t' -> raw_string oc {|\t|}
+      | _ when Char.code c <= 0x1f ->
+        raw_string oc {|\u00|};
+        Printf.fprintf oc "%02x" (Char.code c)
+      | c -> char oc c
+    in
+    String.iter encode_char s;
+    char oc '"'
+
   let emit_duration_event ~name ~start ~end_ () : unit =
     let dur = end_ -. start in
     let ts = start in
@@ -46,17 +68,29 @@ module Make () : P.BACKEND = struct
     let tid = Thread.id (Thread.self ()) in
     emit_sep_ ();
     Printf.fprintf oc
-      {json|{"pid": %d,"cat":"","tid": %d,"dur": %.2f,"ts": %.2f,"name":"%s","ph":"X"}|json}
-      pid tid dur ts name;
+      {json|{"pid": %d,"cat":"","tid": %d,"dur": %.2f,"ts": %.2f,"name":%a,"ph":"X"}|json}
+      pid tid dur ts str_val name;
     ()
 
-  let emit_instant_event ~name ~ts () : unit =
+  (* emit args, if not empty. [ppv] is used to print values. *)
+  let emit_args_o_ ppv oc args : unit =
+    if args <> [] then (
+      Printf.fprintf oc {json|,"args": {|json};
+      List.iteri
+        (fun i (n, value) ->
+          if i > 0 then Printf.fprintf oc ",";
+          Printf.fprintf oc {json|"%s":%a|json} n ppv value)
+        args;
+      char oc '}'
+    )
+
+  let emit_instant_event ~name ~ts ~args () : unit =
     let pid = Unix.getpid () in
     let tid = Thread.id (Thread.self ()) in
     emit_sep_ ();
     Printf.fprintf oc
-      {json|{"pid": %d,"cat":"","tid": %d,"ts": %.2f,"name":"%s","ph":"I"}|json}
-      pid tid ts name;
+      {json|{"pid": %d,"cat":"","tid": %d,"ts": %.2f,"name":%a,"ph":"I"%a}|json}
+      pid tid ts str_val name (emit_args_o_ str_val) args;
     ()
 
   let emit_count_event ~name ~ts (cs : _ list) : unit =
@@ -64,14 +98,8 @@ module Make () : P.BACKEND = struct
     let tid = Thread.id (Thread.self ()) in
     emit_sep_ ();
     Printf.fprintf oc
-      {json|{"pid": %d,"cat":"","tid": %d,"ts": %.2f,"name":"%s","ph":"C","args":{|json}
-      pid tid ts name;
-    List.iteri
-      (fun i (n, value) ->
-        if i > 0 then Printf.fprintf oc ",";
-        Printf.fprintf oc {json|"%s":%d|json} n value)
-      cs;
-    Printf.fprintf oc {json|}}|json};
+      {json|{"pid": %d,"cat":"","tid": %d,"ts": %.2f,"name":%a,"ph":"C"%a}|json}
+      pid tid ts str_val name (emit_args_o_ int) cs;
     ()
 
   let teardown () = teardown_ oc

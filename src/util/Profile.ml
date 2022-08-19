@@ -4,7 +4,9 @@ module type BACKEND = sig
   val emit_duration_event :
     name:string -> start:float -> end_:float -> unit -> unit
 
-  val emit_instant_event : name:string -> ts:float -> unit -> unit
+  val emit_instant_event :
+    name:string -> ts:float -> args:(string * string) list -> unit -> unit
+
   val emit_count_event : name:string -> ts:float -> (string * int) list -> unit
   val teardown : unit -> unit
 end
@@ -30,12 +32,12 @@ let[@inline] begin_ name : probe =
   | None -> No_probe
   | Some b -> begin_with_ b name
 
-let[@inline] instant name =
+let[@inline] instant ?(args = []) name =
   match !out_ with
   | None -> ()
   | Some (module B) ->
     let now = B.get_ts () in
-    B.emit_instant_event ~name ~ts:now ()
+    B.emit_instant_event ~name ~ts:now ~args ()
 
 let[@inline] count name cs =
   if cs <> [] then (
