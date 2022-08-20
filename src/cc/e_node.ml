@@ -28,17 +28,15 @@ let make (t : Term.t) : t =
 let[@inline] is_root (n : e_node) : bool = n.n_root == n
 
 (* traverse the equivalence class of [n] *)
-let iter_class_ (n : e_node) : e_node Iter.t =
+let iter_class_ (n_start : e_node) : e_node Iter.t =
  fun yield ->
   let rec aux u =
     yield u;
-    if u.n_next != n then aux u.n_next
+    if u.n_next != n_start then aux u.n_next
   in
-  aux n
+  aux n_start
 
-let[@inline] iter_class n =
-  assert (is_root n);
-  iter_class_ n
+let[@inline] iter_class n = iter_class_ n
 
 let[@inline] iter_parents (n : e_node) : e_node Iter.t =
   assert (is_root n);
