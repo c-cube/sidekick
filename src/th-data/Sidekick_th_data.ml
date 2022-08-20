@@ -750,35 +750,52 @@ end = struct
             l);
       Profile.instant "data.case-split";
       List.iter (decide_class_ self solver acts) l);
+
+    if remaining_to_decide = [] then (
+      let next_decision = None in
+      match next_decision with
+      | None -> () (* all decided *)
+      | Some n ->
+        let t = E_node.term n in
+
+        Profile.instant "data.decide";
+
+        (* use a constructor that will not lead to an infinite loop *)
+        let base_cstor =
+          match Card.base_cstor self.cards (Term.ty t) with
+          | None ->
+            Error.errorf "th-data:@ %a should have base cstor" E_node.pp n
+          | Some c -> c
+        in
+        let cstor_app =
+          let args =
+            A.Cstor.ty_args base_cstor
+            |> List.mapi (fun i _ -> A.mk_sel self.tst base_cstor i t)
+          in
+          A.mk_cstor self.tst base_cstor args
+        in
+        let t_eq_cstor = A.mk_eq self.tst t cstor_app in
+        Log.debugf 20 (fun k ->
+            k "(@[th-data.final-check.model.decide-cstor@ %a@])" Term.pp_debug
+              t_eq_cstor);
+        let lit = SI.mk_lit solver t_eq_cstor in
+        SI.push_decision solver acts lit
+    );
     ()
 
-  let on_model_gen (self : t) (si : SI.t) (model : Model_builder.t) (t : Term.t)
-      : _ option =
+  let on_model_gen (self : t) ~recurse (si : SI.t) (n : E_node.t) :
+      Term.t option =
     (* TODO: option to complete model or not (by picking sth at leaves)? *)
     let cc = SI.cc si in
-    let repr = CC.find_t cc t in
+    let repr = CC.find cc n in
     match ST_cstors.get self.cstors repr with
+    | None -> None
     | Some c ->
       Log.debugf 5 (fun k ->
           k "(@[th-data.mk-model.find-cstor@ %a@])" Monoid_cstor.pp c);
-      let args = List.map E_node.term c.c_args in
+      let args = List.map (recurse si) c.c_args in
       let t = A.mk_cstor self.tst c.c_cstor args in
-      Some (t, args)
-    | None when is_data_ty (Term.ty t) ->
-      (* datatype, use the base constructor for it *)
-      (match Card.base_cstor self.cards (Term.ty t) with
-      | None -> None
-      | Some c ->
-        (* invent new args *)
-        let args =
-          A.Cstor.ty_args c
-          |> List.map (fun ty -> Model_builder.gensym model ~pre:"c_arg" ~ty)
-        in
-        let c = A.mk_cstor self.tst c args in
-        Some (c, args))
-    | None ->
-      (* FIXME: here, if [t] is a datatype, pick default cstor, and add that to the CC? *)
-      None
+      Some t
 
   let create_and_setup (solver : SI.t) : t =
     let self =
