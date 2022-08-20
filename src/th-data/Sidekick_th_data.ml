@@ -4,7 +4,6 @@ open Sidekick_core
 open Sidekick_cc
 include Th_intf
 module SI = SMT.Solver_internal
-module Model_builder = SMT.Model_builder
 
 let name = "th-data"
 
