@@ -715,14 +715,17 @@ end = struct
           SI.add_clause_permanent solver acts [ Lit.neg l1; Lit.neg l2 ] pr)
     )
 
+  let on_partial_check self solver acts trail =
+    Profile.with_ "data.partial-check" @@ fun () ->
+    check_is_a self solver acts trail;
+    ()
+
   (* on final check, check acyclicity,
      then make sure we have done case split on all terms that
      need it. *)
-  let on_final_check (self : t) (solver : SI.t) (acts : SI.theory_actions) trail
-      =
+  let on_final_check (self : t) (solver : SI.t) (acts : SI.theory_actions)
+      _trail =
     Profile.with_ "data.final-check" @@ fun () ->
-    check_is_a self solver acts trail;
-
     (* acyclicity check first *)
     Acyclicity_.check self solver acts;
 
@@ -798,6 +801,7 @@ end = struct
     SI.on_cc_new_term solver (on_new_term self);
     (* note: this needs to happen before we modify the plugin data *)
     SI.on_cc_pre_merge solver (on_pre_merge self);
+    SI.on_partial_check solver (on_partial_check self);
     SI.on_final_check solver (on_final_check self);
     SI.on_model solver ~ask:(on_model_gen self);
     self
