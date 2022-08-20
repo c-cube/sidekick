@@ -10,17 +10,25 @@ val null_probe : probe
 val enabled : unit -> bool
 val instant : ?args:(string * string) list -> string -> unit
 val begin_ : string -> probe
-val exit : probe -> unit
-val with_ : string -> (unit -> 'a) -> 'a
-val with1 : string -> ('a -> 'b) -> 'a -> 'b
-val with2 : string -> ('a -> 'b -> 'c) -> 'a -> 'b -> 'c
+val exit : ?args:(string * string) list -> probe -> unit
+val with_ : ?args:(string * string) list -> string -> (unit -> 'a) -> 'a
+val with1 : ?args:(string * string) list -> string -> ('a -> 'b) -> 'a -> 'b
+
+val with2 :
+  ?args:(string * string) list -> string -> ('a -> 'b -> 'c) -> 'a -> 'b -> 'c
+
 val count : string -> (string * int) list -> unit
 
 module type BACKEND = sig
   val get_ts : unit -> float
 
   val emit_duration_event :
-    name:string -> start:float -> end_:float -> unit -> unit
+    name:string ->
+    start:float ->
+    end_:float ->
+    args:(string * string) list ->
+    unit ->
+    unit
 
   val emit_instant_event :
     name:string -> ts:float -> args:(string * string) list -> unit -> unit

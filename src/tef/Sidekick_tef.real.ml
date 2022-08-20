@@ -61,17 +61,6 @@ module Make () : P.BACKEND = struct
     String.iter encode_char s;
     char oc '"'
 
-  let emit_duration_event ~name ~start ~end_ () : unit =
-    let dur = end_ -. start in
-    let ts = start in
-    let pid = Unix.getpid () in
-    let tid = Thread.id (Thread.self ()) in
-    emit_sep_ ();
-    Printf.fprintf oc
-      {json|{"pid": %d,"cat":"","tid": %d,"dur": %.2f,"ts": %.2f,"name":%a,"ph":"X"}|json}
-      pid tid dur ts str_val name;
-    ()
-
   (* emit args, if not empty. [ppv] is used to print values. *)
   let emit_args_o_ ppv oc args : unit =
     if args <> [] then (
@@ -83,6 +72,17 @@ module Make () : P.BACKEND = struct
         args;
       char oc '}'
     )
+
+  let emit_duration_event ~name ~start ~end_ ~args () : unit =
+    let dur = end_ -. start in
+    let ts = start in
+    let pid = Unix.getpid () in
+    let tid = Thread.id (Thread.self ()) in
+    emit_sep_ ();
+    Printf.fprintf oc
+      {json|{"pid": %d,"cat":"","tid": %d,"dur": %.2f,"ts": %.2f,"name":%a,"ph":"X"%a}|json}
+      pid tid dur ts str_val name (emit_args_o_ str_val) args;
+    ()
 
   let emit_instant_event ~name ~ts ~args () : unit =
     let pid = Unix.getpid () in
