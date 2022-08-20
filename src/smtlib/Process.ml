@@ -245,6 +245,7 @@ let known_logics =
 let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
     ?(check = false) ?time ?memory ?progress (solver : Solver.t)
     (stmt : Statement.t) : unit or_error =
+  let@ () = Profile.with_ "smtlib.process-stmt" in
   Log.debugf 5 (fun k ->
       k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
   let decl_sort c n : unit =

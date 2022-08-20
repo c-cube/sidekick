@@ -198,7 +198,13 @@ let main_smt ~config () : _ result =
   if !check then
     (* might have to check conflicts *)
     Solver.add_theory solver Process.Check_cc.theory;
-  Sidekick_smtlib.parse tst !file >>= fun input ->
+
+  let parse_res =
+    let@ () = Profile.with_ "parse" ~args:[ "file", !file ] in
+    Sidekick_smtlib.parse tst !file
+  in
+
+  parse_res >>= fun input ->
   (* process statements *)
   let res =
     try
