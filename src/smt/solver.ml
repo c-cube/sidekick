@@ -65,8 +65,9 @@ type t = {
   mutable last_res: res option;
   stat: Stat.t;
   proof: P.t;
-  count_clause: int Stat.counter;
-  count_solve: int Stat.counter; (* config: Config.t *)
+  n_clause_input: int Stat.counter;
+  n_clause_internal: int Stat.counter;
+  n_solve: int Stat.counter; (* config: Config.t *)
 }
 
 (** {2 Main} *)
@@ -101,8 +102,9 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
       last_res = None;
       solver = Sat_solver.create ~proof ?size ~stat (SI.to_sat_plugin si);
       stat;
-      count_clause = Stat.mk_int stat "smt.solver.add-clause";
-      count_solve = Stat.mk_int stat "smt.solver.solve";
+      n_clause_input = Stat.mk_int stat "smt.solver.add-clause.input";
+      n_clause_internal = Stat.mk_int stat "smt.solver.add-clause.internal";
+      n_solve = Stat.mk_int stat "smt.solver.solve";
     }
   in
   add_theory_l self theories;
@@ -137,8 +139,12 @@ let mk_lit_t (self : t) ?sign (t : term) : lit =
 let pp_stats out (self : t) : unit = Stat.pp out (stats self)
 
 (* add [c], without preprocessing its literals *)
-let add_clause_nopreproc_ (self : t) (c : lit array) (proof : step_id) : unit =
-  Stat.incr self.count_clause;
+let add_clause_nopreproc_ ~internal (self : t) (c : lit array) (proof : step_id)
+    : unit =
+  if internal then
+    Stat.incr self.n_clause_internal
+  else
+    Stat.incr self.n_clause_input;
   reset_last_res_ self;
   Log.debugf 50 (fun k ->
       k "(@[solver.add-clause@ %a@])" (Util.pp_array Lit.pp) c);
@@ -146,14 +152,14 @@ let add_clause_nopreproc_ (self : t) (c : lit array) (proof : step_id) : unit =
   Sat_solver.add_clause_a self.solver (c :> lit array) proof;
   Profile.exit pb
 
-let add_clause_nopreproc_l_ self c p =
-  add_clause_nopreproc_ self (CCArray.of_list c) p
+let add_clause_nopreproc_l_ ~internal self c p =
+  add_clause_nopreproc_ ~internal self (CCArray.of_list c) p
 
 module Perform_delayed_ = Solver_internal.Perform_delayed (struct
   type nonrec t = t
 
   let add_clause _si solver ~keep:_ c pr : unit =
-    add_clause_nopreproc_l_ solver c pr
+    add_clause_nopreproc_l_ ~internal:true solver c pr
 
   let add_lit _si solver ?default_pol lit : unit =
     Sat_solver.add_lit solver.solver ?default_pol lit
@@ -161,7 +167,7 @@ end)
 
 let add_clause (self : t) (c : lit array) (proof : step_id) : unit =
   let c, proof = preprocess_clause_ self c proof in
-  add_clause_nopreproc_ self c proof;
+  add_clause_nopreproc_ ~internal:false self c proof;
   Perform_delayed_.top self.si self;
   (* finish preproc *)
   ()
@@ -192,7 +198,7 @@ let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
 
   let res =
     match
-      Stat.incr self.count_solve;
+      Stat.incr self.n_solve;
       Sat_solver.solve ~on_progress ~assumptions (solver self)
     with
     | Sat_solver.Sat _ when not (SI.is_complete self.si) ->
