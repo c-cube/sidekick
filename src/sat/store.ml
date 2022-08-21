@@ -23,6 +23,7 @@ type t = {
   v_reason: var_reason option Vec.t; (* reason for assignment *)
   v_seen: Bitvec.t; (* generic temporary marker *)
   v_default_polarity: Bitvec.t; (* default polarity in decisions *)
+  v_last_polarity: Bitvec.t; (* last polarity when deciding this *)
   mutable v_count: int;
   (* atoms *)
   a_is_true: Bitvec.t;
@@ -55,6 +56,7 @@ let create ?(size = `Big) ~stat () : t =
     v_reason = Vec.create ();
     v_seen = Bitvec.create ();
     v_default_polarity = Bitvec.create ();
+    v_last_polarity = Bitvec.create ();
     v_count = 0;
     a_is_true = Bitvec.create ();
     a_form = Vec.create ();
@@ -95,8 +97,16 @@ module Var = struct
   let[@inline] unmark self v = Bitvec.set self.v_seen (v : var :> int) false
   let[@inline] marked self v = Bitvec.get self.v_seen (v : var :> int)
 
+  let[@inline] set_last_pol self v b =
+    Bitvec.set self.v_last_polarity (v : var :> int) b
+
+  let[@inline] last_pol self v =
+    Bitvec.get self.v_last_polarity (v : var :> int)
+
   let[@inline] set_default_pol self v b =
-    Bitvec.set self.v_default_polarity (v : var :> int) b
+    Bitvec.set self.v_default_polarity (v : var :> int) b;
+    (* also update last polarity *)
+    set_last_pol self v b
 
   let[@inline] default_pol self v =
     Bitvec.get self.v_default_polarity (v : var :> int)
@@ -340,6 +350,7 @@ let alloc_var_uncached_ ?default_pol:(pol = true) self (form : Lit.t) : var =
     v_reason;
     v_seen;
     v_default_polarity;
+    v_last_polarity;
     stat_n_atoms;
     a_is_true;
     a_seen;
@@ -365,6 +376,8 @@ let alloc_var_uncached_ ?default_pol:(pol = true) self (form : Lit.t) : var =
   Bitvec.ensure_size v_seen v_idx;
   Bitvec.ensure_size v_default_polarity v_idx;
   Bitvec.set v_default_polarity v_idx pol;
+  Bitvec.ensure_size v_last_polarity v_idx;
+  Bitvec.set v_last_polarity v_idx pol;
 
   assert (Vec.size a_form = 2 * (v : var :> int));
   Bitvec.ensure_size a_is_true (2 * (v : var :> int));

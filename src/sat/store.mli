@@ -37,6 +37,8 @@ module Var : sig
   val marked : store -> var -> bool
   val set_default_pol : store -> var -> bool -> unit
   val default_pol : store -> var -> bool
+  val set_last_pol : store -> var -> bool -> unit
+  val last_pol : store -> var -> bool
   val heap_idx : store -> var -> int
   val set_heap_idx : store -> var -> int -> unit
 end

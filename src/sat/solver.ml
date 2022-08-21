@@ -1600,11 +1600,14 @@ let pick_branch_lit ~full self : bool =
     | [] ->
       (match H.remove_min self.order with
       | v ->
-        pick_with_given_atom
-          (if Var.default_pol self.store v then
+        let pol = Var.last_pol self.store v in
+        let atom =
+          if pol then
             Atom.pa v
           else
-            Atom.na v)
+            Atom.na v
+        in
+        pick_with_given_atom atom
       | exception Not_found -> false)
   (* pick a decision, trying [atom] first if it's not assigned yet. *)
   and pick_with_given_atom (atom : atom) : bool =
@@ -1615,9 +1618,12 @@ let pick_branch_lit ~full self : bool =
         || Atom.is_true self.store (Atom.na v));
       pick_lit ()
     ) else (
+      (* [atom] is not assigned, we can decide it *)
       new_decision_level self;
       let current_level = decision_level self in
       enqueue_bool self atom ~level:current_level Decision;
+      (* remember polarity *)
+      Var.set_last_pol self.store v (Atom.sign atom);
       Stat.incr self.n_decisions;
       Event.emit self.on_decision (Atom.lit self.store atom);
       true
