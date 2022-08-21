@@ -21,7 +21,7 @@ val iter_vars : t -> (var -> unit) -> unit
 module Var : sig
   type t = var
 
-  val equal : t -> t -> same_sign
+  val equal : t -> t -> bool
   val compare : t -> t -> int
   val hash : t -> int
   val to_int : t -> int
@@ -34,9 +34,9 @@ module Var : sig
   val set_weight : store -> var -> float -> unit
   val mark : store -> var -> unit
   val unmark : store -> var -> unit
-  val marked : store -> var -> same_sign
-  val set_default_pol : store -> var -> same_sign -> unit
-  val default_pol : store -> var -> same_sign
+  val marked : store -> var -> bool
+  val set_default_pol : store -> var -> bool -> unit
+  val default_pol : store -> var -> bool
   val heap_idx : store -> var -> int
   val set_heap_idx : store -> var -> int -> unit
 end
@@ -44,13 +44,13 @@ end
 module Atom : sig
   type t = atom
 
-  val equal : t -> t -> same_sign
+  val equal : t -> t -> bool
   val compare : t -> t -> int
   val hash : t -> int
   val to_int : t -> int
   val of_int_unsafe : int -> t
   val neg : t -> t
-  val sign : t -> same_sign
+  val sign : t -> bool
   val of_var : var -> t
   val var : t -> var
   val pa : var -> t
@@ -62,15 +62,15 @@ module Atom : sig
   val lit : store -> atom -> Lit.t
   val mark : store -> atom -> unit
   val unmark : store -> atom -> unit
-  val marked : store -> atom -> same_sign
+  val marked : store -> atom -> bool
   val watched : store -> atom -> CVec.t
-  val is_true : store -> atom -> same_sign
-  val set_is_true : store -> atom -> same_sign -> unit
-  val is_false : store -> t -> same_sign
-  val has_value : store -> atom -> same_sign
+  val is_true : store -> atom -> bool
+  val set_is_true : store -> atom -> bool -> unit
+  val is_false : store -> t -> bool
+  val has_value : store -> atom -> bool
   val reason : store -> t -> var_reason option
   val level : store -> t -> int
-  val marked_both : store -> atom -> same_sign
+  val marked_both : store -> atom -> bool
   val proof_lvl0 : store -> ATbl.key -> int32 option
   val set_proof_lvl0 : store -> ATbl.key -> int32 -> unit
   val pp : store -> Format.formatter -> atom -> unit
@@ -86,7 +86,7 @@ end
 module Clause : sig
   type t = clause
 
-  val equal : t -> t -> same_sign
+  val equal : t -> t -> bool
   val compare : t -> t -> int
   val hash : t -> int
   val to_int : t -> int
@@ -95,23 +95,23 @@ module Clause : sig
   module Tbl : Hashtbl.S with type key = t
   module CVec = Base_types_.CVec
 
-  val make_a : store -> removable:same_sign -> atom array -> int32 -> t
-  val make_l : store -> removable:same_sign -> atom list -> int32 -> t
+  val make_a : store -> removable:bool -> atom array -> int32 -> t
+  val make_l : store -> removable:bool -> atom list -> int32 -> t
   val n_atoms : store -> t -> int
-  val marked : store -> t -> same_sign
-  val set_marked : store -> t -> same_sign -> unit
-  val attached : store -> t -> same_sign
-  val set_attached : store -> t -> same_sign -> unit
-  val removable : store -> t -> same_sign
-  val dead : store -> t -> same_sign
-  val set_dead : store -> t -> same_sign -> unit
+  val marked : store -> t -> bool
+  val set_marked : store -> t -> bool -> unit
+  val attached : store -> t -> bool
+  val set_attached : store -> t -> bool -> unit
+  val removable : store -> t -> bool
+  val dead : store -> t -> bool
+  val set_dead : store -> t -> bool -> unit
   val dealloc : store -> t -> unit
   val proof_step : store -> t -> int32
   val activity : store -> t -> float
   val set_activity : store -> t -> float -> unit
   val iter : store -> f:(atom -> unit) -> t -> unit
   val fold : store -> f:('a -> atom -> 'a) -> 'a -> t -> 'a
-  val for_all : store -> f:(atom -> same_sign) -> t -> same_sign
+  val for_all : store -> f:(atom -> bool) -> t -> bool
   val atoms_a : store -> t -> atom array
   val lits_l : store -> t -> Lit.t list
   val lits_a : store -> t -> Lit.t array
@@ -121,9 +121,9 @@ module Clause : sig
   val debug : store -> Format.formatter -> t -> unit
 end
 
-val alloc_var_uncached_ : ?default_pol:same_sign -> t -> Lit.t -> var
-val alloc_var : t -> ?default_pol:same_sign -> Lit.t -> var * same_sign
+val alloc_var_uncached_ : ?default_pol:bool -> t -> Lit.t -> var
+val alloc_var : t -> ?default_pol:bool -> Lit.t -> var * bool
 val clear_var : t -> var -> unit
-val atom_of_var_ : var -> same_sign -> atom
-val alloc_atom : t -> ?default_pol:same_sign -> Lit.t -> atom
+val atom_of_var_ : var -> bool -> atom
+val alloc_atom : t -> ?default_pol:bool -> Lit.t -> atom
 val find_atom : t -> Lit.t -> atom option
