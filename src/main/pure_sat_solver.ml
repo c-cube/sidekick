@@ -231,6 +231,8 @@ end
      !ok
 *)
 
+let start = Sys.time ()
+
 let solve ?(check = false) ?in_memory_proof (solver : SAT.t) :
     (unit, string) result =
   let res = Profile.with_ "solve" (fun () -> SAT.solve solver) in
@@ -239,18 +241,18 @@ let solve ?(check = false) ?in_memory_proof (solver : SAT.t) :
   flush stdout;
   (match res with
   | SAT.Sat _ ->
-    let t3 = Sys.time () -. t2 in
-    Format.printf "Sat (%.3f/%.3f)@." t2 t3
+    let t3 = Sys.time () in
+    Format.printf "Sat (%.3f/%.3f)@." (t2 -. start) (t3 -. t2)
   | SAT.Unsat _ ->
     if check then (
       match in_memory_proof with
       | None ->
         Error.errorf "Cannot validate proof, no in-memory proof provided"
-      | Some proof ->
+      | Some _proof ->
         let ok = true (* FIXME check_proof proof *) in
         if not ok then Error.errorf "Proof validation failed"
     );
 
-    let t3 = Sys.time () -. t2 in
-    Format.printf "Unsat (%.3f/%.3f)@." t2 t3);
+    let t3 = Sys.time () in
+    Format.printf "Unsat (%.3f/%.3f)@." (t2 -. start) (t3 -. t2));
   Ok ()
