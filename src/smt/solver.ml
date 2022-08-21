@@ -212,7 +212,8 @@ let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
 
       Log.debugf 5 (fun k ->
           let ppc out n =
-            Fmt.fprintf out "{@[<hv>class@ %a@]}" (Util.pp_iter E_node.pp)
+            Fmt.fprintf out "{@[<hv1>class@ %a@]}"
+              (Util.pp_iter ~sep:";" E_node.pp)
               (E_node.iter_class n)
           in
           k "(@[sidekick.smt-solver.classes@ (@[%a@])@])" (Util.pp_iter ppc)

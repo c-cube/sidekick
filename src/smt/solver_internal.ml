@@ -312,18 +312,6 @@ let cc_resolve_expl self e : lit list * _ =
   let r = CC.explain_expl (cc self) e in
   r.lits, r.pr self.proof
 
-(*
-    let cc_merge self _acts n1 n2 e = CC.merge (cc self) n1 n2 e
-
-    let cc_merge_t self acts t1 t2 e =
-      let cc_acts = mk_cc_acts_ self.proof acts in
-      cc_merge self cc_acts (cc_add_term self t1) (cc_add_term self t2) e
-
-    let cc_raise_conflict_expl self acts e =
-      let cc_acts = mk_cc_acts_ self.proof acts in
-      CC.raise_conflict_from_expl (cc self) cc_acts e
-      *)
-
 (** {2 Interface with the SAT solver} *)
 
 let rec push_lvl_ = function
