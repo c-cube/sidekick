@@ -489,7 +489,10 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
   if not final then CC.assert_lits cc lits;
   (* transmit to theories. *)
   check_cc_with_acts_ self acts;
+
   if final then (
+    Perform_delayed_th.top self acts;
+
     List.iter (fun f -> f self acts lits) self.on_final_check;
     check_cc_with_acts_ self acts;
 
@@ -536,6 +539,8 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
     Perform_delayed_th.top self acts
   ) else (
     List.iter (fun f -> f self acts lits) self.on_partial_check;
+    (* re-check CC after theory actions, which might have merged classes *)
+    check_cc_with_acts_ self acts;
     Perform_delayed_th.top self acts
   );
   ()
