@@ -6,17 +6,24 @@ let nop_handler_ _ = assert false
 module Emitter = struct
   type nonrec ('a, 'b) t = ('a, 'b) t
 
-  let emit (self : (_, unit) t) x = Vec.iter self.h ~f:(fun h -> h x)
+  let emit (self : (_, unit) t) x =
+    if not (Vec.is_empty self.h) then
+      (Vec.iter [@inlined]) self.h ~f:(fun h -> h x)
 
   let emit_collect (self : _ t) x : _ list =
-    let l = ref [] in
-    Vec.iter self.h ~f:(fun h -> l := h x :: !l);
-    !l
+    if Vec.is_empty self.h then
+      []
+    else (
+      let l = ref [] in
+      Vec.iter self.h ~f:(fun h -> l := h x :: !l);
+      !l
+    )
 
   let emit_iter self x ~f =
-    Vec.iter self.h ~f:(fun h ->
-        let y = h x in
-        f y)
+    if not (Vec.is_empty self.h) then
+      Vec.iter self.h ~f:(fun h ->
+          let y = h x in
+          f y)
 
   let create () : _ t = { h = Vec.make 3 nop_handler_ }
 end
