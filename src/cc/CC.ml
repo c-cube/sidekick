@@ -286,11 +286,14 @@ let find_common_ancestor self (a : e_node) (b : e_node) : e_node =
 module Expl_state = struct
   type t = {
     mutable lits: Lit.t list;
+    proven_eq: Small_uf.t;
     mutable th_lemmas:
       (Lit.t * (Lit.t * Lit.t list) list * Proof_term.step_id) list;
   }
 
-  let create () : t = { lits = []; th_lemmas = [] }
+  let create () : t =
+    { lits = []; th_lemmas = []; proven_eq = Small_uf.create () }
+
   let[@inline] copy self : t = { self with lits = self.lits }
   let[@inline] add_lit (self : t) lit = self.lits <- lit :: self.lits
 
@@ -298,7 +301,7 @@ module Expl_state = struct
     self.th_lemmas <- (lit, hyps, pr) :: self.th_lemmas
 
   let merge self other =
-    let { lits = o_lits; th_lemmas = o_lemmas } = other in
+    let { lits = o_lits; th_lemmas = o_lemmas; proven_eq = _ } = other in
     self.lits <- List.rev_append o_lits self.lits;
     self.th_lemmas <- List.rev_append o_lemmas self.th_lemmas;
     ()
@@ -339,7 +342,7 @@ module Expl_state = struct
 
   let to_resolved_expl (self : t) : Resolved_expl.t =
     (* FIXME: package the th lemmas too *)
-    let { lits; th_lemmas = _ } = self in
+    let { lits; th_lemmas = _l; proven_eq = _ } = self in
     let s2 = copy self in
     let pr proof = proof_of_th_lemmas s2 proof in
     { Resolved_expl.lits; pr }
@@ -396,15 +399,18 @@ and explain_expls self (es : explanation list) : Expl_state.t =
   List.iter (explain_decompose_expl self st) es;
   st
 
+(* explain why [a =_E b] *)
 and explain_equal_rec_ (cc : t) (st : Expl_state.t) (a : e_node) (b : e_node) :
     unit =
-  if a != b then (
+  if a != b && not (Small_uf.same_class st.proven_eq a.n_term b.n_term) then (
     Log.debugf 5 (fun k ->
         k "(@[cc.explain_loop.at@ %a@ =?= %a@])" E_node.pp a E_node.pp b);
     assert (E_node.equal (find_ a) (find_ b));
     let ancestor = find_common_ancestor cc a b in
     explain_along_path cc st a ancestor;
-    explain_along_path cc st b ancestor
+    explain_along_path cc st b ancestor;
+    (* we now know that [a=b]. *)
+    Small_uf.merge st.proven_eq a.n_term b.n_term
   )
 
 (* explain why [a = target], where [a -> ... -> target] in the
@@ -415,11 +421,11 @@ and explain_along_path self (st : Expl_state.t) (a : e_node) (target : e_node) :
     if n != target then (
       match n.n_expl with
       | FL_none -> assert false
-      | FL_some { next = next_a; expl } ->
-        (* prove [a = next_n] *)
+      | FL_some { next = next_n; expl } ->
+        (* prove [n = next_n] *)
         explain_decompose_expl self st expl;
-        (* now prove [next_a = target] *)
-        aux next_a
+        (* now prove [next_n = target] *)
+        aux next_n
     )
   in
   aux a
@@ -510,7 +516,7 @@ let n_is_bool_value (self : t) n : bool =
    merges. *)
 let lits_and_proof_of_expl (self : t) (st : Expl_state.t) :
     Lit.t list * Proof_term.step_id =
-  let { Expl_state.lits; th_lemmas = _ } = st in
+  let { Expl_state.lits; th_lemmas = _; proven_eq = _ } = st in
   let pr = Expl_state.proof_of_th_lemmas st self.proof in
   lits, pr
 
