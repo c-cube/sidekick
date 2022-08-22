@@ -261,8 +261,9 @@ let find_common_ancestor self (a : e_node) (b : e_node) : e_node =
       | FL_some r1, FL_some r2 -> find2 r1.next r2.next
       | FL_some r, FL_none -> find1 r.next
       | FL_none, FL_some r -> find1 r.next
-      | FL_none, FL_none -> assert false
-      (* no common ancestor *)
+      | FL_none, FL_none ->
+        (* no common ancestor *)
+        assert false
     )
   in
 
@@ -395,27 +396,28 @@ and explain_expls self (es : explanation list) : Expl_state.t =
 
 and explain_equal_rec_ (cc : t) (st : Expl_state.t) (a : e_node) (b : e_node) :
     unit =
-  Log.debugf 5 (fun k ->
-      k "(@[cc.explain_loop.at@ %a@ =?= %a@])" E_node.pp a E_node.pp b);
-  assert (E_node.equal (find_ a) (find_ b));
-  let ancestor = find_common_ancestor cc a b in
-  explain_along_path cc st a ancestor;
-  explain_along_path cc st b ancestor
+  if a != b then (
+    Log.debugf 5 (fun k ->
+        k "(@[cc.explain_loop.at@ %a@ =?= %a@])" E_node.pp a E_node.pp b);
+    assert (E_node.equal (find_ a) (find_ b));
+    let ancestor = find_common_ancestor cc a b in
+    explain_along_path cc st a ancestor;
+    explain_along_path cc st b ancestor
+  )
 
-(* explain why [a = parent_a], where [a -> ... -> target] in the
+(* explain why [a = target], where [a -> ... -> target] in the
    proof forest *)
 and explain_along_path self (st : Expl_state.t) (a : e_node) (target : e_node) :
     unit =
   let rec aux n =
-    if n == target then
-      ()
-    else (
+    if n != target then (
       match n.n_expl with
       | FL_none -> assert false
-      | FL_some { next = next_n; expl } ->
+      | FL_some { next = next_a; expl } ->
+        (* prove [a = next_n] *)
         explain_decompose_expl self st expl;
-        (* now prove [next_n = target] *)
-        aux next_n
+        (* now prove [next_a = target] *)
+        aux next_a
     )
   in
   aux a
@@ -887,12 +889,9 @@ let[@inline] find_t self t : repr =
   find_ n
 
 let pop_acts_ self =
-  let rec loop acc =
-    match Vec.pop self.res_acts with
-    | None -> acc
-    | Some x -> loop (x :: acc)
-  in
-  loop []
+  let l = Vec.to_list self.res_acts in
+  Vec.clear self.res_acts;
+  l
 
 let check self : Result_action.or_conflict =
   Log.debug 5 "(cc.check)";
