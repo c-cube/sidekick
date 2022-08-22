@@ -182,9 +182,11 @@ let add_signature self (s : signature) (n : e_node) : unit =
   on_backtrack self (fun () -> Sig_tbl.remove self.signatures_tbl s);
   Sig_tbl.add self.signatures_tbl s n
 
-let[@inline] push_pending self t : unit =
-  Log.debugf 50 (fun k -> k "(@[<hv1>cc.push-pending@ %a@])" E_node.pp t);
-  Vec.push self.pending t
+let push_pending self (n : E_node.t) : unit =
+  if Option.is_some n.n_sig0 then (
+    Log.debugf 50 (fun k -> k "(@[<hv1>cc.push-pending@ %a@])" E_node.pp n);
+    Vec.push self.pending n
+  )
 
 let[@inline] push_action self (a : Handler_action.t) : unit =
   Vec.push self.combine (CT_act a)
@@ -449,7 +451,7 @@ and add_new_term_ self (t : Term.t) : e_node =
   Event.emit_iter self.on_new_term (self, n, t) ~f:(push_action_l self);
   n
 
-(* compute the initial signature of the given e_node *)
+(* compute the initial signature of the given e_node [n] *)
 and compute_sig0 (self : t) (n : e_node) : Signature.t option =
   (* add sub-term to [cc], and register [n] to its parents.
      Note that we return the exact sub-term, to get proper
@@ -530,7 +532,7 @@ and task_pending_ self (n : e_node) : unit =
   | None -> () (* no-op *)
   | Some (Eq (a, b)) ->
     (* if [a=b] is now true, merge [(a=b)] and [true] *)
-    if same_class a b then (
+    if a != b && same_class a b then (
       let expl = Expl.mk_merge a b in
       Log.debugf 5 (fun k ->
           k "(@[cc.pending.eq@ %a@ :r1 %a@ :r2 %a@])" E_node.pp n E_node.pp a
@@ -549,7 +551,7 @@ and task_pending_ self (n : e_node) : unit =
     )
   | Some s0 ->
     (* update the signature by using [find] on each sub-e_node *)
-    let s = (update_sig [@inlined]) s0 in
+    let s = update_sig s0 in
     (match find_signature self s with
     | None ->
       (* add to the signature table [sig(n) --> n] *)
@@ -657,13 +659,10 @@ and task_merge_ self a b e_ab : unit =
          assert (u.n_root == r_from);
          u.n_root <- r_into);
      (* capture current state *)
-     let r_into_old_next = r_into.n_next in
-     let r_from_old_next = r_from.n_next in
      let r_into_old_parents = r_into.n_parents in
      let r_into_old_bits = r_into.n_bits in
      (* swap [into.next] and [from.next], merging the classes *)
-     r_into.n_next <- r_from_old_next;
-     r_from.n_next <- r_into_old_next;
+     E_node.swap_next r_into r_from;
      r_into.n_parents <- Bag.append r_into.n_parents r_from.n_parents;
      r_into.n_size <- r_into.n_size + r_from.n_size;
      r_into.n_bits <- Bits.merge r_into.n_bits r_from.n_bits;
@@ -673,8 +672,8 @@ and task_merge_ self a b e_ab : unit =
              k "(@[cc.undo_merge@ :from %a@ :into %a@])" E_node.pp r_from
                E_node.pp r_into);
          r_into.n_bits <- r_into_old_bits;
-         r_into.n_next <- r_into_old_next;
-         r_from.n_next <- r_from_old_next;
+         (* un-merge the classes *)
+         E_node.swap_next r_into r_from;
          r_into.n_parents <- r_into_old_parents;
          (* NOTE: this must come after the restoration of [next] pointers,
             otherwise we'd iterate on too big a class *)
@@ -686,9 +685,9 @@ and task_merge_ self a b e_ab : unit =
        and [b], not their roots. *)
     reroot_expl self a;
     assert (a.n_expl = FL_none);
-    (* on backtracking, link may be inverted, but we delete the one
-       that bridges between [a] and [b] *)
     on_backtrack self (fun () ->
+        (* on backtracking, link may be inverted, but we delete the one
+           that bridges between [a] and [b] *)
         match a.n_expl, b.n_expl with
         | FL_some e, _ when E_node.equal e.next b -> a.n_expl <- FL_none
         | _, FL_some e when E_node.equal e.next a -> b.n_expl <- FL_none

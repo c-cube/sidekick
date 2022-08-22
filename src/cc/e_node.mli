@@ -55,6 +55,10 @@ val iter_parents : t -> t Iter.t
 
 val as_lit : t -> Lit.t option
 
+val swap_next : t -> t -> unit
+(** Swap the next pointer of each node. If their classes were disjoint,
+    they are now unioned. *)
+
 module Internal_ : sig
   val iter_class_ : t -> t Iter.t
   val make : Term.t -> t

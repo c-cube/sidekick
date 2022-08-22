@@ -5,7 +5,7 @@ type t = e_node
 let[@inline] equal (n1 : t) n2 = n1 == n2
 let[@inline] hash n = Term.hash n.n_term
 let[@inline] term n = n.n_term
-let[@inline] pp out n = Term.pp_debug out n.n_term
+let[@inline] pp out n = Term.pp out n.n_term
 let[@inline] as_lit n = n.n_as_lit
 
 let make (t : Term.t) : t =
@@ -41,6 +41,11 @@ let[@inline] iter_class n = iter_class_ n
 let[@inline] iter_parents (n : e_node) : e_node Iter.t =
   assert (is_root n);
   Bag.to_iter n.n_parents
+
+let[@inline] swap_next n1 n2 : unit =
+  let tmp = n1.n_next in
+  n1.n_next <- n2.n_next;
+  n2.n_next <- tmp
 
 module Internal_ = struct
   let iter_class_ = iter_class_

@@ -8,6 +8,8 @@ type t = signature
 
 let equal (s1 : t) s2 : bool =
   let open CC_view in
+  s1 == s2
+  ||
   match s1, s2 with
   | Bool b1, Bool b2 -> b1 = b2
   | App_fun (f1, []), App_fun (f2, []) -> Const.equal f1 f2
