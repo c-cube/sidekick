@@ -455,9 +455,12 @@ let check_cc_with_acts_ (self : t) (acts : theory_actions) =
       (function
         | CC.Result_action.Act_propagate { lit; reason } ->
           let reason = Sidekick_sat.Consequence reason in
+          Stat.incr self.count_propagate;
           A.propagate lit reason)
       acts
-  | Error (CC.Result_action.Conflict (lits, pr)) -> A.raise_conflict lits pr
+  | Error (CC.Result_action.Conflict (lits, pr)) ->
+    Stat.incr self.count_conflict;
+    A.raise_conflict lits pr
 
 (* handle a literal assumed by the SAT solver *)
 let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
@@ -471,16 +474,16 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
         self.level
         (Util.pp_iter ~sep:"; " Lit.pp)
         lits);
-  (* transmit to CC *)
   let cc = cc self in
 
+  (* transmit to CC *)
   if not final then CC.assert_lits cc lits;
-  (* transmit to theories. *)
   check_cc_with_acts_ self acts;
 
   if final then (
     Perform_delayed_th.top self acts;
 
+    (* transmit to theories. *)
     List.iter (fun f -> f self acts lits) self.on_final_check;
     check_cc_with_acts_ self acts;
 
@@ -526,6 +529,7 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
 
     Perform_delayed_th.top self acts
   ) else (
+    (* partial check *)
     List.iter (fun f -> f self acts lits) self.on_partial_check;
     (* re-check CC after theory actions, which might have merged classes *)
     check_cc_with_acts_ self acts;
@@ -563,15 +567,15 @@ let[@inline] final_check (self : t) (acts : Sidekick_sat.acts) : unit =
 let push_level self : unit =
   self.level <- 1 + self.level;
   CC.push_level (cc self);
-  push_lvl_ self.th_states
+  push_lvl_theories_ self.th_states
 
 let pop_levels self n : unit =
   self.last_model <- None;
   self.level <- self.level - n;
   CC.pop_levels (cc self) n;
-  pop_lvls_ n self.th_states
+  pop_lvls_theories_ n self.th_states
 
-let n_levels self = self.level
+let[@inline] n_levels self = self.level
 
 let to_sat_plugin (self : t) : (module Sidekick_sat.PLUGIN) =
   (module struct
@@ -587,6 +591,7 @@ let declare_pb_is_incomplete self =
   self.complete <- false
 
 let add_theory_state ~st ~push_level ~pop_levels (self : t) =
+  assert (self.level = 0);
   self.th_states <-
     Ths_cons { st; push_level; pop_levels; next = self.th_states }
 
