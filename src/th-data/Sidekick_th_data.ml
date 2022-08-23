@@ -715,7 +715,6 @@ end = struct
     )
 
   let on_partial_check self solver acts trail =
-    Profile.with_ "data.partial-check" @@ fun () ->
     check_is_a self solver acts trail;
     ()
 

@@ -314,17 +314,17 @@ let cc_resolve_expl self e : lit list * _ =
 
 (** {2 Interface with the SAT solver} *)
 
-let rec push_lvl_ = function
+let rec push_lvl_theories_ = function
   | Ths_nil -> ()
   | Ths_cons r ->
     r.push_level r.st;
-    push_lvl_ r.next
+    push_lvl_theories_ r.next
 
-let rec pop_lvls_ n = function
+let rec pop_lvls_theories_ n = function
   | Ths_nil -> ()
   | Ths_cons r ->
     r.pop_levels r.st n;
-    pop_lvls_ n r.next
+    pop_lvls_theories_ n r.next
 
 (** {2 Model construction and theory combination} *)
 
