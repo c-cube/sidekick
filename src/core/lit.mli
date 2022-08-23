@@ -14,7 +14,7 @@ type term = Term.t
 type t
 (** A literal *)
 
-include Sidekick_sigs.EQ_HASH_PRINT with type t := t
+include Sidekick_sigs.EQ_ORD_HASH_PRINT with type t := t
 
 val term : t -> term
 (** Get the (positive) term *)
@@ -31,7 +31,7 @@ val abs : t -> t
 val signed_term : t -> term * bool
 (** Return the atom and the sign *)
 
-val atom : ?sign:bool -> term -> t
+val atom : ?sign:bool -> Term.store -> term -> t
 (** [atom store t] makes a literal out of a term, possibly normalizing
       its sign in the process.
       @param sign if provided, and [sign=false], negate the resulting lit. *)

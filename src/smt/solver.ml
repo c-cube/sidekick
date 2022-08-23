@@ -112,7 +112,7 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
   (let tst = Solver_internal.tst self.si in
    let t_true = Term.true_ tst in
    Sat_solver.add_clause self.solver
-     [ Lit.atom t_true ]
+     [ Lit.atom tst t_true ]
      (P.add_step self.proof @@ fun () -> Rule_.lemma_true t_true));
   self
 
@@ -130,7 +130,7 @@ let preprocess_clause_ (self : t) (c : lit array) (pr : step_id) :
   Solver_internal.preprocess_clause_array self.si c pr
 
 let mk_lit_t (self : t) ?sign (t : term) : lit =
-  let lit = Lit.atom ?sign t in
+  let lit = Lit.atom ?sign (tst self) t in
   let lit, _ = Solver_internal.simplify_and_preproc_lit self.si lit in
   lit
 
@@ -175,7 +175,7 @@ let add_clause (self : t) (c : lit array) (proof : step_id) : unit =
 let add_clause_l self c p = add_clause self (CCArray.of_list c) p
 
 let assert_terms self c =
-  let c = CCList.map Lit.atom c in
+  let c = CCList.map (Lit.atom (tst self)) c in
   let pr_c = P.add_step self.proof @@ fun () -> Proof_sat.sat_input_clause c in
   add_clause_l self c pr_c
 

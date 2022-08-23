@@ -335,7 +335,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       | _ -> assert false)
     | LRA_pred ((Eq | Neq), t1, t2) ->
       (* equality: just punt to [t1 = t2 <=> (t1 <= t2 /\ t1 >= t2)] *)
-      let _, t = Term.abs t in
+      let _, t = Term.abs self.tst t in
       if not (Term.Tbl.mem self.encoded_eqs t) then (
         let u1 = A.mk_lra tst (LRA_pred (Leq, t1, t2)) in
         let u2 = A.mk_lra tst (LRA_pred (Geq, t1, t2)) in
@@ -400,10 +400,10 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       (Term.t * Proof_step.id Iter.t) option =
     let proof_eq t u =
       Proof_trace.add_step self.proof @@ fun () ->
-      A.lemma_lra [ Lit.atom (Term.eq self.tst t u) ]
+      A.lemma_lra [ Lit.atom self.tst (Term.eq self.tst t u) ]
     in
     let proof_bool t ~sign:b =
-      let lit = Lit.atom ~sign:b t in
+      let lit = Lit.atom ~sign:b self.tst t in
       Proof_trace.add_step self.proof @@ fun () -> A.lemma_lra [ lit ]
     in
 
@@ -526,7 +526,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     if LE_.Comb.is_empty le_comb then (
       if A.Q.(le_const <> zero) then (
         (* [c=0] when [c] is not 0 *)
-        let lit = Lit.atom ~sign:false @@ Term.eq self.tst t1 t2 in
+        let lit = Lit.atom ~sign:false self.tst @@ Term.eq self.tst t1 t2 in
         let pr =
           Proof_trace.add_step self.proof @@ fun () -> A.lemma_lra [ lit ]
         in

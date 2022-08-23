@@ -11,16 +11,22 @@ let[@inline] term (l : t) : term = l.lit_term
 let[@inline] signed_term l = term l, sign l
 let[@inline] make_ ~sign t : t = { lit_sign = sign; lit_term = t }
 
-let atom ?(sign = true) (t : term) : t =
-  let sign', t = T_builtins.abs t in
+let atom ?(sign = true) tst (t : term) : t =
+  let sign', t = T_builtins.abs tst t in
   let sign = sign = sign' in
   make_ ~sign t
 
 let make_eq ?sign store t u : t =
   let p = T_builtins.eq store t u in
-  atom ?sign p
+  atom ?sign store p
 
 let equal a b = a.lit_sign = b.lit_sign && T.equal a.lit_term b.lit_term
+
+let compare a b =
+  if a.lit_sign = b.lit_sign then
+    T.compare a.lit_term b.lit_term
+  else
+    CCOrd.bool a.lit_sign b.lit_sign
 
 let hash a =
   let sign = a.lit_sign in

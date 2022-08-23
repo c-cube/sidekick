@@ -305,7 +305,7 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
     (* proof of assert-input + preprocessing *)
     let pr =
       add_step @@ fun () ->
-      let lits = List.map Lit.atom c_ts in
+      let lits = List.map (Solver.mk_lit_t solver) c_ts in
       Proof_sat.sat_input_clause lits
     in
 

@@ -61,7 +61,7 @@ end = struct
       add_step_ @@ mk_step_
       @@ fun () ->
       Proof_core.lemma_rw_clause c0 ~using
-        ~res:[ Lit.atom (A.mk_bool tst (B_eq (a, b))) ]
+        ~res:[ Lit.atom tst (A.mk_bool tst (B_eq (a, b))) ]
     in
 
     let[@inline] ret u =
@@ -227,7 +227,7 @@ end = struct
         (mk_step_ @@ fun () -> Proof_core.lemma_true (Lit.term lit))
     | _ when expanded self lit -> () (* already done *)
     | B_and (a, b) ->
-      let subs = List.map Lit.atom [ a; b ] in
+      let subs = List.map (Lit.atom self.tst) [ a; b ] in
 
       if Lit.sign lit then
         (* assert [(and …t_i) => t_i] *)
@@ -245,7 +245,7 @@ end = struct
           (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-i" [ t ])
       )
     | B_or (a, b) ->
-      let subs = List.map Lit.atom [ a; b ] in
+      let subs = List.map (Lit.atom self.tst) [ a; b ] in
 
       if not @@ Lit.sign lit then
         (* propagate [¬sub_i \/ lit] *)
@@ -262,8 +262,8 @@ end = struct
         add_axiom c (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-e" [ t ])
       )
     | B_imply (a, b) ->
-      let a = Lit.atom a in
-      let b = Lit.atom b in
+      let a = Lit.atom self.tst a in
+      let b = Lit.atom self.tst b in
       if Lit.sign lit then (
         (* axiom [lit => a => b] *)
         let c = [ Lit.neg lit; Lit.neg a; b ] in
@@ -286,7 +286,7 @@ end = struct
       (* boolean ite:
          just add [a => (ite a b c <=> b)]
          and [¬a => (ite a b c <=> c)] *)
-      let lit_a = Lit.atom a in
+      let lit_a = Lit.atom self.tst a in
       add_axiom
         [ Lit.neg lit_a; Lit.make_eq self.tst t b ]
         (mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
@@ -294,20 +294,20 @@ end = struct
         [ Lit.neg lit; lit_a; Lit.make_eq self.tst t c ]
         (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t)
     | B_equiv (a, b) ->
-      let a = Lit.atom a in
-      let b = Lit.atom b in
+      let a = Lit.atom self.tst a in
+      let b = Lit.atom self.tst b in
       equiv_ ~is_xor:false a b
     | B_eq (a, b) when T.is_bool a ->
-      let a = Lit.atom a in
-      let b = Lit.atom b in
+      let a = Lit.atom self.tst a in
+      let b = Lit.atom self.tst b in
       equiv_ ~is_xor:false a b
     | B_xor (a, b) ->
-      let a = Lit.atom a in
-      let b = Lit.atom b in
+      let a = Lit.atom self.tst a in
+      let b = Lit.atom self.tst b in
       equiv_ ~is_xor:true a b
     | B_neq (a, b) when T.is_bool a ->
-      let a = Lit.atom a in
-      let b = Lit.atom b in
+      let a = Lit.atom self.tst a in
+      let b = Lit.atom self.tst b in
       equiv_ ~is_xor:true a b
     | B_eq _ | B_neq _ -> ()
 

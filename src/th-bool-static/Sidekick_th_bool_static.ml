@@ -51,7 +51,7 @@ end = struct
       add_step_ @@ mk_step_
       @@ fun () ->
       Proof_core.lemma_rw_clause c0 ~using
-        ~res:[ Lit.atom (A.mk_bool tst (B_eq (a, b))) ]
+        ~res:[ Lit.atom tst (A.mk_bool tst (B_eq (a, b))) ]
     in
 
     let[@inline] ret u =

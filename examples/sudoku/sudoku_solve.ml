@@ -174,7 +174,7 @@ end = struct
     @@ Const.make (Cell_is { x; y; value }) ops ~ty:(Term.bool tst)
 
   let mk_cell_lit ?sign tst x y value : Lit.t =
-    Lit.atom ?sign @@ mk_cell tst x y value
+    Lit.atom ?sign tst @@ mk_cell tst x y value
 
   module Theory : sig
     type t

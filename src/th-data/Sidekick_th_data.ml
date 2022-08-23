@@ -354,7 +354,7 @@ end = struct
           let pr_isa =
             Proof_trace.add_step self.proof @@ fun () ->
             Proof_rules.lemma_isa_split t
-              [ Lit.atom (A.mk_is_a self.tst cstor t) ]
+              [ Lit.atom self.tst (A.mk_is_a self.tst cstor t) ]
           and pr_eq_sel =
             Proof_trace.add_step self.proof @@ fun () ->
             Proof_rules.lemma_select_cstor ~cstor_t:u t

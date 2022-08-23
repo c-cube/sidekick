@@ -127,7 +127,7 @@ let delayed_add_clause (self : t) ~keep (c : Lit.t list) (pr : step_id) : unit =
 let preprocess_term_ (self : t) (t0 : term) : unit =
   let module A = struct
     let proof = self.proof
-    let mk_lit ?sign t : Lit.t = Lit.atom ?sign t
+    let mk_lit ?sign t : Lit.t = Lit.atom ?sign self.tst t
     let add_lit ?default_pol lit : unit = delayed_add_lit self ?default_pol lit
     let add_clause c pr : unit = delayed_add_clause self ~keep:true c pr
   end in
@@ -151,7 +151,7 @@ let preprocess_term_ (self : t) (t0 : term) : unit =
               t);
 
         (* make a literal *)
-        let lit = Lit.atom t in
+        let lit = Lit.atom self.tst t in
         (* ensure that SAT solver has a boolean atom for [u] *)
         delayed_add_lit self lit;
 
@@ -179,7 +179,7 @@ let simplify_and_preproc_lit (self : t) (lit : Lit.t) : Lit.t * step_id option =
       u, Some pr_t_u
   in
   preprocess_term_ self u;
-  Lit.atom ~sign u, pr
+  Lit.atom ~sign self.tst u, pr
 
 let push_decision (self : t) (acts : theory_actions) (lit : lit) : unit =
   let (module A) = acts in
@@ -275,13 +275,13 @@ let[@inline] add_clause_permanent self _acts c (proof : step_id) : unit =
   let c, proof = preprocess_clause self c proof in
   delayed_add_clause self ~keep:true c proof
 
-let[@inline] mk_lit _ ?sign t : lit = Lit.atom ?sign t
+let[@inline] mk_lit self ?sign t : lit = Lit.atom ?sign self.tst t
 
 let[@inline] add_lit self _acts ?default_pol lit =
   delayed_add_lit self ?default_pol lit
 
 let add_lit_t self _acts ?sign t =
-  let lit = Lit.atom ?sign t in
+  let lit = Lit.atom ?sign self.tst t in
   let lit, _ = simplify_and_preproc_lit self lit in
   delayed_add_lit self lit
 
@@ -506,7 +506,7 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
           semantic
           |> List.rev_map (fun (sign, t, u) ->
                  let eqn = Term.eq self.tst t u in
-                 let lit = Lit.atom ~sign:(not sign) eqn in
+                 let lit = Lit.atom ~sign:(not sign) self.tst eqn in
                  (* make sure to consider the new lit *)
                  add_lit self acts lit;
                  lit)

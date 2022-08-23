@@ -181,7 +181,7 @@ end = struct
 
   let make tst i : Lit.t =
     let t = Term.const tst @@ Const.make (I (abs i)) ops ~ty:(Term.bool tst) in
-    Lit.atom ~sign:(i > 0) t
+    Lit.atom ~sign:(i > 0) tst t
 end
 
 module SAT = Sidekick_sat

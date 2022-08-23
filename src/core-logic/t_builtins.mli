@@ -24,12 +24,12 @@ val ite : store -> t -> t -> t -> t
 val is_eq : t -> bool
 val is_bool : t -> bool
 
-val abs : t -> bool * t
+val abs : store -> t -> bool * t
 (** [abs t] returns an "absolute value" for the term, along with the
-      sign of [t].
+    sign of [t].
 
-      The idea is that we want to turn [not a] into [(false, a)],
-      or [(a != b)] into [(false, a=b)]. For terms without a negation this
-      should return [(true, t)]. *)
+    The idea is that we want to turn [not a] into [(false, a)],
+    or [(a != b)] into [(false, a=b)]. For terms without a negation this
+    should return [(true, t)]. *)
 
 val as_bool_val : t -> bool option

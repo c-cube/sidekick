@@ -101,11 +101,12 @@ let is_eq t =
   | E_const { c_view = C_eq; _ } -> true
   | _ -> false
 
-let rec abs t =
+let rec abs tst t =
   match view t with
   | E_app ({ view = E_const { c_view = C_not; _ }; _ }, u) ->
-    let sign, v = abs u in
+    let sign, v = abs tst u in
     Stdlib.not sign, v
+  | E_const { c_view = C_false; _ } -> false, true_ tst
   | _ -> true, t
 
 let as_bool_val t =
