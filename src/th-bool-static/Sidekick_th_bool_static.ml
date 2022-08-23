@@ -38,6 +38,22 @@ end = struct
     | Some false -> true
     | _ -> false
 
+  let unfold_and t : T.Set.t =
+    let rec aux acc t =
+      match A.view_as_bool t with
+      | B_and l -> List.fold_left aux acc l
+      | _ -> T.Set.add t acc
+    in
+    aux T.Set.empty t
+
+  let unfold_or t : T.Set.t =
+    let rec aux acc t =
+      match A.view_as_bool t with
+      | B_or l -> List.fold_left aux acc l
+      | _ -> T.Set.add t acc
+    in
+    aux T.Set.empty t
+
   let simplify (self : state) (simp : Simplify.t) (t : T.t) :
       (T.t * Proof_step.id Iter.t) option =
     let tst = self.tst in
@@ -71,20 +87,32 @@ end = struct
     | B_not u when is_false u -> ret_bequiv t (T.true_ tst)
     | B_not _ -> None
     | B_atom _ -> None
-    | B_and (a, b) ->
-      if is_false a || is_false b then
+    | B_and _ ->
+      let set = unfold_and t in
+      if T.Set.exists is_false set then
         ret (T.false_ tst)
-      else if is_true a && is_true b then
+      else if T.Set.for_all is_true set then
         ret (T.true_ tst)
-      else
-        None
-    | B_or (a, b) ->
-      if is_true a || is_true b then
+      else (
+        let t' = A.mk_bool tst (B_and (T.Set.to_list set)) in
+        if not (T.equal t t') then
+          ret_bequiv t t'
+        else
+          None
+      )
+    | B_or _ ->
+      let set = unfold_or t in
+      if T.Set.exists is_true set then
         ret (T.true_ tst)
-      else if is_false a && is_false b then
+      else if T.Set.for_all is_false set then
         ret (T.false_ tst)
-      else
-        None
+      else (
+        let t' = A.mk_bool tst (B_or (T.Set.to_list set)) in
+        if not (T.equal t t') then
+          ret_bequiv t t'
+        else
+          None
+      )
     | B_imply (a, b) ->
       if is_false a || is_true b then
         ret (T.true_ tst)
@@ -185,13 +213,12 @@ end = struct
           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i-" [ t ])
     in
 
-    (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
     (match A.view_as_bool t with
     | B_bool _ -> ()
     | B_not _ -> ()
-    | B_and (a, b) ->
+    | B_and l ->
       let lit = PA.mk_lit t in
-      let subs = List.map PA.mk_lit [ a; b ] in
+      let subs = List.map PA.mk_lit l in
 
       (* add clauses *)
       List.iter
@@ -207,8 +234,8 @@ end = struct
       PA.add_clause
         (lit :: List.map Lit.neg subs)
         (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-i" [ t ])
-    | B_or (a, b) ->
-      let subs = List.map PA.mk_lit [ a; b ] in
+    | B_or l ->
+      let subs = List.map PA.mk_lit l in
       let lit = PA.mk_lit t in
 
       (* add clauses *)

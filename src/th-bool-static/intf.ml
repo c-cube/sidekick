@@ -9,8 +9,8 @@ type ty = Term.t
 type 'a bool_view = 'a Bool_view.t =
   | B_bool of bool
   | B_not of 'a
-  | B_and of 'a * 'a
-  | B_or of 'a * 'a
+  | B_and of 'a list
+  | B_or of 'a list
   | B_imply of 'a * 'a
   | B_equiv of 'a * 'a
   | B_xor of 'a * 'a
