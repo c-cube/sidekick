@@ -8,8 +8,8 @@ type term = Term.t
 type 'a view = 'a Sidekick_core.Bool_view.t =
   | B_bool of bool
   | B_not of 'a
-  | B_and of 'a * 'a
-  | B_or of 'a * 'a
+  | B_and of 'a list
+  | B_or of 'a list
   | B_imply of 'a * 'a
   | B_equiv of 'a * 'a
   | B_xor of 'a * 'a
@@ -18,22 +18,31 @@ type 'a view = 'a Sidekick_core.Bool_view.t =
   | B_ite of 'a * 'a * 'a
   | B_atom of 'a
 
-(* ### allocate special IDs for connectors *)
+type Const.view += C_and | C_or | C_imply
 
-let id_and = ID.make "and"
-let id_or = ID.make "or"
-let id_imply = ID.make "=>"
+let ops : Const.ops =
+  (module struct
+    let pp out = function
+      | C_and -> Fmt.string out "and"
+      | C_or -> Fmt.string out "or"
+      | C_imply -> Fmt.string out "=>"
+      | _ -> assert false
+
+    let equal a b =
+      match a, b with
+      | C_and, C_and | C_or, C_or | C_imply, C_imply -> true
+      | _ -> false
+
+    let hash = function
+      | C_and -> Hash.int 425
+      | C_or -> Hash.int 426
+      | C_imply -> Hash.int 427
+      | _ -> assert false
+  end)
 
 (* ### view *)
 
 exception Not_a_th_term
-
-let view_id_ fid args =
-  match args with
-  | [ a; b ] when ID.equal fid id_and -> B_and (a, b)
-  | [ a; b ] when ID.equal fid id_or -> B_or (a, b)
-  | [ a; b ] when ID.equal fid id_imply -> B_imply (a, b)
-  | _ -> raise_notrace Not_a_th_term
 
 let view (t : T.t) : T.t view =
   let hd, args = T.unfold_app t in
@@ -41,28 +50,45 @@ let view (t : T.t) : T.t view =
   | E_const { Const.c_view = T.C_true; _ }, [] -> B_bool true
   | E_const { Const.c_view = T.C_false; _ }, [] -> B_bool false
   | E_const { Const.c_view = T.C_not; _ }, [ a ] -> B_not a
-  | E_const { Const.c_view = T.C_eq; _ }, [ _ty; a; b ] -> B_eq (a, b)
+  | E_const { Const.c_view = T.C_eq; _ }, [ _ty; a; b ] ->
+    if Ty.is_bool a then
+      B_equiv (a, b)
+    else
+      B_eq (a, b)
   | E_const { Const.c_view = T.C_ite; _ }, [ _ty; a; b; c ] -> B_ite (a, b, c)
-  | E_const { Const.c_view = Uconst.Uconst { uc_id; _ }; _ }, _ ->
-    (try view_id_ uc_id args with Not_a_th_term -> B_atom t)
+  | E_app_uncurried { c = { Const.c_view = C_and; _ }; args; _ }, _ ->
+    B_and args
+  | E_app_uncurried { c = { Const.c_view = C_or; _ }; args; _ }, _ -> B_or args
+  | E_app_uncurried { c = { Const.c_view = C_imply; _ }; args = [ a; b ]; _ }, _
+    ->
+    B_imply (a, b)
   | _ -> B_atom t
 
-let c_and tst : Term.t =
+let ty2b_ tst =
   let bool = Term.bool tst in
-  Uconst.uconst_of_id' tst id_and [ bool; bool ] bool
+  Term.arrow_l tst [ bool; bool ] bool
 
-let c_or tst : Term.t =
-  let bool = Term.bool tst in
-  Uconst.uconst_of_id' tst id_or [ bool; bool ] bool
+let c_and tst : Const.t = Const.make C_and ops ~ty:(ty2b_ tst)
+let c_or tst : Const.t = Const.make C_or ops ~ty:(ty2b_ tst)
+let c_imply tst : Const.t = Const.make C_imply ops ~ty:(ty2b_ tst)
 
-let c_imply tst : Term.t =
-  let bool = Term.bool tst in
-  Uconst.uconst_of_id' tst id_imply [ bool; bool ] bool
+let and_l tst = function
+  | [] -> T.true_ tst
+  | [ x ] -> x
+  | l -> Term.app_uncurried tst (c_and tst) l ~ty:(Term.bool tst)
+
+let or_l tst = function
+  | [] -> T.false_ tst
+  | [ x ] -> x
+  | l -> Term.app_uncurried tst (c_or tst) l ~ty:(Term.bool tst)
 
 let bool = Term.bool_val
-let and_ tst a b = Term.app_l tst (c_and tst) [ a; b ]
-let or_ tst a b = Term.app_l tst (c_or tst) [ a; b ]
-let imply tst a b = Term.app_l tst (c_imply tst) [ a; b ]
+let and_ tst a b = and_l tst [ a; b ]
+let or_ tst a b = or_l tst [ a; b ]
+
+let imply tst a b : Term.t =
+  Term.app_uncurried tst (c_imply tst) [ a; b ] ~ty:(Term.bool tst)
+
 let eq = T.eq
 let not_ = T.not
 let ite = T.ite
@@ -76,16 +102,6 @@ let equiv tst a b =
 
 let xor tst a b = not_ tst (equiv tst a b)
 
-let and_l tst = function
-  | [] -> T.true_ tst
-  | [ x ] -> x
-  | x :: tl -> List.fold_left (and_ tst) x tl
-
-let or_l tst = function
-  | [] -> T.false_ tst
-  | [ x ] -> x
-  | x :: tl -> List.fold_left (or_ tst) x tl
-
 let distinct_l tst l =
   match l with
   | [] | [ _ ] -> T.true_ tst
@@ -97,8 +113,8 @@ let distinct_l tst l =
 let mk_of_view tst = function
   | B_bool b -> T.bool_val tst b
   | B_atom t -> t
-  | B_and (a, b) -> and_ tst a b
-  | B_or (a, b) -> or_ tst a b
+  | B_and l -> and_l tst l
+  | B_or l -> or_l tst l
   | B_imply (a, b) -> imply tst a b
   | B_ite (a, b, c) -> ite tst a b c
   | B_equiv (a, b) -> equiv tst a b

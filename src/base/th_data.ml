@@ -32,7 +32,9 @@ let arg =
           Ty_data { cstors }
         | None, E_app (a, b) -> Ty_other { sub = [ a; b ] }
         | None, E_pi (_, a, b) -> Ty_other { sub = [ a; b ] }
-        | None, (E_const _ | E_var _ | E_type _ | E_bound_var _ | E_lam _) ->
+        | ( None,
+            ( E_const _ | E_var _ | E_type _ | E_bound_var _ | E_lam _
+            | E_app_uncurried _ ) ) ->
           Ty_other { sub = [] }
       )
 
@@ -67,7 +69,7 @@ let arg =
     let rec ty_is_finite ty =
       match Term.view ty with
       | E_const { Const.c_view = Uconst.Uconst _; _ } -> true
-      | E_const { Const.c_view = Data_ty.Data d; _ } -> true (* TODO: ?? *)
+      | E_const { Const.c_view = Data_ty.Data _d; _ } -> true (* TODO: ?? *)
       | E_pi (_, a, b) -> ty_is_finite a && ty_is_finite b
       | _ -> true
 
