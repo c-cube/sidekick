@@ -68,9 +68,28 @@ let c_not store =
   let ty = arrow store b b in
   const store @@ Const.make C_not ops ~ty
 
-let eq store a b = app_l store (c_eq store) [ ty a; a; b ]
+let eq store a b =
+  if equal a b then
+    true_ store
+  else (
+    let a, b =
+      if compare a b <= 0 then
+        a, b
+      else
+        b, a
+    in
+    app_l store (c_eq store) [ ty a; a; b ]
+  )
+
 let ite store a b c = app_l store (c_ite store) [ ty b; a; b; c ]
-let not store a = app store (c_not store) a
+
+let not store a =
+  (* turn [not (not u)] into [u] *)
+  match view a with
+  | E_app ({ view = E_const { c_view = C_not; _ }; _ }, u) -> u
+  | E_const { c_view = C_true; _ } -> false_ store
+  | E_const { c_view = C_false; _ } -> true_ store
+  | _ -> app store (c_not store) a
 
 let is_bool t =
   match view t with
