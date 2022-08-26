@@ -8,6 +8,7 @@
 
 module Sigs = Sigs
 module Model = Model
+module Model_builder = Model_builder
 module Registry = Registry
 module Solver_internal = Solver_internal
 module Solver = Solver

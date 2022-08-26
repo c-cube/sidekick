@@ -664,15 +664,14 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     ()
 
   (* help generating model *)
-  let model_ask_ (self : state) ~recurse:_ _si n : _ option =
-    let t = E_node.term n in
+  let model_ask_ (self : state) _si _model (t : Term.t) : _ option =
     match self.last_res with
     | Some (SimpSolver.Sat m) ->
       Log.debugf 50 (fun k -> k "(@[lra.model-ask@ %a@])" Term.pp_debug t);
       (match A.view_as_lra t with
       | LRA_const n -> Some n (* always eval constants to themselves *)
       | _ -> SimpSolver.V_map.get t m)
-      |> Option.map (t_const self)
+      |> Option.map (fun t -> t_const self t, [])
     | _ -> None
 
   (* help generating model *)

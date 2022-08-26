@@ -63,9 +63,9 @@ type t = {
 and preprocess_hook = t -> preprocess_actions -> term -> unit
 
 and model_ask_hook =
-  recurse:(t -> E_node.t -> term) -> t -> E_node.t -> term option
+  t -> Model_builder.t -> Term.t -> (value * Term.t list) option
 
-and model_completion_hook = t -> add:(term -> term -> unit) -> unit
+and model_completion_hook = t -> add:(term -> value -> unit) -> unit
 
 type solver = t
 
@@ -330,90 +330,70 @@ let rec pop_lvls_theories_ n = function
 
 (* make model from the congruence closure *)
 let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
+  let@ () = Profile.with_ "smt-solver.mk-model" in
   Log.debug 1 "(smt.solver.mk-model)";
-  Profile.with_ "smt-solver.mk-model" @@ fun () ->
-  let module M = Term.Tbl in
+  let module MB = Model_builder in
   let { cc; tst; model_ask = model_ask_hooks; model_complete; _ } = self in
 
-  let model = M.create 128 in
+  let model = Model_builder.create tst in
 
   (* first, add all literals to the model using the given propositional model
-     [lits]. *)
+     induced by the trail [lits]. *)
   lits (fun lit ->
       let t, sign = Lit.signed_term lit in
-      M.replace model t (Term.bool_val tst sign));
+      MB.add model t (Term.bool_val tst sign));
 
-  (* populate with information from the CC *)
-  (* FIXME
-     CC.get_model_for_each_class cc (fun (_, ts, v) ->
-         Iter.iter
-           (fun n ->
-             let t = E_node.term n in
-             M.replace model t v)
-           ts);
-  *)
-
-  (* complete model with theory specific values *)
+  (* complete model with theory specific values using the completion hooks.
+     This generally adds values that theories already explicitly have
+     computed in their theory-specific models, e.g. in the simplexe. *)
   let complete_with f =
-    f self ~add:(fun t u ->
-        if not (M.mem model t) then (
+    f self ~add:(fun t v ->
+        if not (MB.mem model t) then (
           Log.debugf 20 (fun k ->
-              k "(@[smt.model-complete@ %a@ :with-val %a@])" Term.pp_debug t
-                Term.pp_debug u);
-          M.replace model t u
+              k "(@[smt.model-complete@ %a@ :with-val %a@])" Term.pp t Term.pp v);
+          MB.add model t v
         ))
   in
   List.iter complete_with model_complete;
 
-  (* compute a value for [n]. *)
-  let rec val_for_class (n : E_node.t) : term =
-    Log.debugf 5 (fun k -> k "val-for-term %a" E_node.pp n);
-    let repr = CC.find cc n in
-    Log.debugf 5 (fun k -> k "val-for-term.repr %a" E_node.pp repr);
+  (* require a value for each class that doesn't already have one *)
+  CC.all_classes cc (fun repr ->
+      let t = E_node.term repr in
+      MB.require_eval model t);
 
-    (* see if a value is found already (always the case if it's a boolean) *)
-    match M.get model (E_node.term repr) with
-    | Some t_val ->
-      Log.debugf 5 (fun k -> k "cached val is %a" Term.pp_debug t_val);
-      t_val
-    | None ->
+  (* now for the fixpoint. This is typically where composite theories such
+     as arrays and datatypes contribute their skeleton values. *)
+  let rec compute_fixpoint () =
+    match MB.pop_required model with
+    | None -> ()
+    | Some t ->
+      (* compute a value for [t] *)
+      Log.debugf 5 (fun k ->
+          k "(@[model.fixpoint.compute-for-required@ %a@])" Term.pp t);
+
       (* try each model hook *)
       let rec try_hooks_ = function
-        | [] -> E_node.term repr
+        | [] ->
+          let c = MB.gensym model ~pre:"@c" ~ty:(Term.ty t) in
+          Log.debugf 10 (fun k ->
+              k "(@[model.fixpoint.pick-default-val@ %a@ :for %a@])" Term.pp c
+                Term.pp t);
+          MB.add model t c
         | h :: hooks ->
-          (match h ~recurse:(fun _ n -> val_for_class n) self repr with
+          (match h self model t with
           | None -> try_hooks_ hooks
-          | Some t -> t)
+          | Some (v, subs) ->
+            MB.add model ~subs t v;
+            ())
       in
 
-      let t_val =
-        try_hooks_ model_ask_hooks
-        (* FIXME: the more complete version?
-           match
-             (* look for a value in the model for any term in the class *)
-             E_node.iter_class repr
-             |> Iter.find_map (fun n -> M.get model (E_node.term n))
-           with
-           | Some v -> v
-           | None -> try_hooks_ model_ask_hooks
-        *)
-      in
-
-      M.replace model (E_node.term repr) t_val;
-      (* be sure to cache the value *)
-      Log.debugf 5 (fun k -> k "val is %a" Term.pp_debug t_val);
-      t_val
+      try_hooks_ model_ask_hooks;
+      (* continue to next value *)
+      (compute_fixpoint [@tailcall]) ()
   in
 
-  (* map terms of each CC class to the value computed for their class. *)
-  CC.all_classes cc (fun repr ->
-      let t_val = val_for_class repr in
-      (* value for this class *)
-      E_node.iter_class repr (fun u ->
-          let t_u = E_node.term u in
-          if (not (E_node.equal u repr)) && not (Term.equal t_u t_val) then
-            M.replace model t_u t_val));
-  Model.Internal_.of_tbl model
+  compute_fixpoint ();
+  MB.to_model model
 
 (* do theory combination using the congruence closure. Each theory
    can merge classes, *)

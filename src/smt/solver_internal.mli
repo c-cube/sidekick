@@ -234,20 +234,24 @@ val declare_pb_is_incomplete : t -> unit
 (** {3 Model production} *)
 
 type model_ask_hook =
-  recurse:(t -> E_node.t -> term) -> t -> E_node.t -> term option
+  t -> Model_builder.t -> Term.t -> (value * Term.t list) option
 (** A model-production hook to query values from a theory.
 
-      It takes the solver, a class, and returns
-      a term for this class. For example, an arithmetic theory
-      might detect that a class contains a numeric constant, and return
-      this constant as a model value.
+    It takes the solver, a class, and returns an optional value for this class
+    (potentially with sub-terms to find values for, if the value is actually a
+    skeleton).
 
-      If no hook assigns a value to a class, a fake value is created for it.
-  *)
+    For example, an arithmetic theory might detect that a class contains a
+    numeric constant, and return this constant as a model value. The theory
+    of arrays might return [array.const $v] for an array [Array A B],
+    where [$v] will be picked by the theory of the sort [B].
 
-type model_completion_hook = t -> add:(term -> term -> unit) -> unit
+    If no hook assigns a value to a class, a fake value is created for it.
+*)
+
+type model_completion_hook = t -> add:(term -> value -> unit) -> unit
 (** A model production hook, for the theory to add values.
-      The hook is given a [add] function to add bindings to the model. *)
+    The hook is given a [add] function to add bindings to the model. *)
 
 val on_model :
   ?ask:model_ask_hook -> ?complete:model_completion_hook -> t -> unit
