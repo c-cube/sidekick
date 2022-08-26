@@ -30,6 +30,7 @@ module Statement = Statement
 module Solver = Solver
 module Uconst = Uconst
 module Config = Config
+module LRA_term = LRA_term
 module Th_data = Th_data
 module Th_bool = Th_bool
 (* FIXME
