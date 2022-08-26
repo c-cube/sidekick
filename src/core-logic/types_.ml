@@ -16,7 +16,11 @@ type term_view =
   | E_bound_var of bvar
   | E_const of const
   | E_app of term * term
-  | E_app_uncurried of { c: const; ty: term; args: term list }
+  | E_app_fold of {
+      f: term;  (** function to fold *)
+      args: term list;  (** Arguments to the fold *)
+      acc0: term;  (** initial accumulator *)
+    }
   | E_lam of string * term * term
   | E_pi of string * term * term
 

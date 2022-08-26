@@ -10,7 +10,11 @@ type view = term_view =
   | E_bound_var of bvar
   | E_const of const
   | E_app of term * term
-  | E_app_uncurried of { c: const; ty: term; args: term list }
+  | E_app_fold of {
+      f: term;  (** function to fold *)
+      args: term list;  (** Arguments to the fold *)
+      acc0: term;  (** initial accumulator *)
+    }
   | E_lam of string * term * term
   | E_pi of string * term * term
 
@@ -75,9 +79,10 @@ let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
       Fmt.fprintf out "(@[\\_:@[%a@].@ %a@])" pp' _ty
         (loop (k + 1) ~depth:(depth + 1) ("" :: names))
         bod
-    | E_app_uncurried { c; args; ty = _ } ->
-      Fmt.fprintf out "(@[%a" Const.pp c;
+    | E_app_fold { f; args; acc0 } ->
+      Fmt.fprintf out "(@[%a" pp' f;
       List.iter (fun x -> Fmt.fprintf out "@ %a" pp' x) args;
+      Fmt.fprintf out "@ %a" pp' acc0;
       Fmt.fprintf out "@])"
     | E_lam (n, _ty, bod) ->
       Fmt.fprintf out "(@[\\%s:@[%a@].@ %a@])" n pp' _ty
@@ -128,14 +133,15 @@ module Hcons = Hashcons.Make (struct
     | E_var v1, E_var v2 -> Var.equal v1 v2
     | E_bound_var v1, E_bound_var v2 -> Bvar.equal v1 v2
     | E_app (f1, a1), E_app (f2, a2) -> equal f1 f2 && equal a1 a2
-    | E_app_uncurried a1, E_app_uncurried a2 ->
-      Const.equal a1.c a2.c && List.equal equal a1.args a2.args
+    | E_app_fold a1, E_app_fold a2 ->
+      equal a1.f a2.f && equal a1.acc0 a2.acc0
+      && List.equal equal a1.args a2.args
     | E_lam (_, ty1, bod1), E_lam (_, ty2, bod2) ->
       equal ty1 ty2 && equal bod1 bod2
     | E_pi (_, ty1, bod1), E_pi (_, ty2, bod2) ->
       equal ty1 ty2 && equal bod1 bod2
     | ( ( E_type _ | E_const _ | E_var _ | E_bound_var _ | E_app _
-        | E_app_uncurried _ | E_lam _ | E_pi _ ),
+        | E_app_fold _ | E_lam _ | E_pi _ ),
         _ ) ->
       false
 
@@ -146,8 +152,8 @@ module Hcons = Hashcons.Make (struct
     | E_var v -> H.combine2 30 (Var.hash v)
     | E_bound_var v -> H.combine2 40 (Bvar.hash v)
     | E_app (f, a) -> H.combine3 50 (hash f) (hash a)
-    | E_app_uncurried a ->
-      H.combine3 55 (Const.hash a.c) (Hash.list hash a.args)
+    | E_app_fold a ->
+      H.combine4 55 (hash a.f) (hash a.acc0) (Hash.list hash a.args)
     | E_lam (_, ty, bod) -> H.combine3 60 (hash ty) (hash bod)
     | E_pi (_, ty, bod) -> H.combine3 70 (hash ty) (hash bod)
 
@@ -189,8 +195,9 @@ let iter_shallow ~f (e : term) : unit =
     | E_app (hd, a) ->
       f false hd;
       f false a
-    | E_app_uncurried { ty; args; _ } ->
-      f false ty;
+    | E_app_fold { f = fold_f; args; acc0 } ->
+      f false fold_f;
+      f false acc0;
       List.iter (fun u -> f false u) args
     | E_lam (_, tyv, bod) | E_pi (_, tyv, bod) ->
       f false tyv;
@@ -218,13 +225,14 @@ let map_shallow_ ~make ~f (e : term) : term =
       e
     else
       make (E_app (f false hd, f false a))
-  | E_app_uncurried { args = l; c; ty } ->
+  | E_app_fold { f = fold_f; args = l; acc0 } ->
+    let fold_f' = f false fold_f in
     let l' = List.map (fun u -> f false u) l in
-    let ty' = f false ty in
-    if equal ty ty' && CCList.equal equal l l' then
+    let acc0' = f false acc0 in
+    if equal fold_f fold_f' && equal acc0 acc0' && CCList.equal equal l l' then
       e
     else
-      make (E_app_uncurried { c; ty = ty'; args = l' })
+      make (E_app_fold { f = fold_f'; args = l'; acc0 = acc0' })
   | E_lam (n, tyv, bod) ->
     let tyv' = f false tyv in
     let bod' = f true bod in
@@ -304,8 +312,9 @@ module Make_ = struct
         | E_type _ | E_const _ | E_var _ -> 0
         | E_bound_var v -> v.bv_idx + 1
         | E_app (a, b) -> max (db_depth a) (db_depth b)
-        | E_app_uncurried { args; _ } ->
-          List.fold_left (fun x u -> max x (db_depth u)) 0 args
+        | E_app_fold { f; acc0; args } ->
+          let m = max (db_depth f) (db_depth acc0) in
+          List.fold_left (fun x u -> max x (db_depth u)) m args
         | E_lam (_, ty, bod) | E_pi (_, ty, bod) ->
           max (db_depth ty) (max 0 (db_depth bod - 1))
       in
@@ -322,7 +331,8 @@ module Make_ = struct
       | E_var _ -> true
       | E_type _ | E_bound_var _ | E_const _ -> false
       | E_app (a, b) -> has_fvars a || has_fvars b
-      | E_app_uncurried { args; _ } -> List.exists has_fvars args
+      | E_app_fold { f; acc0; args } ->
+        has_fvars f || has_fvars acc0 || List.exists has_fvars args
       | E_lam (_, ty, bod) | E_pi (_, ty, bod) -> has_fvars ty || has_fvars bod
 
   let universe_ (e : term) : int =
@@ -450,7 +460,30 @@ module Make_ = struct
           "@[<2>cannot apply %a@ (to %a),@ must have Pi type, but actual type \
            is %a@]"
           pp_debug f pp_debug a pp_debug ty_f)
-    | E_app_uncurried { ty; _ } -> ty
+    | E_app_fold { args = []; _ } -> assert false
+    | E_app_fold { f; args = a0 :: other_args as args; acc0 } ->
+      Store.check_e_uid store f;
+      Store.check_e_uid store acc0;
+      List.iter (Store.check_e_uid store) args;
+      let ty_result = ty acc0 in
+      let ty_a0 = ty a0 in
+      (* check that all arguments have the same type *)
+      List.iter
+        (fun a' ->
+          let ty' = ty a' in
+          if not (equal ty_a0 ty') then
+            Error.errorf
+              "app_fold: arguments %a@ and %a@ have incompatible types" pp_debug
+              a0 pp_debug a')
+        other_args;
+      (* check that [f a0 acc0] has type [ty_result] *)
+      let app1 = make (E_app (make (E_app (f, a0)), acc0)) in
+      if not (equal (ty app1) ty_result) then
+        Error.errorf
+          "app_fold: single application `%a`@ has type `%a`,@ but should have \
+           type %a"
+          pp_debug app1 pp_debug (ty app1) pp_debug ty_result;
+      ty_result
     | E_pi (_, ty, bod) ->
       (* TODO: check the actual triplets for COC *)
       (*Fmt.printf "pi %a %a@." pp_debug ty pp_debug bod;*)
@@ -501,8 +534,10 @@ module Make_ = struct
   let app store f a = make_ store (E_app (f, a))
   let app_l store f l = List.fold_left (app store) f l
 
-  let app_uncurried store c args ~ty : t =
-    make_ store (E_app_uncurried { c; args; ty })
+  let app_fold store ~f ~acc0 args : t =
+    match args with
+    | [] -> acc0
+    | _ -> make_ store (E_app_fold { f; acc0; args })
 
   type cache = t T_int_tbl.t
 

@@ -56,12 +56,16 @@ let view (t : T.t) : T.t view =
     else
       B_eq (a, b)
   | E_const { Const.c_view = T.C_ite; _ }, [ _ty; a; b; c ] -> B_ite (a, b, c)
-  | E_app_uncurried { c = { Const.c_view = C_and; _ }; args; _ }, _ ->
-    B_and args
-  | E_app_uncurried { c = { Const.c_view = C_or; _ }; args; _ }, _ -> B_or args
-  | E_app_uncurried { c = { Const.c_view = C_imply; _ }; args = [ a; b ]; _ }, _
-    ->
-    B_imply (a, b)
+  | E_const { Const.c_view = C_imply; _ }, [ a; b ] -> B_imply (a, b)
+  | E_app_fold { f; args; acc0 }, [] ->
+    (match T.view f, T.view acc0 with
+    | ( E_const { Const.c_view = C_and; _ },
+        E_const { Const.c_view = T.C_true; _ } ) ->
+      B_and args
+    | ( E_const { Const.c_view = C_or; _ },
+        E_const { Const.c_view = T.C_false; _ } ) ->
+      B_or args
+    | _ -> B_atom t)
   | _ -> B_atom t
 
 let ty2b_ tst =
@@ -75,20 +79,19 @@ let c_imply tst : Const.t = Const.make C_imply ops ~ty:(ty2b_ tst)
 let and_l tst = function
   | [] -> T.true_ tst
   | [ x ] -> x
-  | l -> Term.app_uncurried tst (c_and tst) l ~ty:(Term.bool tst)
+  | l ->
+    Term.app_fold tst l ~f:(Term.const tst @@ c_and tst) ~acc0:(T.true_ tst)
 
 let or_l tst = function
   | [] -> T.false_ tst
   | [ x ] -> x
-  | l -> Term.app_uncurried tst (c_or tst) l ~ty:(Term.bool tst)
+  | l ->
+    Term.app_fold tst l ~f:(Term.const tst @@ c_or tst) ~acc0:(T.false_ tst)
 
 let bool = Term.bool_val
 let and_ tst a b = and_l tst [ a; b ]
 let or_ tst a b = or_l tst [ a; b ]
-
-let imply tst a b : Term.t =
-  Term.app_uncurried tst (c_imply tst) [ a; b ] ~ty:(Term.bool tst)
-
+let imply tst a b : Term.t = T.app_l tst (T.const tst @@ c_imply tst) [ a; b ]
 let eq = T.eq
 let not_ = T.not
 let ite = T.ite

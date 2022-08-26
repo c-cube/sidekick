@@ -32,7 +32,11 @@ type view = term_view =
   | E_bound_var of bvar
   | E_const of const
   | E_app of t * t
-  | E_app_uncurried of { c: const; ty: term; args: term list }
+  | E_app_fold of {
+      f: term;  (** function to fold *)
+      args: term list;  (** Arguments to the fold *)
+      acc0: term;  (** initial accumulator *)
+    }
   | E_lam of string * t * t
   | E_pi of string * t * t
 
@@ -118,7 +122,7 @@ val bvar_i : store -> int -> ty:t -> t
 val const : store -> const -> t
 val app : store -> t -> t -> t
 val app_l : store -> t -> t list -> t
-val app_uncurried : store -> const -> t list -> ty:t -> t
+val app_fold : store -> f:t -> acc0:t -> t list -> t
 val lam : store -> var -> t -> t
 val pi : store -> var -> t -> t
 val arrow : store -> t -> t -> t

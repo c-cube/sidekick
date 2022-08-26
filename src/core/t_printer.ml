@@ -49,9 +49,10 @@ let expr_pp_with_ ~max_depth ~hooks out (e : term) : unit =
       | E_app _ ->
         let f, args = unfold_app e in
         Fmt.fprintf out "(%a@ %a)" pp' f (Util.pp_list pp') args
-      | E_app_uncurried { c; args; ty = _ } ->
-        Fmt.fprintf out "(@[%a" Const.pp c;
+      | E_app_fold { f; args; acc0 } ->
+        Fmt.fprintf out "(@[%a" pp' f;
         List.iter (fun x -> Fmt.fprintf out "@ %a" pp' x) args;
+        Fmt.fprintf out "@ %a" pp' acc0;
         Fmt.fprintf out "@])"
       | E_lam ("", _ty, bod) ->
         Fmt.fprintf out "(@[\\_:@[%a@].@ %a@])" pp' _ty

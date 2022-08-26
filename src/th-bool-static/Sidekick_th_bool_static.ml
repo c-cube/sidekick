@@ -114,12 +114,9 @@ end = struct
           None
       )
     | B_imply (a, b) ->
-      if is_false a || is_true b then
-        ret (T.true_ tst)
-      else if is_true a && is_false b then
-        ret (T.false_ tst)
-      else
-        None
+      (* always rewrite [a => b] to [¬a \/ b] *)
+      let u = A.mk_bool tst (B_or [ T.not tst a; b ]) in
+      ret u
     | B_ite (a, b, c) ->
       (* directly simplify [a] so that maybe we never will simplify one
          of the branches *)

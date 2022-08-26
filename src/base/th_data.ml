@@ -34,7 +34,7 @@ let arg =
         | None, E_pi (_, a, b) -> Ty_other { sub = [ a; b ] }
         | ( None,
             ( E_const _ | E_var _ | E_type _ | E_bound_var _ | E_lam _
-            | E_app_uncurried _ ) ) ->
+            | E_app_fold _ ) ) ->
           Ty_other { sub = [] }
       )
 
