@@ -111,6 +111,7 @@ module Store : sig
   type t = store
 
   val create : ?size:int -> unit -> t
+  val size : t -> int
 end
 
 val type_ : store -> t

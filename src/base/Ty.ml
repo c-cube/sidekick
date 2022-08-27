@@ -59,6 +59,8 @@ let is_int t =
 let uninterpreted tst id : t =
   mk_ty0 tst (Ty_uninterpreted { id; finite = false })
 
+let uninterpreted_str tst s : t = uninterpreted tst (ID.make s)
+
 let is_uninterpreted (self : t) =
   match view self with
   | E_const { Const.c_view = Ty (Ty_uninterpreted _); _ } -> true

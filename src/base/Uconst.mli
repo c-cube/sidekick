@@ -18,6 +18,7 @@ val make : ID.t -> ty -> t
 val uconst : Term.store -> t -> Term.t
 val uconst_of_id : Term.store -> ID.t -> ty -> Term.t
 val uconst_of_id' : Term.store -> ID.t -> ty list -> ty -> Term.t
+val uconst_of_str : Term.store -> string -> ty list -> ty -> Term.t
 
 module Map : CCMap.S with type key = t
 module Tbl : CCHashtbl.S with type key = t

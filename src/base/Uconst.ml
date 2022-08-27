@@ -39,6 +39,9 @@ let uconst_of_id' tst id args ret =
   let ty = Term.arrow_l tst args ret in
   uconst_of_id tst id ty
 
+let uconst_of_str tst name args ret : term =
+  uconst_of_id' tst (ID.make name) args ret
+
 module As_key = struct
   type nonrec t = t
 

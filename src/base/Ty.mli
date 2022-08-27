@@ -13,6 +13,7 @@ val bool : store -> t
 val real : store -> t
 val int : store -> t
 val uninterpreted : store -> ID.t -> t
+val uninterpreted_str : store -> string -> t
 val is_uninterpreted : t -> bool
 val is_real : t -> bool
 val is_int : t -> bool

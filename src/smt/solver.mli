@@ -67,6 +67,18 @@ val create :
       @param theories theories to load from the start. Other theories
       can be added using {!add_theory}. *)
 
+val create_default :
+  ?stat:Stat.t ->
+  ?size:[ `Big | `Tiny | `Small ] ->
+  (* TODO? ?config:Config.t -> *)
+  proof:proof_trace ->
+  theories:Theory.t list ->
+  Term.store ->
+  unit ->
+  t
+(** Create a new solver with the default CC view, and where all boolean subterms
+    are mapped to boolean atoms. *)
+
 val add_theory : t -> Theory.t -> unit
 (** Add a theory to the solver. This should be called before
       any call to {!solve} or to {!add_clause} and the likes (otherwise

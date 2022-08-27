@@ -49,10 +49,20 @@ let pred tst p t1 t2 : term =
   let p = Term.const tst (Const.make (Pred p) ops ~ty) in
   Term.app_l tst p [ t1; t2 ]
 
+let leq tst a b = pred tst Pred.Leq a b
+let lt tst a b = pred tst Pred.Lt a b
+let geq tst a b = pred tst Pred.Geq a b
+let gt tst a b = pred tst Pred.Gt a b
+let eq tst a b = pred tst Pred.Eq a b
+let neq tst a b = pred tst Pred.Neq a b
+
 let op tst op t1 t2 : term =
   let ty = Term.(arrow_l tst [ real tst; real tst ] (real tst)) in
   let p = Term.const tst (Const.make (Op op) ops ~ty) in
   Term.app_l tst p [ t1; t2 ]
+
+let plus tst a b = op tst Op.Plus a b
+let minus tst a b = op tst Op.Minus a b
 
 let view (t : term) : _ View.t =
   let f, args = Term.unfold_app t in

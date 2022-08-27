@@ -116,6 +116,15 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
      (P.add_step self.proof @@ fun () -> Rule_.lemma_true t_true));
   self
 
+let default_arg =
+  (module struct
+    let view_as_cc = Default_cc_view.view_as_cc
+    let is_valid_literal _ = true
+  end : ARG)
+
+let create_default ?stat ?size ~proof ~theories tst () : t =
+  create default_arg ?stat ?size ~proof ~theories tst ()
+
 let[@inline] solver self = self.solver
 let[@inline] stats self = self.stat
 let[@inline] tst self = Solver_internal.tst self.si

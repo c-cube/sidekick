@@ -168,6 +168,7 @@ module Store = struct
 
   (* TODO: use atomic? CCAtomic? *)
   let n = ref 0
+  let size self = Hcons.size self.s_exprs
 
   let create ?(size = 256) () : t =
     (* store id, modulo 2^5 *)

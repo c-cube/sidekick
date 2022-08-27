@@ -40,6 +40,7 @@ val to_string_full : t -> string
 include Sidekick_sigs.EQ_ORD_HASH_PRINT with type t := t
 
 val pp_name : t CCFormat.printer
+val pp_full : t CCFormat.printer
 
 module Map : CCMap.S with type key = t
 module Set : CCSet.S with type elt = t

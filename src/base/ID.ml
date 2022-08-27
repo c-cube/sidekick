@@ -16,8 +16,9 @@ let to_string id = id.name
 let equal a b = a.id = b.id
 let compare a b = CCInt.compare a.id b.id
 let hash a = CCHash.int a.id
-let pp out a = Format.fprintf out "%s/%d" a.name a.id
+let pp_full out a = Format.fprintf out "%s/%d" a.name a.id
 let pp_name out a = CCFormat.string out a.name
+let pp = pp_name
 let to_string_full a = Printf.sprintf "%s/%d" a.name a.id
 
 module AsKey = struct
