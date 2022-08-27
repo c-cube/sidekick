@@ -1,13 +1,47 @@
 
 ## TODO
 
+### 2022-07-20
+
+- cc:
+  * fail on reentrant call (like concurrentModifExn in java)
+  * in events, provide an `EventAction.t` object rather than the CC;
+    it provides find,is_eq,explain_eq,etc. as well as modifications
+    that are pushed into the queue instead of done on the fly.
+
+    main thrust: plugins all observe the same immutable CC, their changes are
+    performed in batch afterwards
+  * egg: provide an extended CC plugin API instead (with enough hooks that
+    it can implement the recompute-if-children-changed thing + early exit
+    if data didn't change)
+  * egg: CC provides a associated data API; hide bitfields, just provide
+    a `make_sparse_data`
+    + `get: node -> data option`
+    + `set: node -> data -> unit` (delayed, use an action queue)
+    + automatic backtracking
+    ⇒ this should be enough to implement current plugins or even egg itself
+  * go beyond egg so that the merge `is-some(t) = true` can modify the class
+    of `t`
+  * use this to implement booleans! remove true/false custom code
+- cc proofs:
+  * do not ask for `proof_trace` or rules
+    + instead ask for a type of custom explanations (with pp)
+    + custom expls are used for both theory in-CC propagations, and
+      for model construction (semantic merges)
+  * provide own type of proofs, shaped as an indexed list of steps
+  * each step proves `t=u` from previous steps using a rule
+  * rules are Horn hyper-resolution, congruence, by-assertion(lit),
+    trans(list of steps), or custom(custom_expl)
+  * theory propagations are annotated with a custom expl and a (T-valid) horn clause
+    whose head is the propagated equation
+
+### old
+
 - self-contained proofs (add axioms and type declarations)
 
 - add Egg
   * use for existing theories (at least datatypes)
   * integrate proofs using cc-lemma (no resolution, no intermediate clause)
-
-- data oriented congruence closure (all based on VecI32.t)
 
 - new proofs:
   * simplify : use subproof (maybe not even there?)
