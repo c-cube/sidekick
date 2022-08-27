@@ -126,7 +126,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   type state = {
     tst: Term.store;
     proof: Proof_trace.t;
-    gensym: A.Gensym.t;
+    gensym: Gensym.t;
     in_model: unit Term.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit Term.Tbl.t;
     (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
@@ -140,6 +140,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     mutable encoded_le: Term.t Comb_map.t; (* [le] -> var encoding [le] *)
     simplex: SimpSolver.t;
     mutable last_res: SimpSolver.result option;
+    n_propagate: int Stat.counter;
+    n_conflict: int Stat.counter;
   }
 
   let create (si : SI.t) : state =
@@ -151,7 +153,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       proof;
       in_model = Term.Tbl.create 8;
       st_exprs = ST_exprs.create_and_setup (SI.cc si);
-      gensym = A.Gensym.create tst;
+      gensym = Gensym.create tst;
       simp_preds = Term.Tbl.create 32;
       simp_defined = Term.Tbl.create 16;
       encoded_eqs = Term.Tbl.create 8;
@@ -159,6 +161,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       encoded_le = Comb_map.empty;
       simplex = SimpSolver.create ~stat ();
       last_res = None;
+      n_propagate = Stat.mk_int stat "th.lra.propagate";
+      n_conflict = Stat.mk_int stat "th.lra.conflicts";
     }
 
   let[@inline] reset_res_ (self : state) : unit = self.last_res <- None
@@ -175,7 +179,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     SimpSolver.pop_levels self.simplex n;
     ()
 
-  let fresh_term self ~pre ty = A.Gensym.fresh_term self.gensym ~pre ty
+  let fresh_term self ~pre ty = Gensym.fresh_term self.gensym ~pre ty
 
   let fresh_lit (self : state) ~mk_lit ~pre : Lit.t =
     let t = fresh_term ~pre self (Term.bool self.tst) in
@@ -239,7 +243,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       | x -> x (* already encoded that *)
       | exception Not_found ->
         (* new variable to represent [le_comb] *)
-        let proxy = fresh_term self ~pre (A.ty_lra self.tst) in
+        let proxy = fresh_term self ~pre (A.ty_real self.tst) in
         (* TODO: define proxy *)
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
         Log.debugf 50 (fun k ->
@@ -251,7 +255,9 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         proxy)
 
   let add_clause_lra_ ?using (module PA : SI.PREPROCESS_ACTS) lits =
-    let pr = Proof_trace.add_step PA.proof @@ fun () -> A.lemma_lra lits in
+    let pr =
+      Proof_trace.add_step PA.proof @@ fun () -> Proof_rules.lemma_lra lits
+    in
     let pr =
       match using with
       | None -> pr
@@ -281,7 +287,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       (match Comb_map.get le_comb self.encoded_le with
       | Some x -> x, A.Q.one (* already encoded that *)
       | None ->
-        let proxy = fresh_term self ~pre:"_le_comb" (A.ty_lra self.tst) in
+        let proxy = fresh_term self ~pre:"_le_comb" (A.ty_real self.tst) in
 
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
         LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
@@ -400,11 +406,11 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       (Term.t * Proof_step.id Iter.t) option =
     let proof_eq t u =
       Proof_trace.add_step self.proof @@ fun () ->
-      A.lemma_lra [ Lit.atom self.tst (Term.eq self.tst t u) ]
+      Proof_rules.lemma_lra [ Lit.atom self.tst (Term.eq self.tst t u) ]
     in
     let proof_bool t ~sign:b =
       let lit = Lit.atom ~sign:b self.tst t in
-      Proof_trace.add_step self.proof @@ fun () -> A.lemma_lra [ lit ]
+      Proof_trace.add_step self.proof @@ fun () -> Proof_rules.lemma_lra [ lit ]
     in
 
     match A.view_as_lra t with
@@ -462,7 +468,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     | _ -> None
 
   (* raise conflict from certificate *)
-  let fail_with_cert si acts cert : 'a =
+  let fail_with_cert (self : state) si acts cert : 'a =
     Profile.with1 "lra.simplex.check-cert" SimpSolver._check_cert cert;
     let confl =
       SimpSolver.Unsat_cert.lits cert
@@ -470,19 +476,22 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       |> List.rev_map Lit.neg
     in
     let pr =
-      Proof_trace.add_step (SI.proof si) @@ fun () -> A.lemma_lra confl
+      Proof_trace.add_step (SI.proof si) @@ fun () ->
+      Proof_rules.lemma_lra confl
     in
+    Stat.incr self.n_conflict;
     SI.raise_conflict si acts confl pr
 
-  let on_propagate_ si acts lit ~reason =
+  let on_propagate_ self si acts lit ~reason =
     match lit with
     | Tag.Lit lit ->
       (* TODO: more detailed proof certificate *)
+      Stat.incr self.n_propagate;
       SI.propagate si acts lit ~reason:(fun () ->
           let lits = CCList.flat_map (Tag.to_lits si) reason in
           let pr =
             Proof_trace.add_step (SI.proof si) @@ fun () ->
-            A.lemma_lra (lit :: lits)
+            Proof_rules.lemma_lra (lit :: lits)
           in
           CCList.flat_map (Tag.to_lits si) reason, pr)
     | _ -> ()
@@ -495,7 +504,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
           (SimpSolver.n_rows self.simplex));
     let res =
       Profile.with_ "lra.simplex.solve" @@ fun () ->
-      SimpSolver.check self.simplex ~on_propagate:(on_propagate_ si acts)
+      SimpSolver.check self.simplex ~on_propagate:(on_propagate_ self si acts)
     in
     Log.debug 5 "(lra.check-simplex.done)";
     self.last_res <- Some res;
@@ -504,7 +513,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     | SimpSolver.Unsat cert ->
       Log.debugf 10 (fun k ->
           k "(@[lra.check.unsat@ :cert %a@])" SimpSolver.Unsat_cert.pp cert);
-      fail_with_cert si acts cert
+      fail_with_cert self si acts cert
 
   (* TODO: trivial propagations *)
 
@@ -528,7 +537,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         (* [c=0] when [c] is not 0 *)
         let lit = Lit.atom ~sign:false self.tst @@ Term.eq self.tst t1 t2 in
         let pr =
-          Proof_trace.add_step self.proof @@ fun () -> A.lemma_lra [ lit ]
+          Proof_trace.add_step self.proof @@ fun () ->
+          Proof_rules.lemma_lra [ lit ]
         in
         SI.add_clause_permanent si acts [ lit ] pr
       )
@@ -537,11 +547,11 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       try
         let c1 = SimpSolver.Constraint.geq v le_const in
         SimpSolver.add_constraint self.simplex c1 tag
-          ~on_propagate:(on_propagate_ si acts);
+          ~on_propagate:(on_propagate_ self si acts);
         let c2 = SimpSolver.Constraint.leq v le_const in
         SimpSolver.add_constraint self.simplex c2 tag
-          ~on_propagate:(on_propagate_ si acts)
-      with SimpSolver.E_unsat cert -> fail_with_cert si acts cert
+          ~on_propagate:(on_propagate_ self si acts)
+      with SimpSolver.E_unsat cert -> fail_with_cert self si acts cert
     )
 
   let add_local_eq (self : state) si acts n1 n2 : unit =
@@ -627,12 +637,12 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         (try
            SimpSolver.add_var self.simplex v;
            SimpSolver.add_constraint self.simplex constr (Tag.Lit lit)
-             ~on_propagate:(on_propagate_ si acts)
+             ~on_propagate:(on_propagate_ self si acts)
          with SimpSolver.E_unsat cert ->
            Log.debugf 10 (fun k ->
                k "(@[lra.partial-check.unsat@ :cert %a@])"
                  SimpSolver.Unsat_cert.pp cert);
-           fail_with_cert si acts cert)
+           fail_with_cert self si acts cert)
       | None, LRA_pred (Eq, t1, t2) when sign ->
         add_local_eq_t self si acts t1 t2 ~tag:(Tag.Lit lit)
       | None, LRA_pred (Neq, t1, t2) when not sign ->

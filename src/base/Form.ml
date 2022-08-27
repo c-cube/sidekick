@@ -1,8 +1,6 @@
-open Types_
 open Sidekick_core
 module T = Term
 
-type ty = Term.t
 type term = Term.t
 
 type 'a view = 'a Sidekick_core.Bool_view.t =
@@ -41,8 +39,6 @@ let ops : Const.ops =
   end)
 
 (* ### view *)
-
-exception Not_a_th_term
 
 let view (t : T.t) : T.t view =
   let hd, args = T.unfold_app t in

@@ -33,35 +33,11 @@ module Config = Config
 module LRA_term = LRA_term
 module Th_data = Th_data
 module Th_bool = Th_bool
-(* FIXME
-   module Th_lra = Th_lra
-*)
+module Th_lra = Th_lra
 
 let k_th_bool_config = Th_bool.k_config
 let th_bool = Th_bool.theory
 let th_bool_dyn : Solver.theory = Th_bool.theory_dyn
 let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
-
-(* FIXME
-   let th_lra : Solver.theory = Th_lra.theory
-*)
-
-(* TODO
-
-   module Value = Value
-   module Statement = Statement
-   module Data = Data
-   module Select = Select
-
-      module LRA_view = Types_.LRA_view
-      module LRA_pred = Base_types.LRA_pred
-      module LRA_op = Base_types.LRA_op
-      module LIA_view = Base_types.LIA_view
-      module LIA_pred = Base_types.LIA_pred
-      module LIA_op = Base_types.LIA_op
-*)
-
-(*
-module Proof_quip = Proof_quip
-*)
+let th_lra : Solver.theory = Th_lra.theory

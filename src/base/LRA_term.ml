@@ -34,6 +34,7 @@ let ops : Const.ops =
   end)
 
 let real tst = Ty.real tst
+let has_ty_real t = Ty.is_real (T.ty t)
 
 let const tst q : term =
   Term.const tst (Const.make (Const q) ops ~ty:(real tst))
@@ -56,8 +57,17 @@ let op tst op t1 t2 : term =
 let view (t : term) : _ View.t =
   let f, args = Term.unfold_app t in
   match T.view f, args with
+  | T.E_const { Const.c_view = T.C_eq; _ }, [ _; a; b ] when has_ty_real a ->
+    View.LRA_pred (Pred.Eq, a, b)
   | T.E_const { Const.c_view = Const q; _ }, [] -> View.LRA_const q
   | T.E_const { Const.c_view = Pred p; _ }, [ a; b ] -> View.LRA_pred (p, a, b)
   | T.E_const { Const.c_view = Op op; _ }, [ a; b ] -> View.LRA_op (op, a, b)
   | T.E_const { Const.c_view = Mult_by q; _ }, [ a ] -> View.LRA_mult (q, a)
   | _ -> View.LRA_other t
+
+let term_of_view store = function
+  | View.LRA_const q -> const store q
+  | View.LRA_mult (n, t) -> mult_by store n t
+  | View.LRA_pred (p, a, b) -> pred store p a b
+  | View.LRA_op (o, a, b) -> op store o a b
+  | View.LRA_other x -> x

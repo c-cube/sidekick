@@ -7,9 +7,7 @@ val th_bool_dyn : Solver.theory
 val th_bool_static : Solver.theory
 val th_bool : Config.t -> Solver.theory
 val th_data : Solver.theory
-(* FIXME
-   val th_lra : Solver.theory
-*)
+val th_lra : Solver.theory
 
 type 'a or_error = ('a, string) CCResult.t
 

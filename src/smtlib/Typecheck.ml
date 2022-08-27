@@ -113,59 +113,84 @@ let string_as_q (s : string) : Q.t option =
     Some x
   with _ -> None
 
-(* TODO
-   let t_as_q t =
-     match Term.view t with
-     | T.LRA (Const n) -> Some n
-     | T.LIA (Const n) -> Some (Q.of_bigint n)
-     | _ -> None
+let t_as_q t =
+  match LRA_term.view t with
+  | LRA_term.View.LRA_const n -> Some n
+  (*
+   | T.LIA (Const n) -> Some (Q.of_bigint n)
+   *)
+  | _ -> None
 
+(* TODO
    let t_as_z t =
      match Term.view t with
      | T.LIA (Const n) -> Some n
      | _ -> None
+*)
 
-   let is_real = Ty.is_real
+let is_real = Ty.is_real
 
-   (* convert [t] to a real term *)
-   let cast_to_real (ctx : Ctx.t) (t : T.t) : T.t =
-     let rec conv t =
-       match T.view t with
-       | T.LRA _ -> t
-       | _ when Ty.equal (T.ty t) (Ty.real ()) -> t
+(* convert [t] to a real term *)
+let cast_to_real (ctx : Ctx.t) (t : T.t) : T.t =
+  let conv t =
+    match T.view t with
+    | _ when Ty.is_real (T.ty t) -> t
+    (* FIXME
        | T.LIA (Const n) -> T.lra ctx.tst (Const (Q.of_bigint n))
        | T.LIA l ->
          (* convert the whole structure to reals *)
          let l = LIA_view.to_lra conv l in
          T.lra ctx.tst l
        | T.Ite (a, b, c) -> T.ite ctx.tst a (conv b) (conv c)
-       | _ -> errorf_ctx ctx "cannot cast term to real@ :term %a" T.pp t
-     in
-     conv t
+    *)
+    | _ -> errorf_ctx ctx "cannot cast term to real@ :term %a" T.pp t
+  in
+  conv t
 
-   let conv_arith_op (ctx : Ctx.t) t (op : PA.arith_op) (l : T.t list) : T.t =
-     let tst = ctx.Ctx.tst in
+let conv_arith_op (ctx : Ctx.t) (t : PA.term) (op : PA.arith_op) (l : T.t list)
+    : T.t =
+  let tst = ctx.Ctx.tst in
 
-     let mk_pred p a b =
+  let mk_pred p a b =
+    LRA_term.pred tst p (cast_to_real ctx a) (cast_to_real ctx b)
+  (* TODO
+     if is_real a || is_real b then
+       LRA_term.pred tst p (cast_to_real ctx a) (cast_to_real ctx b)
+     else
+       Error.errorf "cannot handle LIA term %a" PA.pp_term t
+      T.lia tst (Pred (p, a, b))
+  *)
+  and mk_op o a b =
+    LRA_term.op tst o (cast_to_real ctx a) (cast_to_real ctx b)
+    (* TODO
        if is_real a || is_real b then
-         T.lra tst (Pred (p, cast_to_real ctx a, cast_to_real ctx b))
+         LRA_term.op tst o (cast_to_real ctx a) (cast_to_real ctx b)
        else
-         T.lia tst (Pred (p, a, b))
-     and mk_op o a b =
-       if is_real a || is_real b then
-         T.lra tst (Op (o, cast_to_real ctx a, cast_to_real ctx b))
-       else
-         T.lia tst (Op (o, a, b))
-     in
+         Error.errorf "cannot handle LIA term %a" PA.pp_term t
+          T.lia tst (Op (o, a, b))
+    *)
+  in
 
-     match op, l with
-     | PA.Leq, [ a; b ] -> mk_pred Leq a b
-     | PA.Lt, [ a; b ] -> mk_pred Lt a b
-     | PA.Geq, [ a; b ] -> mk_pred Geq a b
-     | PA.Gt, [ a; b ] -> mk_pred Gt a b
-     | PA.Add, [ a; b ] -> mk_op Plus a b
-     | PA.Add, a :: l -> List.fold_left (fun a b -> mk_op Plus a b) a l
-     | PA.Minus, [ a ] ->
+  match op, l with
+  | PA.Leq, [ a; b ] -> mk_pred Leq a b
+  | PA.Lt, [ a; b ] -> mk_pred Lt a b
+  | PA.Geq, [ a; b ] -> mk_pred Geq a b
+  | PA.Gt, [ a; b ] -> mk_pred Gt a b
+  | PA.Add, [ a; b ] -> mk_op Plus a b
+  | PA.Add, a :: l -> List.fold_left (fun a b -> mk_op Plus a b) a l
+  | PA.Minus, [ a ] ->
+    (match t_as_q a with
+    | Some q -> LRA_term.const tst (Q.neg q)
+    | None ->
+      let zero =
+        if is_real a then
+          LRA_term.const tst Q.zero
+        else
+          Error.errorf "cannot handle non-rat %a" PA.pp_term t
+        (* T.lia tst (Const Z.zero) *)
+      in
+      mk_op Minus zero a)
+    (*
        (match t_as_q a, t_as_z a with
        | _, Some n -> T.lia tst (Const (Z.neg n))
        | Some q, None -> T.lra tst (Const (Q.neg q))
@@ -176,57 +201,52 @@ let string_as_q (s : string) : Q.t option =
            else
              T.lia tst (Const Z.zero)
          in
-
          mk_op Minus zero a)
-     | PA.Minus, [ a; b ] -> mk_op Minus a b
-     | PA.Minus, a :: l -> List.fold_left (fun a b -> mk_op Minus a b) a l
-     | PA.Mult, [ a; b ] when is_real a || is_real b ->
-       (match t_as_q a, t_as_q b with
-       | Some a, Some b -> T.lra tst (Const (Q.mul a b))
-       | Some a, _ -> T.lra tst (Mult (a, b))
-       | _, Some b -> T.lra tst (Mult (b, a))
-       | None, None ->
-         errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
-     | PA.Mult, [ a; b ] ->
-       (match t_as_z a, t_as_z b with
-       | Some a, Some b -> T.lia tst (Const (Z.mul a b))
-       | Some a, _ -> T.lia tst (Mult (a, b))
-       | _, Some b -> T.lia tst (Mult (b, a))
-       | None, None ->
-         errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
-     | PA.Div, [ a; b ] when is_real a || is_real b ->
-       (match t_as_q a, t_as_q b with
-       | Some a, Some b -> T.lra tst (Const (Q.div a b))
-       | _, Some b -> T.lra tst (Mult (Q.inv b, a))
-       | _, None -> errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t)
-     | PA.Div, [ a; b ] ->
-       (* becomes a real *)
-       (match t_as_q a, t_as_q b with
-       | Some a, Some b -> T.lra tst (Const (Q.div a b))
-       | _, Some b ->
-         let a = cast_to_real ctx a in
-         T.lra tst (Mult (Q.inv b, a))
-       | _, None -> errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t)
-     | _ -> errorf_ctx ctx "cannot handle arith construct %a" PA.pp_term t
-*)
+         *)
+  | PA.Minus, [ a; b ] -> mk_op Minus a b
+  | PA.Minus, a :: l -> List.fold_left (fun a b -> mk_op Minus a b) a l
+  | PA.Mult, [ a; b ] ->
+    (match t_as_q a, t_as_q b with
+    | Some a, Some b -> LRA_term.const tst (Q.mul a b)
+    | Some a, _ -> LRA_term.mult_by tst a b
+    | _, Some b -> LRA_term.mult_by tst b a
+    | None, None ->
+      errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
+    (* TODO
+          | PA.Mult, [ _a; _b ] ->
+               (match t_as_z a, t_as_z b with
+               | Some a, Some b -> T.lia tst (Const (Z.mul a b))
+               | Some a, _ -> T.lia tst (Mult (a, b))
+               | _, Some b -> T.lia tst (Mult (b, a))
+               | None, None ->
+                 errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t)
+       errorf_ctx ctx "cannot handle non-linear mult %a" PA.pp_term t
+    *)
+  | PA.Div, [ a; b ] ->
+    (match t_as_q a, t_as_q b with
+    | Some a, Some b -> LRA_term.const tst (Q.div a b)
+    | _, Some b ->
+      let a = cast_to_real ctx a in
+      LRA_term.mult_by tst (Q.inv b) a
+    | _, None -> errorf_ctx ctx "cannot handle non-linear div %a" PA.pp_term t)
+  | _ -> errorf_ctx ctx "cannot handle arith construct %a" PA.pp_term t
 
 (* conversion of terms *)
 let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
   let tst = ctx.Ctx.tst in
   match t with
   | PA.True -> T.true_ tst
-  | PA.False ->
-    T.false_ tst
-    (* FIXME
-       | PA.Const s when is_num s ->
-         (match string_as_z s, ctx.default_num with
-         | Some n, `Int -> T.lia tst (Const n)
-         | Some n, `Real -> T.lra tst (Const (Q.of_bigint n))
-         | None, _ ->
-           (match string_as_q s with
-           | Some n -> T.lra tst (Const n)
-           | None -> errorf_ctx ctx "expected a number for %a" PA.pp_term t))
-    *)
+  | PA.False -> T.false_ tst
+  | PA.Const s when is_num s ->
+    (match string_as_z s, ctx.default_num with
+    | Some n, `Real -> LRA_term.const tst (Q.of_bigint n)
+    | Some n, `Int ->
+      Error.errorf "cannot handle integer constant %a yet" Z.pp_print n
+      (* TODO T.lia tst (Const n) *)
+    | None, _ ->
+      (match string_as_q s with
+      | Some n -> LRA_term.const tst n
+      | None -> errorf_ctx ctx "expected a number for %a" PA.pp_term t))
   | PA.Const f | PA.App (f, []) ->
     (* lookup in `let` table, then in type defs *)
     (match StrTbl.find ctx.Ctx.lets f with
@@ -276,12 +296,12 @@ let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
   | PA.Eq (a, b) ->
     let a = conv_term ctx a in
     let b = conv_term ctx b in
-    (* FIXME
-       if is_real a || is_real b then
-         Form.eq tst (cast_to_real ctx a) (cast_to_real ctx b)
-       else
-    *)
-    Form.eq tst a b
+    if is_real a || is_real b then
+      (* Form.eq tst (cast_to_real ctx a) (cast_to_real ctx b) *)
+      LRA_term.pred tst LRA_term.Pred.Eq (cast_to_real ctx a)
+        (cast_to_real ctx b)
+    else
+      Form.eq tst a b
   | PA.Imply (a, b) ->
     let a = conv_term ctx a in
     let b = conv_term ctx b in
@@ -371,12 +391,9 @@ let rec conv_term (ctx : Ctx.t) (t : PA.term) : T.t =
         in
         A.match_ lhs cases
     *)
-
-    (* FIXME
-       | PA.Arith (op, l) ->
-         let l = List.map (conv_term ctx) l in
-         conv_arith_op ctx t op l
-    *)
+  | PA.Arith (op, l) ->
+    let l = List.map (conv_term ctx) l in
+    conv_arith_op ctx t op l
   | PA.Cast (t, ty_expect) ->
     let t = conv_term ctx t in
     let ty_expect = conv_ty ctx ty_expect in

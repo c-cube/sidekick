@@ -39,21 +39,9 @@ module type ARG = sig
   val mk_lra : Term.store -> (Q.t, Term.t) lra_view -> Term.t
   (** Make a Term.t from the given theory view *)
 
-  val ty_lra : Term.store -> ty
+  val ty_real : Term.store -> ty
+  (** Build the type Q *)
 
   val has_ty_real : Term.t -> bool
   (** Does this term have the type [Real] *)
-
-  val lemma_lra : Lit.t list -> Proof_term.t
-
-  module Gensym : sig
-    type t
-
-    val create : Term.store -> t
-    val tst : t -> Term.store
-    val copy : t -> t
-
-    val fresh_term : t -> pre:string -> ty -> term
-    (** Make a fresh term of the given type *)
-  end
 end

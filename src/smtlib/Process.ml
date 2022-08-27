@@ -338,14 +338,10 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
 
 module Th_data = Sidekick_base.Th_data
 module Th_bool = Sidekick_base.Th_bool
-(* FIXME
-   module Th_lra = Sidekick_base.Th_lra
-*)
+module Th_lra = Sidekick_base.Th_lra
 
 let th_bool = Th_bool.theory
 let th_bool_dyn : Solver.theory = Th_bool.theory_dyn
 let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
-(* FIXME
-   let th_lra : Solver.theory = Th_lra.theory
-*)
+let th_lra : Solver.theory = Th_lra.theory

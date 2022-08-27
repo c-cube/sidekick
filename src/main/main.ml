@@ -178,8 +178,7 @@ let main_smt ~config () : _ result =
       Log.debugf 1 (fun k ->
           k "(@[main.th-bool.pick@ %S@])"
             (Sidekick_smt_solver.Theory.name th_bool));
-      Sidekick_smt_solver.Theory.
-        [ th_bool; Process.th_data (* FIXME Process.th_lra *) ]
+      Sidekick_smt_solver.Theory.[ th_bool; Process.th_data; Process.th_lra ]
     in
     Process.Solver.create_default ~proof ~theories tst
   in
