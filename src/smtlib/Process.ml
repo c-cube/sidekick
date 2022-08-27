@@ -195,7 +195,7 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
        );
     *)
     let t3 = Sys.time () in
-    Fmt.printf "@.sat@.";
+    Fmt.printf "sat@.";
     Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. start) (t2 -. t1) (t3 -. t2)
   | Solver.Unsat { unsat_step_id; unsat_core = _ } ->
     if check then
@@ -228,7 +228,7 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
     | _ -> ());
 
     let t3 = Sys.time () in
-    Fmt.printf "@.unsat@.";
+    Fmt.printf "unsat@.";
     Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. start) (t2 -. t1) (t3 -. t2)
   | Solver.Unknown reas ->
     Fmt.printf "unknown@.";
