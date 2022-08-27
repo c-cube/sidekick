@@ -33,7 +33,6 @@ let p_progress = ref false
 let proof_file = ref ""
 let proof_store_memory = ref false
 let proof_store_file = ref ""
-let reset_line = "\x1b[2K\r"
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -184,7 +183,7 @@ let main_smt ~config () : _ result =
   in
 
   let finally () =
-    if !p_stat then Format.printf "%s%a@." reset_line Solver.pp_stats solver
+    if !p_stat then Format.printf "%a@." Solver.pp_stats solver
   in
   CCFun.protect ~finally @@ fun () ->
   (* FIXME: emit an actual proof *)

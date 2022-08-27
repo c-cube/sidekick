@@ -152,7 +152,7 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
       Some (mk_progress s)
     else
       None
-  in
+  and clear_line () = if progress then Printf.printf "%s%!" reset_line in
 
   let should_stop =
     match time, memory with
@@ -181,7 +181,6 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
     (* ?gc ?restarts ?time ?memory ?progress *)
   in
   let t2 = Sys.time () in
-  Printf.printf "\r";
   flush stdout;
   (match res with
   | Solver.Sat m ->
@@ -234,7 +233,7 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
     Fmt.printf "unknown@.";
     Fmt.printf "; @[<h>:reason %a@]@." Solver.Unknown.pp reas
   | exception exn ->
-    Printf.printf "%s%!" reset_line;
+    clear_line ();
     raise exn);
   res
 
