@@ -130,8 +130,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     in_model: unit Term.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit Term.Tbl.t;
     (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
-    needs_th_combination: unit Term.Tbl.t;
-    (* terms that require theory combination *)
     simp_preds: (Term.t * S_op.t * A.Q.t) Term.Tbl.t;
     (* term -> its simplex meaning *)
     simp_defined: LE.t Term.Tbl.t;
@@ -157,7 +155,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       simp_preds = Term.Tbl.create 32;
       simp_defined = Term.Tbl.create 16;
       encoded_eqs = Term.Tbl.create 8;
-      needs_th_combination = Term.Tbl.create 8;
       encoded_le = Comb_map.empty;
       simplex = SimpSolver.create ~stat ();
       last_res = None;
@@ -275,6 +272,11 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     | Geq -> S_op.Geq
     | Gt -> S_op.Gt
 
+  (* add [t] to the theory combination system if it's not just a constant
+     of type Real *)
+  let add_lra_var_to_th_combination (si : SI.t) (t : term) : unit =
+    if not (Term.is_const t) then SI.add_term_needing_combination si t
+
   (* TODO: refactor that and {!var_encoding_comb} *)
   (* turn a linear expression into a single constant and a coeff.
      This might define a side variable in the simplex. *)
@@ -300,17 +302,20 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         proxy, A.Q.one)
 
   (* look for subterms of type Real, for they will need theory combination *)
-  let on_subterm (self : state) (t : Term.t) : unit =
+  let on_subterm (_self : state) (si : SI.t) (t : Term.t) : unit =
     Log.debugf 50 (fun k -> k "(@[lra.cc-on-subterm@ %a@])" Term.pp_debug t);
     match A.view_as_lra t with
-    | LRA_other _ when not (A.has_ty_real t) -> ()
+    | LRA_other _ when not (A.has_ty_real t) ->
+      (* for a non-LRA term [f args], if any of [args] is in LRA,
+         it needs theory combination *)
+      let _, args = Term.unfold_app t in
+      List.iter
+        (fun arg ->
+          if A.has_ty_real arg then SI.add_term_needing_combination si arg)
+        args
     | LRA_pred _ | LRA_const _ -> ()
     | LRA_op _ | LRA_other _ | LRA_mult _ ->
-      if not (Term.Tbl.mem self.needs_th_combination t) then (
-        Log.debugf 5 (fun k ->
-            k "(@[lra.needs-th-combination@ %a@])" Term.pp_debug t);
-        Term.Tbl.add self.needs_th_combination t ()
-      )
+      SI.add_term_needing_combination si t
 
   (* preprocess linear expressions away *)
   let preproc_lra (self : state) si (module PA : SI.PREPROCESS_ACTS)
@@ -323,7 +328,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       Log.debugf 50 (fun k ->
           k "(@[lra.declare-term-to-cc@ %a@])" Term.pp_debug t);
       ignore (CC.add_term (SI.cc si) t : E_node.t);
-      if sub then on_subterm self t
+      if sub then on_subterm self si t
     in
 
     match A.view_as_lra t with
@@ -369,7 +374,11 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       (* obtain a single variable for the linear combination *)
       let v, c_v = le_comb_to_singleton_ self le_comb in
       declare_term_to_cc ~sub:false v;
-      LE_.Comb.iter (fun v _ -> declare_term_to_cc ~sub:true v) le_comb;
+      LE_.Comb.iter
+        (fun v _ ->
+          declare_term_to_cc ~sub:true v;
+          add_lra_var_to_th_combination si v)
+        le_comb;
 
       (* turn into simplex constraint. For example,
          [c . v <= const] becomes a direct simplex constraint [v <= const/c]
@@ -568,41 +577,42 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   (* evaluate a linear expression *)
   let eval_le_in_subst_ subst (le : LE.t) = LE.eval (eval_in_subst_ subst) le
 
-  (* FIXME: rename, this is more "provide_model_to_cc" *)
-  let do_th_combination (self : state) _si _acts : _ Iter.t =
-    Log.debug 1 "(lra.do-th-combinations)";
-    let model =
-      match self.last_res with
-      | Some (SimpSolver.Sat m) -> m
-      | _ -> assert false
-    in
+  (* FIXME: rework into model creation
+     let do_th_combination (self : state) _si _acts : _ Iter.t =
+       Log.debug 1 "(lra.do-th-combinations)";
+       let model =
+         match self.last_res with
+         | Some (SimpSolver.Sat m) -> m
+         | _ -> assert false
+       in
 
-    let vals = Subst.to_iter model |> Term.Tbl.of_iter in
+       let vals = Subst.to_iter model |> Term.Tbl.of_iter in
 
-    (* also include terms that occur under function symbols, if they're
-       not in the model already *)
-    Term.Tbl.iter
-      (fun t () ->
-        if not (Term.Tbl.mem vals t) then (
-          let v = eval_in_subst_ model t in
-          Term.Tbl.add vals t v
-        ))
-      self.needs_th_combination;
+       (* also include terms that occur under function symbols, if they're
+          not in the model already *)
+       Term.Tbl.iter
+         (fun t () ->
+           if not (Term.Tbl.mem vals t) then (
+             let v = eval_in_subst_ model t in
+             Term.Tbl.add vals t v
+           ))
+         self.needs_th_combination;
 
-    (* also consider subterms that are linear expressions,
-       and evaluate them using the value of each variable
-       in that linear expression. For example a term [a + 2b]
-       is evaluated as [eval(a) + 2 × eval(b)]. *)
-    Term.Tbl.iter
-      (fun t le ->
-        if not (Term.Tbl.mem vals t) then (
-          let v = eval_le_in_subst_ model le in
-          Term.Tbl.add vals t v
-        ))
-      self.simp_defined;
+       (* also consider subterms that are linear expressions,
+          and evaluate them using the value of each variable
+          in that linear expression. For example a term [a + 2b]
+          is evaluated as [eval(a) + 2 × eval(b)]. *)
+       Term.Tbl.iter
+         (fun t le ->
+           if not (Term.Tbl.mem vals t) then (
+             let v = eval_le_in_subst_ model le in
+             Term.Tbl.add vals t v
+           ))
+         self.simp_defined;
 
-    (* return whole model *)
-    Term.Tbl.to_iter vals |> Iter.map (fun (t, v) -> t, t_const self v)
+       (* return whole model *)
+       Term.Tbl.to_iter vals |> Iter.map (fun (t, v) -> t, t_const self v)
+  *)
 
   (* partial checks is where we add literals from the trail to the
      simplex. *)
@@ -714,7 +724,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     SI.on_partial_check si (partial_check_ st);
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
     SI.on_cc_is_subterm si (fun (_, _, t) ->
-        on_subterm st t;
+        on_subterm st si t;
         []);
     SI.on_cc_pre_merge si (fun (_cc, n1, n2, expl) ->
         match as_const_ (E_node.term n1), as_const_ (E_node.term n2) with
@@ -725,7 +735,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
                 E_node.pp n2);
           Error (CC.Handler_action.Conflict expl)
         | _ -> Ok []);
-    SI.on_th_combination si (do_th_combination st);
     st
 
   let theory =

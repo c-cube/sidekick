@@ -73,6 +73,10 @@ module type PREPROCESS_ACTS = sig
 
   val add_lit : ?default_pol:bool -> lit -> unit
   (** Ensure the literal will be decided/handled by the SAT solver. *)
+
+  val add_term_needing_combination : term -> unit
+  (** Declare this term as being a foreign variable in the theory,
+    which means it needs to go through theory combination. *)
 end
 
 type preprocess_actions = (module PREPROCESS_ACTS)
@@ -97,6 +101,10 @@ val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
 
 val simplify_and_preproc_lit : t -> lit -> lit * step_id option
 (** Simplify literal then preprocess it *)
+
+val add_term_needing_combination : t -> term -> unit
+(** Declare this term as being a foreign variable in the theory,
+    which means it needs to go through theory combination. *)
 
 (** {3 hooks for the theory} *)
 
@@ -215,16 +223,6 @@ val on_final_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
       not satisfiable) and can be expensive. The function
       is given the whole trail.
   *)
-
-val on_th_combination :
-  t -> (t -> theory_actions -> (term * value) Iter.t) -> unit
-(** Add a hook called during theory combination.
-      The hook must return an iterator of pairs [(t, v)]
-      which mean that term [t] has value [v] in the model.
-
-      Terms with the same value (according to {!Term.equal}) will be
-      merged in the CC; if two terms with different values are merged,
-      we get a semantic conflict and must pick another model. *)
 
 val declare_pb_is_incomplete : t -> unit
 (** Declare that, in some theory, the problem is outside the logic fragment

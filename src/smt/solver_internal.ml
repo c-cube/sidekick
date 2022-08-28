@@ -21,6 +21,7 @@ module type PREPROCESS_ACTS = sig
   val mk_lit : ?sign:bool -> term -> lit
   val add_clause : lit list -> step_id -> unit
   val add_lit : ?default_pol:bool -> lit -> unit
+  val add_term_needing_combination : term -> unit
 end
 
 type preprocess_actions = (module PREPROCESS_ACTS)
@@ -39,10 +40,9 @@ type t = {
   proof: proof_trace;  (** proof logger *)
   registry: Registry.t;
   on_progress: (unit, unit) Event.Emitter.t;
+  th_comb: Th_combination.t;
   mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
   mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
-  mutable on_th_combination:
-    (t -> theory_actions -> (term * value) Iter.t) list;
   mutable preprocess: preprocess_hook list;
   mutable model_ask: model_ask_hook list;
   mutable model_complete: model_completion_hook list;
@@ -82,10 +82,10 @@ let add_simplifier (self : t) f : unit = Simplify.add_hook self.simp f
 let[@inline] has_delayed_actions self =
   not (Queue.is_empty self.delayed_actions)
 
-let on_th_combination self f =
-  self.on_th_combination <- f :: self.on_th_combination
-
 let on_preprocess self f = self.preprocess <- f :: self.preprocess
+
+let add_term_needing_combination self t =
+  Th_combination.add_term_needing_combination self.th_comb t
 
 let on_model ?ask ?complete self =
   Option.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
@@ -130,6 +130,9 @@ let preprocess_term_ (self : t) (t0 : term) : unit =
     let mk_lit ?sign t : Lit.t = Lit.atom ?sign self.tst t
     let add_lit ?default_pol lit : unit = delayed_add_lit self ?default_pol lit
     let add_clause c pr : unit = delayed_add_clause self ~keep:true c pr
+
+    let add_term_needing_combination t =
+      Th_combination.add_term_needing_combination self.th_comb t
   end in
   let acts = (module A : PREPROCESS_ACTS) in
 
@@ -397,33 +400,12 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
 
 (* do theory combination using the congruence closure. Each theory
    can merge classes, *)
-let check_th_combination_ (self : t) (_acts : theory_actions) lits :
-    (Model.t, th_combination_conflict) result =
-  (* FIXME
-
-     (* enter model mode, disabling most of congruence closure *)
-              CC.with_model_mode cc @@ fun () ->
-              let set_val (t, v) : unit =
-                Log.debugf 50 (fun k ->
-                    k "(@[solver.th-comb.cc-set-term-value@ %a@ :val %a@])" Term.pp_debug t
-                      Term.pp_debug v);
-                CC.set_model_value cc t v
-              in
-
-           (* obtain assignments from the hook, and communicate them to the CC *)
-           let add_th_values f : unit =
-             let vals = f self acts in
-             Iter.iter set_val vals
-           in
-        try
-          List.iter add_th_values self.on_th_combination;
-          CC.check cc;
-          let m = mk_model_ self in
-          Ok m
-        with Semantic_conflict c -> Error c
-  *)
-  let m = mk_model_ self lits in
-  Ok m
+let check_th_combination_ (self : t) (acts : theory_actions) _lits : unit =
+  let lits_to_decide = Th_combination.pop_new_lits self.th_comb in
+  if lits_to_decide <> [] then (
+    let (module A) = acts in
+    List.iter (fun lit -> A.add_lit ~default_pol:false lit) lits_to_decide
+  )
 
 (* call congruence closure, perform the actions it scheduled *)
 let check_cc_with_acts_ (self : t) (acts : theory_actions) =
@@ -471,40 +453,13 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
 
     (* do actual theory combination if nothing changed by pure "final check" *)
     if not new_work then (
-      match check_th_combination_ self acts lits with
-      | Ok m -> self.last_model <- Some m
-      | Error { lits; semantic } ->
-        (* bad model, we add a clause to remove it *)
-        Log.debugf 5 (fun k ->
-            k
-              "(@[solver.th-comb.conflict@ :lits (@[%a@])@ :same-val \
-               (@[%a@])@])"
-              (Util.pp_list Lit.pp) lits
-              (Util.pp_list
-              @@ Fmt.Dump.(triple bool Term.pp_debug Term.pp_debug))
-              semantic);
+      check_th_combination_ self acts lits;
 
-        let c1 = List.rev_map Lit.neg lits in
-        let c2 =
-          semantic
-          |> List.rev_map (fun (sign, t, u) ->
-                 let eqn = Term.eq self.tst t u in
-                 let lit = Lit.atom ~sign:(not sign) self.tst eqn in
-                 (* make sure to consider the new lit *)
-                 add_lit self acts lit;
-                 lit)
-        in
-
-        let c = List.rev_append c1 c2 in
-        let pr =
-          Proof_trace.add_step self.proof @@ fun () -> Proof_core.lemma_cc c
-        in
-
-        Log.debugf 20 (fun k ->
-            k "(@[solver.th-comb.add-semantic-conflict-clause@ %a@])"
-              (Util.pp_list Lit.pp) c);
-        (* will add a delayed action *)
-        add_clause_temp self acts c pr
+      (* if theory combination didn't add new clauses, compute a model *)
+      if not (has_delayed_actions self) then (
+        let m = mk_model_ self lits in
+        self.last_model <- Some m
+      )
     );
 
     Perform_delayed_th.top self acts
@@ -585,6 +540,7 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       stat;
       simp = Simplify.create tst ~proof;
       last_model = None;
+      th_comb = Th_combination.create ~stat tst;
       on_progress = Event.Emitter.create ();
       preprocess = [];
       model_ask = [];
@@ -598,7 +554,6 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       count_conflict = Stat.mk_int stat "smt.solver.th-conflicts";
       on_partial_check = [];
       on_final_check = [];
-      on_th_combination = [];
       level = 0;
       complete = true;
     }

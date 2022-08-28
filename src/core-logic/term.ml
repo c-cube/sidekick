@@ -55,6 +55,16 @@ let unfold_app (e : term) : term * term list =
   in
   aux [] e
 
+let[@inline] is_const e =
+  match e.view with
+  | E_const _ -> true
+  | _ -> false
+
+let[@inline] is_app e =
+  match e.view with
+  | E_app _ -> true
+  | _ -> false
+
 (* debug printer *)
 let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
   let rec loop k ~depth names out e =
