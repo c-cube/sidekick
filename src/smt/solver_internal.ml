@@ -392,15 +392,6 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
   compute_fixpoint ();
   MB.to_model model
 
-(* do theory combination using the congruence closure. Each theory
-   can merge classes, *)
-let check_th_combination_ (self : t) (acts : theory_actions) _lits : unit =
-  let lits_to_decide = Th_combination.pop_new_lits self.th_comb in
-  if lits_to_decide <> [] then (
-    let (module A) = acts in
-    List.iter (fun lit -> A.add_lit ~default_pol:false lit) lits_to_decide
-  )
-
 (* call congruence closure, perform the actions it scheduled *)
 let check_cc_with_acts_ (self : t) (acts : theory_actions) =
   let (module A) = acts in
@@ -447,7 +438,11 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
 
     (* do actual theory combination if nothing changed by pure "final check" *)
     if not new_work then (
-      check_th_combination_ self acts lits;
+      let new_intf_eqns = Th_combination.pop_new_lits self.th_comb in
+      if new_intf_eqns <> [] then (
+        let (module A) = acts in
+        List.iter (fun lit -> A.add_lit ~default_pol:false lit) new_intf_eqns
+      );
 
       (* if theory combination didn't add new clauses, compute a model *)
       if not (has_delayed_actions self) then (

@@ -5,7 +5,6 @@ type t = {
   tst: Term.store;
   processed: T.Set.t T.Tbl.t;  (** type -> set of terms *)
   unprocessed: T.t Vec.t;
-  new_lits: Lit.t Vec.t;
   claims: Theory_id.Set.t T.Tbl.t;  (** term -> theories claiming it *)
   n_terms: int Stat.counter;
   n_lits: int Stat.counter;
@@ -17,7 +16,6 @@ let create ?(stat = Stat.global) tst : t =
     processed = T.Tbl.create 8;
     unprocessed = Vec.create ();
     claims = T.Tbl.create 8;
-    new_lits = Vec.create ();
     n_terms = Stat.mk_int stat "smt.thcomb.terms";
     n_lits = Stat.mk_int stat "smt.thcomb.intf-lits";
   }
@@ -56,6 +54,8 @@ let claim_term (self : t) ~th_id (t : T.t) : unit =
   )
 
 let pop_new_lits (self : t) : Lit.t list =
+  let lits = ref [] in
+
   (* first, process new terms, if any *)
   while not (Vec.is_empty self.unprocessed) do
     let t = Vec.pop_exn self.unprocessed in
@@ -66,12 +66,12 @@ let pop_new_lits (self : t) : Lit.t list =
     if not (T.Set.mem t set_for_ty) then (
       Stat.incr self.n_terms;
 
-      (* now create [t=u] for each [u] in [set_for_ty] *)
+      (* now create [t=u] for each [u] in [set_for_ty], and add it to [lits] *)
       T.Set.iter
         (fun u ->
           let lit = Lit.make_eq self.tst t u in
           Stat.incr self.n_lits;
-          Vec.push self.new_lits lit)
+          lits := lit :: !lits)
         set_for_ty;
 
       (* add [t] to the set of processed terms *)
@@ -80,6 +80,4 @@ let pop_new_lits (self : t) : Lit.t list =
     )
   done;
 
-  let lits = Vec.to_list self.new_lits in
-  Vec.clear self.new_lits;
-  lits
+  !lits
