@@ -1734,7 +1734,7 @@ let solve_ ~on_progress (self : t) : unit =
           if
             self.elt_head = AVec.size self.trail
             && has_no_delayed_actions self
-            && self.next_decisions = []
+            && self.next_decisions = [] && H.is_empty self.order
           then
             (* nothing more to do, that means the plugin is satisfied
                with the trail *)
