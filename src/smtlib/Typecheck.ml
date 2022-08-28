@@ -128,13 +128,13 @@ let t_as_q t =
      | _ -> None
 *)
 
-let is_real = Ty.is_real
+let is_real t = Ty.is_real (T.ty t)
 
 (* convert [t] to a real term *)
 let cast_to_real (ctx : Ctx.t) (t : T.t) : T.t =
   let conv t =
     match T.view t with
-    | _ when Ty.is_real (T.ty t) -> t
+    | _ when is_real t -> t
     (* FIXME
        | T.LIA (Const n) -> T.lra ctx.tst (Const (Q.of_bigint n))
        | T.LIA l ->
