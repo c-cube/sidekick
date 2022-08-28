@@ -12,8 +12,8 @@ module Pred = struct
   let to_string = function
     | Lt -> "<"
     | Leq -> "<="
-    | Neq -> "!="
-    | Eq -> "="
+    | Neq -> "!=_LRA"
+    | Eq -> "=_LRA"
     | Gt -> ">"
     | Geq -> ">="
 
@@ -127,9 +127,13 @@ let mult_by tst q t : term =
   Term.app tst c t
 
 let pred tst p t1 t2 : term =
-  let ty = Term.(arrow_l tst [ real tst; real tst ] (Term.bool tst)) in
-  let p = Term.const tst (Const.make (Pred p) ops ~ty) in
-  Term.app_l tst p [ t1; t2 ]
+  match p with
+  | Pred.Eq -> T.eq tst t1 t2
+  | Pred.Neq -> T.not tst (T.eq tst t1 t2)
+  | _ ->
+    let ty = Term.(arrow_l tst [ real tst; real tst ] (Term.bool tst)) in
+    let p = Term.const tst (Const.make (Pred p) ops ~ty) in
+    Term.app_l tst p [ t1; t2 ]
 
 let leq tst a b = pred tst Pred.Leq a b
 let lt tst a b = pred tst Pred.Lt a b
@@ -151,6 +155,13 @@ let view (t : term) : _ View.t =
   match T.view f, args with
   | T.E_const { Const.c_view = T.C_eq; _ }, [ _; a; b ] when has_ty_real a ->
     View.LRA_pred (Pred.Eq, a, b)
+  | T.E_const { Const.c_view = T.C_not; _ }, [ u ] ->
+    (* might be not-eq *)
+    let f, args = Term.unfold_app u in
+    (match T.view f, args with
+    | T.E_const { Const.c_view = T.C_eq; _ }, [ _; a; b ] when has_ty_real a ->
+      View.LRA_pred (Pred.Neq, a, b)
+    | _ -> View.LRA_other t)
   | T.E_const { Const.c_view = Const q; _ }, [] -> View.LRA_const q
   | T.E_const { Const.c_view = Pred p; _ }, [ a; b ] -> View.LRA_pred (p, a, b)
   | T.E_const { Const.c_view = Op op; _ }, [ a; b ] -> View.LRA_op (op, a, b)
