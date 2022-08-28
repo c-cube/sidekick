@@ -21,7 +21,6 @@ module type PREPROCESS_ACTS = sig
   val mk_lit : ?sign:bool -> term -> lit
   val add_clause : lit list -> step_id -> unit
   val add_lit : ?default_pol:bool -> lit -> unit
-  val add_term_needing_combination : term -> unit
 end
 
 type preprocess_actions = (module PREPROCESS_ACTS)
@@ -83,9 +82,7 @@ let[@inline] has_delayed_actions self =
   not (Queue.is_empty self.delayed_actions)
 
 let on_preprocess self f = self.preprocess <- f :: self.preprocess
-
-let add_term_needing_combination self t =
-  Th_combination.add_term_needing_combination self.th_comb t
+let claim_term self ~th_id t = Th_combination.claim_term self.th_comb ~th_id t
 
 let on_model ?ask ?complete self =
   Option.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
@@ -130,9 +127,6 @@ let preprocess_term_ (self : t) (t0 : term) : unit =
     let mk_lit ?sign t : Lit.t = Lit.atom ?sign self.tst t
     let add_lit ?default_pol lit : unit = delayed_add_lit self ?default_pol lit
     let add_clause c pr : unit = delayed_add_clause self ~keep:true c pr
-
-    let add_term_needing_combination t =
-      Th_combination.add_term_needing_combination self.th_comb t
   end in
   let acts = (module A : PREPROCESS_ACTS) in
 

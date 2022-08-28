@@ -124,6 +124,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   module ST_exprs = Sidekick_cc.Plugin.Make (Monoid_exprs)
 
   type state = {
+    th_id: Sidekick_smt_solver.Theory_id.t;
     tst: Term.store;
     proof: Proof_trace.t;
     gensym: Gensym.t;
@@ -142,11 +143,12 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     n_conflict: int Stat.counter;
   }
 
-  let create (si : SI.t) : state =
+  let create ~th_id (si : SI.t) : state =
     let stat = SI.stats si in
     let proof = SI.proof si in
     let tst = SI.tst si in
     {
+      th_id;
       tst;
       proof;
       in_model = Term.Tbl.create 8;
@@ -272,11 +274,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     | Geq -> S_op.Geq
     | Gt -> S_op.Gt
 
-  (* add [t] to the theory combination system if it's not just a constant
-     of type Real *)
-  let add_lra_var_to_th_combination (si : SI.t) (t : term) : unit =
-    if not (Term.is_const t) then SI.add_term_needing_combination si t
-
   (* TODO: refactor that and {!var_encoding_comb} *)
   (* turn a linear expression into a single constant and a coeff.
      This might define a side variable in the simplex. *)
@@ -302,20 +299,13 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         proxy, A.Q.one)
 
   (* look for subterms of type Real, for they will need theory combination *)
-  let on_subterm (_self : state) (si : SI.t) (t : Term.t) : unit =
+  let on_subterm (self : state) (si : SI.t) (t : Term.t) : unit =
     Log.debugf 50 (fun k -> k "(@[lra.cc-on-subterm@ %a@])" Term.pp_debug t);
     match A.view_as_lra t with
-    | LRA_other _ when not (A.has_ty_real t) ->
-      (* for a non-LRA term [f args], if any of [args] is in LRA,
-         it needs theory combination *)
-      let _, args = Term.unfold_app t in
-      List.iter
-        (fun arg ->
-          if A.has_ty_real arg then SI.add_term_needing_combination si arg)
-        args
+    | LRA_other _ when not (A.has_ty_real t) -> ()
     | LRA_pred _ | LRA_const _ -> ()
     | LRA_op _ | LRA_other _ | LRA_mult _ ->
-      SI.add_term_needing_combination si t
+      SI.claim_term si ~th_id:self.th_id t
 
   (* preprocess linear expressions away *)
   let preproc_lra (self : state) si (module PA : SI.PREPROCESS_ACTS)
@@ -374,11 +364,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       (* obtain a single variable for the linear combination *)
       let v, c_v = le_comb_to_singleton_ self le_comb in
       declare_term_to_cc ~sub:false v;
-      LE_.Comb.iter
-        (fun v _ ->
-          declare_term_to_cc ~sub:true v;
-          add_lra_var_to_th_combination si v)
-        le_comb;
+      LE_.Comb.iter (fun v _ -> declare_term_to_cc ~sub:true v) le_comb;
 
       (* turn into simplex constraint. For example,
          [c . v <= const] becomes a direct simplex constraint [v <= const/c]
@@ -714,9 +700,9 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   let k_state = SMT.Registry.create_key ()
 
-  let create_and_setup si =
+  let create_and_setup ~id si =
     Log.debug 2 "(th-lra.setup)";
-    let st = create si in
+    let st = create ~th_id:id si in
     SMT.Registry.set (SI.registry si) k_state st;
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (preproc_lra st);

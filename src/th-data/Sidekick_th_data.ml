@@ -296,6 +296,7 @@ end = struct
   module N_tbl = Backtrackable_tbl.Make (E_node)
 
   type t = {
+    th_id: Sidekick_smt_solver.Theory_id.t;
     tst: Term.store;
     proof: Proof_trace.t;
     cstors: ST_cstors.t; (* repr -> cstor for the class *)
@@ -462,6 +463,10 @@ end = struct
         N_tbl.add self.to_decide repr_u ();
         [])
     | T_cstor _ | T_other _ -> []
+
+  let on_is_subterm (self : t) (si : SI.t) (_cc, _repr, t) : _ list =
+    if is_data_ty (Term.ty t) then SI.claim_term si ~th_id:self.th_id t;
+    []
 
   let cstors_of_ty (ty : ty) : A.Cstor.t list =
     match A.as_datatype ty with
@@ -783,9 +788,10 @@ end = struct
         Some (c, args))
     | None -> None
 
-  let create_and_setup (solver : SI.t) : t =
+  let create_and_setup ~id:th_id (solver : SI.t) : t =
     let self =
       {
+        th_id;
         tst = SI.tst solver;
         proof = SI.proof solver;
         cstors = ST_cstors.create_and_setup ~size:32 (SI.cc solver);
@@ -801,6 +807,7 @@ end = struct
     Log.debugf 1 (fun k -> k "(setup :%s)" name);
     SI.on_preprocess solver (preprocess self);
     SI.on_cc_new_term solver (on_new_term self);
+    SI.on_cc_is_subterm solver (on_is_subterm self solver);
     (* note: this needs to happen before we modify the plugin data *)
     SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_partial_check solver (on_partial_check self);

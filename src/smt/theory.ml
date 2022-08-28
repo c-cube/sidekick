@@ -19,7 +19,7 @@ module type S = sig
   type t
 
   val name : string
-  val create_and_setup : Solver_internal.t -> t
+  val create_and_setup : id:Theory_id.t -> Solver_internal.t -> t
   val push_level : t -> unit
   val pop_levels : t -> int -> unit
 end

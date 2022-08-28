@@ -13,6 +13,7 @@ module Registry = Registry
 module Solver_internal = Solver_internal
 module Solver = Solver
 module Theory = Theory
+module Theory_id = Theory_id
 
 type theory = Theory.t
 type solver = Solver.t

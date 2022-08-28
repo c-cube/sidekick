@@ -60,7 +60,7 @@ module Check_cc = struct
 
   let theory =
     Solver.mk_theory ~name:"cc-check"
-      ~create_and_setup:(fun si ->
+      ~create_and_setup:(fun ~id:_ si ->
         let n_calls = Stat.mk_int (SI.stats si) "check-cc.call" in
         SI.on_cc_conflict si (fun { cc; th; c } ->
             if not th then (
@@ -335,12 +335,11 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
   | Statement.Stmt_data _ -> E.return ()
   | Statement.Stmt_define _ -> Error.errorf "cannot deal with definitions yet"
 
-module Th_data = Sidekick_base.Th_data
-module Th_bool = Sidekick_base.Th_bool
-module Th_lra = Sidekick_base.Th_lra
+open Sidekick_base
 
 let th_bool = Th_bool.theory
 let th_bool_dyn : Solver.theory = Th_bool.theory_dyn
 let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
 let th_lra : Solver.theory = Th_lra.theory
+let th_uf = Th_uf.theory

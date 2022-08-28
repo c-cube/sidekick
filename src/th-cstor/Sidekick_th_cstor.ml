@@ -80,7 +80,7 @@ end = struct
   let pop_levels ((module P) : t) n = P.pop_levels n
   let n_levels ((module P) : t) = P.n_levels ()
 
-  let create_and_setup (si : SI.t) : t =
+  let create_and_setup ~id:_ (si : SI.t) : t =
     Log.debug 1 "(setup :th-cstor)";
     let self = ST.create_and_setup ~size:32 (SI.cc si) in
     self

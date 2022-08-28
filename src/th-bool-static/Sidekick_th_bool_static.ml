@@ -287,7 +287,7 @@ end = struct
     | B_atom _ -> ());
     ()
 
-  let create_and_setup si =
+  let create_and_setup ~id:_ si =
     Log.debug 2 "(th-bool.setup)";
     let st = create ~stat:(SI.stats si) (SI.tst si) in
     SI.add_simplifier si (simplify st);

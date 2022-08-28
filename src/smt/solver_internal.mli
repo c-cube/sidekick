@@ -73,10 +73,6 @@ module type PREPROCESS_ACTS = sig
 
   val add_lit : ?default_pol:bool -> lit -> unit
   (** Ensure the literal will be decided/handled by the SAT solver. *)
-
-  val add_term_needing_combination : term -> unit
-  (** Declare this term as being a foreign variable in the theory,
-    which means it needs to go through theory combination. *)
 end
 
 type preprocess_actions = (module PREPROCESS_ACTS)
@@ -102,9 +98,9 @@ val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
 val simplify_and_preproc_lit : t -> lit -> lit * step_id option
 (** Simplify literal then preprocess it *)
 
-val add_term_needing_combination : t -> term -> unit
-(** Declare this term as being a foreign variable in the theory,
-    which means it needs to go through theory combination. *)
+val claim_term : t -> th_id:Theory_id.t -> term -> unit
+(** Claim a term, for a theory that might decide or merge it with another
+    term. This is useful for theory combination. *)
 
 (** {3 hooks for the theory} *)
 

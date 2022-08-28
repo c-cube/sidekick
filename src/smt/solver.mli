@@ -18,7 +18,7 @@ type theory = Theory.t
 
 val mk_theory :
   name:string ->
-  create_and_setup:(Solver_internal.t -> 'th) ->
+  create_and_setup:(id:Theory_id.t -> Solver_internal.t -> 'th) ->
   ?push_level:('th -> unit) ->
   ?pop_levels:('th -> int -> unit) ->
   unit ->

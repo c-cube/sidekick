@@ -33,6 +33,7 @@ module LRA_term = LRA_term
 module Th_data = Th_data
 module Th_bool = Th_bool
 module Th_lra = Th_lra
+module Th_uf = Th_uf
 
 let k_th_bool_config = Th_bool.k_config
 let th_bool = Th_bool.theory
@@ -40,3 +41,4 @@ let th_bool_dyn : Solver.theory = Th_bool.theory_dyn
 let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
 let th_lra : Solver.theory = Th_lra.theory
+let th_uf : Solver.theory = Th_uf.theory

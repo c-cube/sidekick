@@ -6,11 +6,17 @@ type t
 
 val create : ?stat:Stat.t -> Term.store -> t
 
-val add_term_needing_combination : t -> Term.t -> unit
-(** [add_term_needing_combination self t] means that [t] occurs as a foreign
-  variable in another term, so it is important that its theory, and the
-  theory in which it occurs, agree on it being equal to other
-  foreign terms. *)
+val claim_term : t -> th_id:Theory_id.t -> Term.t -> unit
+(** [claim_term self ~th_id t] means that theory with ID [th_id]
+    claims the term [t].
+
+    This means it might assert [t = u] or [t ≠ u] for some other term [u],
+    or it might assign a value to [t] in the model in case of a SAT answer.
+    That means it has to agree with other theories on what [t] is equal to.
+
+    If a term is claimed by several theories, it will be eligible for theory
+    combination.
+*)
 
 val pop_new_lits : t -> Lit.t list
 (** Get the new literals that the solver needs to decide, so that the

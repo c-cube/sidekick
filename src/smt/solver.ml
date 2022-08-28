@@ -40,6 +40,7 @@ type t = {
   mutable last_res: res option;
   stat: Stat.t;
   proof: P.t;
+  theory_id_gen: Theory_id.state;
   n_clause_input: int Stat.counter;
   n_clause_internal: int Stat.counter;
   n_solve: int Stat.counter; (* config: Config.t *)
@@ -53,8 +54,11 @@ let mk_theory = Theory.make
 
 let add_theory_p (type a) (self : t) (th : a Theory.p) : a =
   let (module Th) = th in
-  Log.debugf 2 (fun k -> k "(@[smt-solver.add-theory@ :name %S@])" Th.name);
-  let st = Th.create_and_setup self.si in
+  let th_id = Theory_id.fresh self.theory_id_gen in
+  Log.debugf 2 (fun k ->
+      k "(@[smt-solver.add-theory@ :id %a@ :name %S@])" Theory_id.pp th_id
+        Th.name);
+  let st = Th.create_and_setup ~id:th_id self.si in
   (* add push/pop to the internal solver *)
   Solver_internal.add_theory_state self.si ~st ~push_level:Th.push_level
     ~pop_levels:Th.pop_levels;
@@ -77,6 +81,7 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
       last_res = None;
       solver = Sat_solver.create ~proof ?size ~stat (SI.to_sat_plugin si);
       stat;
+      theory_id_gen = Theory_id.create ();
       n_clause_input = Stat.mk_int stat "smt.solver.add-clause.input";
       n_clause_internal = Stat.mk_int stat "smt.solver.add-clause.internal";
       n_solve = Stat.mk_int stat "smt.solver.solve";

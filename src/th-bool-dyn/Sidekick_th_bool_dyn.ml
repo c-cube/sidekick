@@ -352,7 +352,7 @@ end = struct
   let final_check (self : state) solver acts (lits : Lit.t Iter.t) =
     check_ ~final:true self solver acts lits
 
-  let create_and_setup (solver : SI.t) : state =
+  let create_and_setup ~id:_ (solver : SI.t) : state =
     let tst = SI.tst solver in
     let stat = SI.stats solver in
     let self =

@@ -6,6 +6,7 @@ type t = {
   processed: T.Set.t T.Tbl.t;  (** type -> set of terms *)
   unprocessed: T.t Vec.t;
   new_lits: Lit.t Vec.t;
+  claims: Theory_id.Set.t T.Tbl.t;  (** term -> theories claiming it *)
   n_terms: int Stat.counter;
   n_lits: int Stat.counter;
 }
@@ -15,6 +16,7 @@ let create ?(stat = Stat.global) tst : t =
     tst;
     processed = T.Tbl.create 8;
     unprocessed = Vec.create ();
+    claims = T.Tbl.create 8;
     new_lits = Vec.create ();
     n_terms = Stat.mk_int stat "smt.thcomb.terms";
     n_lits = Stat.mk_int stat "smt.thcomb.intf-lits";
@@ -28,8 +30,29 @@ let processed_ (self : t) t : bool =
 
 let add_term_needing_combination (self : t) (t : T.t) : unit =
   if not (processed_ self t) then (
-    Log.debugf 50 (fun k -> k "(@[th.comb.add-term-needing-comb@ %a@])" T.pp t);
+    Log.debugf 50 (fun k ->
+        k "(@[th.comb.add-term-needing-comb@ `%a`@ :ty `%a`@])" T.pp t T.pp
+          (T.ty t));
     Vec.push self.unprocessed t
+  )
+
+let claim_term (self : t) ~th_id (t : T.t) : unit =
+  (* booleans don't need theory combination *)
+  if T.is_bool (T.ty t) then
+    ()
+  else (
+    Log.debugf 50 (fun k ->
+        k "(@[th.comb.claim :th-id %a@ `%a`@])" Theory_id.pp th_id T.pp t);
+    let set =
+      try T.Tbl.find self.claims t with Not_found -> Theory_id.Set.empty
+    in
+    let set' = Theory_id.Set.add th_id set in
+    if Theory_id.Set.(not (equal set set')) then (
+      T.Tbl.replace self.claims t set';
+      (* first time we have 2 theories, means we need combination *)
+      if Theory_id.Set.cardinal set' = 2 then
+        add_term_needing_combination self t
+    )
   )
 
 let pop_new_lits (self : t) : Lit.t list =
