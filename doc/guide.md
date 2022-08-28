@@ -122,13 +122,13 @@ Let's look at some basic terms we can build immediately.
 
 ```ocaml
 # Term.true_ tstore;;
-- : Sidekick_th_lra.ty = true
+- : Term.term = true
 
 # Term.false_ tstore;;
-- : Sidekick_th_lra.ty = false
+- : Term.term = false
 
 # Term.eq tstore (Term.true_ tstore) (Term.false_ tstore);;
-- : Sidekick_th_lra.ty = (= Bool true false)
+- : Term.term = (= Bool true false)
 ```
 
 Cool. Similarly, we need to manipulate types.
@@ -140,7 +140,7 @@ The only predefined type is _bool_, the type of booleans:
 
 ```ocaml
 # Ty.bool tstore;;
-- : Sidekick_th_lra.ty = Bool
+- : Term.term = Bool
 ```
 
 Now we can define new terms and constants. Let's try to define
@@ -148,14 +148,14 @@ a few boolean constants named "p", "q", "r":
 
 ```ocaml
 # let p = Uconst.uconst_of_str tstore "p" [] @@ Ty.bool tstore;;
-val p : Sidekick_th_lra.ty = p
+val p : Term.term = p
 # let q = Uconst.uconst_of_str tstore "q" [] @@ Ty.bool tstore;;
-val q : Sidekick_th_lra.ty = q
+val q : Term.term = q
 # let r = Uconst.uconst_of_str tstore "r" [] @@ Ty.bool tstore;;
-val r : Sidekick_th_lra.ty = r
+val r : Term.term = r
 
 # Term.ty p;;
-- : Sidekick_th_lra.ty = Bool
+- : Term.term = Bool
 
 # Term.equal p q;;
 - : bool = false
@@ -171,10 +171,10 @@ We can now build formulas from these.
 
 ```ocaml
 # let p_eq_q = Term.eq tstore p q;;
-val p_eq_q : Sidekick_th_lra.ty = (= Bool p q)
+val p_eq_q : Term.term = (= Bool p q)
 
 # let p_imp_r = Form.imply tstore p r;;
-val p_imp_r : Sidekick_th_lra.ty = (=> p r)
+val p_imp_r : Term.term = (=> p r)
 ```
 
 ### Using a solver.
@@ -202,7 +202,7 @@ We start with `p = q`.
  
 ```ocaml
 # p_eq_q;;
-- : Sidekick_th_lra.ty = (= Bool p q)
+- : Term.term = (= Bool p q)
 # Solver.assert_term solver p_eq_q;;
 - : unit = ()
 # Solver.solve ~assumptions:[] solver;;
@@ -257,7 +257,7 @@ We can therefore add more formulas and see where it leads us.
 
 ```ocaml
 # p_imp_r;;
-- : Sidekick_th_lra.ty = (=> p r)
+- : Term.term = (=> p r)
 # Solver.assert_term solver p_imp_r;;
 - : unit = ()
 # Solver.solve ~assumptions:[] solver;;
@@ -277,7 +277,7 @@ Still satisfiable, but now we see `r` in the model, too. And now:
 
 ```ocaml
 # let q_imp_not_r = Form.imply tstore q (Form.not_ tstore r);;
-val q_imp_not_r : Sidekick_th_lra.ty = (=> q (not r))
+val q_imp_not_r : Term.term = (=> q (not r))
 # Solver.assert_term solver q_imp_not_r;;
 - : unit = ()
 
@@ -309,17 +309,17 @@ Create a few arithmetic constants.
 
 ```ocaml
 # let real = Ty.real tstore;;
-val real : Sidekick_th_lra.ty = Real
+val real : Term.term = Real
 # let a = Uconst.uconst_of_str tstore "a" [] real;;
-val a : Sidekick_th_lra.ty = a
+val a : Term.term = a
 # let b = Uconst.uconst_of_str tstore "b" [] real;;
-val b : Sidekick_th_lra.ty = b
+val b : Term.term = b
 
 # Term.ty a;;
-- : Sidekick_th_lra.ty = Real
+- : Term.term = Real
 
 # let a_leq_b = LRA_term.leq tstore a b;;
-val a_leq_b : Sidekick_th_lra.ty = (<= a b)
+val a_leq_b : Term.term = (<= a b)
 ```
 
 We can play with assertions now:
@@ -348,9 +348,9 @@ Sidekick_smt_solver.Solver.Sat
 
 
 # let a_geq_1 = LRA_term.geq tstore a (LRA_term.const tstore (Q.of_int 1));;
-val a_geq_1 : Sidekick_th_lra.ty = (>= a 1)
+val a_geq_1 : Term.term = (>= a 1)
 # let b_leq_half = LRA_term.(leq tstore b (LRA_term.const tstore (Q.of_string "1/2")));;
-val b_leq_half : Sidekick_th_lra.ty = (<= b 1/2)
+val b_leq_half : Term.term = (<= b 1/2)
 
 # let res = Solver.solve solver
     ~assumptions:[Solver.mk_lit_t solver p;
@@ -378,25 +378,25 @@ an uninterpreted type.
 
 ```ocaml
 # let u = Ty.uninterpreted_str tstore "u";;
-val u : Sidekick_th_lra.ty = u
+val u : Term.term = u
 
 # let u1 = Uconst.uconst_of_str tstore "u1" [] u;;
-val u1 : Sidekick_th_lra.ty = u1
+val u1 : Term.term = u1
 # let u2 = Uconst.uconst_of_str tstore "u2" [] u;;
-val u2 : Sidekick_th_lra.ty = u2
+val u2 : Term.term = u2
 # let u3 = Uconst.uconst_of_str tstore "u3" [] u;;
-val u3 : Sidekick_th_lra.ty = u3
+val u3 : Term.term = u3
 
 # let f1 = Uconst.uconst_of_str tstore "f1" [u] u;;
-val f1 : Sidekick_th_lra.ty = f1
+val f1 : Term.term = f1
 # Term.view f1;;
 - : Term.view = Sidekick_base.Term.E_const f1
 
 # let f1_u1 = Term.app_l tstore f1 [u1];;
-val f1_u1 : Sidekick_th_lra.ty = (f1 u1)
+val f1_u1 : Term.term = (f1 u1)
 
 # Term.ty f1_u1;;
-- : Sidekick_th_lra.ty = u
+- : Term.term = u
 # Term.view f1_u1;;
 - : Term.view = Sidekick_base.Term.E_app (f1, u1)
 ```
@@ -409,7 +409,7 @@ val solver : solver = <abstr>
 
 # (* helper *)
   let appf1 x = Term.app_l tstore f1 x;;
-val appf1 : Sidekick_th_lra.ty list -> Sidekick_th_lra.ty = <fun>
+val appf1 : Term.term list -> Term.term = <fun>
 
 # Solver.assert_term solver (Term.eq tstore u2 (appf1 [u1]));;
 - : unit = ()
