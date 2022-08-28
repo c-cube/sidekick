@@ -135,7 +135,7 @@ module Hcons = Hashcons.Make (struct
     | E_app (f1, a1), E_app (f2, a2) -> equal f1 f2 && equal a1 a2
     | E_app_fold a1, E_app_fold a2 ->
       equal a1.f a2.f && equal a1.acc0 a2.acc0
-      && List.equal equal a1.args a2.args
+      && CCList.equal equal a1.args a2.args
     | E_lam (_, ty1, bod1), E_lam (_, ty2, bod2) ->
       equal ty1 ty2 && equal bod1 bod2
     | E_pi (_, ty1, bod1), E_pi (_, ty2, bod2) ->

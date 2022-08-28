@@ -62,7 +62,6 @@ end
 module Cstor = struct
   type t = cstor
 
-  let id c = c.cstor_id
   let hash c = ID.hash c.cstor_id
   let ty_args c = Lazy.force c.cstor_args |> List.map Select.ty
 

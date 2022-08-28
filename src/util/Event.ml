@@ -7,8 +7,7 @@ module Emitter = struct
   type nonrec ('a, 'b) t = ('a, 'b) t
 
   let emit (self : (_, unit) t) x =
-    if not (Vec.is_empty self.h) then
-      (Vec.iter [@inlined]) self.h ~f:(fun h -> h x)
+    if not (Vec.is_empty self.h) then Vec.iter self.h ~f:(fun h -> h x)
 
   let emit_collect (self : _ t) x : _ list =
     if Vec.is_empty self.h then

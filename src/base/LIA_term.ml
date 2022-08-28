@@ -1,6 +1,5 @@
 open struct
   let hash_z = Z.hash
-  let[@inline] hash_q q = CCHash.combine2 (hash_z (Q.num q)) (hash_z (Q.den q))
 end
 
 module LIA_pred = LRA_term.Pred
