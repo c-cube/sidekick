@@ -1,7 +1,33 @@
 open Sidekick_core
-module Pred = Arith_types_.LRA_pred
-module Op = Arith_types_.LRA_op
-module View = Arith_types_.LRA_view
+
+module Pred : sig
+  type t = Sidekick_th_lra.Predicate.t = Leq | Geq | Lt | Gt | Eq | Neq
+
+  include Sidekick_sigs.EQ_HASH_PRINT with type t := t
+end
+
+module Op : sig
+  type t = Sidekick_th_lra.op = Plus | Minus
+
+  include Sidekick_sigs.EQ_HASH_PRINT with type t := t
+end
+
+module View : sig
+  type ('num, 'a) lra_view = ('num, 'a) Sidekick_th_lra.lra_view =
+    | LRA_pred of Pred.t * 'a * 'a
+    | LRA_op of Op.t * 'a * 'a
+    | LRA_mult of 'num * 'a
+    | LRA_const of 'num
+    | LRA_other of 'a
+
+  type 'a t = (Q.t, 'a) Sidekick_th_lra.lra_view
+
+  val map : f_c:(Q.t -> Q.t) -> ('a -> 'b) -> 'a t -> 'b t
+  val iter : ('a -> unit) -> 'a t -> unit
+  val pp : pp_t:'a Fmt.printer -> 'a t Fmt.printer
+  val hash : sub_hash:('a -> int) -> 'a t -> int
+  val equal : sub_eq:('a -> 'b -> bool) -> 'a t -> 'b t -> bool
+end
 
 type term = Term.t
 type ty = Term.t

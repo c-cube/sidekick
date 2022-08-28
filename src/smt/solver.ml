@@ -6,31 +6,6 @@ open struct
   module Rule_ = Proof_core
 end
 
-(* TODO
-   let mk_cc_acts_ (pr : P.t) (a : sat_acts) : CC.actions =
-     let (module A) = a in
-
-     (module struct
-       module T = T
-       module Lit = Lit
-
-       type nonrec lit = lit
-       type nonrec term = term
-       type nonrec proof_trace = Proof_trace.t
-       type nonrec step_id = step_id
-
-       let proof_trace () = pr
-       let[@inline] raise_conflict lits (pr : step_id) = A.raise_conflict lits pr
-
-       let[@inline] raise_semantic_conflict lits semantic =
-         raise (Semantic_conflict { lits; semantic })
-
-       let[@inline] propagate lit ~reason =
-         let reason = Sidekick_sat.Consequence reason in
-         A.propagate lit reason
-     end)
-*)
-
 module Sat_solver = Sidekick_sat
 (** the parametrized SAT Solver *)
 

@@ -6,7 +6,7 @@
     It provides a representation of terms, boolean formulas,
     linear arithmetic expressions, datatypes for the functors in Sidekick.
 
-    In addition, it has a notion of {{!Base_types.Statement} Statement}.
+    In addition, it has a notion of {{!Statement.t} Statement}.
     Statements are instructions
     for the SMT solver to do something, such as: define a new constant,
     declare a new constant, assert a formula as being true,
@@ -22,7 +22,6 @@ module Const = Sidekick_core.Const
 module Ty = Ty
 module ID = ID
 module Form = Form
-include Arith_types_
 module Data_ty = Data_ty
 module Cstor = Data_ty.Cstor
 module Select = Data_ty.Select
