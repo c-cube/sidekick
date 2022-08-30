@@ -1,13 +1,17 @@
-(** {2 Congruence Closure} *)
+(** Congruence Closure Implementation *)
 
-open Sidekick_core
+module type DYN_MONOID_PLUGIN = Sigs_plugin.DYN_MONOID_PLUGIN
+module type MONOID_PLUGIN_ARG = Sigs_plugin.MONOID_PLUGIN_ARG
+module type MONOID_PLUGIN_BUILDER = Sigs_plugin.MONOID_PLUGIN_BUILDER
 
-module type S = Sidekick_core.CC_S
+module View = Sidekick_core.CC_view
+module E_node = E_node
+module Expl = Expl
+module Signature = Signature
+module Resolved_expl = Resolved_expl
+module Plugin = Plugin
+module CC = CC
 
-module Make (A : CC_ARG) :
-  S
-    with module T = A.T
-     and module Lit = A.Lit
-     and type proof = A.proof
-     and type proof_step = A.proof_step
-     and module Actions = A.Actions
+include module type of struct
+  include CC
+end

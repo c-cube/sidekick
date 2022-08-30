@@ -1,63 +1,40 @@
+open Sidekick_core
+module SMT = Sidekick_smt_solver
+
+type ty = Term.t
+
 (** Datatype-oriented view of terms.
 
     - ['c] is the representation of constructors
     - ['t] is the representation of terms
 *)
 type ('c, 't) data_view =
-  | T_cstor of 'c * 't array
+  | T_cstor of 'c * 't list
   | T_select of 'c * int * 't
   | T_is_a of 'c * 't
   | T_other of 't
 
 (** View of types in a way that is directly useful for the theory of datatypes *)
 type ('c, 'ty) data_ty_view =
-  | Ty_arrow of 'ty Iter.t * 'ty
-  | Ty_app of { args: 'ty Iter.t }
+  | Ty_arrow of 'ty list * 'ty
   | Ty_data of { cstors: 'c }
-  | Ty_other
+  | Ty_other of { sub: 'ty list }
 
-module type PROOF = sig
-  type term
-  type lit
-  type proof_step
-  type proof
+(* TODO: remove? or make compute_card use that? *)
 
-  val lemma_isa_cstor : cstor_t:term -> term -> proof -> proof_step
-  (** [lemma_isa_cstor (d …) (is-c t)] returns the clause
-      [(c …) = t |- is-c t] or [(d …) = t |- ¬ (is-c t)] *)
+(** An abtract representation of a datatype *)
+module type DATA_TY = sig
+  type t
+  type cstor
 
-  val lemma_select_cstor : cstor_t:term -> term -> proof -> proof_step
-  (** [lemma_select_cstor (c t1…tn) (sel-c-i t)]
-      returns a proof of [t = c t1…tn |- (sel-c-i t) = ti] *)
-
-  val lemma_isa_split : term -> lit Iter.t -> proof -> proof_step
-  (** [lemma_isa_split t lits] is the proof of
-      [is-c1 t \/ is-c2 t \/ … \/ is-c_n t] *)
-
-  val lemma_isa_sel : term -> proof -> proof_step
-  (** [lemma_isa_sel (is-c t)] is the proof of
-      [is-c t |- t = c (sel-c-1 t)…(sel-c-n t)] *)
-
-  val lemma_isa_disj : lit -> lit -> proof -> proof_step
-  (** [lemma_isa_disj (is-c t) (is-d t)] is the proof
-      of [¬ (is-c t) \/ ¬ (is-c t)] *)
-
-  val lemma_cstor_inj : term -> term -> int -> proof -> proof_step
-  (** [lemma_cstor_inj (c t1…tn) (c u1…un) i] is the proof of
-      [c t1…tn = c u1…un |- ti = ui] *)
-
-  val lemma_cstor_distinct : term -> term -> proof -> proof_step
-  (** [lemma_isa_distinct (c …) (d …)] is the proof
-      of the unit clause [|- (c …) ≠ (d …)] *)
-
-  val lemma_acyclicity : (term * term) Iter.t -> proof -> proof_step
-  (** [lemma_acyclicity pairs] is a proof of [t1=u1, …, tn=un |- false]
-      by acyclicity. *)
+  val equal : t -> t -> bool
+  val finite : t -> bool
+  val set_finite : t -> bool -> unit
+  val view : t -> (cstor, t) data_ty_view
+  val cstor_args : cstor -> t list
 end
 
 module type ARG = sig
-  module S : Sidekick_core.SOLVER
-
   (** Constructor symbols.
 
       A constructor is an injective symbol, part of a datatype (or "sum type").
@@ -67,44 +44,35 @@ module type ARG = sig
     type t
     (** Constructor *)
 
-    val ty_args : t -> S.T.Ty.t Iter.t
+    val ty_args : t -> ty list
     (** Type arguments, for a polymorphic constructor *)
 
-    val pp : t Fmt.printer
-
-    val equal : t -> t -> bool
-    (** Comparison *)
+    include Sidekick_sigs.EQ with type t := t
+    include Sidekick_sigs.PRINT with type t := t
   end
 
-  val as_datatype : S.T.Ty.t -> (Cstor.t Iter.t, S.T.Ty.t) data_ty_view
+  val as_datatype : ty -> (Cstor.t list, ty) data_ty_view
   (** Try to view type as a datatype (with its constructors) *)
 
-  val view_as_data : S.T.Term.t -> (Cstor.t, S.T.Term.t) data_view
-  (** Try to view term as a datatype term *)
+  val view_as_data : Term.t -> (Cstor.t, Term.t) data_view
+  (** Try to view Term.t as a datatype Term.t *)
 
-  val mk_cstor : S.T.Term.store -> Cstor.t -> S.T.Term.t array -> S.T.Term.t
-  (** Make a constructor application term *)
+  val mk_cstor : Term.store -> Cstor.t -> Term.t list -> Term.t
+  (** Make a constructor application Term.t *)
 
-  val mk_is_a : S.T.Term.store -> Cstor.t -> S.T.Term.t -> S.T.Term.t
-  (** Make a [is-a] term *)
+  val mk_is_a : Term.store -> Cstor.t -> Term.t -> Term.t
+  (** Make a [is-a] Term.t *)
 
-  val mk_sel : S.T.Term.store -> Cstor.t -> int -> S.T.Term.t -> S.T.Term.t
-  (** Make a selector term *)
+  val mk_sel : Term.store -> Cstor.t -> int -> Term.t -> Term.t
+  (** Make a selector Term.t *)
 
-  val mk_eq : S.T.Term.store -> S.T.Term.t -> S.T.Term.t -> S.T.Term.t
-  (** Make a term equality *)
+  val mk_eq : Term.store -> Term.t -> Term.t -> Term.t
+  (** Make a Term.t equality *)
 
-  val ty_is_finite : S.T.Ty.t -> bool
+  val ty_is_finite : ty -> bool
   (** Is the given type known to be finite? For example a finite datatype
       (an "enum" in C parlance), or [Bool], or [Array Bool Bool]. *)
 
-  val ty_set_is_finite : S.T.Ty.t -> bool -> unit
+  val ty_set_is_finite : ty -> bool -> unit
   (** Modify the "finite" field (see {!ty_is_finite}) *)
-
-  module P :
-    PROOF
-      with type proof := S.P.t
-       and type proof_step := S.P.proof_step
-       and type term := S.T.Term.t
-       and type lit := S.Lit.t
 end

@@ -2,7 +2,7 @@
  (name sidekick_base)
  (public_name sidekick-base)
  (synopsis "Base term definitions for the standalone SMT solver and library")
- (libraries containers iter sidekick.core sidekick.util sidekick.lit
-   sidekick-base.proof-trace sidekick.quip sidekick.arith-lra
-   sidekick.th-bool-static sidekick.th-data sidekick.zarith zarith)
- (flags :standard -w -32 -open Sidekick_util))
+ (libraries containers iter sidekick.core sidekick.util sidekick.smt-solver
+   sidekick.cc sidekick.quip sidekick.th-lra sidekick.th-bool-static
+   sidekick.th-bool-dyn sidekick.th-data sidekick.zarith zarith)
+ (flags :standard -w +32 -open Sidekick_util))

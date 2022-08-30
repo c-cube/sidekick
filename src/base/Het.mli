@@ -1,0 +1,44 @@
+(** {1 Associative containers with Heterogeneous Values}
+
+    This is similar to {!CCMixtbl}, but the injection is directly used as
+    a key.
+
+    @since 0.17 *)
+
+type 'a iter = ('a -> unit) -> unit
+type 'a gen = unit -> 'a option
+
+module Key : sig
+  type 'a t
+
+  val create : unit -> 'a t
+
+  val equal : 'a t -> 'a t -> bool
+  (** Compare two keys that have compatible types. *)
+end
+
+type pair = Pair : 'a Key.t * 'a -> pair
+
+(** {2 Immutable map} *)
+module Map : sig
+  type t
+
+  val empty : t
+  val mem : _ Key.t -> t -> bool
+  val add : 'a Key.t -> 'a -> t -> t
+  val remove : _ Key.t -> t -> t
+  val length : t -> int
+  val cardinal : t -> int
+  val find : 'a Key.t -> t -> 'a option
+
+  val find_exn : 'a Key.t -> t -> 'a
+  (** @raise Not_found if the key is not in the table. *)
+
+  val iter : (pair -> unit) -> t -> unit
+  val to_iter : t -> pair iter
+  val of_iter : pair iter -> t
+  val add_iter : t -> pair iter -> t
+  val add_list : t -> pair list -> t
+  val of_list : pair list -> t
+  val to_list : t -> pair list
+end

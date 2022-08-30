@@ -38,7 +38,7 @@ OCaml prompt):
 # #show Sidekick_base;;
 module Sidekick_base :
   sig
-    module Base_types = Sidekick_base__.Base_types
+    module Types_ = Sidekick_base__.Types_
 ...
   end
 ```
@@ -75,34 +75,28 @@ We're going to use these libraries:
   main Solver, along with a few theories. Let us peek into it now:
 
 ```ocaml
-# #require "sidekick-base.solver";;
-# #show Sidekick_base_solver;;
-module Sidekick_base_solver :
+# #require "sidekick-base";;
+# #show Sidekick_base.Solver;;
+module Solver = Sidekick_base__.Solver
+module Solver = Sidekick_base.Solver
+module Solver :
   sig
-    module Solver_arg : sig ... end
-    module Solver : sig ... end
-    module Th_data : sig ... end
-    module Th_bool : sig ... end
-    module Gensym : sig ... end
-    module Th_lra : sig ... end
-    val th_bool : Solver.theory
-    val th_data : Solver.theory
-    val th_lra : Solver.theory
-  end
+    type t = Solver.t
+...
 ```
 
 Let's bring more all these things into scope, and install some printers
 for legibility:
 
 ```ocaml
+# open Sidekick_core;;
 # open Sidekick_base;;
-# open Sidekick_base_solver;;
+# open Sidekick_smt_solver;;
 # #install_printer Term.pp;;
 # #install_printer Lit.pp;;
 # #install_printer Ty.pp;;
-# #install_printer Fun.pp;;
+# #install_printer Const.pp;;
 # #install_printer Model.pp;;
-# #install_printer Solver.Model.pp;;
 ```
 
 ## First steps in solving
@@ -117,30 +111,24 @@ All terms in sidekick live in a store, which is necessary for _hashconsing_
  in alternative implementations.)
 
 ```ocaml
-# let tstore = Term.create ();;
+# let tstore = Term.Store.create ();;
 val tstore : Term.store = <abstr>
 
-# Term.store_size tstore;;
-- : int = 2
+# Term.Store.size tstore;;
+- : int = 0
 ```
 
-Interesting, there are already two terms that are predefined.
-Let's peek at them:
+Let's look at some basic terms we can build immediately.
 
 ```ocaml
-# let all_terms_init =
-    Term.store_iter tstore |> Iter.to_list |> List.sort Term.compare;;
-val all_terms_init : Term.t list = [true; false]
-
 # Term.true_ tstore;;
-- : Term.t = true
+- : Term.term = true
 
-# (* check it's the same term *)
-  Term.(equal (true_ tstore) (List.hd all_terms_init));;
-- : bool = true
+# Term.false_ tstore;;
+- : Term.term = false
 
-# Term.(equal (false_ tstore) (List.hd all_terms_init));;
-- : bool = false
+# Term.eq tstore (Term.true_ tstore) (Term.false_ tstore);;
+- : Term.term = (= Bool true false)
 ```
 
 Cool. Similarly, we need to manipulate types.
@@ -151,57 +139,60 @@ In general we'd need to carry around a type store as well.
 The only predefined type is _bool_, the type of booleans:
 
 ```ocaml
-# Ty.bool ();;
-- : Ty.t = Bool
+# Ty.bool tstore;;
+- : Term.term = Bool
 ```
 
 Now we can define new terms and constants. Let's try to define
 a few boolean constants named "p", "q", "r":
 
 ```ocaml
-# let p = Term.const_undefined tstore (ID.make "p") @@ Ty.bool();;
-val p : Term.t = p
-# let q = Term.const_undefined tstore (ID.make "q") @@ Ty.bool();;
-val q : Term.t = q
-# let r = Term.const_undefined tstore (ID.make "r") @@ Ty.bool();;
-val r : Term.t = r
+# let p = Uconst.uconst_of_str tstore "p" [] @@ Ty.bool tstore;;
+val p : Term.term = p
+# let q = Uconst.uconst_of_str tstore "q" [] @@ Ty.bool tstore;;
+val q : Term.term = q
+# let r = Uconst.uconst_of_str tstore "r" [] @@ Ty.bool tstore;;
+val r : Term.term = r
 
 # Term.ty p;;
-- : Ty.t = Bool
+- : Term.term = Bool
 
 # Term.equal p q;;
 - : bool = false
 
 # Term.view p;;
-- : Term.t Term.view = Sidekick_base.Term.App_fun (p/3, [||])
+- : Term.view = Sidekick_base.Term.E_const p
 
-# Term.store_iter tstore |> Iter.to_list |> List.sort Term.compare;;
-- : Term.t list = [true; false; p; q; r]
+# Term.equal p p;;
+- : bool = true
 ```
 
 We can now build formulas from these.
 
 ```ocaml
 # let p_eq_q = Term.eq tstore p q;;
-val p_eq_q : Term.t = (= p q)
+val p_eq_q : Term.term = (= Bool p q)
 
 # let p_imp_r = Form.imply tstore p r;;
-val p_imp_r : Term.t = (=> p r)
+val p_imp_r : Term.term = (=> p r)
 ```
 
 ### Using a solver.
 
 We can create a solver by passing `Solver.create` a term store
-and a type store (which in our case is simply `() : unit`).
+and a proof trace (here, `Proof_trace.dummy` because we don't care about
+proofs).
 A list of theories can be added initially, or later using
 `Solver.add_theory`.
 
 ```ocaml
-# let solver = Solver.create ~theories:[th_bool] ~proof:(Proof.empty) tstore () ();;
-val solver : Solver.t = <abstr>
+# let proof = Proof_trace.dummy;;
+val proof : Proof_trace.t = <abstr>
+# let solver = Solver.create_default ~theories:[th_bool_static] ~proof tstore ();;
+val solver : solver = <abstr>
 
 # Solver.add_theory;;
-- : Solver.t -> Solver.theory -> unit = <fun>
+- : solver -> theory -> unit = <fun>
 ```
 
 Alright, let's do some solving now ⚙️. We're going to assert
@@ -211,18 +202,18 @@ We start with `p = q`.
  
 ```ocaml
 # p_eq_q;;
-- : Term.t = (= p q)
+- : Term.term = (= Bool p q)
 # Solver.assert_term solver p_eq_q;;
 - : unit = ()
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
-Sidekick_base_solver.Solver.Sat
+Sidekick_smt_solver.Solver.Sat
  (model
-  (true := true)
-  (false := false)
-  (p := true)
+  (false := $@c[0])
   (q := true)
-  ((= p q) := true))
+  ((= Bool p q) := true)
+  (true := true)
+  (p := true))
 ```
 
 It is satisfiable, and we got a model where "p" and "q" are both false.
@@ -238,8 +229,8 @@ whether the assertions and hypotheses are satisfiable together.
     ~assumptions:[Solver.mk_lit_t solver p;
                   Solver.mk_lit_t solver q ~sign:false];;
 - : Solver.res =
-Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+Sidekick_smt_solver.Solver.Unsat
+ {Sidekick_smt_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 ```
 
 Here it's unsat, because we asserted "p = q", and then assumed "p"
@@ -253,40 +244,40 @@ Note that this doesn't affect satisfiability without assumptions:
 ```ocaml
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
-Sidekick_base_solver.Solver.Sat
+Sidekick_smt_solver.Solver.Sat
  (model
+  (false := $@c[0])
+  (q := false)
+  ((= Bool p q) := true)
   (true := true)
-  (false := false)
-  (p := true)
-  (q := true)
-  ((= p q) := true))
+  (p := false))
 ```
 
 We can therefore add more formulas and see where it leads us.
 
 ```ocaml
 # p_imp_r;;
-- : Term.t = (=> p r)
+- : Term.term = (=> p r)
 # Solver.assert_term solver p_imp_r;;
 - : unit = ()
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
-Sidekick_base_solver.Solver.Sat
+Sidekick_smt_solver.Solver.Sat
  (model
-  (true := true)
-  (false := false)
-  (p := true)
-  (q := true)
+  (false := $@c[0])
+  (q := false)
   (r := true)
-  ((= p q) := true)
-  ((=> p r) := true))
+  ((= Bool p q) := true)
+  ((or r (not p) false) := true)
+  (true := true)
+  (p := false))
 ```
 
 Still satisfiable, but now we see `r` in the model, too. And now:
 
 ```ocaml
 # let q_imp_not_r = Form.imply tstore q (Form.not_ tstore r);;
-val q_imp_not_r : Term.t = (=> q (not r))
+val q_imp_not_r : Term.term = (=> q (not r))
 # Solver.assert_term solver q_imp_not_r;;
 - : unit = ()
 
@@ -295,8 +286,8 @@ val q_imp_not_r : Term.t = (=> q (not r))
 
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
-Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+Sidekick_smt_solver.Solver.Unsat
+ {Sidekick_smt_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 ```
 
 This time we got _unsat_ and there is no way of undoing it.
@@ -310,25 +301,25 @@ We can solve linear real arithmetic problems as well.
 Let's create a new solver and add the theory of reals to it.
 
 ```ocaml
-# let solver = Solver.create ~theories:[th_bool; th_lra] ~proof:(Proof.empty) tstore () ();;
-val solver : Solver.t = <abstr>
+# let solver = Solver.create_default ~theories:[th_bool_static; th_lra] ~proof tstore ();;
+val solver : solver = <abstr>
 ```
 
 Create a few arithmetic constants.
 
 ```ocaml
-# let real = Ty.real ();;
-val real : Ty.t = Real
-# let a = Term.const_undefined tstore (ID.make "a") real;;
-val a : Term.t = a
-# let b = Term.const_undefined tstore (ID.make "b") real;;
-val b : Term.t = b
+# let real = Ty.real tstore;;
+val real : Term.term = Real
+# let a = Uconst.uconst_of_str tstore "a" [] real;;
+val a : Term.term = a
+# let b = Uconst.uconst_of_str tstore "b" [] real;;
+val b : Term.term = b
 
 # Term.ty a;;
-- : Ty.t = Real
+- : Term.term = Real
 
-# let a_leq_b = Term.LRA.(leq tstore a b);;
-val a_leq_b : Term.t = (<= a b)
+# let a_leq_b = LRA_term.leq tstore a b;;
+val a_leq_b : Term.term = (<= a b)
 ```
 
 We can play with assertions now:
@@ -338,31 +329,39 @@ We can play with assertions now:
 - : unit = ()
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
-Sidekick_base_solver.Solver.Sat
+Sidekick_smt_solver.Solver.Sat
  (model
-  (true := true)
-  (false := false)
   (a := 0)
+  ((+ a) := $@c[0])
+  (0 := 0)
+  (false := $@c[5])
   (b := 0)
-  ((<= (+ a (* -1 b)) 0) := true)
-  (_sk_lra__le_comb0 := 0))
+  ((+ a ((* -1) b)) := $@c[7])
+  ((<= (+ a ((* -1) b))) := $@c[3])
+  ((* -1) := $@c[6])
+  ((<= (+ a ((* -1) b)) 0) := true)
+  (((* -1) b) := $@c[1])
+  (<= := $@c[2])
+  ($_le_comb[0] := 0)
+  (+ := $@c[4])
+  (true := true))
 
 
-# let a_geq_1 = Term.LRA.(geq tstore a (const tstore (Q.of_int 1)));;
-val a_geq_1 : Term.t = (>= a 1)
-# let b_leq_half = Term.LRA.(leq tstore b (const tstore (Q.of_string "1/2")));;
-val b_leq_half : Term.t = (<= b 1/2)
+# let a_geq_1 = LRA_term.geq tstore a (LRA_term.const tstore (Q.of_int 1));;
+val a_geq_1 : Term.term = (>= a 1)
+# let b_leq_half = LRA_term.(leq tstore b (LRA_term.const tstore (Q.of_string "1/2")));;
+val b_leq_half : Term.term = (<= b 1/2)
 
 # let res = Solver.solve solver
     ~assumptions:[Solver.mk_lit_t solver p;
                   Solver.mk_lit_t solver a_geq_1;
                   Solver.mk_lit_t solver b_leq_half];;
 val res : Solver.res =
-  Sidekick_base_solver.Solver.Unsat
-   {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+  Sidekick_smt_solver.Solver.Unsat
+   {Sidekick_smt_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 
 # match res with Solver.Unsat {unsat_core=us; _} -> us() |> Iter.to_list | _ -> assert false;;
-- : Proof.lit list = [(>= a 1); (<= b 1/2)]
+- : Proof_trace.lit list = [(>= a 1); (<= b 1/2)]
 ```
 
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
@@ -378,41 +377,39 @@ We can define function symbols, not just constants. Let's also define `u`,
 an uninterpreted type.
 
 ```ocaml
-# let u = Ty.atomic_uninterpreted (ID.make "u");;
-val u : Ty.t = u/9
+# let u = Ty.uninterpreted_str tstore "u";;
+val u : Term.term = u
 
-# let u1 = Term.const_undefined tstore (ID.make "u1") u;;
-val u1 : Term.t = u1
-# let u2 = Term.const_undefined tstore (ID.make "u2") u;;
-val u2 : Term.t = u2
-# let u3 = Term.const_undefined tstore (ID.make "u3") u;;
-val u3 : Term.t = u3
+# let u1 = Uconst.uconst_of_str tstore "u1" [] u;;
+val u1 : Term.term = u1
+# let u2 = Uconst.uconst_of_str tstore "u2" [] u;;
+val u2 : Term.term = u2
+# let u3 = Uconst.uconst_of_str tstore "u3" [] u;;
+val u3 : Term.term = u3
 
-# let f1 = Fun.mk_undef' (ID.make "f1") [u] u;;
-val f1 : Fun.t = f1/13
-# Fun.view f1;;
-- : Fun.view =
-Sidekick_base.Fun.Fun_undef
- {Sidekick_base.Base_types.fun_ty_args = [u/9]; fun_ty_ret = u/9}
+# let f1 = Uconst.uconst_of_str tstore "f1" [u] u;;
+val f1 : Term.term = f1
+# Term.view f1;;
+- : Term.view = Sidekick_base.Term.E_const f1
 
-# let f1_u1 = Term.app_fun_l tstore f1 [u1];;
-val f1_u1 : Term.t = (f1 u1)
+# let f1_u1 = Term.app_l tstore f1 [u1];;
+val f1_u1 : Term.term = (f1 u1)
 
 # Term.ty f1_u1;;
-- : Ty.t = u/9
+- : Term.term = u
 # Term.view f1_u1;;
-- : Term.t Term.view = Sidekick_base.Term.App_fun (f1/13, [|u1|])
+- : Term.view = Sidekick_base.Term.E_app (f1, u1)
 ```
 
 Anyway, Sidekick knows how to reason about functions.
 
 ```ocaml
-# let solver = Solver.create ~theories:[] ~proof:(Proof.empty) tstore () ();;
-val solver : Solver.t = <abstr>
+# let solver = Solver.create_default ~theories:[] ~proof tstore ();;
+val solver : solver = <abstr>
 
 # (* helper *)
-  let appf1 x = Term.app_fun_l tstore f1 x;;
-val appf1 : Term.t list -> Term.t = <fun>
+  let appf1 x = Term.app_l tstore f1 x;;
+val appf1 : Term.term list -> Term.term = <fun>
 
 # Solver.assert_term solver (Term.eq tstore u2 (appf1 [u1]));;
 - : unit = ()
@@ -427,14 +424,14 @@ val appf1 : Term.t list -> Term.t = <fun>
 # Solver.solve solver
     ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u1 (appf1[u1]))];;
 - : Solver.res =
-Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+Sidekick_smt_solver.Solver.Unsat
+ {Sidekick_smt_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 
 # Solver.solve solver
     ~assumptions:[Solver.mk_lit_t solver ~sign:false (Term.eq tstore u2 u3)];;
 - : Solver.res =
-Sidekick_base_solver.Solver.Unsat
- {Sidekick_base_solver.Solver.unsat_core = <fun>; unsat_proof_step = <fun>}
+Sidekick_smt_solver.Solver.Unsat
+ {Sidekick_smt_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 ```
 
 Assuming: `f1(u1)=u2, f1(u2)=u3, f1^2(u1)=u1, f1^3(u1)=u1`,

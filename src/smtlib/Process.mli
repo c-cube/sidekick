@@ -1,18 +1,14 @@
 (** {1 Process Statements} *)
 
 open Sidekick_base
+module Solver = Sidekick_base.Solver
 
-module Solver :
-  Sidekick_smt_solver.S
-    with type T.Term.t = Term.t
-     and type T.Term.store = Term.store
-     and type T.Ty.t = Ty.t
-     and type T.Ty.store = Ty.store
-     and type proof = Proof.t
-
-val th_bool : Solver.theory
+val th_bool_dyn : Solver.theory
+val th_bool_static : Solver.theory
+val th_bool : Config.t -> Solver.theory
 val th_data : Solver.theory
 val th_lra : Solver.theory
+val th_uf : Solver.theory
 
 type 'a or_error = ('a, string) CCResult.t
 

@@ -1,0 +1,17 @@
+; FIXME
+;(rule
+; (targets reg_model_lra1.out)
+; (deps
+;  (:file reg_model_lra1.smt2)
+;  (:main ../../../src/main/main.exe))
+; (action
+;  (with-stdout-to
+;   %{targets}
+;   (bash "%{main} %{file} | tail -n +2"))))
+;
+;(rule
+; (alias runtest)
+; (locks /test)
+; (package sidekick-bin)
+; (action
+;  (diff reg_model_lra1.out.expected reg_model_lra1.out)))

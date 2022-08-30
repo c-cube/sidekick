@@ -16,9 +16,8 @@ module type S = sig
   val to_iter : 'a t -> (key * 'a) Iter.t
   val add : 'a t -> key -> 'a -> unit
   val remove : _ t -> key -> unit
-  val push_level : _ t -> unit
-  val pop_levels : _ t -> int -> unit
-  val n_levels : _ t -> int
+
+  include Sidekick_sigs.BACKTRACKABLE1 with type 'a t := 'a t
 end
 
 module type ARG = sig

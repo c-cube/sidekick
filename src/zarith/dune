@@ -1,6 +1,7 @@
 (library
  (name sidekick_zarith)
  (public_name sidekick.zarith)
+ (synopsis "Interface to zarith (optional) for arithmetic")
  (optional) ; dep on zarith
  (flags :standard -warn-error -a+8)
  (libraries sidekick.core sidekick.arith zarith))

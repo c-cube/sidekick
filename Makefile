@@ -22,6 +22,7 @@ build-dev:
 
 clean:
 	@dune clean
+	@rm sidekick || true
 
 test:
 	@dune runtest $(OPTS) --force --no-buffer
@@ -32,31 +33,34 @@ DATE=$(shell date +%FT%H:%M)
 
 snapshots:
 	@mkdir -p snapshots
-$(TESTTOOL)-quick: snapshots
+sidekick:
+	@ln -f -s _build/default/src/main/main.exe ./sidekick
+
+$(TESTTOOL)-quick: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick
-$(TESTTOOL)-quick-proofs: snapshots
+$(TESTTOOL)-quick-proofs: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-quick-proofs --proof-dir out-proofs-$(DATE)/
-$(TESTTOOL)-local: snapshots
+$(TESTTOOL)-local: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/quick-$(DATE).csv --task sidekick-smt-local
-$(TESTTOOL)-smt-QF_UF: snapshots
+$(TESTTOOL)-smt-QF_UF: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_UF-$(DATE).csv --task sidekick-smt-nodir tests/QF_UF
-$(TESTTOOL)-smt-QF_DT: snapshots
+$(TESTTOOL)-smt-QF_DT: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_DT-$(DATE).csv --task sidekick-smt-nodir tests/QF_DT
-$(TESTTOOL)-smt-QF_LRA: snapshots
+$(TESTTOOL)-smt-QF_LRA: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_LRA-$(DATE).csv --task sidekick-smt-nodir tests/QF_LRA
-$(TESTTOOL)-smt-QF_UFLRA: snapshots
+$(TESTTOOL)-smt-QF_UFLRA: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_UFLRA-$(DATE).csv --task sidekick-smt-nodir tests/QF_UFLRA
-$(TESTTOOL)-smt-QF_LIA: snapshots
+$(TESTTOOL)-smt-QF_LIA: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_LRA-$(DATE).csv --task sidekick-smt-nodir tests/QF_LIA
-$(TESTTOOL)-smt-QF_UFLIA: snapshots
+$(TESTTOOL)-smt-QF_UFLIA: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_LRA-$(DATE).csv --task sidekick-smt-nodir tests/QF_UFLIA
 
@@ -77,7 +81,7 @@ reindent:
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 echo "reindenting: "
 	@find src '(' -name '*.ml' -or -name '*.mli' ')' -print0 | xargs -0 ocp-indent -i
 
-WATCH=@all
+WATCH?=@all
 watch:
 	dune build $(WATCH) -w $(OPTS)
 	#@dune build @all -w # TODO: once tests pass

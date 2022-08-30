@@ -7,8 +7,10 @@ Copyright 2014 Simon Cruanes
 module E = CCResult
 module Fmt = CCFormat
 module Term = Sidekick_base.Term
+module Config = Sidekick_base.Config
 module Solver = Sidekick_smtlib.Solver
 module Process = Sidekick_smtlib.Process
+module Proof = Sidekick_smtlib.Proof_trace
 open E.Infix
 
 type 'a or_error = ('a, string) E.t
@@ -22,7 +24,7 @@ let p_proof = ref false
 let p_model = ref false
 let check = ref false
 let time_limit = ref 300.
-let size_limit = ref 1_000_000_000.
+let mem_limit = ref 1_000_000_000.
 let restarts = ref true
 let gc = ref true
 let p_stat = ref false
@@ -31,7 +33,6 @@ let p_progress = ref false
 let proof_file = ref ""
 let proof_store_memory = ref false
 let proof_store_file = ref ""
-let reset_line = "\x1b[2K\r"
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -61,6 +62,7 @@ let int_arg r arg =
 let input_file s = file := s
 let usage = "Usage : main [options] <file>"
 let version = "%%version%%"
+let config = ref Config.empty
 
 let argspec =
   Arg.align
@@ -89,12 +91,23 @@ let argspec =
       "-o", Arg.Set_string proof_file, " file into which to output a proof";
       "--model", Arg.Set p_model, " print model";
       "--no-model", Arg.Clear p_model, " do not print model";
+      ( "--bool",
+        Arg.Symbol
+          ( [ "dyn"; "static" ],
+            function
+            | "dyn" ->
+              config := Config.add Sidekick_base.k_th_bool_config `Dyn !config
+            | "static" ->
+              config :=
+                Config.add Sidekick_base.k_th_bool_config `Static !config
+            | _s -> failwith "unknown" ),
+        " configure bool theory" );
       "--gc-stat", Arg.Set p_gc_stat, " outputs statistics about the GC";
       "-p", Arg.Set p_progress, " print progress bar";
       "--no-p", Arg.Clear p_progress, " no progress bar";
-      ( "--size",
-        Arg.String (int_arg size_limit),
-        " <s>[kMGT] sets the size limit for the sat solver" );
+      ( "--memory",
+        Arg.String (int_arg mem_limit),
+        " <s>[kMGT] sets the memory limit for the sat solver" );
       ( "--time",
         Arg.String (int_arg time_limit),
         " <t>[smhd] sets the time limit for the sat solver" );
@@ -117,12 +130,11 @@ let check_limits () =
   let s = float heap_size *. float Sys.word_size /. 8. in
   if t > !time_limit then
     raise Out_of_time
-  else if s > !size_limit then
+  else if s > !mem_limit then
     raise Out_of_space
 
-let main_smt () : _ result =
-  let module Proof = Sidekick_smtlib.Proof in
-  let tst = Term.create ~size:4_096 () in
+let main_smt ~config () : _ result =
+  let tst = Term.Store.create ~size:4_096 () in
 
   let enable_proof_ = !check || !p_proof || !proof_file <> "" in
   Log.debugf 1 (fun k -> k "(@[proof-enable@ %B@])" enable_proof_);
@@ -144,27 +156,34 @@ let main_smt () : _ result =
   run_with_tmp_file @@ fun temp_proof_file ->
   Log.debugf 1 (fun k -> k "(@[temp-proof-file@ %S@])" temp_proof_file);
 
-  let config =
-    if enable_proof_ then
-      Proof.Config.default |> Proof.Config.enable true
-      |> Proof.Config.store_on_disk_at temp_proof_file
-    else
-      Proof.Config.empty
-  in
+  (* FIXME
+     let config =
+       if enable_proof_ then
+         Proof.Config.default |> Proof.Config.enable true
+         |> Proof.Config.store_on_disk_at temp_proof_file
+       else
+         Proof.Config.empty
+     in
 
-  (* main proof object *)
-  let proof = Proof.create ~config () in
+     (* main proof object *)
+     let proof = Proof.create ~config () in
+  *)
+  let proof = Proof.dummy in
 
   let solver =
+    (* TODO: probes, to load only required theories *)
     let theories =
-      (* TODO: probes, to load only required theories *)
-      [ Process.th_bool; Process.th_data; Process.th_lra ]
+      let th_bool = Process.th_bool config in
+      Log.debugf 1 (fun k ->
+          k "(@[main.th-bool.pick@ %S@])"
+            (Sidekick_smt_solver.Theory.name th_bool));
+      [ th_bool; Process.th_uf; Process.th_data; Process.th_lra ]
     in
-    Process.Solver.create ~proof ~theories tst () ()
+    Process.Solver.create_default ~proof ~theories tst
   in
 
   let finally () =
-    if !p_stat then Format.printf "%s%a@." reset_line Solver.pp_stats solver
+    if !p_stat then Format.printf "%a@." Solver.pp_stats solver
   in
   CCFun.protect ~finally @@ fun () ->
   (* FIXME: emit an actual proof *)
@@ -177,14 +196,20 @@ let main_smt () : _ result =
   if !check then
     (* might have to check conflicts *)
     Solver.add_theory solver Process.Check_cc.theory;
-  Sidekick_smtlib.parse tst !file >>= fun input ->
+
+  let parse_res =
+    let@ () = Profile.with_ "parse" ~args:[ "file", !file ] in
+    Sidekick_smtlib.parse tst !file
+  in
+
+  parse_res >>= fun input ->
   (* process statements *)
   let res =
     try
       E.fold_l
         (fun () ->
           Process.process_stmt ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
-            ~time:!time_limit ~memory:!size_limit ~pp_model:!p_model ?proof_file
+            ~time:!time_limit ~memory:!mem_limit ~pp_model:!p_model ?proof_file
             ~check:!check ~progress:!p_progress solver)
         () input
     with Exit -> E.return ()
@@ -192,28 +217,30 @@ let main_smt () : _ result =
   res
 
 let main_cnf () : _ result =
-  let module Proof = Pure_sat_solver.Proof in
   let module S = Pure_sat_solver in
   let proof, in_memory_proof =
-    if !check then (
-      let pr, inmp = Proof.create_in_memory () in
-      pr, Some inmp
-    ) else if !proof_file <> "" then
-      Proof.create_to_file !proof_file, None
-    else
-      Proof.dummy, None
+    (* FIXME
+       if !check then (
+         let pr, inmp = Proof.create_in_memory () in
+         pr, Some inmp
+       ) else if !proof_file <> "" then
+         Proof.create_to_file !proof_file, None
+       else
+    *)
+    Proof.dummy, None
   in
 
   let stat = Stat.create () in
 
   let finally () =
-    if !p_stat then Fmt.printf "%a@." Stat.pp_all (Stat.all stat);
+    if !p_stat then Fmt.printf "%a@." Stat.pp stat;
     Proof.close proof
   in
   CCFun.protect ~finally @@ fun () ->
-  let solver = S.SAT.create ~size:`Big ~proof ~stat () in
+  let tst = Term.Store.create () in
+  let solver = S.SAT.create_pure_sat ~size:`Big ~proof ~stat () in
 
-  S.Dimacs.parse_file solver !file >>= fun () ->
+  S.Dimacs.parse_file solver tst !file >>= fun () ->
   let r = S.solve ~check:!check ?in_memory_proof solver in
   (* FIXME: if in memory proof and !proof_file<>"",
      then dump proof into file now *)
@@ -245,7 +272,7 @@ let main () =
     if is_cnf then
       main_cnf ()
     else
-      main_smt ()
+      main_smt ~config:!config ()
   in
   Gc.delete_alarm al;
   res

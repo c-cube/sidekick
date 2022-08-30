@@ -1,0 +1,7 @@
+(library
+ (name sidekick_th_lra)
+ (public_name sidekick.th-lra)
+ (synopsis "Solver for LRA (real arithmetic)")
+ (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util)
+ (libraries containers sidekick.arith sidekick.simplex sidekick.cc
+   sidekick.smt-solver))

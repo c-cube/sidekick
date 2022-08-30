@@ -1,9 +1,7 @@
-(** {1 Configuration} *)
+(** Configuration *)
 
-type 'a sequence = ('a -> unit) -> unit
+module Key = Het.Key
 
-module Key = CCHet.Key
+type pair = Het.pair = Pair : 'a Key.t * 'a -> pair
 
-type pair = CCHet.pair = Pair : 'a Key.t * 'a -> pair
-
-include CCHet.Map
+include Het.Map

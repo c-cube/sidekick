@@ -15,8 +15,8 @@ let hash_int_ n =
     (h := Int64.(mul !h fnv_prime));
     h := Int64.(logxor !h (of_int ((n lsr (k * 8)) land 0xff)))
   done;
+  (* truncate back to int and remove sign *)
   Int64.to_int !h land max_int
-(* truncate back to int and remove sign *)
 
 let combine2 a b =
   let h = ref fnv_offset_basis in
@@ -60,20 +60,21 @@ let combine4 a b c d =
   done;
   Int64.to_int !h land max_int
 
-let pair f g (x, y) = combine2 (f x) (g y)
+let[@inline] pair f g (x, y) = combine2 (f x) (g y)
 
 let opt f = function
   | None -> 42
   | Some x -> combine2 43 (f x)
 
-let int = hash_int_
+let[@inline] int x = hash_int_ x
+let h_true_ = hash_int_ 1
+let h_false_ = hash_int_ 0
 
-let bool b =
-  hash_int_
-    (if b then
-      1
-    else
-      2)
+let[@inline] bool b =
+  if b then
+    h_true_
+  else
+    h_false_
 
 let list f l = List.fold_left (combine f) 0x42 l
 let array f = Array.fold_left (combine f) 0x43

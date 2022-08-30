@@ -15,6 +15,7 @@ val snoc : 'a t -> 'a -> 'a t
 val append : 'a t -> 'a t -> 'a t
 val of_iter : 'a Iter.t -> 'a t
 val to_iter : 'a t -> 'a Iter.t
+val to_list : 'a t -> 'a list
 val fold : ('a -> 'b -> 'a) -> 'a -> 'b t -> 'a
 val iter : ('a -> unit) -> 'a t -> unit
 

@@ -2,9 +2,9 @@
 (prover
   (name sidekick-dev)
   (cmd "$cur_dir/../sidekick --no-check --time $timeout $file")
-  (unsat "Unsat")
-  (sat "Sat")
-  (unknown "Timeout|Unknown")
+  (unsat "^unsat")
+  (sat "^sat")
+  (unknown "^(timeout|unknown)")
   (version "git:."))
 
 (proof_checker

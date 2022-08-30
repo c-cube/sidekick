@@ -1,8 +1,7 @@
 (library
  (name sidekick_sat)
  (public_name sidekick.sat)
- (libraries iter sidekick.util sidekick.core)
  (synopsis "Pure OCaml SAT solver implementation for sidekick")
- (flags :standard -warn-error -a+8 -open Sidekick_util)
- (ocamlopt_flags :standard -O3 -bin-annot -unbox-closures
-   -unbox-closures-factor 20))
+ (private_modules heap heap_intf base_types_)
+ (libraries iter sidekick.util sidekick.core)
+ (flags :standard -w +32 -open Sidekick_util))

@@ -1,6 +1,4 @@
-(** {1 Configuration} *)
-
-type 'a sequence = ('a -> unit) -> unit
+(** Configuration *)
 
 module Key : sig
   type 'a t
@@ -26,9 +24,9 @@ val find_exn : 'a Key.t -> t -> 'a
 type pair = Pair : 'a Key.t * 'a -> pair
 
 val iter : (pair -> unit) -> t -> unit
-val to_iter : t -> pair sequence
-val of_iter : pair sequence -> t
-val add_iter : t -> pair sequence -> t
+val to_iter : t -> pair Iter.t
+val of_iter : pair Iter.t -> t
+val add_iter : t -> pair Iter.t -> t
 val add_list : t -> pair list -> t
 val of_list : pair list -> t
 val to_list : t -> pair list

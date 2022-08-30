@@ -1,189 +1,135 @@
-(** Theory of boolean formulas.
+open Sidekick_core
+module Intf = Intf
+open Intf
+module SI = SMT.Solver_internal
+module Proof_rules = Proof_rules
+module T = Term
 
-    This handles formulas containing "and", "or", "=>", "if-then-else", etc.
-    *)
+module type ARG = Intf.ARG
 
-(** Boolean-oriented view of terms *)
-type ('a, 'args) bool_view =
-  | B_bool of bool
-  | B_not of 'a
-  | B_and of 'args
-  | B_or of 'args
-  | B_imply of 'args * 'a
-  | B_equiv of 'a * 'a
-  | B_xor of 'a * 'a
-  | B_eq of 'a * 'a
-  | B_neq of 'a * 'a
-  | B_ite of 'a * 'a * 'a
-  | B_opaque_bool of 'a (* do not enter *)
-  | B_atom of 'a
+module Make (A : ARG) : sig
+  val theory : SMT.theory
+end = struct
+  type state = {
+    tst: T.store;
+    gensym: Gensym.t;
+    n_simplify: int Stat.counter;
+    n_clauses: int Stat.counter;
+  }
 
-module type PROOF = sig
-  type proof
-  type proof_step
-  type term
-  type lit
+  let create ~stat tst : state =
+    {
+      tst;
+      gensym = Gensym.create tst;
+      n_simplify = Stat.mk_int stat "th.bool.simplified";
+      n_clauses = Stat.mk_int stat "th.bool.cnf-clauses";
+    }
 
-  val lemma_bool_tauto : lit Iter.t -> proof -> proof_step
-  (** Boolean tautology lemma (clause) *)
-
-  val lemma_bool_c : string -> term list -> proof -> proof_step
-  (** Basic boolean logic lemma for a clause [|- c].
-      [proof_bool_c b name cs] is the rule designated by [name]. *)
-
-  val lemma_bool_equiv : term -> term -> proof -> proof_step
-  (** Boolean tautology lemma (equivalence) *)
-
-  val lemma_ite_true : ite:term -> proof -> proof_step
-  (** lemma [a ==> ite a b c = b] *)
-
-  val lemma_ite_false : ite:term -> proof -> proof_step
-  (** lemma [¬a ==> ite a b c = c] *)
-end
-
-(** Argument to the theory *)
-module type ARG = sig
-  module S : Sidekick_core.SOLVER
-
-  type term = S.T.Term.t
-
-  val view_as_bool : term -> (term, term Iter.t) bool_view
-  (** Project the term into the boolean view. *)
-
-  val mk_bool : S.T.Term.store -> (term, term array) bool_view -> term
-  (** Make a term from the given boolean view. *)
-
-  include
-    PROOF
-      with type proof := S.P.t
-       and type proof_step := S.P.proof_step
-       and type lit := S.Lit.t
-       and type term := S.T.Term.t
-
-  (** Fresh symbol generator.
-
-      The theory needs to be able to create new terms with fresh names,
-      to be used as placeholders for complex formulas during Tseitin
-      encoding. *)
-  module Gensym : sig
-    type t
-
-    val create : S.T.Term.store -> t
-    (** New (stateful) generator instance. *)
-
-    val fresh_term : t -> pre:string -> S.T.Ty.t -> term
-    (** Make a fresh term of the given type *)
-  end
-end
-
-(** Signature *)
-module type S = sig
-  module A : ARG
-
-  type state
-
-  val create : A.S.T.Term.store -> A.S.T.Ty.store -> state
-
-  val simplify : state -> A.S.Solver_internal.simplify_hook
-  (** Simplify given term *)
-
-  val cnf : state -> A.S.Solver_internal.preprocess_hook
-  (** preprocesses formulas by giving them names and
-      adding clauses to equate the name with the boolean formula. *)
-
-  val theory : A.S.theory
-  (** A theory that can be added to the solver {!A.S}.
-
-      This theory does most of its work during preprocessing,
-      turning boolean formulas into SAT clauses via
-      the {{: https://en.wikipedia.org/wiki/Tseytin_transformation}
-          Tseitin encoding} . *)
-end
-
-module Make (A : ARG) : S with module A = A = struct
-  module A = A
-  module Ty = A.S.T.Ty
-  module T = A.S.T.Term
-  module Lit = A.S.Solver_internal.Lit
-  module SI = A.S.Solver_internal
-
-  type state = { tst: T.store; ty_st: Ty.store; gensym: A.Gensym.t }
-
-  let create tst ty_st : state = { tst; ty_st; gensym = A.Gensym.create tst }
   let[@inline] not_ tst t = A.mk_bool tst (B_not t)
   let[@inline] eq tst a b = A.mk_bool tst (B_eq (a, b))
 
   let is_true t =
-    match T.as_bool t with
+    match T.as_bool_val t with
     | Some true -> true
     | _ -> false
 
   let is_false t =
-    match T.as_bool t with
+    match T.as_bool_val t with
     | Some false -> true
     | _ -> false
 
-  let simplify (self : state) (simp : SI.Simplify.t) (t : T.t) :
-      (T.t * SI.proof_step Iter.t) option =
+  let unfold_and t : T.Set.t =
+    let rec aux acc t =
+      match A.view_as_bool t with
+      | B_and l -> List.fold_left aux acc l
+      | _ -> T.Set.add t acc
+    in
+    aux T.Set.empty t
+
+  let unfold_or t : T.Set.t =
+    let rec aux acc t =
+      match A.view_as_bool t with
+      | B_or l -> List.fold_left aux acc l
+      | _ -> T.Set.add t acc
+    in
+    aux T.Set.empty t
+
+  let simplify (self : state) (simp : Simplify.t) (t : T.t) :
+      (T.t * Proof_step.id Iter.t) option =
     let tst = self.tst in
 
-    let proof = SI.Simplify.proof simp in
+    let proof = Simplify.proof simp in
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
+    let mk_step_ r = Proof_trace.add_step proof r in
 
     let add_step_eq a b ~using ~c0 : unit =
-      add_step_
-      @@ SI.P.lemma_rw_clause c0 (SI.Simplify.proof simp) ~using
-           ~res:(Iter.return (Lit.atom tst (A.mk_bool tst (B_eq (a, b)))))
+      add_step_ @@ mk_step_
+      @@ fun () ->
+      Proof_core.lemma_rw_clause c0 ~using
+        ~res:[ Lit.atom tst (A.mk_bool tst (B_eq (a, b))) ]
     in
 
-    let[@inline] ret u = Some (u, Iter.of_list !steps) in
+    let[@inline] ret u =
+      Stat.incr self.n_simplify;
+      Some (u, Iter.of_list !steps)
+    in
+
     (* proof is [t <=> u] *)
     let ret_bequiv t1 u =
-      add_step_ @@ A.lemma_bool_equiv t1 u @@ SI.Simplify.proof simp;
+      (add_step_ @@ mk_step_ @@ fun () -> Proof_rules.lemma_bool_equiv t1 u);
       ret u
     in
 
     match A.view_as_bool t with
     | B_bool _ -> None
-    | B_not u when is_true u -> ret_bequiv t (T.bool tst false)
-    | B_not u when is_false u -> ret_bequiv t (T.bool tst true)
+    | B_not u when is_true u -> ret_bequiv t (T.false_ tst)
+    | B_not u when is_false u -> ret_bequiv t (T.true_ tst)
     | B_not _ -> None
-    | B_opaque_bool _ -> None
-    | B_and a ->
-      if Iter.exists is_false a then
-        ret (T.bool tst false)
-      else if Iter.for_all is_true a then
-        ret (T.bool tst true)
-      else
-        None
-    | B_or a ->
-      if Iter.exists is_true a then
-        ret (T.bool tst true)
-      else if Iter.for_all is_false a then
-        ret (T.bool tst false)
-      else
-        None
-    | B_imply (args, u) ->
-      if Iter.exists is_false args then
-        ret (T.bool tst true)
-      else if is_true u then
-        ret (T.bool tst true)
-      else
-        None
+    | B_atom _ -> None
+    | B_and _ ->
+      let set = unfold_and t in
+      if T.Set.exists is_false set then
+        ret (T.false_ tst)
+      else if T.Set.for_all is_true set then
+        ret (T.true_ tst)
+      else (
+        let t' = A.mk_bool tst (B_and (T.Set.to_list set)) in
+        if not (T.equal t t') then
+          ret_bequiv t t'
+        else
+          None
+      )
+    | B_or _ ->
+      let set = unfold_or t in
+      if T.Set.exists is_true set then
+        ret (T.true_ tst)
+      else if T.Set.for_all is_false set then
+        ret (T.false_ tst)
+      else (
+        let t' = A.mk_bool tst (B_or (T.Set.to_list set)) in
+        if not (T.equal t t') then
+          ret_bequiv t t'
+        else
+          None
+      )
+    | B_imply (a, b) ->
+      (* always rewrite [a => b] to [¬a \/ b] *)
+      let u = A.mk_bool tst (B_or [ T.not tst a; b ]) in
+      ret u
     | B_ite (a, b, c) ->
       (* directly simplify [a] so that maybe we never will simplify one
          of the branches *)
-      let a, prf_a = SI.Simplify.normalize_t simp a in
+      let a, prf_a = Simplify.normalize_t simp a in
       Option.iter add_step_ prf_a;
       (match A.view_as_bool a with
       | B_bool true ->
-        add_step_eq t b ~using:(Iter.of_opt prf_a)
-          ~c0:(A.lemma_ite_true ~ite:t proof);
+        add_step_eq t b ~using:(Option.to_list prf_a)
+          ~c0:(mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
         ret b
       | B_bool false ->
-        add_step_eq t c ~using:(Iter.of_opt prf_a)
-          ~c0:(A.lemma_ite_false ~ite:t proof);
+        add_step_eq t c ~using:(Option.to_list prf_a)
+          ~c0:(mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t);
         ret c
       | _ -> None)
     | B_equiv (a, b) when is_true a -> ret_bequiv t b
@@ -195,29 +141,30 @@ module Make (A : ARG) : S with module A = A = struct
     | B_xor (a, b) when is_false b -> ret_bequiv t a
     | B_xor (a, b) when is_true b -> ret_bequiv t (not_ tst a)
     | B_equiv _ | B_xor _ -> None
-    | B_eq (a, b) when T.equal a b -> ret_bequiv t (T.bool tst true)
-    | B_neq (a, b) when T.equal a b -> ret_bequiv t (T.bool tst true)
+    | B_eq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
+    | B_neq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
     | B_eq _ | B_neq _ -> None
-    | B_atom _ -> None
 
   let fresh_term self ~for_t ~pre ty =
-    let u = A.Gensym.fresh_term self.gensym ~pre ty in
+    let u = Gensym.fresh_term self.gensym ~pre ty in
     Log.debugf 20 (fun k ->
-        k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])" T.pp u T.pp for_t);
-    assert (Ty.equal ty (T.ty u));
+        k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])" T.pp_debug u T.pp_debug
+          for_t);
+    assert (Term.equal ty (T.ty u));
     u
 
   let fresh_lit (self : state) ~for_t ~mk_lit ~pre : T.t * Lit.t =
-    let proxy = fresh_term ~for_t ~pre self (Ty.bool self.ty_st) in
+    let proxy = fresh_term ~for_t ~pre self (Term.bool self.tst) in
     proxy, mk_lit proxy
 
   (* TODO: polarity? *)
   let cnf (self : state) (si : SI.t) (module PA : SI.PREPROCESS_ACTS) (t : T.t)
       : unit =
-    Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp t);
+    Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp_debug t);
+    let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
 
     (* handle boolean equality *)
-    let equiv_ _si ~is_xor ~t t_a t_b : unit =
+    let equiv_ (self : state) _si ~is_xor ~t t_a t_b : unit =
       let a = PA.mk_lit t_a in
       let b = PA.mk_lit t_b in
       let a =
@@ -231,103 +178,125 @@ module Make (A : ARG) : S with module A = A = struct
 
       (* proxy => a<=> b,
          ¬proxy => a xor b *)
+      Stat.incr self.n_clauses;
       PA.add_clause
         [ Lit.neg lit; Lit.neg a; b ]
         (if is_xor then
-          A.lemma_bool_c "xor-e+" [ t ] PA.proof
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e+" [ t ]
         else
-          A.lemma_bool_c "eq-e" [ t; t_a ] PA.proof);
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-e" [ t; t_a ]);
+
+      Stat.incr self.n_clauses;
       PA.add_clause
         [ Lit.neg lit; Lit.neg b; a ]
         (if is_xor then
-          A.lemma_bool_c "xor-e-" [ t ] PA.proof
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e-" [ t ]
         else
-          A.lemma_bool_c "eq-e" [ t; t_b ] PA.proof);
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-e" [ t; t_b ]);
+
+      Stat.incr self.n_clauses;
       PA.add_clause [ lit; a; b ]
         (if is_xor then
-          A.lemma_bool_c "xor-i" [ t; t_a ] PA.proof
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-i" [ t; t_a ]
         else
-          A.lemma_bool_c "eq-i+" [ t ] PA.proof);
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i+" [ t ]);
+
+      Stat.incr self.n_clauses;
       PA.add_clause
         [ lit; Lit.neg a; Lit.neg b ]
         (if is_xor then
-          A.lemma_bool_c "xor-i" [ t; t_b ] PA.proof
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-i" [ t; t_b ]
         else
-          A.lemma_bool_c "eq-i-" [ t ] PA.proof)
+          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i-" [ t ])
     in
 
-    (* make a literal for [t], with a proof of [|- abs(t) = abs(lit)] *)
     (match A.view_as_bool t with
-    | B_opaque_bool _ -> ()
     | B_bool _ -> ()
     | B_not _ -> ()
     | B_and l ->
-      let t_subs = Iter.to_list l in
       let lit = PA.mk_lit t in
-      let subs = List.map PA.mk_lit t_subs in
+      let subs = List.map PA.mk_lit l in
 
       (* add clauses *)
-      List.iter2
-        (fun t_u u ->
+      List.iter
+        (fun u ->
+          let t_u = Lit.term u in
+          Stat.incr self.n_clauses;
           PA.add_clause
             [ Lit.neg lit; u ]
-            (A.lemma_bool_c "and-e" [ t; t_u ] PA.proof))
-        t_subs subs;
+            (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-e" [ t; t_u ]))
+        subs;
+
+      Stat.incr self.n_clauses;
       PA.add_clause
         (lit :: List.map Lit.neg subs)
-        (A.lemma_bool_c "and-i" [ t ] PA.proof)
+        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-i" [ t ])
     | B_or l ->
-      let t_subs = Iter.to_list l in
-      let subs = List.map PA.mk_lit t_subs in
+      let subs = List.map PA.mk_lit l in
       let lit = PA.mk_lit t in
 
       (* add clauses *)
-      List.iter2
-        (fun t_u u ->
+      List.iter
+        (fun u ->
+          let t_u = Lit.term u in
+          Stat.incr self.n_clauses;
           PA.add_clause
             [ Lit.neg u; lit ]
-            (A.lemma_bool_c "or-i" [ t; t_u ] PA.proof))
-        t_subs subs;
-      PA.add_clause (Lit.neg lit :: subs) (A.lemma_bool_c "or-e" [ t ] PA.proof)
-    | B_imply (t_args, t_u) ->
-      (* transform into [¬args \/ u] on the fly *)
-      let t_args = Iter.to_list t_args in
-      let args = List.map (fun t -> Lit.neg (PA.mk_lit t)) t_args in
-      let u = PA.mk_lit t_u in
-      let subs = u :: args in
+            (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-i" [ t; t_u ]))
+        subs;
+
+      Stat.incr self.n_clauses;
+      PA.add_clause (Lit.neg lit :: subs)
+        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-e" [ t ])
+    | B_imply (a, b) ->
+      (* transform into [¬a \/ b] on the fly *)
+      let n_a = PA.mk_lit ~sign:false a in
+      let b = PA.mk_lit b in
+      let subs = [ n_a; b ] in
 
       (* now the or-encoding *)
       let lit = PA.mk_lit t in
 
       (* add clauses *)
-      List.iter2
-        (fun t_u u ->
+      List.iter
+        (fun u ->
+          let t_u = Lit.term u in
+          Stat.incr self.n_clauses;
           PA.add_clause
             [ Lit.neg u; lit ]
-            (A.lemma_bool_c "imp-i" [ t; t_u ] PA.proof))
-        (t_u :: t_args) subs;
+            (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-i" [ t; t_u ]))
+        subs;
+
+      Stat.incr self.n_clauses;
       PA.add_clause (Lit.neg lit :: subs)
-        (A.lemma_bool_c "imp-e" [ t ] PA.proof)
+        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-e" [ t ])
     | B_ite (a, b, c) ->
       let lit_a = PA.mk_lit a in
+      Stat.incr self.n_clauses;
       PA.add_clause
         [ Lit.neg lit_a; PA.mk_lit (eq self.tst t b) ]
-        (A.lemma_ite_true ~ite:t PA.proof);
+        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
+
+      Stat.incr self.n_clauses;
       PA.add_clause
         [ lit_a; PA.mk_lit (eq self.tst t c) ]
-        (A.lemma_ite_false ~ite:t PA.proof)
+        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t)
     | B_eq _ | B_neq _ -> ()
-    | B_equiv (a, b) -> equiv_ si ~t ~is_xor:false a b
-    | B_xor (a, b) -> equiv_ si ~t ~is_xor:true a b
+    | B_equiv (a, b) -> equiv_ self si ~t ~is_xor:false a b
+    | B_xor (a, b) -> equiv_ self si ~t ~is_xor:true a b
     | B_atom _ -> ());
     ()
 
-  let create_and_setup si =
+  let create_and_setup ~id:_ si =
     Log.debug 2 "(th-bool.setup)";
-    let st = create (SI.tst si) (SI.ty_st si) in
+    let st = create ~stat:(SI.stats si) (SI.tst si) in
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (cnf st);
     st
 
-  let theory = A.S.mk_theory ~name:"th-bool" ~create_and_setup ()
+  let theory = SMT.Solver.mk_theory ~name:"th-bool.static" ~create_and_setup ()
 end
+
+let theory (module A : ARG) : SMT.theory =
+  let module M = Make (A) in
+  M.theory
