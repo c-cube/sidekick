@@ -209,10 +209,10 @@ We start with `p = q`.
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (false := $@c[0])
   (q := true)
-  ((= Bool p q) := true)
   (true := true)
+  ((= Bool p q) := true)
+  (false := $@c[0])
   (p := true))
 ```
 
@@ -246,10 +246,10 @@ Note that this doesn't affect satisfiability without assumptions:
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (false := $@c[0])
   (q := false)
-  ((= Bool p q) := true)
   (true := true)
+  ((= Bool p q) := true)
+  (false := $@c[0])
   (p := false))
 ```
 
@@ -264,12 +264,12 @@ We can therefore add more formulas and see where it leads us.
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (false := $@c[0])
   (q := false)
   (r := true)
+  (true := true)
   ((= Bool p q) := true)
   ((or r (not p) false) := true)
-  (true := true)
+  (false := $@c[0])
   (p := false))
 ```
 
@@ -331,20 +331,20 @@ We can play with assertions now:
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
+  (+ := $@c[4])
   (a := 0)
-  ((+ a) := $@c[0])
+  ((+ a) := $@c[2])
   (0 := 0)
-  (false := $@c[5])
   (b := 0)
-  ((+ a ((* -1) b)) := $@c[7])
-  ((<= (+ a ((* -1) b))) := $@c[3])
-  ((* -1) := $@c[6])
+  ((+ a ((* -1) b)) := $@c[0])
+  ((<= (+ a ((* -1) b))) := $@c[6])
+  ((* -1) := $@c[5])
+  (true := true)
   ((<= (+ a ((* -1) b)) 0) := true)
   (((* -1) b) := $@c[1])
-  (<= := $@c[2])
-  ($_le_comb[0] := 0)
-  (+ := $@c[4])
-  (true := true))
+  (<= := $@c[3])
+  (false := $@c[7])
+  ($_le_comb[0] := 0))
 
 
 # let a_geq_1 = LRA_term.geq tstore a (LRA_term.const tstore (Q.of_int 1));;

@@ -4,21 +4,21 @@ type tower: [Type;Type(1);Type(2);Type(3);Type(4)]
 Bool: [true, false]
 a: a, b: b, typeof(a): Bool
 b2b: (Bool -> Bool)
-p(a): p a
-p(b): p b
-q(a): q a
-q(b): q b
+p(a): (p a)
+p(b): (p b)
+q(a): (q a)
+q(b): (q b)
 typeof(p a): Bool
-lxy_px: (\x:Bool. (\y:Bool. p x[1]))
+lxy_px: (\x:Bool. (\y:Bool. (p x[1])))
   type: (Bool -> (Bool -> Bool))
   type of type: Type
-lxy_px a b: ((\x:Bool. (\y:Bool. p x[1]))) a b
+lxy_px a b: ((\x:Bool. (\y:Bool. (p x[1]))) a b)
   type: Bool
 (=): =
   type: (Pi A:Type. (Pi _:A[0]. (A[1] -> Bool)))
 p2: p2
   type: (tau -> (tau -> Bool))
-t2: = ((tau -> (tau -> Bool))) ((\x:tau. (\y:tau. p2 x[1] y[0]))) (= tau)
+t2: (= (tau -> (tau -> Bool)) (\x:tau. (\y:tau. (p2 x[1] y[0]))) (= tau))
   type: Bool
 f_vec: vec
   type: (Type -> (nat -> Type))

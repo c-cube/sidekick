@@ -27,6 +27,9 @@ clean:
 test:
 	@dune runtest $(OPTS) --force --no-buffer
 
+test-promote:
+	@dune runtest $(OPTS) --force --no-buffer --auto-promote
+
 TESTOPTS ?= -j $(J) -c tests/benchpress.sexp --progress
 TESTTOOL=benchpress
 DATE=$(shell date +%FT%H:%M)
