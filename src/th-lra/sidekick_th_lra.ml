@@ -600,6 +600,43 @@ module Make (A : ARG) = (* : S with module A = A *) struct
        Term.Tbl.to_iter vals |> Iter.map (fun (t, v) -> t, t_const self v)
   *)
 
+  let add_trail_lit_ ~changed self si acts (lit : Lit.t) : unit =
+    let sign = Lit.sign lit in
+    let lit_t = Lit.term lit in
+    match Term.Tbl.get self.simp_preds lit_t, A.view_as_lra lit_t with
+    | Some (v, op, q), _ ->
+      Log.debugf 50 (fun k ->
+          k "(@[lra.partial-check.add@ :lit %a@ :lit-t %a@])" Lit.pp lit
+            Term.pp_debug lit_t);
+
+      (* need to account for the literal's sign *)
+      let op =
+        if sign then
+          op
+        else
+          S_op.not_ op
+      in
+
+      (* assert new constraint to Simplex *)
+      let constr = SimpSolver.Constraint.mk v op q in
+      Log.debugf 10 (fun k ->
+          k "(@[lra.partial-check.assert@ %a@])" SimpSolver.Constraint.pp constr);
+      changed := true;
+      (try
+         SimpSolver.add_var self.simplex v;
+         SimpSolver.add_constraint self.simplex constr (Tag.Lit lit)
+           ~on_propagate:(on_propagate_ self si acts)
+       with SimpSolver.E_unsat cert ->
+         Log.debugf 10 (fun k ->
+             k "(@[lra.partial-check.unsat@ :cert %a@])"
+               SimpSolver.Unsat_cert.pp cert);
+         fail_with_cert self si acts cert)
+    | None, LRA_pred (Eq, t1, t2) when sign ->
+      add_local_eq_t self si acts t1 t2 ~tag:(Tag.Lit lit)
+    | None, LRA_pred (Neq, t1, t2) when not sign ->
+      add_local_eq_t self si acts t1 t2 ~tag:(Tag.Lit lit)
+    | None, _ -> ()
+
   (* partial checks is where we add literals from the trail to the
      simplex. *)
   let partial_check_ self si acts trail : unit =
@@ -607,56 +644,20 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     reset_res_ self;
     let changed = ref false in
 
-    let examine_lit lit =
-      let sign = Lit.sign lit in
-      let lit_t = Lit.term lit in
-      match Term.Tbl.get self.simp_preds lit_t, A.view_as_lra lit_t with
-      | Some (v, op, q), _ ->
-        Log.debugf 50 (fun k ->
-            k "(@[lra.partial-check.add@ :lit %a@ :lit-t %a@])" Lit.pp lit
-              Term.pp_debug lit_t);
-
-        (* need to account for the literal's sign *)
-        let op =
-          if sign then
-            op
-          else
-            S_op.not_ op
-        in
-
-        (* assert new constraint to Simplex *)
-        let constr = SimpSolver.Constraint.mk v op q in
-        Log.debugf 10 (fun k ->
-            k "(@[lra.partial-check.assert@ %a@])" SimpSolver.Constraint.pp
-              constr);
-        changed := true;
-        (try
-           SimpSolver.add_var self.simplex v;
-           SimpSolver.add_constraint self.simplex constr (Tag.Lit lit)
-             ~on_propagate:(on_propagate_ self si acts)
-         with SimpSolver.E_unsat cert ->
-           Log.debugf 10 (fun k ->
-               k "(@[lra.partial-check.unsat@ :cert %a@])"
-                 SimpSolver.Unsat_cert.pp cert);
-           fail_with_cert self si acts cert)
-      | None, LRA_pred (Eq, t1, t2) when sign ->
-        add_local_eq_t self si acts t1 t2 ~tag:(Tag.Lit lit)
-      | None, LRA_pred (Neq, t1, t2) when not sign ->
-        add_local_eq_t self si acts t1 t2 ~tag:(Tag.Lit lit)
-      | None, _ -> ()
-    in
-
-    Iter.iter examine_lit trail;
+    Iter.iter (add_trail_lit_ self si acts ~changed) trail;
 
     (* incremental check *)
     if !changed then ignore (check_simplex_ self si acts : SimpSolver.Subst.t);
     ()
 
   let final_check_ (self : state) si (acts : SI.theory_actions)
-      (_trail : _ Iter.t) : unit =
+      (trail : _ Iter.t) : unit =
     Log.debug 5 "(th-lra.final-check)";
     Profile.with_ "lra.final-check" @@ fun () ->
     reset_res_ self;
+
+    let changed = ref false in
+    Iter.iter (add_trail_lit_ ~changed self si acts) trail;
 
     (* add equalities between linear-expressions merged in the congruence closure *)
     ST_exprs.iter_all self.st_exprs (fun (_, l) ->
@@ -707,7 +708,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
-    SI.on_partial_check si (partial_check_ st);
+    (* SI.on_partial_check si (partial_check_ st); *)
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
     SI.on_cc_is_subterm si (fun (_, _, t) ->
         on_subterm st si t;

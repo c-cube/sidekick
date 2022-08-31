@@ -466,6 +466,7 @@ module Make (Arg : ARG) :
     stat_unsat: int Stat.counter;
     stat_define: int Stat.counter;
     stat_propagate: int Stat.counter;
+    stat_vars: int Stat.counter;
   }
 
   let push_level self : unit =
@@ -602,6 +603,7 @@ module Make (Arg : ARG) :
       if is_int then v.is_int <- true;
       v
     with Not_found ->
+      Stat.incr self.stat_vars;
       Matrix.add_column self.matrix;
       let vs =
         {
@@ -1076,6 +1078,7 @@ module Make (Arg : ARG) :
         stat_unsat = Stat.mk_int stat "simplex.conflicts";
         stat_define = Stat.mk_int stat "simplex.define";
         stat_propagate = Stat.mk_int stat "simplex.propagate";
+        stat_vars = Stat.mk_int stat "simplex.n-vars";
       }
     in
     self
