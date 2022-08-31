@@ -131,6 +131,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     in_model: unit Term.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit Term.Tbl.t;
     (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
+    encoded_lits: Lit.t Term.Tbl.t;  (** [t => lit for t], using gensym *)
     simp_preds: (Term.t * S_op.t * A.Q.t) Term.Tbl.t;
     (* term -> its simplex meaning *)
     simp_defined: LE.t Term.Tbl.t;
@@ -157,6 +158,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       simp_preds = Term.Tbl.create 32;
       simp_defined = Term.Tbl.create 16;
       encoded_eqs = Term.Tbl.create 8;
+      encoded_lits = Term.Tbl.create 8;
       encoded_le = Comb_map.empty;
       simplex = SimpSolver.create ~stat ();
       last_res = None;
@@ -274,7 +276,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     | Geq -> S_op.Geq
     | Gt -> S_op.Gt
 
-  (* TODO: refactor that and {!var_encoding_comb} *)
   (* turn a linear expression into a single constant and a coeff.
      This might define a side variable in the simplex. *)
   let le_comb_to_singleton_ (self : state) (le_comb : LE_.Comb.t) :
@@ -341,6 +342,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         add_clause_lra_ (module PA) [ Lit.neg lit_t; lit_u2 ];
         add_clause_lra_ (module PA) [ Lit.neg lit_u1; Lit.neg lit_u2; lit_t ]
       )
+    | LRA_pred _ when Term.Tbl.mem self.encoded_lits t ->
+      (* already encoded *) ()
     | LRA_pred (pred, t1, t2) ->
       let l1 = as_linexp t1 in
       let l2 = as_linexp t2 in
@@ -369,10 +372,10 @@ module Make (A : ARG) = (* : S with module A = A *) struct
           op
       in
 
-      let lit = PA.mk_lit t in
+      let lit = fresh_lit self ~mk_lit:PA.mk_lit ~pre:"$lra" in
       let constr = SimpSolver.Constraint.mk v op q in
       SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
-      Term.Tbl.add self.simp_preds t (v, op, q);
+      Term.Tbl.add self.simp_preds (Lit.term lit) (v, op, q);
 
       Log.debugf 50 (fun k ->
           k "(@[lra.preproc@ :t %a@ :to-constr %a@])" Term.pp_debug t
