@@ -10,6 +10,7 @@ module type DYN_OPS = sig
   val pp : view Fmt.printer
   val equal : view -> view -> bool
   val hash : view -> int
+  val opaque_to_cc : view -> bool
 end
 
 type ops = (module DYN_OPS)

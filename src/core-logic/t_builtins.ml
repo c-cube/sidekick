@@ -33,6 +33,8 @@ let ops : const_ops =
       | C_true -> Fmt.string out "true"
       | C_false -> Fmt.string out "false"
       | _ -> assert false
+
+    let opaque_to_cc _ = false
   end)
 
 let bool store = const store @@ Const.make C_bool ops ~ty:(type_ store)

@@ -113,6 +113,8 @@ let ops : Const.ops =
       | Op o -> Op.hash o
       | Mult_by q -> Hash.(combine2 135 (Sidekick_zarith.Rational.hash q))
       | _ -> assert false
+
+    let opaque_to_cc _ = true
   end)
 
 let real tst = Ty.real tst

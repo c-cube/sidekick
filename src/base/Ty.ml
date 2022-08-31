@@ -34,6 +34,8 @@ let ops_ty : Const.ops =
         | Ty_int -> Hash.int 3
         | Ty_uninterpreted u -> Hash.combine2 10 (ID.hash u.id))
       | _ -> assert false
+
+    let opaque_to_cc _ = true
   end)
 
 open struct

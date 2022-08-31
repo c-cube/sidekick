@@ -103,6 +103,8 @@ let ops =
       | Select s -> Hash.combine2 594 (Select.hash s)
       | Is_a c -> Hash.combine2 595 (Cstor.hash c)
       | _ -> assert false
+
+    let opaque_to_cc _ = false
   end : Const.DYN_OPS)
 
 let data tst d : Term.t =

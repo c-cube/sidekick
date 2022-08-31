@@ -26,6 +26,8 @@ let ops =
     let hash = function
       | Uconst c -> Hash.combine2 522660 (hash c)
       | _ -> assert false
+
+    let opaque_to_cc _ = false
   end : Const.DYN_OPS)
 
 let[@inline] make uc_id uc_ty : t = { uc_id; uc_ty }

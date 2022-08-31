@@ -16,6 +16,8 @@ let ops : Const.ops =
     let hash = function
       | Str s -> CCHash.string s
       | _ -> assert false
+
+    let opaque_to_cc _ = false
   end)
 
 let make name ~ty : Const.t = Const.make (Str name) ops ~ty

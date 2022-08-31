@@ -165,6 +165,8 @@ end = struct
         | Cell_is a, Cell_is b ->
           a.x = b.x && a.y = b.y && Cell.equal a.value b.value
         | _ -> false
+
+      let opaque_to_cc _ = false
     end : Const.DYN_OPS)
 
   module Sat = Sidekick_sat

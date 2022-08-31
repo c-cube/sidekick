@@ -9,6 +9,7 @@ type Const.view +=
       gensym_id: int;  (** Id of the gensym *)
       pre: string;  (** Printing prefix *)
       ty: ty;
+      opaque_to_cc: bool;
     }
 
 let ops =
@@ -26,6 +27,10 @@ let ops =
     let pp out = function
       | Fresh { id; pre; _ } -> Fmt.fprintf out "$%s[%d]" pre id
       | _ -> assert false
+
+    let opaque_to_cc = function
+      | Fresh f -> f.opaque_to_cc
+      | _ -> assert false
   end : Const.DYN_OPS)
 
 type t = { tst: Term.store; self_id: int; mutable fresh: int }
@@ -38,11 +43,13 @@ let create tst : t =
   incr id_;
   { tst; self_id; fresh = 0 }
 
-let fresh_term (self : t) ~pre (ty : ty) : Term.t =
+let fresh_term ?(opaque_to_cc = false) (self : t) ~pre (ty : ty) : Term.t =
   let id = self.fresh in
   self.fresh <- 1 + self.fresh;
   let c =
     Term.const self.tst
-    @@ Const.make (Fresh { id; gensym_id = self.self_id; pre; ty }) ops ~ty
+    @@ Const.make
+         (Fresh { id; gensym_id = self.self_id; pre; ty; opaque_to_cc })
+         ops ~ty
   in
   c

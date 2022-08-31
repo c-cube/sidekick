@@ -177,6 +177,9 @@ end = struct
       let pp out = function
         | I i -> Fmt.int out i
         | _ -> assert false
+
+      (* irrelevant *)
+      let opaque_to_cc _ = true
     end : Const.DYN_OPS)
 
   let make tst i : Lit.t =

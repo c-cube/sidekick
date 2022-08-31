@@ -36,6 +36,8 @@ let ops : Const.ops =
       | C_or -> Hash.int 426
       | C_imply -> Hash.int 427
       | _ -> assert false
+
+    let opaque_to_cc _ = true
   end)
 
 (* ### view *)
