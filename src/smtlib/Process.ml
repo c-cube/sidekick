@@ -166,7 +166,7 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
         if Sys.time () -. t1 > time then (
           Log.debugf 0 (fun k -> k "timeout");
           true
-        ) else if (Gc.quick_stat ()).Gc.major_words *. 8. > memory then (
+        ) else if float (Gc.quick_stat ()).Gc.heap_words *. 8. > memory then (
           Log.debugf 0 (fun k -> k "%S" "exceeded memory limit");
           true
         ) else
