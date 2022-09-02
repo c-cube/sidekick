@@ -50,6 +50,7 @@ val data : Term.store -> t -> Term.t
 val cstor : Term.store -> cstor -> Term.t
 val select : Term.store -> select -> Term.t
 val is_a : Term.store -> cstor -> Term.t
+val data_as_ty : t -> ty
 
 (* TODO: select_ : store -> cstor -> int -> term *)
 

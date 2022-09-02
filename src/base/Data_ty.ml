@@ -107,6 +107,8 @@ let ops =
     let opaque_to_cc _ = false
   end : Const.DYN_OPS)
 
+let data_as_ty (d : data) = Lazy.force d.data_as_ty
+
 let data tst d : Term.t =
   Term.const tst @@ Const.make (Data d) ops ~ty:(Term.type_ tst)
 
