@@ -42,8 +42,4 @@ type th_combination_conflict = {
     new Msat-based SMT solver. *)
 module type ARG = sig
   val view_as_cc : Sidekick_cc.view_as_cc
-
-  val is_valid_literal : Term.t -> bool
-  (** Is this a valid boolean literal? (e.g. is it a closed term, not inside
-      a quantifier) *)
 end

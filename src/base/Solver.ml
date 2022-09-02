@@ -3,7 +3,6 @@ include Sidekick_smt_solver.Solver
 let default_arg =
   (module struct
     let view_as_cc = Term.view_as_cc
-    let is_valid_literal _ = true
   end : Sidekick_smt_solver.Sigs.ARG)
 
 let create_default ?stat ?size ~proof ~theories tst : t =

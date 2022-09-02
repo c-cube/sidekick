@@ -99,7 +99,6 @@ let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
 let default_arg =
   (module struct
     let view_as_cc = Default_cc_view.view_as_cc
-    let is_valid_literal _ = true
   end : ARG)
 
 let create_default ?stat ?size ~proof ~theories tst () : t =
