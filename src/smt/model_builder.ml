@@ -37,10 +37,10 @@ let require_eval (self : t) t : unit =
 let mem self t : bool = T.Tbl.mem self.m t
 
 let add (self : t) ?(subs = []) t v : unit =
-  assert (not @@ T.Tbl.mem self.m t);
-  T.Tbl.add self.m t v;
-  List.iter (fun u -> require_eval self u) subs;
-  ()
+  if not @@ T.Tbl.mem self.m t then (
+    T.Tbl.add self.m t v;
+    List.iter (fun u -> require_eval self u) subs
+  )
 
 type eval_cache = Term.Internal_.cache
 
