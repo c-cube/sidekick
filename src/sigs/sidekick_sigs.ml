@@ -96,3 +96,10 @@ module type WITH_SET_MAP_TBL = sig
   module Map : CCMap.S with type key = t
   module Tbl : CCHashtbl.S with type key = t
 end
+
+module type WITH_WEAK = sig
+  type t
+
+  module Weak_set : Weak.S with type data = t
+  module Weak_map : Ephemeron.S with type key = t
+end

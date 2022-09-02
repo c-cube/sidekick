@@ -48,6 +48,7 @@ val pp_debug_with_ids : t Fmt.printer
 (** {2 Containers} *)
 
 include WITH_SET_MAP_TBL with type t := t
+include WITH_WEAK with type t := t
 
 (** {2 Utils} *)
 
@@ -55,6 +56,7 @@ val view : t -> view
 val unfold_app : t -> t * t list
 val is_app : t -> bool
 val is_const : t -> bool
+val is_pi : t -> bool
 
 val iter_dag : ?seen:unit Tbl.t -> iter_ty:bool -> f:(t -> unit) -> t -> unit
 (** [iter_dag t ~f] calls [f] once on each subterm of [t], [t] included.

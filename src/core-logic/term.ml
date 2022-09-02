@@ -65,6 +65,11 @@ let[@inline] is_app e =
   | E_app _ -> true
   | _ -> false
 
+let[@inline] is_pi e =
+  match e.view with
+  | E_pi _ -> true
+  | _ -> false
+
 (* debug printer *)
 let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
   let rec loop k ~depth names out e =
@@ -132,6 +137,8 @@ end
 module Map = CCMap.Make (AsKey)
 module Set = CCSet.Make (AsKey)
 module Tbl = CCHashtbl.Make (AsKey)
+module Weak_set = Weak.Make (AsKey)
+module Weak_map = Ephemeron.K1.Make (AsKey)
 
 module Hcons = Hashcons.Make (struct
   type nonrec t = term
