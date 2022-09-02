@@ -98,9 +98,10 @@ val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
 val simplify_and_preproc_lit : t -> lit -> lit * step_id option
 (** Simplify literal then preprocess it *)
 
-val claim_term : t -> th_id:Theory_id.t -> term -> unit
-(** Claim a term, for a theory that might decide or merge it with another
-    term. This is useful for theory combination. *)
+val claim_sort : t -> th_id:Theory_id.t -> ty:ty -> unit
+(** Claim a sort, to be called by the theory with id [th_id] which is
+    responsible for this sort in models. This is useful for theory combination.
+    *)
 
 (** {3 hooks for the theory} *)
 
@@ -129,6 +130,9 @@ val add_clause_temp : t -> theory_actions -> lit list -> step_id -> unit
 val add_clause_permanent : t -> theory_actions -> lit list -> step_id -> unit
 (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
+
+val add_ty : t -> ty:term -> unit
+(** Declare a sort for the SMT solver *)
 
 val mk_lit : t -> ?sign:bool -> term -> lit
 (** Create a literal. This automatically preprocesses the term. *)
@@ -203,6 +207,9 @@ val on_cc_propagate :
   (CC.t * lit * (unit -> lit list * step_id) -> CC.Handler_action.t list) ->
   unit
 (** Callback called on every CC propagation *)
+
+val on_new_ty : t -> (ty, unit) Event.t
+(** Add a callback for when new types are added via {!add_ty} *)
 
 val on_partial_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
 (** Register callbacked to be called with the slice of literals

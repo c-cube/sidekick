@@ -465,7 +465,8 @@ end = struct
     | T_cstor _ | T_other _ -> []
 
   let on_is_subterm (self : t) (si : SI.t) (_cc, _repr, t) : _ list =
-    if is_data_ty (Term.ty t) then SI.claim_term si ~th_id:self.th_id t;
+    if is_data_ty (Term.ty t) then
+      SI.claim_sort si ~th_id:self.th_id ~ty:(Term.ty t);
     []
 
   let cstors_of_ty (ty : ty) : A.Cstor.t list =
@@ -787,6 +788,9 @@ end = struct
         let c = A.mk_cstor self.tst c args in
         Some (c, args))
     | None -> None
+
+  (* TODO: event/function to declare new datatypes, so we can claim them
+     early *)
 
   let create_and_setup ~id:th_id (solver : SI.t) : t =
     let self =

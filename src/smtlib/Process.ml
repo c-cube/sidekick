@@ -332,7 +332,9 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
       Fmt.printf "(@[%a@])@." (Util.pp_list pp_pair) l
     | _ -> Error.errorf "cannot access model");
     E.return ()
-  | Statement.Stmt_data _ -> E.return ()
+  | Statement.Stmt_data ds ->
+    List.iter (fun d -> Solver.add_ty solver (Data_ty.data_as_ty d)) ds;
+    E.return ()
   | Statement.Stmt_define _ -> Error.errorf "cannot deal with definitions yet"
 
 open Sidekick_base
@@ -342,4 +344,4 @@ let th_bool_dyn : Solver.theory = Th_bool.theory_dyn
 let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
 let th_lra : Solver.theory = Th_lra.theory
-let th_uf = Th_uf.theory
+let th_ty_unin = Th_ty_unin.theory

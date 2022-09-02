@@ -168,6 +168,7 @@ let assert_terms self c =
   add_clause_l self c pr_c
 
 let assert_term self t = assert_terms self [ t ]
+let add_ty (self : t) ty = SI.add_ty self.si ~ty
 
 let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
     ?(should_stop = fun _ _ -> false) ~assumptions (self : t) : res =

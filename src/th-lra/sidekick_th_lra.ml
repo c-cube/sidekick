@@ -298,15 +298,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
         proxy, A.Q.one)
 
-  (* look for subterms of type Real, for they will need theory combination *)
-  let on_subterm (self : state) (si : SI.t) (t : Term.t) : unit =
-    Log.debugf 50 (fun k -> k "(@[lra.cc-on-subterm@ %a@])" Term.pp_debug t);
-    match A.view_as_lra t with
-    | LRA_other _ when not (A.has_ty_real t) -> ()
-    | LRA_pred _ | LRA_const _ -> ()
-    | LRA_op _ | LRA_other _ | LRA_mult _ ->
-      SI.claim_term si ~th_id:self.th_id t
-
   (* preprocess linear expressions away *)
   let preproc_lra (self : state) si (module PA : SI.PREPROCESS_ACTS)
       (t : Term.t) : unit =
@@ -314,11 +305,10 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     let tst = SI.tst si in
 
     (* tell the CC this term exists *)
-    let declare_term_to_cc ~sub t =
+    let declare_term_to_cc ~sub:_ t =
       Log.debugf 50 (fun k ->
           k "(@[lra.declare-term-to-cc@ %a@])" Term.pp_debug t);
-      ignore (CC.add_term (SI.cc si) t : E_node.t);
-      if sub then on_subterm self si t
+      ignore (CC.add_term (SI.cc si) t : E_node.t)
     in
 
     match A.view_as_lra t with
@@ -672,14 +662,25 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   (* help generating model *)
   let model_ask_ (self : state) _si _model (t : Term.t) : _ option =
-    match self.last_res with
-    | Some (SimpSolver.Sat m) ->
-      Log.debugf 50 (fun k -> k "(@[lra.model-ask@ %a@])" Term.pp_debug t);
-      (match A.view_as_lra t with
-      | LRA_const n -> Some n (* always eval constants to themselves *)
-      | _ -> SimpSolver.V_map.get t m)
-      |> Option.map (fun t -> t_const self t, [])
-    | _ -> None
+    let res =
+      match self.last_res with
+      | Some (SimpSolver.Sat m) ->
+        Log.debugf 50 (fun k -> k "(@[lra.model-ask@ %a@])" Term.pp_debug t);
+        (match A.view_as_lra t with
+        | LRA_const n -> Some n (* always eval constants to themselves *)
+        | _ -> SimpSolver.V_map.get t m)
+        |> Option.map (fun t -> t_const self t, [])
+      | _ -> None
+    in
+    match res with
+    | Some _ -> res
+    | None when A.has_ty_real t ->
+      (* last resort: return 0 *)
+      (* NOTE: this should go away maybe? no term should escape the LRA model… *)
+      Log.debugf 0 (fun k -> k "MODEL TY REAL DEFAULT %a" Term.pp t);
+      let zero = A.mk_lra self.tst (LRA_const A.Q.zero) in
+      Some (zero, [])
+    | None -> None
 
   (* help generating model *)
   let model_complete_ (self : state) _si ~add : unit =
@@ -710,9 +711,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     SI.on_final_check si (final_check_ st);
     (* SI.on_partial_check si (partial_check_ st); *)
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
-    SI.on_cc_is_subterm si (fun (_, _, t) ->
-        on_subterm st si t;
-        []);
+    SI.claim_sort si ~th_id:id ~ty:(A.ty_real (SI.tst si));
     SI.on_cc_pre_merge si (fun (_cc, n1, n2, expl) ->
         match as_const_ (E_node.term n1), as_const_ (E_node.term n2) with
         | Some q1, Some q2 when A.Q.(q1 <> q2) ->

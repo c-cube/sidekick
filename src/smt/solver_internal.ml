@@ -38,7 +38,9 @@ type t = {
   cc: CC.t;  (** congruence closure *)
   proof: proof_trace;  (** proof logger *)
   registry: Registry.t;
+  seen_types: Term.Weak_set.t;  (** types we've seen so far *)
   on_progress: (unit, unit) Event.Emitter.t;
+  on_new_ty: (ty, unit) Event.Emitter.t;
   th_comb: Th_combination.t;
   mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
   mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
@@ -82,7 +84,9 @@ let[@inline] has_delayed_actions self =
   not (Queue.is_empty self.delayed_actions)
 
 let on_preprocess self f = self.preprocess <- f :: self.preprocess
-let claim_term self ~th_id t = Th_combination.claim_term self.th_comb ~th_id t
+
+let claim_sort self ~th_id ~ty =
+  Th_combination.claim_sort self.th_comb ~th_id ~ty
 
 let on_model ?ask ?complete self =
   Option.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
@@ -135,6 +139,14 @@ let preprocess_term_ (self : t) (t0 : term) : unit =
     if not (Term.Tbl.mem self.preprocessed t) then (
       Term.Tbl.add self.preprocessed t ();
 
+      (* see if this is a new type *)
+      let ty = Term.ty t in
+      if not (Term.Weak_set.mem self.seen_types ty) then (
+        Log.debugf 5 (fun k -> k "(@[solver.seen-new-type@ %a@])" Term.pp ty);
+        Term.Weak_set.add self.seen_types ty;
+        Event.Emitter.emit self.on_new_ty ty
+      );
+
       (* process sub-terms first *)
       Term.iter_shallow t ~f:(fun _inb u -> preproc_rec_ u);
 
@@ -166,6 +178,7 @@ let preprocess_term_ (self : t) (t0 : term) : unit =
 let simplify_and_preproc_lit (self : t) (lit : Lit.t) : Lit.t * step_id option =
   let t = Lit.term lit in
   let sign = Lit.sign lit in
+
   let u, pr =
     match simplify_t self t with
     | None -> t, None
@@ -274,6 +287,12 @@ let[@inline] add_clause_permanent self _acts c (proof : step_id) : unit =
 
 let[@inline] mk_lit self ?sign t : lit = Lit.atom ?sign self.tst t
 
+let add_ty self ~ty : unit =
+  if not (Term.Weak_set.mem self.seen_types ty) then (
+    Term.Weak_set.add self.seen_types ty;
+    Event.Emitter.emit self.on_new_ty ty
+  )
+
 let[@inline] add_lit self _acts ?default_pol lit =
   delayed_add_lit self ?default_pol lit
 
@@ -288,6 +307,7 @@ let on_partial_check self f =
   self.on_partial_check <- f :: self.on_partial_check
 
 let on_progress self = Event.of_emitter self.on_progress
+let on_new_ty self = Event.of_emitter self.on_new_ty
 let on_cc_new_term self f = Event.on (CC.on_new_term (cc self)) ~f
 let on_cc_pre_merge self f = Event.on (CC.on_pre_merge (cc self)) ~f
 let on_cc_post_merge self f = Event.on (CC.on_post_merge (cc self)) ~f
@@ -334,6 +354,9 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
 
   let model = Model_builder.create tst in
 
+  Model_builder.add model (Term.true_ tst) (Term.true_ tst);
+  Model_builder.add model (Term.false_ tst) (Term.false_ tst);
+
   (* first, add all literals to the model using the given propositional model
      induced by the trail [lits]. *)
   lits (fun lit ->
@@ -363,6 +386,9 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
   let rec compute_fixpoint () =
     match MB.pop_required model with
     | None -> ()
+    | Some t when Term.is_pi (Term.ty t) ->
+      (* TODO: when we support lambdas? *)
+      ()
     | Some t ->
       (* compute a value for [t] *)
       Log.debugf 5 (fun k ->
@@ -371,11 +397,9 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
       (* try each model hook *)
       let rec try_hooks_ = function
         | [] ->
-          let c = MB.gensym model ~pre:"@c" ~ty:(Term.ty t) in
-          Log.debugf 10 (fun k ->
-              k "(@[model.fixpoint.pick-default-val@ %a@ :for %a@])" Term.pp c
-                Term.pp t);
-          MB.add model t c
+          (* should not happen *)
+          Error.errorf "cannot build a value for term@ `%a`@ of type `%a`"
+            Term.pp t Term.pp (Term.ty t)
         | h :: hooks ->
           (match h self model t with
           | None -> try_hooks_ hooks
@@ -391,6 +415,32 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
 
   compute_fixpoint ();
   MB.to_model model
+
+(* theory combination: find terms occurring as foreign variables in
+   other terms *)
+let theory_comb_register_new_term (self : t) (t : term) : unit =
+  Log.debugf 50 (fun k -> k "(@[solver.th-comb-register@ %a@])" Term.pp t);
+  match Th_combination.claimed_by self.th_comb ~ty:(Term.ty t) with
+  | None -> ()
+  | Some theory_for_t ->
+    let args =
+      let _f, args = Term.unfold_app t in
+      match Term.view _f, args, Term.view t with
+      | Term.E_const { Const.c_ops = (module OP); c_view; _ }, _, _
+        when OP.opaque_to_cc c_view ->
+        []
+      | _, [], Term.E_app_fold { args; _ } -> args
+      | _ -> args
+    in
+    List.iter
+      (fun arg ->
+        match Th_combination.claimed_by self.th_comb ~ty:(Term.ty arg) with
+        | Some theory_for_arg
+          when not (Theory_id.equal theory_for_t theory_for_arg) ->
+          (* [arg] is foreign *)
+          Th_combination.add_term_needing_combination self.th_comb arg
+        | _ -> ())
+      args
 
 (* call congruence closure, perform the actions it scheduled *)
 let check_cc_with_acts_ (self : t) (acts : theory_actions) =
@@ -529,8 +579,10 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       stat;
       simp = Simplify.create tst ~proof;
       last_model = None;
+      seen_types = Term.Weak_set.create 8;
       th_comb = Th_combination.create ~stat tst;
       on_progress = Event.Emitter.create ();
+      on_new_ty = Event.Emitter.create ();
       preprocess = [];
       model_ask = [];
       model_complete = [];
@@ -547,4 +599,8 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       complete = true;
     }
   in
+  (* observe new terms in the CC *)
+  on_cc_new_term self (fun (_, _, t) ->
+      theory_comb_register_new_term self t;
+      []);
   self

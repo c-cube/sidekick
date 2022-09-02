@@ -111,6 +111,8 @@ val assert_term : t -> term -> unit
 (** Helper that turns the term into an atom, before adding the result
       to the solver as a unit clause assertion *)
 
+val add_ty : t -> ty -> unit
+
 (** Result of solving for the current set of clauses *)
 type res =
   | Sat of Model.t  (** Satisfiable *)
