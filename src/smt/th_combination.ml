@@ -3,9 +3,9 @@ module T = Term
 
 type t = {
   tst: Term.store;
+  claims: Theory_id.t T.Tbl.t;  (** type -> theory claiming it *)
   processed: T.Set.t T.Tbl.t;  (** type -> set of terms *)
   unprocessed: T.t Vec.t;
-  claims: Theory_id.Set.t T.Tbl.t;  (** term -> theories claiming it *)
   n_terms: int Stat.counter;
   n_lits: int Stat.counter;
 }
@@ -13,9 +13,9 @@ type t = {
 let create ?(stat = Stat.global) tst : t =
   {
     tst;
+    claims = T.Tbl.create 8;
     processed = T.Tbl.create 8;
     unprocessed = Vec.create ();
-    claims = T.Tbl.create 8;
     n_terms = Stat.mk_int stat "smt.thcomb.terms";
     n_lits = Stat.mk_int stat "smt.thcomb.intf-lits";
   }
@@ -28,29 +28,8 @@ let processed_ (self : t) t : bool =
 
 let add_term_needing_combination (self : t) (t : T.t) : unit =
   if not (processed_ self t) then (
-    Log.debugf 50 (fun k ->
-        k "(@[th.comb.add-term-needing-comb@ `%a`@ :ty `%a`@])" T.pp t T.pp
-          (T.ty t));
+    Log.debugf 50 (fun k -> k "(@[th.comb.add-term-needing-comb@ %a@])" T.pp t);
     Vec.push self.unprocessed t
-  )
-
-let claim_term (self : t) ~th_id (t : T.t) : unit =
-  (* booleans don't need theory combination *)
-  if T.is_bool (T.ty t) then
-    ()
-  else (
-    Log.debugf 50 (fun k ->
-        k "(@[th.comb.claim :th-id %a@ `%a`@])" Theory_id.pp th_id T.pp t);
-    let set =
-      try T.Tbl.find self.claims t with Not_found -> Theory_id.Set.empty
-    in
-    let set' = Theory_id.Set.add th_id set in
-    if Theory_id.Set.(not (equal set set')) then (
-      T.Tbl.replace self.claims t set';
-      (* first time we have 2 theories, means we need combination *)
-      if Theory_id.Set.cardinal set' = 2 then
-        add_term_needing_combination self t
-    )
   )
 
 let pop_new_lits (self : t) : Lit.t list =
@@ -65,6 +44,7 @@ let pop_new_lits (self : t) : Lit.t list =
     in
     if not (T.Set.mem t set_for_ty) then (
       Stat.incr self.n_terms;
+      Log.debugf 0 (fun k -> k "NEED TH COMBINATION %a" T.pp t);
 
       (* now create [t=u] for each [u] in [set_for_ty], and add it to [lits] *)
       T.Set.iter
@@ -81,3 +61,18 @@ let pop_new_lits (self : t) : Lit.t list =
   done;
 
   !lits
+
+let claim_sort (self : t) ~th_id ~ty : unit =
+  match T.Tbl.find_opt self.claims ty with
+  | Some id' ->
+    if not (Theory_id.equal th_id id') then
+      Error.errorf "Type %a is claimed by two distinct theories" Term.pp ty
+  | None when T.is_bool ty -> Error.errorf "Cannot claim type Bool"
+  | None ->
+    Log.debugf 3 (fun k ->
+        k "(@[th-comb.claim-ty@ :th-id %a@ :ty %a@])" Theory_id.pp th_id Term.pp
+          ty);
+    T.Tbl.add self.claims ty th_id
+
+let[@inline] claimed_by (self : t) ~ty : _ option =
+  T.Tbl.find_opt self.claims ty
