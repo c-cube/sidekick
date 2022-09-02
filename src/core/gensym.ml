@@ -43,6 +43,8 @@ let create tst : t =
   incr id_;
   { tst; self_id; fresh = 0 }
 
+let reset self = self.fresh <- 0
+
 let fresh_term ?(opaque_to_cc = false) (self : t) ~pre (ty : ty) : Term.t =
   let id = self.fresh in
   self.fresh <- 1 + self.fresh;

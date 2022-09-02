@@ -17,3 +17,6 @@ val create : Term.store -> t
 
 val fresh_term : ?opaque_to_cc:bool -> t -> pre:string -> ty -> term
 (** Make a fresh term of the given type *)
+
+val reset : t -> unit
+(** Reset to initial state *)
