@@ -1,0 +1,6 @@
+(library
+ (name sidekick_th_ty_unin)
+ (public_name sidekick.th-ty-unin)
+ (synopsis "Theory for uninterpreted types")
+ (flags :standard -warn-error -a+8 -w -32 -open Sidekick_util)
+ (libraries containers sidekick.cc sidekick.smt-solver))
