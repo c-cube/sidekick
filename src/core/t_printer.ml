@@ -23,7 +23,15 @@ let pp_builtins_ : hook =
     true
   | _ -> false
 
-let default_ : Hooks.t = Hooks.(empty |> add pp_builtins_)
+let pp_box : hook =
+ fun ~recurse out t ->
+  match Box.as_box t with
+  | Some b ->
+    Fmt.fprintf out "[[ @[%a@] ]]" recurse b;
+    true
+  | None -> false
+
+let default_ : Hooks.t = Hooks.(empty |> add pp_builtins_ |> add pp_box)
 let default_hooks = ref default_
 
 (* debug printer *)
