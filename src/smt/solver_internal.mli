@@ -61,24 +61,18 @@ val simp_t : t -> term -> term * step_id option
       literals suitable for reasoning.
       Typically some clauses are also added to the solver. *)
 
-(* TODO: move into its own sig + library *)
-module type PREPROCESS_ACTS = sig
-  val proof : proof_trace
-
-  val mk_lit : ?sign:bool -> term -> lit
-  (** [mk_lit t] creates a new literal for a boolean term [t]. *)
-
-  val add_clause : lit list -> step_id -> unit
-  (** pushes a new clause into the SAT solver. *)
-
-  val add_lit : ?default_pol:bool -> lit -> unit
-  (** Ensure the literal will be decided/handled by the SAT solver. *)
-end
+module type PREPROCESS_ACTS = Preprocess.PREPROCESS_ACTS
 
 type preprocess_actions = (module PREPROCESS_ACTS)
 (** Actions available to the preprocessor *)
 
-type preprocess_hook = t -> preprocess_actions -> term -> unit
+type preprocess_hook =
+  Preprocess.t ->
+  is_sub:bool ->
+  recurse:(term -> term) ->
+  preprocess_actions ->
+  term ->
+  term option
 (** Given a term, preprocess it.
 
       The idea is to add literals and clauses to help define the meaning of
@@ -89,6 +83,8 @@ type preprocess_hook = t -> preprocess_actions -> term -> unit
       @param preprocess_actions actions available during preprocessing.
   *)
 
+val preprocess : t -> Preprocess.t
+
 val on_preprocess : t -> preprocess_hook -> unit
 (** Add a hook that will be called when terms are preprocessed *)
 
@@ -97,11 +93,6 @@ val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
 
 val simplify_and_preproc_lit : t -> lit -> lit * step_id option
 (** Simplify literal then preprocess it *)
-
-val claim_sort : t -> th_id:Theory_id.t -> ty:ty -> unit
-(** Claim a sort, to be called by the theory with id [th_id] which is
-    responsible for this sort in models. This is useful for theory combination.
-    *)
 
 (** {3 hooks for the theory} *)
 

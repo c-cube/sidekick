@@ -16,14 +16,9 @@ type sat_acts = Sidekick_sat.acts
 type theory_actions = sat_acts
 type simplify_hook = Simplify.hook
 
-module type PREPROCESS_ACTS = sig
-  val proof : proof_trace
-  val mk_lit : ?sign:bool -> term -> lit
-  val add_clause : lit list -> step_id -> unit
-  val add_lit : ?default_pol:bool -> lit -> unit
-end
+module type PREPROCESS_ACTS = Preprocess.PREPROCESS_ACTS
 
-type preprocess_actions = (module PREPROCESS_ACTS)
+type preprocess_actions = Preprocess.preprocess_actions
 
 module Registry = Registry
 
@@ -32,6 +27,14 @@ module Registry = Registry
 type delayed_action =
   | DA_add_clause of { c: lit list; pr: step_id; keep: bool }
   | DA_add_lit of { default_pol: bool option; lit: lit }
+
+type preprocess_hook =
+  Preprocess.t ->
+  is_sub:bool ->
+  recurse:(term -> term) ->
+  preprocess_actions ->
+  term ->
+  term option
 
 type t = {
   tst: Term.store;  (** state for managing terms *)
@@ -44,11 +47,10 @@ type t = {
   th_comb: Th_combination.t;
   mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
   mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
-  mutable preprocess: preprocess_hook list;
+  preprocess: Preprocess.t;
   mutable model_ask: model_ask_hook list;
   mutable model_complete: model_completion_hook list;
   simp: Simplify.t;
-  preprocessed: unit Term.Tbl.t;
   delayed_actions: delayed_action Queue.t;
   mutable last_model: Model.t option;
   mutable th_states: th_states;  (** Set of theories *)
@@ -56,12 +58,9 @@ type t = {
   mutable complete: bool;
   stat: Stat.t;
   count_axiom: int Stat.counter;
-  count_preprocess_clause: int Stat.counter;
   count_conflict: int Stat.counter;
   count_propagate: int Stat.counter;
 }
-
-and preprocess_hook = t -> preprocess_actions -> term -> unit
 
 and model_ask_hook =
   t -> Model_builder.t -> Term.t -> (value * Term.t list) option
@@ -83,10 +82,7 @@ let add_simplifier (self : t) f : unit = Simplify.add_hook self.simp f
 let[@inline] has_delayed_actions self =
   not (Queue.is_empty self.delayed_actions)
 
-let on_preprocess self f = self.preprocess <- f :: self.preprocess
-
-let claim_sort self ~th_id ~ty =
-  Th_combination.claim_sort self.th_comb ~th_id ~ty
+let on_preprocess self f = Preprocess.on_preprocess self.preprocess f
 
 let on_model ?ask ?complete self =
   Option.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
@@ -125,124 +121,12 @@ let delayed_add_lit (self : t) ?default_pol (lit : Lit.t) : unit =
 let delayed_add_clause (self : t) ~keep (c : Lit.t list) (pr : step_id) : unit =
   Queue.push (DA_add_clause { c; pr; keep }) self.delayed_actions
 
-let preprocess_term_ (self : t) (t0 : term) : unit =
-  let module A = struct
-    let proof = self.proof
-    let mk_lit ?sign t : Lit.t = Lit.atom ?sign self.tst t
-    let add_lit ?default_pol lit : unit = delayed_add_lit self ?default_pol lit
-    let add_clause c pr : unit = delayed_add_clause self ~keep:true c pr
-  end in
-  let acts = (module A : PREPROCESS_ACTS) in
-
-  (* how to preprocess a term and its subterms *)
-  let rec preproc_rec_ t =
-    if not (Term.Tbl.mem self.preprocessed t) then (
-      Term.Tbl.add self.preprocessed t ();
-
-      (* see if this is a new type *)
-      let ty = Term.ty t in
-      if not (Term.Weak_set.mem self.seen_types ty) then (
-        Log.debugf 5 (fun k -> k "(@[solver.seen-new-type@ %a@])" Term.pp ty);
-        Term.Weak_set.add self.seen_types ty;
-        Event.Emitter.emit self.on_new_ty ty
-      );
-
-      (* process sub-terms first *)
-      Term.iter_shallow t ~f:(fun _inb u -> preproc_rec_ u);
-
-      Log.debugf 50 (fun k -> k "(@[smt.preprocess@ %a@])" Term.pp_debug t);
-
-      (* signal boolean subterms, so as to decide them
-         in the SAT solver *)
-      if Ty.is_bool (Term.ty t) then (
-        Log.debugf 5 (fun k ->
-            k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp_debug
-              t);
-
-        (* make a literal *)
-        let lit = Lit.atom self.tst t in
-        (* ensure that SAT solver has a boolean atom for [u] *)
-        delayed_add_lit self lit;
-
-        (* also map [sub] to this atom in the congruence closure, for propagation *)
-        let cc = cc self in
-        CC.set_as_lit cc (CC.add_term cc t) lit
-      );
-
-      List.iter (fun f -> f self acts t) self.preprocess
-    )
-  in
-  preproc_rec_ t0
-
-(* simplify literal, then preprocess the result *)
-let simplify_and_preproc_lit (self : t) (lit : Lit.t) : Lit.t * step_id option =
-  let t = Lit.term lit in
-  let sign = Lit.sign lit in
-
-  let u, pr =
-    match simplify_t self t with
-    | None -> t, None
-    | Some (u, pr_t_u) ->
-      Log.debugf 30 (fun k ->
-          k "(@[smt-solver.simplify@ :t %a@ :into %a@])" Term.pp_debug t
-            Term.pp_debug u);
-      u, Some pr_t_u
-  in
-  preprocess_term_ self u;
-  Lit.atom ~sign self.tst u, pr
-
 let push_decision (self : t) (acts : theory_actions) (lit : lit) : unit =
   let (module A) = acts in
   (* make sure the literal is preprocessed *)
-  let lit, _ = simplify_and_preproc_lit self lit in
+  let lit, _ = Preprocess.simplify_and_preproc_lit self.preprocess lit in
   let sign = Lit.sign lit in
   A.add_decision_lit (Lit.abs lit) sign
-
-module type ARR = sig
-  type 'a t
-
-  val map : ('a -> 'b) -> 'a t -> 'b t
-  val to_list : 'a t -> 'a list
-end
-
-module Preprocess_clause (A : ARR) = struct
-  (* preprocess a clause's literals, possibly emitting a proof
-     for the preprocessing. *)
-  let top (self : t) (c : lit A.t) (pr_c : step_id) : lit A.t * step_id =
-    let steps = ref [] in
-
-    (* simplify a literal, then preprocess it *)
-    let[@inline] simp_lit lit =
-      let lit, pr = simplify_and_preproc_lit self lit in
-      Option.iter (fun pr -> steps := pr :: !steps) pr;
-      lit
-    in
-    let c' = A.map simp_lit c in
-
-    let pr_c' =
-      if !steps = [] then
-        pr_c
-      else (
-        Stat.incr self.count_preprocess_clause;
-        Proof_trace.add_step self.proof @@ fun () ->
-        Proof_core.lemma_rw_clause pr_c ~res:(A.to_list c') ~using:!steps
-      )
-    in
-    c', pr_c'
-end
-[@@inline]
-
-module PC_list = Preprocess_clause (struct
-  type 'a t = 'a list
-
-  let map = CCList.map
-  let to_list l = l
-end)
-
-module PC_arr = Preprocess_clause (CCArray)
-
-let preprocess_clause = PC_list.top
-let preprocess_clause_array = PC_arr.top
 
 module type PERFORM_ACTS = sig
   type t
@@ -258,10 +142,10 @@ module Perform_delayed (A : PERFORM_ACTS) = struct
       let act = Queue.pop self.delayed_actions in
       match act with
       | DA_add_clause { c; pr = pr_c; keep } ->
-        let c', pr_c' = preprocess_clause self c pr_c in
+        let c', pr_c' = Preprocess.preprocess_clause self.preprocess c pr_c in
         A.add_clause self acts ~keep c' pr_c'
       | DA_add_lit { default_pol; lit } ->
-        preprocess_term_ self (Lit.term lit);
+        let lit, _ = Preprocess.simplify_and_preproc_lit self.preprocess lit in
         A.add_lit self acts ?default_pol lit
     done
 end
@@ -277,12 +161,23 @@ module Perform_delayed_th = Perform_delayed (struct
     add_sat_lit_ self acts ?default_pol lit
 end)
 
+let[@inline] preprocess self = self.preprocess
+
+let preprocess_clause self c pr =
+  Preprocess.preprocess_clause self.preprocess c pr
+
+let preprocess_clause_array self c pr =
+  Preprocess.preprocess_clause_array self.preprocess c pr
+
+let simplify_and_preproc_lit self lit =
+  Preprocess.simplify_and_preproc_lit self.preprocess lit
+
 let[@inline] add_clause_temp self _acts c (proof : step_id) : unit =
-  let c, proof = preprocess_clause self c proof in
+  let c, proof = Preprocess.preprocess_clause self.preprocess c proof in
   delayed_add_clause self ~keep:false c proof
 
 let[@inline] add_clause_permanent self _acts c (proof : step_id) : unit =
-  let c, proof = preprocess_clause self c proof in
+  let c, proof = Preprocess.preprocess_clause self.preprocess c proof in
   delayed_add_clause self ~keep:true c proof
 
 let[@inline] mk_lit self ?sign t : lit = Lit.atom ?sign self.tst t
@@ -298,7 +193,7 @@ let[@inline] add_lit self _acts ?default_pol lit =
 
 let add_lit_t self _acts ?sign t =
   let lit = Lit.atom ?sign self.tst t in
-  let lit, _ = simplify_and_preproc_lit self lit in
+  let lit, _ = Preprocess.simplify_and_preproc_lit self.preprocess lit in
   delayed_add_lit self lit
 
 let on_final_check self f = self.on_final_check <- f :: self.on_final_check
@@ -415,32 +310,6 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
 
   compute_fixpoint ();
   MB.to_model model
-
-(* theory combination: find terms occurring as foreign variables in
-   other terms *)
-let theory_comb_register_new_term (self : t) (t : term) : unit =
-  Log.debugf 50 (fun k -> k "(@[solver.th-comb-register@ %a@])" Term.pp t);
-  match Th_combination.claimed_by self.th_comb ~ty:(Term.ty t) with
-  | None -> ()
-  | Some theory_for_t ->
-    let args =
-      let _f, args = Term.unfold_app t in
-      match Term.view _f, args, Term.view t with
-      | Term.E_const { Const.c_ops = (module OP); c_view; _ }, _, _
-        when OP.opaque_to_cc c_view ->
-        []
-      | _, [], Term.E_app_fold { args; _ } -> args
-      | _ -> args
-    in
-    List.iter
-      (fun arg ->
-        match Th_combination.claimed_by self.th_comb ~ty:(Term.ty arg) with
-        | Some theory_for_arg
-          when not (Theory_id.equal theory_for_t theory_for_arg) ->
-          (* [arg] is foreign *)
-          Th_combination.add_term_needing_combination self.th_comb arg
-        | _ -> ())
-      args
 
 (* call congruence closure, perform the actions it scheduled *)
 let check_cc_with_acts_ (self : t) (acts : theory_actions) =
@@ -570,27 +439,28 @@ let add_theory_state ~st ~push_level ~pop_levels (self : t) =
     Ths_cons { st; push_level; pop_levels; next = self.th_states }
 
 let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
+  let simp = Simplify.create tst ~proof in
+  let cc = CC.create (module A : CC.ARG) ~size:`Big tst proof in
+  let preprocess = Preprocess.create ~stat ~proof ~cc ~simplify:simp tst in
   let self =
     {
       tst;
-      cc = CC.create (module A : CC.ARG) ~size:`Big tst proof;
+      cc;
       proof;
       th_states = Ths_nil;
       stat;
-      simp = Simplify.create tst ~proof;
+      simp;
+      preprocess;
       last_model = None;
       seen_types = Term.Weak_set.create 8;
       th_comb = Th_combination.create ~stat tst;
       on_progress = Event.Emitter.create ();
       on_new_ty = Event.Emitter.create ();
-      preprocess = [];
       model_ask = [];
       model_complete = [];
       registry = Registry.create ();
-      preprocessed = Term.Tbl.create 32;
       delayed_actions = Queue.create ();
       count_axiom = Stat.mk_int stat "smt.solver.th-axioms";
-      count_preprocess_clause = Stat.mk_int stat "smt.solver.preprocess-clause";
       count_propagate = Stat.mk_int stat "smt.solver.th-propagations";
       count_conflict = Stat.mk_int stat "smt.solver.th-conflicts";
       on_partial_check = [];
@@ -599,8 +469,4 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       complete = true;
     }
   in
-  (* observe new terms in the CC *)
-  on_cc_new_term self (fun (_, _, t) ->
-      theory_comb_register_new_term self t;
-      []);
   self

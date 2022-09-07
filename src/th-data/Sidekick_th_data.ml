@@ -327,11 +327,11 @@ end = struct
     | Ty_data _ -> true
     | _ -> false
 
-  let preprocess (self : t) _si (acts : SI.preprocess_actions) (t : Term.t) :
-      unit =
+  let preprocess (self : t) _p ~is_sub:_ ~recurse:_
+      (acts : SI.preprocess_actions) (t : Term.t) : Term.t option =
     let ty = Term.ty t in
     match A.view_as_data t, A.as_datatype ty with
-    | T_cstor _, _ -> ()
+    | T_cstor _, _ -> None
     | _, Ty_data { cstors; _ } ->
       (match cstors with
       | [ cstor ] when not (Term.Tbl.mem self.single_cstor_preproc_done t) ->
@@ -370,9 +370,11 @@ end = struct
         Term.Tbl.add self.case_split_done t ();
 
         (* no need to decide *)
-        Act.add_clause [ Act.mk_lit (A.mk_eq self.tst t u) ] proof
-      | _ -> ())
-    | _ -> ()
+        Act.add_clause [ Act.mk_lit (A.mk_eq self.tst t u) ] proof;
+
+        None
+      | _ -> None)
+    | _ -> None
 
   (* find if we need to split [t] based on its type (if it's
      a finite datatype) *)
@@ -463,11 +465,6 @@ end = struct
         N_tbl.add self.to_decide repr_u ();
         [])
     | T_cstor _ | T_other _ -> []
-
-  let on_is_subterm (self : t) (si : SI.t) (_cc, _repr, t) : _ list =
-    if is_data_ty (Term.ty t) then
-      SI.claim_sort si ~th_id:self.th_id ~ty:(Term.ty t);
-    []
 
   let cstors_of_ty (ty : ty) : A.Cstor.t list =
     match A.as_datatype ty with
@@ -811,7 +808,6 @@ end = struct
     Log.debugf 1 (fun k -> k "(setup :%s)" name);
     SI.on_preprocess solver (preprocess self);
     SI.on_cc_new_term solver (on_new_term self);
-    SI.on_cc_is_subterm solver (on_is_subterm self solver);
     (* note: this needs to happen before we modify the plugin data *)
     SI.on_cc_pre_merge solver (on_pre_merge self);
     SI.on_partial_check solver (on_partial_check self);

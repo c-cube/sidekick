@@ -167,25 +167,27 @@ end = struct
     )
 
   (* preprocess. *)
-  let preprocess_ (self : state) (_si : SI.t) (module PA : SI.PREPROCESS_ACTS)
-      (t : T.t) : unit =
-    Log.debugf 50 (fun k -> k "(@[th-bool.dny.preprocess@ %a@])" T.pp_debug t);
+  let preprocess_ (self : state) (_p : SMT.Preprocess.t) ~is_sub:_ ~recurse:_
+      (module PA : SI.PREPROCESS_ACTS) (t : T.t) : T.t option =
+    Log.debugf 50 (fun k -> k "(@[th-bool.dyn.preprocess@ %a@])" T.pp_debug t);
     let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
 
-    (match A.view_as_bool t with
+    match A.view_as_bool t with
     | B_ite (a, b, c) ->
+      let box_t = Box.box self.tst t in
       let lit_a = PA.mk_lit a in
       Stat.incr self.n_clauses;
       PA.add_clause
-        [ Lit.neg lit_a; PA.mk_lit (eq self.tst t b) ]
+        [ Lit.neg lit_a; PA.mk_lit (eq self.tst box_t b) ]
         (mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
 
       Stat.incr self.n_clauses;
       PA.add_clause
-        [ lit_a; PA.mk_lit (eq self.tst t c) ]
-        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t)
-    | _ -> ());
-    ()
+        [ lit_a; PA.mk_lit (eq self.tst box_t c) ]
+        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t);
+
+      Some box_t
+    | _ -> None
 
   let tseitin ~final:_ (self : state) solver (acts : SI.theory_actions)
       (lit : Lit.t) (t : term) (v : term bool_view) : unit =

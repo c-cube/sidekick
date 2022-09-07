@@ -158,13 +158,13 @@ end = struct
     proxy, mk_lit proxy
 
   (* TODO: polarity? *)
-  let cnf (self : state) (si : SI.t) (module PA : SI.PREPROCESS_ACTS) (t : T.t)
-      : unit =
+  let cnf (self : state) (_preproc : SMT.Preprocess.t) ~is_sub:_ ~recurse
+      (module PA : SI.PREPROCESS_ACTS) (t : T.t) : T.t option =
     Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp_debug t);
     let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
 
     (* handle boolean equality *)
-    let equiv_ (self : state) _si ~is_xor ~t t_a t_b : unit =
+    let equiv_ (self : state) ~is_xor ~t t_a t_b : unit =
       let a = PA.mk_lit t_a in
       let b = PA.mk_lit t_b in
       let a =
@@ -210,11 +210,12 @@ end = struct
           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i-" [ t ])
     in
 
-    (match A.view_as_bool t with
-    | B_bool _ -> ()
-    | B_not _ -> ()
+    match A.view_as_bool t with
+    | B_bool _ | B_not _ -> None
     | B_and l ->
-      let lit = PA.mk_lit t in
+      let box_t = Box.box self.tst t in
+      let l = CCList.map recurse l in
+      let lit = PA.mk_lit box_t in
       let subs = List.map PA.mk_lit l in
 
       (* add clauses *)
@@ -230,10 +231,13 @@ end = struct
       Stat.incr self.n_clauses;
       PA.add_clause
         (lit :: List.map Lit.neg subs)
-        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-i" [ t ])
+        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-i" [ t ]);
+      Some box_t
     | B_or l ->
+      let box_t = Box.box self.tst t in
+      let l = CCList.map recurse l in
       let subs = List.map PA.mk_lit l in
-      let lit = PA.mk_lit t in
+      let lit = PA.mk_lit box_t in
 
       (* add clauses *)
       List.iter
@@ -247,11 +251,13 @@ end = struct
 
       Stat.incr self.n_clauses;
       PA.add_clause (Lit.neg lit :: subs)
-        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-e" [ t ])
+        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-e" [ t ]);
+      Some box_t
     | B_imply (a, b) ->
       (* transform into [¬a \/ b] on the fly *)
-      let n_a = PA.mk_lit ~sign:false a in
-      let b = PA.mk_lit b in
+      let box_t = Box.box self.tst t in
+      let n_a = PA.mk_lit ~sign:false @@ recurse a in
+      let b = PA.mk_lit @@ recurse b in
       let subs = [ n_a; b ] in
 
       (* now the or-encoding *)
@@ -269,23 +275,35 @@ end = struct
 
       Stat.incr self.n_clauses;
       PA.add_clause (Lit.neg lit :: subs)
-        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-e" [ t ])
+        (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-e" [ t ]);
+
+      Some box_t
     | B_ite (a, b, c) ->
+      let box_t = Box.box self.tst t in
+      let a = recurse a in
+      let b = recurse b in
+      let c = recurse c in
+
       let lit_a = PA.mk_lit a in
       Stat.incr self.n_clauses;
       PA.add_clause
-        [ Lit.neg lit_a; PA.mk_lit (eq self.tst t b) ]
+        [ Lit.neg lit_a; PA.mk_lit (eq self.tst box_t b) ]
         (mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
 
       Stat.incr self.n_clauses;
       PA.add_clause
-        [ lit_a; PA.mk_lit (eq self.tst t c) ]
-        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t)
-    | B_eq _ | B_neq _ -> ()
-    | B_equiv (a, b) -> equiv_ self si ~t ~is_xor:false a b
-    | B_xor (a, b) -> equiv_ self si ~t ~is_xor:true a b
-    | B_atom _ -> ());
-    ()
+        [ lit_a; PA.mk_lit (eq self.tst box_t c) ]
+        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t);
+
+      Some box_t
+    | B_eq _ | B_neq _ -> None
+    | B_equiv (a, b) ->
+      equiv_ self ~t ~is_xor:false a b;
+      None (* FIXME *)
+    | B_xor (a, b) ->
+      equiv_ self ~t ~is_xor:true a b;
+      None (* FIXME *)
+    | B_atom _ -> None
 
   let create_and_setup ~id:_ si =
     Log.debug 2 "(th-bool.setup)";

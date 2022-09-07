@@ -3,7 +3,8 @@
     The preprocessor turn mixed, raw literals (possibly simplified) into
     literals suitable for reasoning.
     Every literal undergoes preprocessing.
-    Typically some clauses are also added to the solver on the side.
+    Typically some clauses are also added to the solver on the side, and some
+    subterms are found to be foreign variables.
 *)
 
 open Sigs
@@ -11,7 +12,13 @@ open Sigs
 type t
 (** Preprocessor *)
 
-val create : ?stat:Stat.t -> proof:proof_trace -> cc:CC.t -> Term.store -> t
+val create :
+  ?stat:Stat.t ->
+  proof:proof_trace ->
+  cc:CC.t ->
+  simplify:Simplify.t ->
+  Term.store ->
+  t
 
 (** Actions given to preprocessor hooks *)
 module type PREPROCESS_ACTS = sig
@@ -25,12 +32,20 @@ module type PREPROCESS_ACTS = sig
 
   val add_lit : ?default_pol:bool -> lit -> unit
   (** Ensure the literal will be decided/handled by the SAT solver. *)
+
+  val declare_need_th_combination : term -> unit
 end
 
 type preprocess_actions = (module PREPROCESS_ACTS)
 (** Actions available to the preprocessor *)
 
-type preprocess_hook = t -> preprocess_actions -> term -> term option
+type preprocess_hook =
+  t ->
+  is_sub:bool ->
+  recurse:(term -> term) ->
+  preprocess_actions ->
+  term ->
+  term option
 (** Given a term, preprocess it.
 
     The idea is to add literals and clauses to help define the meaning of
@@ -41,24 +56,13 @@ type preprocess_hook = t -> preprocess_actions -> term -> term option
     @param preprocess_actions actions available during preprocessing.
 *)
 
-type claim_hook = Theory_id.t * (t -> term -> bool)
-(** A claim hook is theory id, and a function that that theory registed.
-
-    For a hook [(th_id, f)], if [f preproc t] returns [true] it means that
-    the theory [th_id] claims ownership of the term [t]. Typically that occurs
-    because of the sort of [t] (e.g. LRA will claim terms of type ℚ).
-
-    Theories must not claim terms of type [Bool].
-  *)
-
 val on_preprocess : t -> preprocess_hook -> unit
 (** Add a hook that will be called when terms are preprocessed *)
 
-val on_claim : t -> claim_hook -> unit
-(** Add a hook to decide whether a term is claimed by a theory *)
-
+val simplify_and_preproc_lit : t -> lit -> lit * step_id option
 val preprocess_clause : t -> lit list -> step_id -> lit list * step_id
 val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
+val cc : t -> CC.t
 
 (** {2 Delayed actions} *)
 

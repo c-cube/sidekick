@@ -124,17 +124,16 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   module ST_exprs = Sidekick_cc.Plugin.Make (Monoid_exprs)
 
   type state = {
-    th_id: Sidekick_smt_solver.Theory_id.t;
     tst: Term.store;
     proof: Proof_trace.t;
     gensym: Gensym.t;
     in_model: unit Term.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit Term.Tbl.t;
     (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
-    encoded_lits: Lit.t Term.Tbl.t;  (** [t => lit for t], using gensym *)
+    encoded_lits: Term.t Term.Tbl.t;  (** [t => lit for t], using gensym *)
     simp_preds: (Term.t * S_op.t * A.Q.t) Term.Tbl.t;
     (* term -> its simplex meaning *)
-    simp_defined: LE.t Term.Tbl.t;
+    simp_defined: (Term.t * LE.t) Term.Tbl.t;
     (* (rational) terms that are equal to a linexp *)
     st_exprs: ST_exprs.t;
     mutable encoded_le: Term.t Comb_map.t; (* [le] -> var encoding [le] *)
@@ -144,12 +143,11 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     n_conflict: int Stat.counter;
   }
 
-  let create ~th_id (si : SI.t) : state =
+  let create (si : SI.t) : state =
     let stat = SI.stats si in
     let proof = SI.proof si in
     let tst = SI.tst si in
     {
-      th_id;
       tst;
       proof;
       in_model = Term.Tbl.create 8;
@@ -300,21 +298,23 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         proxy, A.Q.one)
 
   (* preprocess linear expressions away *)
-  let preproc_lra (self : state) si (module PA : SI.PREPROCESS_ACTS)
-      (t : Term.t) : unit =
+  let preproc_lra (self : state) _preproc ~is_sub ~recurse
+      (module PA : SI.PREPROCESS_ACTS) (t : Term.t) : Term.t option =
     Log.debugf 50 (fun k -> k "(@[lra.preprocess@ %a@])" Term.pp_debug t);
-    let tst = SI.tst si in
+    let tst = self.tst in
 
     (* tell the CC this term exists *)
     let declare_term_to_cc ~sub:_ t =
       Log.debugf 50 (fun k ->
           k "(@[lra.declare-term-to-cc@ %a@])" Term.pp_debug t);
-      ignore (CC.add_term (SI.cc si) t : E_node.t)
+      ignore (CC.add_term (SMT.Preprocess.cc _preproc) t : E_node.t)
     in
 
     match A.view_as_lra t with
     | _ when Term.Tbl.mem self.simp_preds t ->
-      () (* already turned into a simplex predicate *)
+      let u, _, _ = Term.Tbl.find self.simp_preds t in
+      Some u
+      (* already turned into a simplex predicate *)
     | LRA_pred (((Eq | Neq) as pred), t1, t2) when is_const_ t1 && is_const_ t2
       ->
       (* comparison of constants: can decide right now *)
@@ -323,12 +323,19 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         let is_eq = pred = Eq in
         let t_is_true = is_eq = A.Q.equal n1 n2 in
         let lit = PA.mk_lit ~sign:t_is_true t in
-        add_clause_lra_ (module PA) [ lit ]
+        add_clause_lra_ (module PA) [ lit ];
+        None
       | _ -> assert false)
     | LRA_pred ((Eq | Neq), t1, t2) ->
       (* equality: just punt to [t1 = t2 <=> (t1 <= t2 /\ t1 >= t2)] *)
+      (* TODO: box [t], recurse on [t1 <= t2] and [t1 >= t2],
+         add 3 atomic clauses, return [box t] *)
       let _, t = Term.abs self.tst t in
       if not (Term.Tbl.mem self.encoded_eqs t) then (
+        (* preprocess t1, t2 recursively *)
+        let t1 = recurse t1 in
+        let t2 = recurse t2 in
+
         let u1 = A.mk_lra tst (LRA_pred (Leq, t1, t2)) in
         let u2 = A.mk_lra tst (LRA_pred (Geq, t1, t2)) in
 
@@ -341,10 +348,14 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         add_clause_lra_ (module PA) [ Lit.neg lit_t; lit_u1 ];
         add_clause_lra_ (module PA) [ Lit.neg lit_t; lit_u2 ];
         add_clause_lra_ (module PA) [ Lit.neg lit_u1; Lit.neg lit_u2; lit_t ]
-      )
+      );
+      None
     | LRA_pred _ when Term.Tbl.mem self.encoded_lits t ->
-      (* already encoded *) ()
+      (* already encoded *)
+      let u = Term.Tbl.find self.encoded_lits t in
+      Some u
     | LRA_pred (pred, t1, t2) ->
+      let box_t = Box.box self.tst t in
       let l1 = as_linexp t1 in
       let l2 = as_linexp t2 in
       let le = LE.(l1 - l2) in
@@ -376,19 +387,27 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       let constr = SimpSolver.Constraint.mk v op q in
       SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
       Term.Tbl.add self.simp_preds (Lit.term lit) (v, op, q);
+      Term.Tbl.add self.encoded_lits (Lit.term lit) box_t;
 
       Log.debugf 50 (fun k ->
           k "(@[lra.preproc@ :t %a@ :to-constr %a@])" Term.pp_debug t
-            SimpSolver.Constraint.pp constr)
+            SimpSolver.Constraint.pp constr);
+
+      Some box_t
     | LRA_op _ | LRA_mult _ ->
-      if not (Term.Tbl.mem self.simp_defined t) then (
+      (match Term.Tbl.find_opt self.simp_defined t with
+      | Some (t, _le) -> Some t
+      | None ->
+        let box_t = Box.box self.tst t in
         (* we define these terms so their value in the model make sense *)
         let le = as_linexp t in
-        Term.Tbl.add self.simp_defined t le
-      )
-    | LRA_const _n -> ()
-    | LRA_other t when A.has_ty_real t -> ()
-    | LRA_other _ -> ()
+        Term.Tbl.add self.simp_defined t (box_t, le);
+        Some box_t)
+    | LRA_const _n -> None
+    | LRA_other t when A.has_ty_real t && is_sub ->
+      PA.declare_need_th_combination t;
+      None
+    | LRA_other _ -> None
 
   let simplify (self : state) (_recurse : _) (t : Term.t) :
       (Term.t * Proof_step.id Iter.t) option =
@@ -705,16 +724,15 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   let k_state = SMT.Registry.create_key ()
 
-  let create_and_setup ~id si =
+  let create_and_setup ~id:_ si =
     Log.debug 2 "(th-lra.setup)";
-    let st = create ~th_id:id si in
+    let st = create si in
     SMT.Registry.set (SI.registry si) k_state st;
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (preproc_lra st);
     SI.on_final_check si (final_check_ st);
     (* SI.on_partial_check si (partial_check_ st); *)
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
-    SI.claim_sort si ~th_id:id ~ty:(A.ty_real (SI.tst si));
     SI.on_cc_pre_merge si (fun (_cc, n1, n2, expl) ->
         match as_const_ (E_node.term n1), as_const_ (E_node.term n2) with
         | Some q1, Some q2 when A.Q.(q1 <> q2) ->
