@@ -296,7 +296,6 @@ end = struct
   module N_tbl = Backtrackable_tbl.Make (E_node)
 
   type t = {
-    th_id: Sidekick_smt_solver.Theory_id.t;
     tst: Term.store;
     proof: Proof_trace.t;
     cstors: ST_cstors.t; (* repr -> cstor for the class *)
@@ -789,10 +788,9 @@ end = struct
   (* TODO: event/function to declare new datatypes, so we can claim them
      early *)
 
-  let create_and_setup ~id:th_id (solver : SI.t) : t =
+  let create_and_setup ~id:_ (solver : SI.t) : t =
     let self =
       {
-        th_id;
         tst = SI.tst solver;
         proof = SI.proof solver;
         cstors = ST_cstors.create_and_setup ~size:32 (SI.cc solver);

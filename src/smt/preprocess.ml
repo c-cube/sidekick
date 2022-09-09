@@ -89,12 +89,15 @@ let preprocess_term_ (self : t) (t : term) : term =
         match
           CCList.find_map
             (fun f ->
-              f self ~is_sub ~recurse:(preproc_rec_ ~is_sub:true) acts t)
+              f self ~is_sub ~recurse:(preproc_rec_ ~is_sub:true) acts t0)
             self.preprocess
         with
         | Some u ->
-          (* preprocess [u], to achieve fixpoint *)
-          preproc_rec_ ~is_sub u
+          (* only accept a box (with possible side effect: new clauses, etc.) *)
+          Log.debugf 20 (fun k ->
+              k "(@[smt.preprocess.tr@ %a@ :into %a@])" Term.pp t0 Term.pp u);
+          assert (Box.is_box u || Term.is_const u);
+          u
         | None ->
           (* just preprocess subterms *)
           Term.map_shallow self.tst t0 ~f:(fun _inb u ->

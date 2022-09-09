@@ -121,10 +121,18 @@ let delayed_add_lit (self : t) ?default_pol (lit : Lit.t) : unit =
 let delayed_add_clause (self : t) ~keep (c : Lit.t list) (pr : step_id) : unit =
   Queue.push (DA_add_clause { c; pr; keep }) self.delayed_actions
 
+let add_preprocess_delayed_actions (self : t) : unit =
+  Preprocess.pop_delayed_actions self.preprocess (function
+    | DA_add_clause (c, pr) -> delayed_add_clause self ~keep:true c pr
+    | DA_add_lit { default_pol; lit } -> delayed_add_lit self ?default_pol lit
+    | DA_declare_need_th_combination t ->
+      Th_combination.add_term_needing_combination self.th_comb t)
+
 let push_decision (self : t) (acts : theory_actions) (lit : lit) : unit =
   let (module A) = acts in
   (* make sure the literal is preprocessed *)
   let lit, _ = Preprocess.simplify_and_preproc_lit self.preprocess lit in
+  add_preprocess_delayed_actions self;
   let sign = Lit.sign lit in
   A.add_decision_lit (Lit.abs lit) sign
 
@@ -143,9 +151,11 @@ module Perform_delayed (A : PERFORM_ACTS) = struct
       match act with
       | DA_add_clause { c; pr = pr_c; keep } ->
         let c', pr_c' = Preprocess.preprocess_clause self.preprocess c pr_c in
+        add_preprocess_delayed_actions self;
         A.add_clause self acts ~keep c' pr_c'
       | DA_add_lit { default_pol; lit } ->
         let lit, _ = Preprocess.simplify_and_preproc_lit self.preprocess lit in
+        add_preprocess_delayed_actions self;
         A.add_lit self acts ?default_pol lit
     done
 end
@@ -164,20 +174,28 @@ end)
 let[@inline] preprocess self = self.preprocess
 
 let preprocess_clause self c pr =
-  Preprocess.preprocess_clause self.preprocess c pr
+  let r = Preprocess.preprocess_clause self.preprocess c pr in
+  add_preprocess_delayed_actions self;
+  r
 
 let preprocess_clause_array self c pr =
-  Preprocess.preprocess_clause_array self.preprocess c pr
+  let r = Preprocess.preprocess_clause_array self.preprocess c pr in
+  add_preprocess_delayed_actions self;
+  r
 
 let simplify_and_preproc_lit self lit =
-  Preprocess.simplify_and_preproc_lit self.preprocess lit
+  let r = Preprocess.simplify_and_preproc_lit self.preprocess lit in
+  add_preprocess_delayed_actions self;
+  r
 
 let[@inline] add_clause_temp self _acts c (proof : step_id) : unit =
   let c, proof = Preprocess.preprocess_clause self.preprocess c proof in
+  add_preprocess_delayed_actions self;
   delayed_add_clause self ~keep:false c proof
 
 let[@inline] add_clause_permanent self _acts c (proof : step_id) : unit =
   let c, proof = Preprocess.preprocess_clause self.preprocess c proof in
+  add_preprocess_delayed_actions self;
   delayed_add_clause self ~keep:true c proof
 
 let[@inline] mk_lit self ?sign t : lit = Lit.atom ?sign self.tst t
@@ -194,6 +212,7 @@ let[@inline] add_lit self _acts ?default_pol lit =
 let add_lit_t self _acts ?sign t =
   let lit = Lit.atom ?sign self.tst t in
   let lit, _ = Preprocess.simplify_and_preproc_lit self.preprocess lit in
+  add_preprocess_delayed_actions self;
   delayed_add_lit self lit
 
 let on_final_check self f = self.on_final_check <- f :: self.on_final_check

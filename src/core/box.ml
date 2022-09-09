@@ -25,9 +25,14 @@ let as_box t =
   | Term.E_const { Const.c_view = Box u; _ } -> Some u
   | _ -> None
 
+let is_box t =
+  match Term.view t with
+  | Term.E_const { Const.c_view = Box _; _ } -> true
+  | _ -> false
+
 let box tst t : Term.t =
   match Term.view t with
-  | Term.E_const { Const.c_view = Box _; _ } -> t
+  | Term.E_const { Const.c_view = _; _ } -> t
   | _ ->
     let c = Const.make (Box t) ~ty:(Term.ty t) ops in
     Term.const tst c

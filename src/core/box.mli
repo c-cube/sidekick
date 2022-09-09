@@ -7,3 +7,4 @@ val box : Term.store -> Term.t -> Term.t
   This way it will be opaque. *)
 
 val as_box : Term.t -> Term.t option
+val is_box : Term.t -> bool
