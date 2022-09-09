@@ -10,12 +10,6 @@ end
 
 type preprocess_actions = (module PREPROCESS_ACTS)
 
-(* action taken later *)
-type delayed_action =
-  | DA_add_clause of lit list * step_id
-  | DA_add_lit of { default_pol: bool option; lit: lit }
-  | DA_declare_need_th_combination of term
-
 type t = {
   tst: Term.store;  (** state for managing terms *)
   cc: CC.t;
@@ -23,7 +17,6 @@ type t = {
   proof: proof_trace;
   mutable preprocess: preprocess_hook list;
   preprocessed: Term.t Term.Tbl.t;
-  delayed_actions: delayed_action Vec.t;
   n_preprocess_clause: int Stat.counter;
 }
 
@@ -43,40 +36,14 @@ let create ?(stat = Stat.global) ~proof ~cc ~simplify tst : t =
     simplify;
     preprocess = [];
     preprocessed = Term.Tbl.create 8;
-    delayed_actions = Vec.create ();
     n_preprocess_clause = Stat.mk_int stat "smt.preprocess.n-clauses";
   }
 
 let on_preprocess self f = self.preprocess <- f :: self.preprocess
 let cc self = self.cc
 
-let pop_delayed_actions self =
-  if Vec.is_empty self.delayed_actions then
-    Iter.empty
-  else (
-    let a = Vec.to_array self.delayed_actions in
-    Vec.clear self.delayed_actions;
-    Iter.of_array a
-  )
-
-let declare_need_th_combination (self : t) (t : term) : unit =
-  Vec.push self.delayed_actions (DA_declare_need_th_combination t)
-
-let preprocess_term_ (self : t) (t : term) : term =
-  let module A = struct
-    let proof = self.proof
-    let mk_lit ?sign t : Lit.t = Lit.atom ?sign self.tst t
-
-    let add_lit ?default_pol lit : unit =
-      Vec.push self.delayed_actions (DA_add_lit { default_pol; lit })
-
-    let add_clause c pr : unit =
-      Vec.push self.delayed_actions (DA_add_clause (c, pr))
-
-    let declare_need_th_combination t = declare_need_th_combination self t
-  end in
-  let acts = (module A : PREPROCESS_ACTS) in
-
+let preprocess_term_ (self : t) ((module A : PREPROCESS_ACTS) as acts)
+    (t : term) : term =
   (* how to preprocess a term and its subterms *)
   let rec preproc_rec_ ~is_sub t0 : Term.t =
     match Term.Tbl.find_opt self.preprocessed t0 with
@@ -137,7 +104,8 @@ let preprocess_term_ (self : t) (t : term) : term =
 (* preprocess the literal. The result must be logically equivalent;
    as a rule of thumb, it should be the same term inside except with
    some [box] added whenever a theory frontier is crossed. *)
-let simplify_and_preproc_lit (self : t) (lit : Lit.t) : Lit.t * step_id option =
+let simplify_and_preproc_lit (self : t) acts (lit : Lit.t) :
+    Lit.t * step_id option =
   let t = Lit.term lit in
   let sign = Lit.sign lit in
 
@@ -150,7 +118,7 @@ let simplify_and_preproc_lit (self : t) (lit : Lit.t) : Lit.t * step_id option =
             Term.pp_debug u);
       u, Some pr_t_u
   in
-  let v = preprocess_term_ self u in
+  let v = preprocess_term_ self acts u in
   Lit.atom ~sign self.tst v, pr
 
 module type ARR = sig
@@ -163,12 +131,12 @@ end
 module Preprocess_clause (A : ARR) = struct
   (* preprocess a clause's literals, possibly emitting a proof
      for the preprocessing. *)
-  let top (self : t) (c : lit A.t) (pr_c : step_id) : lit A.t * step_id =
+  let top (self : t) acts (c : lit A.t) (pr_c : step_id) : lit A.t * step_id =
     let steps = ref [] in
 
     (* simplify a literal, then preprocess it *)
     let[@inline] simp_lit lit =
-      let lit, pr = simplify_and_preproc_lit self lit in
+      let lit, pr = simplify_and_preproc_lit self acts lit in
       Option.iter (fun pr -> steps := pr :: !steps) pr;
       lit
     in

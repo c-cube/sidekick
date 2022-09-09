@@ -59,18 +59,13 @@ type preprocess_hook =
 val on_preprocess : t -> preprocess_hook -> unit
 (** Add a hook that will be called when terms are preprocessed *)
 
-val simplify_and_preproc_lit : t -> lit -> lit * step_id option
-val preprocess_clause : t -> lit list -> step_id -> lit list * step_id
-val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
+val simplify_and_preproc_lit :
+  t -> preprocess_actions -> lit -> lit * step_id option
+
+val preprocess_clause :
+  t -> preprocess_actions -> lit list -> step_id -> lit list * step_id
+
+val preprocess_clause_array :
+  t -> preprocess_actions -> lit array -> step_id -> lit array * step_id
+
 val cc : t -> CC.t
-
-(** {2 Delayed actions} *)
-
-(** Action that preprocess hooks took, but were not effected yet.
-    The SMT solver itself should obtain these actions and perform them. *)
-type delayed_action =
-  | DA_add_clause of lit list * step_id
-  | DA_add_lit of { default_pol: bool option; lit: lit }
-  | DA_declare_need_th_combination of term
-
-val pop_delayed_actions : t -> delayed_action Iter.t
