@@ -151,8 +151,8 @@ module Debug_ = struct
           e.expl
     in
     let pp_n out n =
-      Fmt.fprintf out "(@[%a%a%a%a@])" Term.pp_debug n.n_term pp_root n pp_next
-        n pp_expl n
+      Fmt.fprintf out "(@[%a%a%a%a@])" Term.pp n.n_term pp_root n pp_next n
+        pp_expl n
     and pp_sig_e out (s, n) =
       Fmt.fprintf out "(@[<1>%a@ ~~> %a%a@])" Signature.pp s E_node.pp n pp_root
         n
@@ -385,8 +385,7 @@ let rec explain_decompose_expl self (st : Expl_state.t) (e : explanation) : unit
     (match T_tbl.find self.tbl a, T_tbl.find self.tbl b with
     | a, b -> explain_equal_rec_ self st a b
     | exception Not_found ->
-      Error.errorf "expl: cannot find e_node(s) for %a, %a" Term.pp_debug a
-        Term.pp_debug b)
+      Error.errorf "expl: cannot find e_node(s) for %a, %a" Term.pp a Term.pp b)
   | E_and (a, b) ->
     explain_decompose_expl self st a;
     explain_decompose_expl self st b
@@ -433,7 +432,7 @@ let[@inline] rec add_term_rec_ self t : e_node =
 (* add [t] when not present already *)
 and add_new_term_ self (t : Term.t) : e_node =
   assert (not @@ mem self t);
-  Log.debugf 15 (fun k -> k "(@[cc.add-term@ %a@])" Term.pp_debug t);
+  Log.debugf 15 (fun k -> k "(@[cc.add-term@ %a@])" Term.pp t);
   let n = E_node.Internal_.make t in
   (* register sub-terms, add [t] to their parent list, and return the
      corresponding initial signature *)
@@ -441,7 +440,7 @@ and add_new_term_ self (t : Term.t) : e_node =
   n.n_sig0 <- sig0;
   (* remove term when we backtrack *)
   on_backtrack self (fun () ->
-      Log.debugf 30 (fun k -> k "(@[cc.remove-term@ %a@])" Term.pp_debug t);
+      Log.debugf 30 (fun k -> k "(@[cc.remove-term@ %a@])" Term.pp t);
       T_tbl.remove self.tbl t);
   (* add term to the table *)
   T_tbl.add self.tbl t n;
