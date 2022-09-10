@@ -5,10 +5,13 @@ type const_view = ..
 module type DYN_CONST_OPS = sig
   val pp : const_view Fmt.printer
   (** Pretty-print constant *)
+
   val equal : const_view -> const_view -> bool
   (** Equality of constant with any other constant *)
+
   val hash : const_view -> int
   (** Hash constant *)
+
   val opaque_to_cc : const_view -> bool
   (** If true, congruence closure will not apply for applications of this
       constant. In other words, [c t1…tn] will appear to the congruence

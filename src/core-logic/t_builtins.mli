@@ -33,3 +33,6 @@ val abs : store -> t -> bool * t
     should return [(true, t)]. *)
 
 val as_bool_val : t -> bool option
+
+val open_eq : t -> (t * t) option
+(** [open_eq (a=b)] returns [Some (a,b)], [None] for other terms. *)

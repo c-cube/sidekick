@@ -47,7 +47,7 @@ let[@inline] ty e : term =
   | T_ty_delayed f -> ty_force_delayed_ e f
 
 (* open an application *)
-let unfold_app (e : term) : term * term list =
+let[@inline] unfold_app (e : term) : term * term list =
   let[@unroll 1] rec aux acc e =
     match e.view with
     | E_app (f, a) -> aux (a :: acc) f

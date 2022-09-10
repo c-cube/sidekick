@@ -116,3 +116,9 @@ let as_bool_val t =
   | Term.E_const { c_view = C_true; _ } -> Some true
   | Term.E_const { c_view = C_false; _ } -> Some false
   | _ -> None
+
+let[@inline] open_eq t =
+  let f, args = unfold_app t in
+  match view f, args with
+  | E_const { c_view = C_eq; _ }, [ _ty; a; b ] -> Some (a, b)
+  | _ -> None
