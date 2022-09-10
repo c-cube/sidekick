@@ -164,7 +164,9 @@ end = struct
     let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
 
     (* handle boolean equality *)
-    let equiv_ (self : state) ~is_xor ~t t_a t_b : unit =
+    let equiv_ (self : state) ~is_xor ~t ~box_t t_a t_b : unit =
+      let t_a = recurse t_a in
+      let t_b = recurse t_b in
       let a = PA.mk_lit t_a in
       let b = PA.mk_lit t_b in
       let a =
@@ -174,7 +176,7 @@ end = struct
           a
       in
       (* [a xor b] is [(¬a) = b] *)
-      let lit = PA.mk_lit t in
+      let lit = PA.mk_lit box_t in
 
       (* proxy => a<=> b,
          ¬proxy => a xor b *)
@@ -298,11 +300,13 @@ end = struct
       Some box_t
     | B_eq _ | B_neq _ -> None
     | B_equiv (a, b) ->
-      equiv_ self ~t ~is_xor:false a b;
-      None (* FIXME *)
+      let box_t = Box.box self.tst t in
+      equiv_ self ~t ~box_t ~is_xor:false a b;
+      Some box_t
     | B_xor (a, b) ->
-      equiv_ self ~t ~is_xor:true a b;
-      None (* FIXME *)
+      let box_t = Box.box self.tst t in
+      equiv_ self ~t ~box_t ~is_xor:true a b;
+      Some box_t
     | B_atom _ -> None
 
   let create_and_setup ~id:_ si =
