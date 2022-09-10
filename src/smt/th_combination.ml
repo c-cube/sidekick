@@ -25,7 +25,7 @@ let processed_ (self : t) t : bool =
   | Some set -> T.Set.mem t set
 
 let add_term_needing_combination (self : t) (t : T.t) : unit =
-  if not (processed_ self t) then (
+  if not (processed_ self t) && not (T.is_bool @@ T.ty t) then (
     Log.debugf 50 (fun k -> k "(@[th.comb.add-term-needing-comb@ %a@])" T.pp t);
     Vec.push self.unprocessed t
   )

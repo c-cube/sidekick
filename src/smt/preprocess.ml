@@ -5,7 +5,6 @@ module type PREPROCESS_ACTS = sig
   val mk_lit : ?sign:bool -> term -> lit
   val add_clause : lit list -> step_id -> unit
   val add_lit : ?default_pol:bool -> lit -> unit
-  val declare_need_th_combination : term -> unit
 end
 
 type preprocess_actions = (module PREPROCESS_ACTS)
@@ -49,7 +48,7 @@ let preprocess_term_ (self : t) ((module A : PREPROCESS_ACTS) as acts)
     match Term.Tbl.find_opt self.preprocessed t0 with
     | Some u -> u
     | None ->
-      Log.debugf 50 (fun k -> k "(@[smt.preprocess@ %a@])" Term.pp_debug t0);
+      Log.debugf 50 (fun k -> k "(@[smt.preprocess@ %a@])" Term.pp t0);
 
       (* try hooks first *)
       let t =
@@ -82,21 +81,6 @@ let preprocess_term_ (self : t) ((module A : PREPROCESS_ACTS) as acts)
       in
 
       Term.Tbl.add self.preprocessed t0 t;
-
-      (* signal boolean subterms, so as to decide them
-         in the SAT solver *)
-      if Term.is_bool (Term.ty t) then (
-        Log.debugf 5 (fun k ->
-            k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp t);
-
-        (* ensure that SAT solver has a boolean atom for [t] *)
-        let lit = Lit.atom self.tst t in
-        A.add_lit lit;
-
-        (* also map [sub] to this atom in the congruence closure, for propagation *)
-        (* FIXME: use a delayed action "DA_declare_cc_lit (t, lit)" instead *)
-        CC.set_as_lit self.cc (CC.add_term self.cc t) lit
-      );
       t
   in
   preproc_rec_ ~is_sub:false t
@@ -114,8 +98,7 @@ let simplify_and_preproc_lit (self : t) acts (lit : Lit.t) :
     | None -> t, None
     | Some (u, pr_t_u) ->
       Log.debugf 30 (fun k ->
-          k "(@[smt-solver.simplify@ :t %a@ :into %a@])" Term.pp_debug t
-            Term.pp_debug u);
+          k "(@[smt-solver.simplify@ :t %a@ :into %a@])" Term.pp t Term.pp u);
       u, Some pr_t_u
   in
   let v = preprocess_term_ self acts u in

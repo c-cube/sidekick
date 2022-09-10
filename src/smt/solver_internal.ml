@@ -1,5 +1,4 @@
 open Sigs
-module Ty = Term
 
 type th_states =
   | Ths_nil
@@ -27,6 +26,7 @@ module Registry = Registry
 type delayed_action =
   | DA_add_clause of { c: lit list; pr: step_id; keep: bool }
   | DA_add_lit of { default_pol: bool option; lit: lit }
+  | DA_add_preprocessed_lit of { default_pol: bool option; lit: lit }
 
 type preprocess_hook =
   Preprocess.t ->
@@ -48,6 +48,7 @@ type t = {
   mutable on_partial_check: (t -> theory_actions -> lit Iter.t -> unit) list;
   mutable on_final_check: (t -> theory_actions -> lit Iter.t -> unit) list;
   preprocess: Preprocess.t;
+  find_foreign: Find_foreign.t;
   mutable model_ask: model_ask_hook list;
   mutable model_complete: model_completion_hook list;
   simp: Simplify.t;
@@ -83,6 +84,7 @@ let[@inline] has_delayed_actions self =
   not (Queue.is_empty self.delayed_actions)
 
 let on_preprocess self f = Preprocess.on_preprocess self.preprocess f
+let on_find_foreign self f = Find_foreign.add_hook self.find_foreign f
 
 let on_model ?ask ?complete self =
   Option.iter (fun f -> self.model_ask <- f :: self.model_ask) ask;
@@ -118,6 +120,9 @@ let add_sat_lit_ _self ?default_pol (acts : theory_actions) (lit : Lit.t) : unit
 let delayed_add_lit (self : t) ?default_pol (lit : Lit.t) : unit =
   Queue.push (DA_add_lit { default_pol; lit }) self.delayed_actions
 
+let delayed_add_preprocessed_lit (self : t) ?default_pol (lit : Lit.t) : unit =
+  Queue.push (DA_add_preprocessed_lit { default_pol; lit }) self.delayed_actions
+
 let delayed_add_clause (self : t) ~keep (c : Lit.t list) (pr : step_id) : unit =
   Queue.push (DA_add_clause { c; pr; keep }) self.delayed_actions
 
@@ -127,10 +132,33 @@ let preprocess_acts (self : t) : Preprocess.preprocess_actions =
     let mk_lit ?sign t : Lit.t = Lit.atom ?sign self.tst t
     let add_clause c pr = delayed_add_clause self ~keep:true c pr
     let add_lit ?default_pol lit = delayed_add_lit self ?default_pol lit
+  end)
+
+let find_foreign_acts (self : t) : Find_foreign.actions =
+  (module struct
+    let add_lit_for_bool_term ?default_pol t =
+      let lit = Lit.atom self.tst t in
+      (* [lit] has already been preprocessed, do not preprocess it
+         again lest we meet an infinite recursion *)
+      delayed_add_preprocessed_lit self ?default_pol lit
 
     let declare_need_th_combination t =
       Th_combination.add_term_needing_combination self.th_comb t
   end)
+
+(* find boolean subterms/foreign variables in [t] *)
+let find_foreign_vars_in (self : t) (t : Term.t) : unit =
+  let acts = find_foreign_acts self in
+  Find_foreign.traverse_term self.find_foreign acts t
+
+let find_foreign_vars_in_lit (self : t) (lit : Lit.t) =
+  find_foreign_vars_in self (Lit.term lit)
+
+let find_foreign_vars_in_lits (self : t) (c : Lit.t list) =
+  List.iter (find_foreign_vars_in_lit self) c
+
+let find_foreign_vars_in_lit_arr (self : t) (c : Lit.t array) =
+  Array.iter (find_foreign_vars_in_lit self) c
 
 let push_decision (self : t) (acts : theory_actions) (lit : lit) : unit =
   let (module A) = acts in
@@ -139,6 +167,7 @@ let push_decision (self : t) (acts : theory_actions) (lit : lit) : unit =
     Preprocess.simplify_and_preproc_lit self.preprocess (preprocess_acts self)
       lit
   in
+  find_foreign_vars_in_lit self lit;
   let sign = Lit.sign lit in
   A.add_decision_lit (Lit.abs lit) sign
 
@@ -160,12 +189,22 @@ module Perform_delayed (A : PERFORM_ACTS) = struct
           Preprocess.preprocess_clause self.preprocess (preprocess_acts self) c
             pr_c
         in
+        find_foreign_vars_in_lits self c';
         A.add_clause self acts ~keep c' pr_c'
       | DA_add_lit { default_pol; lit } ->
         let lit, _ =
           Preprocess.simplify_and_preproc_lit self.preprocess
             (preprocess_acts self) lit
         in
+        let t = Lit.term lit in
+        find_foreign_vars_in_lit self lit;
+        CC.set_as_lit self.cc (CC.add_term self.cc t) lit;
+        A.add_lit self acts ?default_pol lit
+      | DA_add_preprocessed_lit { default_pol; lit } ->
+        let t = Lit.term lit in
+        Log.debugf 5 (fun k ->
+            k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp t);
+        CC.set_as_lit self.cc (CC.add_term self.cc t) lit;
         A.add_lit self acts ?default_pol lit
     done
 end
@@ -182,26 +221,43 @@ module Perform_delayed_th = Perform_delayed (struct
 end)
 
 let[@inline] preprocess self = self.preprocess
+let[@inline] find_foreign self = self.find_foreign
 
 let preprocess_clause self c pr =
-  Preprocess.preprocess_clause self.preprocess (preprocess_acts self) c pr
+  let c, pr =
+    Preprocess.preprocess_clause self.preprocess (preprocess_acts self) c pr
+  in
+  find_foreign_vars_in_lits self c;
+  c, pr
 
 let preprocess_clause_array self c pr =
-  Preprocess.preprocess_clause_array self.preprocess (preprocess_acts self) c pr
+  let c, pr =
+    Preprocess.preprocess_clause_array self.preprocess (preprocess_acts self) c
+      pr
+  in
+  find_foreign_vars_in_lit_arr self c;
+  c, pr
 
 let simplify_and_preproc_lit self lit =
-  Preprocess.simplify_and_preproc_lit self.preprocess (preprocess_acts self) lit
+  let lit, pr =
+    Preprocess.simplify_and_preproc_lit self.preprocess (preprocess_acts self)
+      lit
+  in
+  find_foreign_vars_in_lit self lit;
+  lit, pr
 
-let[@inline] add_clause_temp self _acts c (proof : step_id) : unit =
+let add_clause_temp self _acts c (proof : step_id) : unit =
   let c, proof =
     Preprocess.preprocess_clause self.preprocess (preprocess_acts self) c proof
   in
+  find_foreign_vars_in_lits self c;
   delayed_add_clause self ~keep:false c proof
 
-let[@inline] add_clause_permanent self _acts c (proof : step_id) : unit =
+let add_clause_permanent self _acts c (proof : step_id) : unit =
   let c, proof =
     Preprocess.preprocess_clause self.preprocess (preprocess_acts self) c proof
   in
+  find_foreign_vars_in_lits self c;
   delayed_add_clause self ~keep:true c proof
 
 let[@inline] mk_lit self ?sign t : lit = Lit.atom ?sign self.tst t
@@ -221,6 +277,7 @@ let add_lit_t self _acts ?sign t =
     Preprocess.simplify_and_preproc_lit self.preprocess (preprocess_acts self)
       lit
   in
+  find_foreign_vars_in_lit self lit;
   delayed_add_lit self lit
 
 let on_final_check self f = self.on_final_check <- f :: self.on_final_check
@@ -388,10 +445,8 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
       if new_intf_eqns <> [] then (
         let (module A) = acts in
         List.iter (fun lit -> A.add_lit ~default_pol:false lit) new_intf_eqns
-      );
-
-      (* if theory combination didn't add new clauses, compute a model *)
-      if not (has_delayed_actions self) then (
+      ) else if not (has_delayed_actions self) then (
+        (* if theory combination didn't add new clauses, compute a model *)
         let m = mk_model_ self lits in
         self.last_model <- Some m
       )
@@ -469,6 +524,7 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
   let simp = Simplify.create tst ~proof in
   let cc = CC.create (module A : CC.ARG) ~size:`Big tst proof in
   let preprocess = Preprocess.create ~stat ~proof ~cc ~simplify:simp tst in
+  let find_foreign = Find_foreign.create () in
   let self =
     {
       tst;
@@ -478,6 +534,7 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       stat;
       simp;
       preprocess;
+      find_foreign;
       last_model = None;
       seen_types = Term.Weak_set.create 8;
       th_comb = Th_combination.create ~stat tst;

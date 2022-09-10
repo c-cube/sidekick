@@ -29,7 +29,7 @@ module SimpVar : Linear_expr.VAR with type t = Term.t and type lit = Tag.t =
 struct
   type t = Term.t
 
-  let pp = Term.pp_debug
+  let pp = Term.pp
   let compare = Term.compare
 
   type lit = Tag.t
@@ -62,7 +62,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     match A.view_as_lra t with
     | LRA_other _ -> LE.monomial1 t
     | LRA_pred _ ->
-      Error.errorf "type error: in linexp, LRA predicate %a" Term.pp_debug t
+      Error.errorf "type error: in linexp, LRA predicate %a" Term.pp t
     | LRA_op (op, t1, t2) ->
       let t1 = as_linexp t1 in
       let t2 = as_linexp t2 in
@@ -247,7 +247,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
         Log.debugf 50 (fun k ->
             k "(@[lra.encode-linexp@ `@[%a@]`@ :into-var %a@])" LE_.Comb.pp
-              le_comb Term.pp_debug proxy);
+              le_comb Term.pp proxy);
 
         LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
         SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
@@ -293,20 +293,19 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
         Log.debugf 50 (fun k ->
             k "(@[lra.encode-linexp.to-term@ `@[%a@]`@ :new-t %a@])" LE_.Comb.pp
-              le_comb Term.pp_debug proxy);
+              le_comb Term.pp proxy);
 
         proxy, A.Q.one)
 
   (* preprocess linear expressions away *)
-  let preproc_lra (self : state) _preproc ~is_sub ~recurse
+  let preproc_lra (self : state) _preproc ~is_sub:_ ~recurse
       (module PA : SI.PREPROCESS_ACTS) (t : Term.t) : Term.t option =
-    Log.debugf 50 (fun k -> k "(@[lra.preprocess@ %a@])" Term.pp_debug t);
+    Log.debugf 50 (fun k -> k "(@[lra.preprocess@ %a@])" Term.pp t);
     let tst = self.tst in
 
     (* tell the CC this term exists *)
     let declare_term_to_cc ~sub:_ t =
-      Log.debugf 50 (fun k ->
-          k "(@[lra.declare-term-to-cc@ %a@])" Term.pp_debug t);
+      Log.debugf 50 (fun k -> k "(@[lra.declare-term-to-cc@ %a@])" Term.pp t);
       ignore (CC.add_term (SMT.Preprocess.cc _preproc) t : E_node.t)
     in
 
@@ -331,7 +330,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       (* TODO: box [t], recurse on [t1 <= t2] and [t1 >= t2],
          add 3 atomic clauses, return [box t] *)
       let _, t = Term.abs self.tst t in
-      if not (Term.Tbl.mem self.encoded_eqs t) then (
+      let box_t = Box.box self.tst t in
+      if not (Term.Tbl.mem self.encoded_eqs box_t) then (
         (* preprocess t1, t2 recursively *)
         let t1 = recurse t1 in
         let t2 = recurse t2 in
@@ -339,10 +339,10 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         let u1 = A.mk_lra tst (LRA_pred (Leq, t1, t2)) in
         let u2 = A.mk_lra tst (LRA_pred (Geq, t1, t2)) in
 
-        Term.Tbl.add self.encoded_eqs t ();
+        Term.Tbl.add self.encoded_eqs box_t ();
 
         (* encode [t <=> (u1 /\ u2)] *)
-        let lit_t = PA.mk_lit t in
+        let lit_t = PA.mk_lit box_t in
         let lit_u1 = PA.mk_lit u1 in
         let lit_u2 = PA.mk_lit u2 in
         add_clause_lra_ (module PA) [ Lit.neg lit_t; lit_u1 ];
@@ -383,14 +383,14 @@ module Make (A : ARG) = (* : S with module A = A *) struct
           op
       in
 
-      let lit = fresh_lit self ~mk_lit:PA.mk_lit ~pre:"$lra" in
+      let lit = PA.mk_lit ~sign:true box_t in
       let constr = SimpSolver.Constraint.mk v op q in
       SimpSolver.declare_bound self.simplex constr (Tag.Lit lit);
-      Term.Tbl.add self.simp_preds (Lit.term lit) (v, op, q);
-      Term.Tbl.add self.encoded_lits (Lit.term lit) box_t;
+      Term.Tbl.add self.simp_preds box_t (v, op, q);
+      Term.Tbl.add self.encoded_lits box_t box_t;
 
       Log.debugf 50 (fun k ->
-          k "(@[lra.preproc@ :t %a@ :to-constr %a@])" Term.pp_debug t
+          k "(@[lra.preproc@ :t %a@ :to-constr %a@])" Term.pp t
             SimpSolver.Constraint.pp constr);
 
       Some box_t
@@ -404,10 +404,14 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         Term.Tbl.add self.simp_defined t (box_t, le);
         Some box_t)
     | LRA_const _n -> None
-    | LRA_other t when A.has_ty_real t && is_sub ->
-      PA.declare_need_th_combination t;
-      None
     | LRA_other _ -> None
+
+  let find_foreign (acts : SMT.Find_foreign.actions) ~is_sub (t : Term.t) : unit
+      =
+    if A.has_ty_real t && is_sub then (
+      let (module FA : SMT.Find_foreign.ACTIONS) = acts in
+      FA.declare_need_th_combination t
+    )
 
   let simplify (self : state) (_recurse : _) (t : Term.t) :
       (Term.t * Proof_step.id Iter.t) option =
@@ -526,7 +530,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   let add_local_eq_t (self : state) si acts t1 t2 ~tag : unit =
     Log.debugf 20 (fun k ->
-        k "(@[lra.add-local-eq@ %a@ %a@])" Term.pp_debug t1 Term.pp_debug t2);
+        k "(@[lra.add-local-eq@ %a@ %a@])" Term.pp t1 Term.pp t2);
     reset_res_ self;
     let t1, t2 =
       if Term.compare t1 t2 > 0 then
@@ -618,8 +622,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     match Term.Tbl.get self.simp_preds lit_t, A.view_as_lra lit_t with
     | Some (v, op, q), _ ->
       Log.debugf 50 (fun k ->
-          k "(@[lra.partial-check.add@ :lit %a@ :lit-t %a@])" Lit.pp lit
-            Term.pp_debug lit_t);
+          k "(@[lra.partial-check.add@ :lit %a@ :lit-t %a@])" Lit.pp lit Term.pp
+            lit_t);
 
       (* need to account for the literal's sign *)
       let op =
@@ -686,7 +690,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     let res =
       match self.last_res with
       | Some (SimpSolver.Sat m) ->
-        Log.debugf 50 (fun k -> k "(@[lra.model-ask@ %a@])" Term.pp_debug t);
+        Log.debugf 50 (fun k -> k "(@[lra.model-ask@ %a@])" Term.pp t);
         (match A.view_as_lra t with
         | LRA_const n -> Some n (* always eval constants to themselves *)
         | _ -> SimpSolver.V_map.get t m)
@@ -709,8 +713,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     match self.last_res with
     | Some (SimpSolver.Sat m) when Term.Tbl.length self.in_model > 0 ->
       Log.debugf 50 (fun k ->
-          k "(@[lra.in_model@ %a@])"
-            (Util.pp_iter Term.pp_debug)
+          k "(@[lra.in_model@ %a@])" (Util.pp_iter Term.pp)
             (Term.Tbl.keys self.in_model));
 
       let add_t t () =
@@ -729,6 +732,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     SMT.Registry.set (SI.registry si) k_state st;
     SI.add_simplifier si (simplify st);
     SI.on_preprocess si (preproc_lra st);
+    SI.on_find_foreign si find_foreign;
     SI.on_final_check si (final_check_ st);
     (* SI.on_partial_check si (partial_check_ st); *)
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);

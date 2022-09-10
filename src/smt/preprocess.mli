@@ -32,8 +32,6 @@ module type PREPROCESS_ACTS = sig
 
   val add_lit : ?default_pol:bool -> lit -> unit
   (** Ensure the literal will be decided/handled by the SAT solver. *)
-
-  val declare_need_th_combination : term -> unit
 end
 
 type preprocess_actions = (module PREPROCESS_ACTS)

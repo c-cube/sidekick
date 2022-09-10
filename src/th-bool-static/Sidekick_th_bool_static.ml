@@ -148,8 +148,7 @@ end = struct
   let fresh_term self ~for_t ~pre ty =
     let u = Gensym.fresh_term self.gensym ~pre ty in
     Log.debugf 20 (fun k ->
-        k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])" T.pp_debug u T.pp_debug
-          for_t);
+        k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])" T.pp u T.pp for_t);
     assert (Term.equal ty (T.ty u));
     u
 
@@ -160,7 +159,7 @@ end = struct
   (* TODO: polarity? *)
   let cnf (self : state) (_preproc : SMT.Preprocess.t) ~is_sub:_ ~recurse
       (module PA : SI.PREPROCESS_ACTS) (t : T.t) : T.t option =
-    Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp_debug t);
+    Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp t);
     let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
 
     (* handle boolean equality *)

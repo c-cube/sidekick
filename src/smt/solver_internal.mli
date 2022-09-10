@@ -94,6 +94,13 @@ val preprocess_clause_array : t -> lit array -> step_id -> lit array * step_id
 val simplify_and_preproc_lit : t -> lit -> lit * step_id option
 (** Simplify literal then preprocess it *)
 
+(** {3 Finding foreign variables} *)
+
+val find_foreign : t -> Find_foreign.t
+
+val on_find_foreign : t -> Find_foreign.hook -> unit
+(** Add a hook for finding foreign variables *)
+
 (** {3 hooks for the theory} *)
 
 val raise_conflict : t -> theory_actions -> lit list -> step_id -> 'a

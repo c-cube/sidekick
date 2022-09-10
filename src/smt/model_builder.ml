@@ -1,4 +1,3 @@
-open Sidekick_core
 open Sigs
 module T = Term
 

@@ -15,6 +15,7 @@ module Solver = Solver
 module Theory = Theory
 module Theory_id = Theory_id
 module Preprocess = Preprocess
+module Find_foreign = Find_foreign
 
 type theory = Theory.t
 type solver = Solver.t
