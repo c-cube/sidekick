@@ -95,6 +95,11 @@ module Make (C : COEFF) (Var : VAR) = struct
 
     let eval (subst : subst) (e : t) : C.t =
       Var_map.fold (fun x c acc -> C.(acc + (c * subst x))) e C.zero
+
+    let map ~f self : t =
+      Var_map.fold (fun v c acc -> add c (f v) acc) self empty
+
+    let of_list l = List.fold_left (fun e (c, x) -> add c x e) empty l
   end
 
   (** A linear arithmetic expression, composed of a combination of variables
@@ -121,6 +126,7 @@ module Make (C : COEFF) (Var : VAR) = struct
     let is_zero e = C.equal C.zero e.const && Comb.is_empty e.comb
     let is_const e = Comb.is_empty e.comb
     let map2 f g e e' = make (f e.comb e'.comb) (g e.const e'.const)
+    let map ~f e = make (Comb.map ~f e.comb) e.const
 
     module Infix = struct
       let ( + ) = map2 Comb.( + ) C.( + )

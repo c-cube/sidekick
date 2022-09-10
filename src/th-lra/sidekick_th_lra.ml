@@ -358,7 +358,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       let box_t = Box.box self.tst t in
       let l1 = as_linexp t1 in
       let l2 = as_linexp t2 in
-      let le = LE.(l1 - l2) in
+      let le = LE.(l1 - l2) |> LE.map ~f:recurse in
       let le_comb, le_const = LE.comb le, LE.const le in
       let le_const = A.Q.neg le_const in
       let op = s_op_of_pred pred in
@@ -400,7 +400,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       | None ->
         let box_t = Box.box self.tst t in
         (* we define these terms so their value in the model make sense *)
-        let le = as_linexp t in
+        let le = as_linexp t |> LE.map ~f:recurse in
         Term.Tbl.add self.simp_defined t (box_t, le);
         Some box_t)
     | LRA_const _n -> None
@@ -671,7 +671,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     let changed = ref false in
     Iter.iter (add_trail_lit_ ~changed self si acts) trail;
 
-    (* add equalities between linear-expressions merged in the congruence closure *)
     ST_exprs.iter_all self.st_exprs (fun (_, l) ->
         Iter.diagonal_l l (fun (s1, s2) -> add_local_eq self si acts s1.n s2.n));
 

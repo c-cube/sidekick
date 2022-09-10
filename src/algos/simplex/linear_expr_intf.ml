@@ -120,6 +120,8 @@ module type S = sig
     val add : C.t -> var -> t -> t
     (** [add n v t] adds the monome [n * v] to the combination [t]. *)
 
+    val map : f:(var -> var) -> t -> t
+
     (** Infix operations on combinations
 
         This module defines usual operations on linear combinations,
@@ -187,6 +189,7 @@ module type S = sig
     val make : Comb.t -> C.t -> t
     (** [make c n] makes the linear expression [c + n]. *)
 
+    val map : f:(var -> var) -> t -> t
     val monomial : C.t -> var -> t
     val monomial1 : var -> t
 
