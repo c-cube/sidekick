@@ -1,7 +1,7 @@
 
 ## ddSMT
 
-to use ddSMT (from https://github.com/ddsmt/ddSMT/issues):
+to use ddSMT (from https://github.com/ddsmt/ddSMT/):
 
 Assuming `bad_file.smt2` is UNSAT but sidekick returns SAT:
 ```sh
