@@ -209,10 +209,10 @@ We start with `p = q`.
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
+  (false := false)
   (q := true)
-  (true := true)
   ((= Bool p q) := true)
-  (false := $@c[0])
+  (true := true)
   (p := true))
 ```
 
@@ -246,10 +246,10 @@ Note that this doesn't affect satisfiability without assumptions:
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
+  (false := false)
   (q := false)
-  (true := true)
   ((= Bool p q) := true)
-  (false := $@c[0])
+  (true := true)
   (p := false))
 ```
 
@@ -264,12 +264,12 @@ We can therefore add more formulas and see where it leads us.
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
+  (false := false)
   (q := false)
   (r := true)
-  (true := true)
   ((= Bool p q) := true)
-  ((or r (not p) false) := true)
-  (false := $@c[0])
+  ((box (or r (not p) false)) := true)
+  (true := true)
   (p := false))
 ```
 
@@ -331,20 +331,12 @@ We can play with assertions now:
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (+ := $@c[4])
+  (false := false)
+  ((box (<= (+ a ((* -1) b)) 0)) := true)
+  ($_le_comb[0] := 0)
   (a := 0)
-  ((+ a) := $@c[2])
-  (0 := 0)
   (b := 0)
-  ((+ a ((* -1) b)) := $@c[0])
-  ((<= (+ a ((* -1) b))) := $@c[6])
-  ((* -1) := $@c[5])
-  (true := true)
-  ((<= (+ a ((* -1) b)) 0) := true)
-  (((* -1) b) := $@c[1])
-  (<= := $@c[3])
-  (false := $@c[7])
-  ($_le_comb[0] := 0))
+  (true := true))
 
 
 # let a_geq_1 = LRA_term.geq tstore a (LRA_term.const tstore (Q.of_int 1));;
@@ -361,7 +353,7 @@ val res : Solver.res =
    {Sidekick_smt_solver.Solver.unsat_core = <fun>; unsat_step_id = <fun>}
 
 # match res with Solver.Unsat {unsat_core=us; _} -> us() |> Iter.to_list | _ -> assert false;;
-- : Proof_trace.lit list = [(>= a 1); (<= b 1/2)]
+- : Proof_trace.lit list = [[[ (>= a 1) ]]; [[ (<= b 1/2) ]]]
 ```
 
 This just showed that `a=1, b=1/2, a>=b` is unsatisfiable.
