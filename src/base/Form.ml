@@ -49,7 +49,7 @@ let view (t : T.t) : T.t view =
   | E_const { Const.c_view = T.C_false; _ }, [] -> B_bool false
   | E_const { Const.c_view = T.C_not; _ }, [ a ] -> B_not a
   | E_const { Const.c_view = T.C_eq; _ }, [ _ty; a; b ] ->
-    if Ty.is_bool a then
+    if Ty.is_bool (Term.ty a) then
       B_equiv (a, b)
     else
       B_eq (a, b)
