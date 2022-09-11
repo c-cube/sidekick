@@ -41,8 +41,7 @@ let create ?(stat = Stat.global) ~proof ~cc ~simplify tst : t =
 let on_preprocess self f = self.preprocess <- f :: self.preprocess
 let cc self = self.cc
 
-let preprocess_term_ (self : t) ((module A : PREPROCESS_ACTS) as acts)
-    (t : term) : term =
+let preprocess_term_ (self : t) acts (t : term) : term =
   (* how to preprocess a term and its subterms *)
   let rec preproc_rec_ ~is_sub t0 : Term.t =
     match Term.Tbl.find_opt self.preprocessed t0 with
