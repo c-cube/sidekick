@@ -196,15 +196,15 @@ module Perform_delayed (A : PERFORM_ACTS) = struct
           Preprocess.simplify_and_preproc_lit self.preprocess
             (preprocess_acts self) lit
         in
-        let t = Lit.term lit in
         find_foreign_vars_in_lit self lit;
-        CC.set_as_lit self.cc (CC.add_term self.cc t) lit;
+        (let t = Lit.term lit in
+         CC.set_as_lit self.cc (CC.add_term self.cc t) (Lit.abs lit));
         A.add_lit self acts ?default_pol lit
       | DA_add_preprocessed_lit { default_pol; lit } ->
         let t = Lit.term lit in
         Log.debugf 5 (fun k ->
             k "(@[solver.map-bool-subterm-to-lit@ :subterm %a@])" Term.pp t);
-        CC.set_as_lit self.cc (CC.add_term self.cc t) lit;
+        CC.set_as_lit self.cc (CC.add_term self.cc t) (Lit.abs lit);
         A.add_lit self acts ?default_pol lit
     done
 end
