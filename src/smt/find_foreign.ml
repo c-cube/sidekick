@@ -8,18 +8,26 @@ module type ACTIONS = sig
   (** Add the (boolean) term to the SAT solver *)
 end
 
+module T_bool_tbl = CCHashtbl.Make (struct
+  type t = Term.t * bool
+
+  let equal (t1, b1) (t2, b2) = Term.equal t1 t2 && b1 = b2
+  let hash (t, b) = Hash.(combine2 (Term.hash t) (bool b))
+end)
+
 type actions = (module ACTIONS)
 type hook = actions -> is_sub:bool -> Term.t -> unit
-type t = { seen: unit Term.Tbl.t; mutable hooks: hook list }
+type t = { seen: unit T_bool_tbl.t; mutable hooks: hook list }
 
-let create () : t = { hooks = []; seen = Term.Tbl.create 8 }
+let create () : t = { hooks = []; seen = T_bool_tbl.create 8 }
 let add_hook self h = self.hooks <- h :: self.hooks
 
 let traverse_term (self : t) ((module A) as acts : actions) (t : Term.t) : unit
     =
   let rec loop ~is_sub t =
-    if (not (Term.is_a_type t)) && not (Term.Tbl.mem self.seen t) then (
-      Term.Tbl.add self.seen t ();
+    if (not (Term.is_a_type t)) && not (T_bool_tbl.mem self.seen (t, is_sub))
+    then (
+      T_bool_tbl.add self.seen (t, is_sub) ();
       Log.debugf 10 (fun k -> k "(@[find-foreign-in@ %a@])" Term.pp t);
 
       (* boolean subterm: need a literal *)
