@@ -310,10 +310,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     in
 
     match A.view_as_lra t with
-    | _ when Term.Tbl.mem self.simp_preds t ->
-      let u, _, _ = Term.Tbl.find self.simp_preds t in
-      Some u
-      (* already turned into a simplex predicate *)
     | LRA_pred (((Eq | Neq) as pred), t1, t2) when is_const_ t1 && is_const_ t2
       ->
       (* comparison of constants: can decide right now *)
@@ -390,7 +386,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       Term.Tbl.add self.encoded_lits box_t box_t;
 
       Log.debugf 50 (fun k ->
-          k "(@[lra.preproc@ :t %a@ :to-constr %a@])" Term.pp t
+          k "(@[lra.preprocess.pred@ :t %a@ :to-constr %a@])" Term.pp t
             SimpSolver.Constraint.pp constr);
 
       Some box_t
