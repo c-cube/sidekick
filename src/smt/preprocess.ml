@@ -61,7 +61,7 @@ let preprocess_term_ (self : t) acts (t : term) : term =
           (* only accept a box (with possible side effect: new clauses, etc.) *)
           Log.debugf 20 (fun k ->
               k "(@[smt.preprocess.tr@ %a@ :into %a@])" Term.pp t0 Term.pp u);
-          assert (Term.(equal (ty t) (ty u)));
+          assert (Term.(equal (ty t0) (ty u)));
           u
         | None ->
           (* just preprocess subterms *)
