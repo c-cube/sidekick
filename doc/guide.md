@@ -211,7 +211,7 @@ Sidekick_smt_solver.Solver.Sat
  (model
   (false := false)
   (q := true)
-  ((= Bool p q) := true)
+  ((box (= Bool p q)) := true)
   (true := true)
   (p := true))
 ```
@@ -247,10 +247,10 @@ Note that this doesn't affect satisfiability without assumptions:
 Sidekick_smt_solver.Solver.Sat
  (model
   (false := false)
-  (q := false)
-  ((= Bool p q) := true)
+  (q := true)
+  ((box (= Bool p q)) := true)
   (true := true)
-  (p := false))
+  (p := true))
 ```
 
 We can therefore add more formulas and see where it leads us.
@@ -265,12 +265,12 @@ We can therefore add more formulas and see where it leads us.
 Sidekick_smt_solver.Solver.Sat
  (model
   (false := false)
-  (q := false)
+  (q := true)
+  ((box (= Bool p q)) := true)
   (r := true)
-  ((= Bool p q) := true)
   ((box (or r (not p) false)) := true)
   (true := true)
-  (p := false))
+  (p := true))
 ```
 
 Still satisfiable, but now we see `r` in the model, too. And now:
@@ -331,11 +331,11 @@ We can play with assertions now:
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
+  (b := 0)
   (false := false)
   ((box (<= (+ a ((* -1) b)) 0)) := true)
   ($_le_comb[0] := 0)
   (a := 0)
-  (b := 0)
   (true := true))
 
 
