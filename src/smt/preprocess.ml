@@ -61,6 +61,7 @@ let preprocess_term_ (self : t) acts (t : term) : term =
           (* only accept a box (with possible side effect: new clauses, etc.) *)
           Log.debugf 20 (fun k ->
               k "(@[smt.preprocess.tr@ %a@ :into %a@])" Term.pp t0 Term.pp u);
+          assert (Term.(equal (ty t) (ty u)));
           u
         | None ->
           (* just preprocess subterms *)
@@ -99,6 +100,7 @@ let simplify_and_preproc_lit (self : t) acts (lit : Lit.t) :
           k "(@[smt-solver.simplify@ :t %a@ :into %a@])" Term.pp t Term.pp u);
       u, Some pr_t_u
   in
+  assert (Term.is_bool @@ Term.ty u);
   let v = preprocess_term_ self acts u in
   Lit.atom ~sign self.tst v, pr
 
