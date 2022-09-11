@@ -13,6 +13,7 @@ let[@inline] make_ ~sign t : t = { lit_sign = sign; lit_term = t }
 
 let atom ?(sign = true) tst (t : term) : t =
   let sign', t = T_builtins.abs tst t in
+  assert (T_builtins.is_bool (Term.ty t));
   let sign = sign = sign' in
   make_ ~sign t
 
