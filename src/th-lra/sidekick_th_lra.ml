@@ -326,19 +326,14 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       (* TODO: box [t], recurse on [t1 <= t2] and [t1 >= t2],
          add 3 atomic clauses, return [box t] *)
       let _, t = Term.abs self.tst t in
-      let box_t = Box.box self.tst t in
-      if not (Term.Tbl.mem self.encoded_eqs box_t) then (
-        (* preprocess t1, t2 recursively *)
-        let t1 = recurse t1 in
-        let t2 = recurse t2 in
+      if not (Term.Tbl.mem self.encoded_eqs t) then (
+        let u1 = recurse @@ A.mk_lra tst (LRA_pred (Leq, t1, t2)) in
+        let u2 = recurse @@ A.mk_lra tst (LRA_pred (Geq, t1, t2)) in
 
-        let u1 = A.mk_lra tst (LRA_pred (Leq, t1, t2)) in
-        let u2 = A.mk_lra tst (LRA_pred (Geq, t1, t2)) in
-
-        Term.Tbl.add self.encoded_eqs box_t ();
+        Term.Tbl.add self.encoded_eqs t ();
 
         (* encode [t <=> (u1 /\ u2)] *)
-        let lit_t = PA.mk_lit box_t in
+        let lit_t = PA.mk_lit t in
         let lit_u1 = PA.mk_lit u1 in
         let lit_u2 = PA.mk_lit u2 in
         add_clause_lra_ (module PA) [ Lit.neg lit_t; lit_u1 ];
