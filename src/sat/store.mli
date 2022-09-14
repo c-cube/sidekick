@@ -1,5 +1,4 @@
 open Sidekick_core
-open Sigs
 
 type var = Base_types_.var
 type atom = Base_types_.atom

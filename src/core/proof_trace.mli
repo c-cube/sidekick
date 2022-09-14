@@ -6,8 +6,6 @@
     to its premises.
 *)
 
-open Sidekick_core_logic
-
 type lit = Lit.t
 
 type step_id = Proof_step.id

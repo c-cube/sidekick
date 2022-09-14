@@ -3,7 +3,6 @@
 open Sidekick_core
 module T = Term
 module Q = Sidekick_zarith.Rational
-open LRA_term
 
 let mk_eq = Form.eq
 let mk_bool = T.bool

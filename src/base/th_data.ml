@@ -4,7 +4,6 @@ open Sidekick_core
 
 let arg =
   (module struct
-    module S = Solver
     open! Sidekick_th_data
     open Data_ty
     module Cstor = Cstor

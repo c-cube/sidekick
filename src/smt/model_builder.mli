@@ -6,7 +6,6 @@
   TODO: seen values?
 *)
 
-open Sidekick_core
 open Sigs
 
 type t
