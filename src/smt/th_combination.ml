@@ -25,7 +25,7 @@ let processed_ (self : t) t : bool =
   | Some set -> T.Set.mem t set
 
 let add_term_needing_combination (self : t) (t : T.t) : unit =
-  if not (processed_ self t) && not (T.is_bool @@ T.ty t) then (
+  if (not (processed_ self t)) && not (T.is_bool @@ T.ty t) then (
     Log.debugf 50 (fun k -> k "(@[th.comb.add-term-needing-comb@ %a@])" T.pp t);
     Vec.push self.unprocessed t
   )
@@ -42,7 +42,8 @@ let pop_new_lits (self : t) : Lit.t list =
     in
     if not (T.Set.mem t set_for_ty) then (
       Stat.incr self.n_terms;
-      Log.debugf 0 (fun k -> k "NEED TH COMBINATION %a" T.pp t);
+      Log.debugf 10 (fun k ->
+          k "(@[th-comb.term.need-th-combination@ %a@])" T.pp t);
 
       (* now create [t=u] for each [u] in [set_for_ty], and add it to [lits] *)
       T.Set.iter
