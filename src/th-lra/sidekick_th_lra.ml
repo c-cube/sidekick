@@ -322,9 +322,9 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         None
       | _ -> assert false)
     | LRA_pred ((Eq | Neq), t1, t2) ->
-      (* equality: just punt to [t1 = t2 <=> (t1 <= t2 /\ t1 >= t2)] *)
-      (* TODO: box [t], recurse on [t1 <= t2] and [t1 >= t2],
-         add 3 atomic clauses, return [box t] *)
+      (* Equality: just punt to [(t1 = t2) <=> (t1 <= t2 /\ t1 >= t2)].
+         We use [t1=t2] rather than [box (t1=t2)] because the congruence
+         closure must still have access to the equality. *)
       let _, t = Term.abs self.tst t in
       if not (Term.Tbl.mem self.encoded_eqs t) then (
         let u1 = recurse @@ A.mk_lra tst (LRA_pred (Leq, t1, t2)) in
