@@ -66,6 +66,12 @@ $(TESTTOOL)-smt-QF_LIA: sidekick snapshots
 $(TESTTOOL)-smt-QF_UFLIA: sidekick snapshots
 	$(TESTTOOL) run $(TESTOPTS) \
 	  --csv snapshots/smt-QF_LRA-$(DATE).csv --task sidekick-smt-nodir tests/QF_UFLIA
+$(TESTTOOL)-smt-QF_UF-incr: sidekick snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/smt-QF_UF-incr-$(DATE).csv --task sidekick-smt-nodir tests/incr/QF_UF
+$(TESTTOOL)-smt-QF_LRA-incr: sidekick snapshots
+	$(TESTTOOL) run $(TESTOPTS) \
+	  --csv snapshots/smt-QF_LRA-incr-$(DATE).csv --task sidekick-smt-nodir tests/incr/QF_LRA
 
 install: build-install
 	@dune install
