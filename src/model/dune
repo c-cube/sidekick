@@ -1,0 +1,6 @@
+(library
+ (name sidekick_model)
+ (public_name sidekick.model)
+ (synopsis "Finite models for Sidekick")
+ (libraries sidekick.sigs sidekick.util sidekick.core)
+ (flags :standard -w +32 -open Sidekick_util))
