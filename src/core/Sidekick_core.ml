@@ -22,6 +22,7 @@ module Term = struct
   include Sidekick_core_logic.Term
   include Sidekick_core_logic.T_builtins
   include T_printer
+  module Tracer = T_tracer
 end
 
 module Gensym = Gensym
