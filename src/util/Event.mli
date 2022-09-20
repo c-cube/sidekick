@@ -1,3 +1,10 @@
+(** Event pattern.
+
+    This provides a basic observer pattern, where events are emitted
+    from some source (with an attached value), and callbacks that were
+    registered will receive this value.
+*)
+
 type ('a, 'b) t
 (** An event emitting values of type ['a], where subscribers
     return values of type ['b]. *)
