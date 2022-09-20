@@ -11,6 +11,14 @@ module type DYN_CONST_OPS = sig
 
   val hash : const_view -> int
   (** Hash constant *)
+
+  (* TODO
+     val ser : const_view -> Ser_value.t
+     (** Serialize constant *)
+
+     val deser : const_view Ser_decode.t
+     (** Deserialize constant *)
+  *)
 end
 
 type const_ops = (module DYN_CONST_OPS)

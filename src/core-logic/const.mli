@@ -10,6 +10,10 @@ module type DYN_OPS = sig
   val pp : view Fmt.printer
   val equal : view -> view -> bool
   val hash : view -> int
+  (* TODO
+     val ser : view -> Ser_value.t
+     val deser : view Ser_decode.t
+  *)
 end
 
 type ops = (module DYN_OPS)
