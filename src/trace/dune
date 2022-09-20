@@ -3,4 +3,5 @@
  (public_name sidekick.trace)
  (synopsis "Trace system for sidekick.")
  (flags :standard -open Sidekick_util)
- (libraries containers iter sidekick.util sidekick.sigs sidekick.core-logic))
+ (libraries containers iter sidekick.util sidekick.bencode sidekick.sigs
+   sidekick.core-logic))

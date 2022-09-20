@@ -21,7 +21,7 @@ open Sidekick_sigs
 (** {2 Exports} *)
 
 module Entry_view = Entry_view
-module Write_value = Write_value
+module Entry_read = Entry_read
 module Sink = Sink
 module Entry_id = Entry_id
 
