@@ -21,3 +21,5 @@ val bytes : string -> t
 val list : t list -> t
 val dict : t Util.Str_map.t -> t
 val dict_of_list : (string * t) list -> t
+
+include Sidekick_sigs.PRINT with type t := t

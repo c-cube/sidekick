@@ -1,3 +1,5 @@
+module Fmt = CCFormat
+
 type t =
   | Bool of bool
   | Str of string
@@ -13,3 +15,15 @@ let bytes x : t = Bytes x
 let list x : t = List x
 let dict x : t = Dict x
 let dict_of_list l = dict (Util.Str_map.of_list l)
+
+let rec pp out (self : t) =
+  match self with
+  | Bool b -> Fmt.bool out b
+  | Int i -> Fmt.int out i
+  | Str s -> Fmt.Dump.string out s
+  | Bytes s -> Fmt.fprintf out "(bytes %S)" s
+  | List l -> Fmt.Dump.list pp out l
+  | Dict m ->
+    Fmt.fprintf out "{@[%a@]}"
+      (Util.pp_iter ~sep:", " Fmt.Dump.(pair string pp))
+      (Util.Str_map.to_iter m)
