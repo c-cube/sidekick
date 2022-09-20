@@ -9,10 +9,6 @@ let view_as_cc (t : Term.t) : _ CC_view.t =
   | Term.E_const { Const.c_view = T_builtins.C_ite; _ }, [ _ty; a; b; c ] ->
     View.If (a, b, c)
   | Term.E_const { Const.c_view = T_builtins.C_not; _ }, [ a ] -> View.Not a
-  | Term.E_const { Const.c_ops = (module OP); c_view; _ }, _
-    when OP.opaque_to_cc c_view ->
-    (* this constant hides its arguments *)
-    View.Opaque t
   | _ ->
     (match Term.view t with
     | Term.E_app (f, a) -> View.App_ho (f, a)

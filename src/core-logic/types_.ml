@@ -11,11 +11,6 @@ module type DYN_CONST_OPS = sig
 
   val hash : const_view -> int
   (** Hash constant *)
-
-  val opaque_to_cc : const_view -> bool
-  (** If true, congruence closure will not apply for applications of this
-      constant. In other words, [c t1…tn] will appear to the congruence
-      closure as a single opaque term with no subterms. *)
 end
 
 type const_ops = (module DYN_CONST_OPS)
