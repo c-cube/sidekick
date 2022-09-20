@@ -24,5 +24,6 @@ module Hash = Hash
 module Profile = Profile
 module Chunk_stack = Chunk_stack
 module Ser_value = Ser_value
+module Ser_decode = Ser_decode
 
 let[@inline] ( let@ ) f x = f x
