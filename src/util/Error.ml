@@ -8,3 +8,7 @@ let () =
     | _ -> None)
 
 let errorf msg = Fmt.ksprintf msg ~f:(fun s -> raise (Error s))
+
+type nonrec 'a result = ('a, string) result
+
+let try_ f = try Ok (f ()) with Error s -> Error s
