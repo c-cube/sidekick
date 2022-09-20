@@ -1,0 +1,6 @@
+(library
+ (name sidekick_bencode)
+ (public_name sidekick.bencode)
+ (synopsis "basic Bencode serialization")
+ (flags :standard -open Sidekick_util)
+ (libraries containers sidekick.util))
