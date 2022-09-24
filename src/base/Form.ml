@@ -18,27 +18,36 @@ type 'a view = 'a Sidekick_core.Bool_view.t =
 
 type Const.view += C_and | C_or | C_imply
 
-let ops : Const.ops =
-  (module struct
-    let pp out = function
-      | C_and -> Fmt.string out "and"
-      | C_or -> Fmt.string out "or"
-      | C_imply -> Fmt.string out "=>"
-      | _ -> assert false
+let ops =
+  let pp out = function
+    | C_and -> Fmt.string out "and"
+    | C_or -> Fmt.string out "or"
+    | C_imply -> Fmt.string out "=>"
+    | _ -> assert false
+  in
 
-    let equal a b =
-      match a, b with
-      | C_and, C_and | C_or, C_or | C_imply, C_imply -> true
-      | _ -> false
+  let equal a b =
+    match a, b with
+    | C_and, C_and | C_or, C_or | C_imply, C_imply -> true
+    | _ -> false
+  in
 
-    let hash = function
-      | C_and -> Hash.int 425
-      | C_or -> Hash.int 426
-      | C_imply -> Hash.int 427
-      | _ -> assert false
+  let hash = function
+    | C_and -> Hash.int 425
+    | C_or -> Hash.int 426
+    | C_imply -> Hash.int 427
+    | _ -> assert false
+  in
 
-    let opaque_to_cc _ = true
-  end)
+  let ser _sink =
+    Ser_value.(
+      function
+      | C_and -> "and", null
+      | C_or -> "or", null
+      | C_imply -> "=>", null
+      | _ -> assert false)
+  in
+  { Const.Ops.pp; equal; hash; ser }
 
 (* ### view *)
 

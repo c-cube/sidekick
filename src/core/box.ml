@@ -2,23 +2,28 @@ open Sidekick_core_logic
 
 type Const.view += Box of Term.t
 
-let ops : Const.ops =
-  (module struct
-    let pp out = function
-      | Box t -> Fmt.fprintf out "(@[box@ %a@])" Term.pp_debug t
-      | _ -> assert false
+let ops =
+  let pp out = function
+    | Box t -> Fmt.fprintf out "(@[box@ %a@])" Term.pp_debug t
+    | _ -> assert false
+  in
 
-    let equal a b =
-      match a, b with
-      | Box a, Box b -> Term.equal a b
-      | _ -> false
+  let equal a b =
+    match a, b with
+    | Box a, Box b -> Term.equal a b
+    | _ -> false
+  in
 
-    let hash = function
-      | Box t -> Hash.(combine2 10 (Term.hash t))
-      | _ -> assert false
+  let hash = function
+    | Box t -> Hash.(combine2 10 (Term.hash t))
+    | _ -> assert false
+  in
 
-    let opaque_to_cc _ = false
-  end)
+  let ser ser_t = function
+    | Box t -> "box", ser_t t
+    | _ -> assert false
+  in
+  { Const.Ops.pp; equal; hash; ser }
 
 let as_box t =
   match Term.view t with

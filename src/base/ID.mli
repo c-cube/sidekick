@@ -37,6 +37,9 @@ val to_string : t -> string
 val to_string_full : t -> string
 (** Printer name and unique counter for this ID. *)
 
+val ser : t -> Ser_value.t
+val deser : t Ser_decode.t
+
 include Sidekick_sigs.EQ_ORD_HASH_PRINT with type t := t
 
 val pp_name : t CCFormat.printer

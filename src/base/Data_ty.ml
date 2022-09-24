@@ -81,31 +81,39 @@ type Const.view +=
   | Is_a of cstor
 
 let ops =
-  (module struct
-    let pp out = function
-      | Data d -> pp out d
-      | Cstor c -> Cstor.pp out c
-      | Select s -> Select.pp out s
-      | Is_a c -> Fmt.fprintf out "(_ is %a)" Cstor.pp c
-      | _ -> assert false
+  let pp out = function
+    | Data d -> pp out d
+    | Cstor c -> Cstor.pp out c
+    | Select s -> Select.pp out s
+    | Is_a c -> Fmt.fprintf out "(_ is %a)" Cstor.pp c
+    | _ -> assert false
+  in
 
-    let equal a b =
-      match a, b with
-      | Data a, Data b -> equal a b
-      | Cstor a, Cstor b -> Cstor.equal a b
-      | Select a, Select b -> Select.equal a b
-      | Is_a a, Is_a b -> Cstor.equal a b
-      | _ -> false
+  let equal a b =
+    match a, b with
+    | Data a, Data b -> equal a b
+    | Cstor a, Cstor b -> Cstor.equal a b
+    | Select a, Select b -> Select.equal a b
+    | Is_a a, Is_a b -> Cstor.equal a b
+    | _ -> false
+  in
 
-    let hash = function
-      | Data d -> Hash.combine2 592 (hash d)
-      | Cstor c -> Hash.combine2 593 (Cstor.hash c)
-      | Select s -> Hash.combine2 594 (Select.hash s)
-      | Is_a c -> Hash.combine2 595 (Cstor.hash c)
-      | _ -> assert false
+  let hash = function
+    | Data d -> Hash.combine2 592 (hash d)
+    | Cstor c -> Hash.combine2 593 (Cstor.hash c)
+    | Select s -> Hash.combine2 594 (Select.hash s)
+    | Is_a c -> Hash.combine2 595 (Cstor.hash c)
+    | _ -> assert false
+  in
+  let ser ser_t = function
+    | Data d -> assert false (* TODO *)
+    | Cstor c -> assert false (* TODO *)
+    | Select s -> assert false (* TODO *)
+    | Is_a c -> assert false (* TODO *)
+    | _ -> assert false
+  in
 
-    let opaque_to_cc _ = false
-  end : Const.DYN_OPS)
+  { Const.Ops.pp; hash; equal; ser }
 
 let data_as_ty (d : data) = Lazy.force d.data_as_ty
 

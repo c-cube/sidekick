@@ -2,27 +2,6 @@ module H = CCHash
 
 type const_view = ..
 
-module type DYN_CONST_OPS = sig
-  val pp : const_view Fmt.printer
-  (** Pretty-print constant *)
-
-  val equal : const_view -> const_view -> bool
-  (** Equality of constant with any other constant *)
-
-  val hash : const_view -> int
-  (** Hash constant *)
-
-  (* TODO
-     val ser : const_view -> Ser_value.t
-     (** Serialize constant *)
-
-     val deser : const_view Ser_decode.t
-     (** Deserialize constant *)
-  *)
-end
-
-type const_ops = (module DYN_CONST_OPS)
-
 type term_view =
   | E_type of int
   | E_var of var
@@ -40,6 +19,15 @@ type term_view =
 and var = { v_name: string; v_ty: term }
 and bvar = { bv_idx: int; bv_ty: term }
 and const = { c_view: const_view; c_ops: const_ops; c_ty: term }
+
+and const_ops = {
+  pp: const_view Fmt.printer;  (** Pretty-print constant *)
+  equal: const_view -> const_view -> bool;
+      (** Equality of constant with any other constant *)
+  hash: const_view -> int;  (** Hash constant *)
+  ser: (term -> Ser_value.t) -> const_view -> string * Ser_value.t;
+      (** Serialize a constant, along with a tag to recognize it. *)
+}
 
 and term = {
   view: term_view;

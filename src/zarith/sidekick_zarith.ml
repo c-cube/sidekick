@@ -11,6 +11,8 @@ module Int : Sidekick_arith.INT_FULL with type t = Z.t = struct
     | 0 -> false
     | 1 | 2 -> true
     | _ -> assert false
+
+  let of_string s = try Some (of_string s) with _ -> None
 end
 
 module Rational :
@@ -43,4 +45,5 @@ module Rational :
       Z.(n + one)
 
   let pp_approx n out q = Format.fprintf out "%*.1f" n (Q.to_float q)
+  let of_string s = try Some (of_string s) with _ -> None
 end

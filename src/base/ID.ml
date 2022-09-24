@@ -21,6 +21,14 @@ let pp_name out a = CCFormat.string out a.name
 let pp = pp_name
 let to_string_full a = Printf.sprintf "%s/%d" a.name a.id
 
+let ser (self : t) =
+  Ser_value.(dict_of_list [ "id", int self.id; "n", string self.name ])
+
+let deser =
+  Ser_decode.(
+    let+ id = dict_field "id" int and+ name = dict_field "n" string in
+    { id; name })
+
 module AsKey = struct
   type nonrec t = t
 

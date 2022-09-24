@@ -15,7 +15,7 @@ type t
 val create : Term.store -> t
 (** New (stateful) generator instance. *)
 
-val fresh_term : ?opaque_to_cc:bool -> t -> pre:string -> ty -> term
+val fresh_term : t -> pre:string -> ty -> term
 (** Make a fresh term of the given type *)
 
 val reset : t -> unit

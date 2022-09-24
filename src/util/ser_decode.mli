@@ -10,6 +10,8 @@ val bool : bool t
 val string : string t
 val return : 'a -> 'a t
 val fail : string -> 'a t
+val unwrap_opt : string -> 'a option -> 'a t
+(** Unwrap option, or fail *)
 val any : Ser_value.t t
 val list : 'a t -> 'a list t
 val dict_field : string -> 'a t -> 'a t

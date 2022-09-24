@@ -9,8 +9,8 @@
 
 open Types_
 
-type nonrec var = var
-type nonrec bvar = bvar
+type var = Var.t
+type bvar = Bvar.t
 type nonrec term = term
 
 type t = term

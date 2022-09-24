@@ -7,6 +7,7 @@
 *)
 
 type t = private
+  | Null
   | Bool of bool
   | Str of string
   | Bytes of string
@@ -14,6 +15,7 @@ type t = private
   | List of t list
   | Dict of t Util.Str_map.t
 
+val null : t
 val bool : bool -> t
 val int : int -> t
 val string : string -> t
@@ -21,5 +23,6 @@ val bytes : string -> t
 val list : t list -> t
 val dict : t Util.Str_map.t -> t
 val dict_of_list : (string * t) list -> t
+val is_null : t -> bool
 
 include Sidekick_sigs.PRINT with type t := t

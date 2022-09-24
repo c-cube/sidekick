@@ -30,6 +30,11 @@ let[@inline] fail_ msg v = raise_notrace (Fail (Error.mk msg v))
 let[@inline] fail_e e = raise_notrace (Fail e)
 let return x = { deser = (fun _ -> x) }
 let fail s = { deser = (fun v -> fail_ s v) }
+
+let unwrap_opt msg = function
+  | Some x -> return x
+  | None -> fail msg
+
 let any = { deser = (fun v -> v) }
 
 let bool =

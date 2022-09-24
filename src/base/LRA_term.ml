@@ -17,6 +17,15 @@ module Pred = struct
     | Gt -> ">"
     | Geq -> ">="
 
+  let of_string = function
+    | "<" -> Some Lt
+    | "<=" -> Some Leq
+    | "!=_LRA" -> Some Neq
+    | "=_LRA" -> Some Eq
+    | ">" -> Some Gt
+    | ">=" -> Some Geq
+    | _ -> None
+
   let equal : t -> t -> bool = ( = )
   let hash : t -> int = Hashtbl.hash
   let pp out p = Fmt.string out (to_string p)
@@ -28,6 +37,11 @@ module Op = struct
   let to_string = function
     | Plus -> "+"
     | Minus -> "-"
+
+  let of_string = function
+    | "+" -> Some Plus
+    | "-" -> Some Minus
+    | _ -> None
 
   let equal : t -> t -> bool = ( = )
   let hash : t -> int = Hashtbl.hash
@@ -90,32 +104,60 @@ type term = Term.t
 type ty = Term.t
 type Const.view += Const of Q.t | Pred of Pred.t | Op of Op.t | Mult_by of Q.t
 
-let ops : Const.ops =
-  (module struct
-    let pp out = function
-      | Const q -> Q.pp_print out q
-      | Pred p -> Pred.pp out p
-      | Op o -> Op.pp out o
-      | Mult_by q -> Fmt.fprintf out "(* %a)" Q.pp_print q
-      | _ -> assert false
+let ops =
+  let pp out = function
+    | Const q -> Q.pp_print out q
+    | Pred p -> Pred.pp out p
+    | Op o -> Op.pp out o
+    | Mult_by q -> Fmt.fprintf out "(* %a)" Q.pp_print q
+    | _ -> assert false
+  in
 
-    let equal a b =
-      match a, b with
-      | Const a, Const b -> Q.equal a b
-      | Pred a, Pred b -> Pred.equal a b
-      | Op a, Op b -> Op.equal a b
-      | Mult_by a, Mult_by b -> Q.equal a b
-      | _ -> false
+  let equal a b =
+    match a, b with
+    | Const a, Const b -> Q.equal a b
+    | Pred a, Pred b -> Pred.equal a b
+    | Op a, Op b -> Op.equal a b
+    | Mult_by a, Mult_by b -> Q.equal a b
+    | _ -> false
+  in
 
-    let hash = function
-      | Const q -> Sidekick_zarith.Rational.hash q
-      | Pred p -> Pred.hash p
-      | Op o -> Op.hash o
-      | Mult_by q -> Hash.(combine2 135 (Sidekick_zarith.Rational.hash q))
-      | _ -> assert false
+  let hash = function
+    | Const q -> Sidekick_zarith.Rational.hash q
+    | Pred p -> Pred.hash p
+    | Op o -> Op.hash o
+    | Mult_by q -> Hash.(combine2 135 (Sidekick_zarith.Rational.hash q))
+    | _ -> assert false
+  in
 
-    let opaque_to_cc _ = true
-  end)
+  let ser _sink =
+    Ser_value.(
+      function
+      | Const q -> "Qn", string (Sidekick_zarith.Rational.to_string q)
+      | Pred p -> "Qp", string (Pred.to_string p)
+      | Op o -> "Qo", string (Op.to_string o)
+      | Mult_by q -> "Q*", string (Sidekick_zarith.Rational.to_string q)
+      | _ -> assert false)
+  in
+  { Const.Ops.equal; hash; ser; pp }
+
+(* TODO
+   let deser _tst =
+     Ser_decode.
+       [
+         ( "Qn",
+           let* s = string in
+           let+ q =
+             unwrap_opt "expected rational number"
+               (Sidekick_zarith.Rational.of_string s)
+           in
+           Const q );
+         ( "Qp",
+           let* s = string in
+           let+ p = unwrap_opt "expected predicate" (Pred.of_string s) in
+           Pred p );
+       ]
+*)
 
 let real tst = Ty.real tst
 let has_ty_real t = Ty.is_real (T.ty t)

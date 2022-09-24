@@ -8,35 +8,46 @@ let pp = pp_debug
 type Const.view += Ty of ty_view
 type data = Types_.data
 
-let ops_ty : Const.ops =
-  (module struct
-    let pp out = function
-      | Ty ty ->
-        (match ty with
-        | Ty_real -> Fmt.string out "Real"
-        | Ty_int -> Fmt.string out "Int"
-        | Ty_uninterpreted { id; _ } -> ID.pp out id)
-      | _ -> ()
+let ops_ty =
+  let pp out = function
+    | Ty ty ->
+      (match ty with
+      | Ty_real -> Fmt.string out "Real"
+      | Ty_int -> Fmt.string out "Int"
+      | Ty_uninterpreted { id; _ } -> ID.pp out id)
+    | _ -> ()
+  in
 
-    let equal a b =
-      match a, b with
-      | Ty a, Ty b ->
-        (match a, b with
-        | Ty_int, Ty_int | Ty_real, Ty_real -> true
-        | Ty_uninterpreted u1, Ty_uninterpreted u2 -> ID.equal u1.id u2.id
-        | (Ty_real | Ty_int | Ty_uninterpreted _), _ -> false)
-      | _ -> false
+  let equal a b =
+    match a, b with
+    | Ty a, Ty b ->
+      (match a, b with
+      | Ty_int, Ty_int | Ty_real, Ty_real -> true
+      | Ty_uninterpreted u1, Ty_uninterpreted u2 -> ID.equal u1.id u2.id
+      | (Ty_real | Ty_int | Ty_uninterpreted _), _ -> false)
+    | _ -> false
+  in
 
-    let hash = function
-      | Ty a ->
+  let hash = function
+    | Ty a ->
+      (match a with
+      | Ty_real -> Hash.int 2
+      | Ty_int -> Hash.int 3
+      | Ty_uninterpreted u -> Hash.combine2 10 (ID.hash u.id))
+    | _ -> assert false
+  in
+
+  let ser _sink = function
+    | Ty a ->
+      Ser_value.(
         (match a with
-        | Ty_real -> Hash.int 2
-        | Ty_int -> Hash.int 3
-        | Ty_uninterpreted u -> Hash.combine2 10 (ID.hash u.id))
-      | _ -> assert false
-
-    let opaque_to_cc _ = true
-  end)
+        | Ty_real -> "ty.Real", null
+        | Ty_int -> "ty.Int", null
+        | Ty_uninterpreted { id; finite } ->
+          "ty.id", dict_of_list [ "id", ID.ser id; "fin", bool finite ]))
+    | _ -> assert false
+  in
+  { Const.Ops.pp; equal; hash; ser }
 
 open struct
   let mk_ty0 tst view =

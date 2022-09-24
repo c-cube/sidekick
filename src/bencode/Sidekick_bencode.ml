@@ -10,6 +10,7 @@ module Encode = struct
 
     let rec enc_v (v : t) : unit =
       match v with
+      | Null -> str "0:"
       | Int i ->
         char 'i';
         int i;

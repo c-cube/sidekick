@@ -3,39 +3,59 @@ open Term
 
 type const_view += C_bool | C_eq | C_ite | C_not | C_true | C_false
 
+let to_string = function
+  | C_bool -> "Bool"
+  | C_eq -> "="
+  | C_ite -> "ite"
+  | C_not -> "not"
+  | C_true -> "true"
+  | C_false -> "false"
+  | _ -> assert false
+
+let of_string = function
+  | "Bool" -> Some C_bool
+  | "=" -> Some C_eq
+  | "ite" -> Some C_ite
+  | "not" -> Some C_not
+  | "true" -> Some C_true
+  | "false" -> Some C_false
+  | _ -> None
+
 let ops : const_ops =
-  (module struct
-    let equal a b =
-      match a, b with
-      | C_bool, C_bool
-      | C_eq, C_eq
-      | C_ite, C_ite
-      | C_not, C_not
-      | C_true, C_true
-      | C_false, C_false ->
-        true
-      | _ -> false
+  let equal a b =
+    match a, b with
+    | C_bool, C_bool
+    | C_eq, C_eq
+    | C_ite, C_ite
+    | C_not, C_not
+    | C_true, C_true
+    | C_false, C_false ->
+      true
+    | _ -> false
+  in
 
-    let hash = function
-      | C_bool -> CCHash.int 167
-      | C_eq -> CCHash.int 168
-      | C_ite -> CCHash.int 169
-      | C_not -> CCHash.int 170
-      | C_true -> CCHash.int 171
-      | C_false -> CCHash.int 172
-      | _ -> assert false
+  let hash = function
+    | C_bool -> CCHash.int 167
+    | C_eq -> CCHash.int 168
+    | C_ite -> CCHash.int 169
+    | C_not -> CCHash.int 170
+    | C_true -> CCHash.int 171
+    | C_false -> CCHash.int 172
+    | _ -> assert false
+  in
 
-    let pp out = function
-      | C_bool -> Fmt.string out "Bool"
-      | C_eq -> Fmt.string out "="
-      | C_ite -> Fmt.string out "ite"
-      | C_not -> Fmt.string out "not"
-      | C_true -> Fmt.string out "true"
-      | C_false -> Fmt.string out "false"
-      | _ -> assert false
+  let pp out self = Fmt.string out (to_string self) in
+  let ser _sink self = "builtin", Ser_value.(string (to_string self)) in
+  { Const.Ops.equal; hash; pp; ser }
 
-    let opaque_to_cc _ = false
-  end)
+(* TODO
+   let deser _tst =
+     Ser_decode.(
+       let* v = string in
+       match of_string v with
+       | Some c -> return c
+       | None -> fail "expected builtin")
+*)
 
 let bool store = const store @@ Const.make C_bool ops ~ty:(type_ store)
 let true_ store = const store @@ Const.make C_true ops ~ty:(bool store)

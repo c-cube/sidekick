@@ -13,6 +13,11 @@ val true_ : store -> t
 val false_ : store -> t
 val bool_val : store -> bool -> t
 
+(* TODO
+   val deser : Term.store -> (string * Term.t) Ser_decode.t list
+   (** Deserializers, to be registered *)
+*)
+
 val eq : store -> t -> t -> t
 (** [eq a b] is [a = b] *)
 

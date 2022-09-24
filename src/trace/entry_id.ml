@@ -1,7 +1,8 @@
-type t = int
+(** Entry in the sink.
 
-let pp = Fmt.int
+   This integer tag represent a single entry in a trace, for example
+   a line if we serialized using line-separate json values.
+   In general each entry has its own unique ID that is monotonically
+   increasing with time. *)
 
-module Internal_ = struct
-  let make x = x
-end
+include Int_id.Make ()

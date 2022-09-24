@@ -6,21 +6,22 @@ open Types_
 
 type view = const_view = ..
 
-module type DYN_OPS = sig
-  val pp : view Fmt.printer
-  val equal : view -> view -> bool
-  val hash : view -> int
-  (* TODO
-     val ser : view -> Ser_value.t
-     val deser : view Ser_decode.t
-  *)
+module Ops : sig
+  type t = const_ops = {
+    pp: const_view Fmt.printer;  (** Pretty-print constant *)
+    equal: const_view -> const_view -> bool;
+        (** Equality of constant with any other constant *)
+    hash: const_view -> int;  (** Hash constant *)
+    ser: (term -> Ser_value.t) -> const_view -> string * Ser_value.t;
+        (** Serialize a constant, along with a tag to recognize it. *)
+  }
 end
 
-type ops = (module DYN_OPS)
-type t = const = { c_view: view; c_ops: ops; c_ty: term }
+type t = const = { c_view: view; c_ops: Ops.t; c_ty: term }
 
 val view : t -> view
-val make : view -> ops -> ty:term -> t
+val make : view -> Ops.t -> ty:term -> t
+val ser : ser_t:(term -> Ser_value.t) -> t -> string * Ser_value.t
 val ty : t -> term
 
 include EQ_HASH_PRINT with type t := t

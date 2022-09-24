@@ -13,22 +13,28 @@ let pp out c = ID.pp out c.uc_id
 type Const.view += Uconst of t
 
 let ops =
-  (module struct
-    let pp out = function
-      | Uconst c -> pp out c
-      | _ -> assert false
+  let pp out = function
+    | Uconst c -> pp out c
+    | _ -> assert false
+  in
 
-    let equal a b =
-      match a, b with
-      | Uconst a, Uconst b -> equal a b
-      | _ -> false
+  let equal a b =
+    match a, b with
+    | Uconst a, Uconst b -> equal a b
+    | _ -> false
+  in
 
-    let hash = function
-      | Uconst c -> Hash.combine2 522660 (hash c)
-      | _ -> assert false
+  let hash = function
+    | Uconst c -> Hash.combine2 522660 (hash c)
+    | _ -> assert false
+  in
 
-    let opaque_to_cc _ = false
-  end : Const.DYN_OPS)
+  let ser ser_t = function
+    | Uconst { uc_id; uc_ty } ->
+      "uc", Ser_value.(list [ ID.ser uc_id; ser_t uc_ty ])
+    | _ -> assert false
+  in
+  { Const.Ops.pp; equal; hash; ser }
 
 let[@inline] make uc_id uc_ty : t = { uc_id; uc_ty }
 
