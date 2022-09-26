@@ -1,0 +1,4 @@
+(tests
+ (names t_trace)
+ (flags :standard -open Sidekick_core -open Sidekick_util)
+ (libraries containers sidekick.core sidekick.trace))
