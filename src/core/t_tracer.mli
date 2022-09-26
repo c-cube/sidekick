@@ -8,7 +8,7 @@
 open Sidekick_core_logic
 module Tr = Sidekick_trace
 
-type term_ref = private Tr.entry_id
+type term_ref = Tr.entry_id
 
 type Tr.entry_view +=
   private
@@ -25,6 +25,9 @@ type Tr.entry_view +=
 type t
 
 val create : sink:Tr.Sink.t -> unit -> t
+(** [create ~sink ()] makes a tracer that will write terms
+    into the given sink. *)
+
 val emit : t -> Term.t -> term_ref
 val emit' : t -> Term.t -> unit
 
