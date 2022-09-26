@@ -36,6 +36,17 @@ let ops =
   in
   { Const.Ops.pp; equal; hash; ser }
 
+let const_decoders : Const.decoders =
+ fun _tst ->
+  [
+    ( "uc",
+      ops,
+      Ser_decode.(
+        fun dec_t ->
+          let+ uc_id = ID.deser and+ uc_ty = dec_t in
+          Uconst { uc_id; uc_ty }) );
+  ]
+
 let[@inline] make uc_id uc_ty : t = { uc_id; uc_ty }
 
 let uconst tst (self : t) : Term.t =

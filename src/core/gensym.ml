@@ -30,11 +30,22 @@ let ops =
   in
 
   let ser ser_t = function
-    | Fresh { id; pre; ty; _ } ->
-      "gensym", Ser_value.(list [ int id; string pre; ser_t ty ])
+    | Fresh { id; pre; ty; gensym_id } ->
+      "gensym", Ser_value.(list [ int id; int gensym_id; string pre; ser_t ty ])
     | _ -> assert false
   in
   { Const.Ops.equal; hash; pp; ser }
+
+let const_decoders : Const.decoders =
+ fun _tst ->
+  [
+    ( "gensym",
+      ops,
+      Ser_decode.(
+        fun dec_t ->
+          let+ id, gensym_id, pre, ty = tup4 int int string dec_t in
+          Fresh { id; gensym_id; pre; ty }) );
+  ]
 
 type t = { tst: Term.store; self_id: int; mutable fresh: int }
 

@@ -33,7 +33,7 @@ let emit (self : t) (t : T.t) : term_ref =
         | T.E_bound_var v -> "Tv", V.(list [ int (Bvar.idx v); loop' v.bv_ty ])
         | T.E_app (f, a) -> "T@", V.(list [ loop' f; loop' a ])
         | T.E_type i -> "Ty", V.int i
-        | T.E_const const ->
+        | T.E_const ({ Const.c_ty; _ } as const) ->
           let tag, view = Const.ser ~ser_t:loop' const in
           ( "Tc",
             let fields =
@@ -41,7 +41,7 @@ let emit (self : t) (t : T.t) : term_ref =
                 []
               else
                 [ "v", view ])
-              @ [ "tag", V.string tag ]
+              @ [ "ty", loop' c_ty; "tag", V.string tag ]
             in
             V.dict_of_list fields )
         | T.E_app_fold { f; args; acc0 } ->

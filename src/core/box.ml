@@ -25,6 +25,17 @@ let ops =
   in
   { Const.Ops.pp; equal; hash; ser }
 
+let const_decoders : Const.decoders =
+ fun _tst ->
+  [
+    ( "box",
+      ops,
+      Ser_decode.(
+        fun dec_t ->
+          let+ t = dec_t in
+          Box t) );
+  ]
+
 let as_box t =
   match Term.view t with
   | Term.E_const { Const.c_view = Box u; _ } -> Some u

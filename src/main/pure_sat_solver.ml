@@ -6,6 +6,7 @@ module SS = Sidekick_sat
 
 module I_const : sig
   val make : Term.store -> int -> Lit.t
+  val const_decoders : Const.decoders
 end = struct
   type Const.view += I of int
 
@@ -31,6 +32,17 @@ end = struct
       | _ -> assert false
     in
     { Const.Ops.equal; hash; pp; ser }
+
+  let const_decoders : Const.decoders =
+   fun _tst ->
+    [
+      ( "sat.lit",
+        ops,
+        Ser_decode.(
+          fun _tst ->
+            let+ i = int in
+            I i) );
+    ]
 
   let make tst i : Lit.t =
     let t = Term.const tst @@ Const.make (I (abs i)) ops ~ty:(Term.bool tst) in

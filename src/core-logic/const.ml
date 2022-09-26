@@ -25,3 +25,7 @@ let[@inline] hash (a : t) : int =
 let pp out (a : t) = a.c_ops.pp out a.c_view
 let ser ~ser_t (self : t) = self.c_ops.ser ser_t self.c_view
 let make c_view c_ops ~ty:c_ty : t = { c_view; c_ops; c_ty }
+
+type decoders =
+  Term.store ->
+  (string * Ops.t * (Term.t Ser_decode.t -> view Ser_decode.t)) list

@@ -105,7 +105,7 @@ let ops =
     | Is_a c -> Hash.combine2 595 (Cstor.hash c)
     | _ -> assert false
   in
-  let ser ser_t = function
+  let ser _ser_t = function
     | Data d -> assert false (* TODO *)
     | Cstor c -> assert false (* TODO *)
     | Select s -> assert false (* TODO *)
@@ -114,6 +114,8 @@ let ops =
   in
 
   { Const.Ops.pp; hash; equal; ser }
+
+(* TODO: const decoders *)
 
 let data_as_ty (d : data) = Lazy.force d.data_as_ty
 

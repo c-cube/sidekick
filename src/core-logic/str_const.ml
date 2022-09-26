@@ -25,6 +25,15 @@ let ops =
   in
   { Const.Ops.pp; equal; hash; ser }
 
-(* TODO: deser *)
+let const_decoders : Const.decoders =
+ fun _tst ->
+  [
+    ( "c.str",
+      ops,
+      fun _dec_term ->
+        Ser_decode.(
+          let+ s = string in
+          Str s) );
+  ]
 
 let make name ~ty : Const.t = Const.make (Str name) ops ~ty

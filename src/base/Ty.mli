@@ -9,6 +9,7 @@ type data = Types_.data
 
 include Sidekick_sigs.EQ_ORD_HASH_PRINT with type t := t
 
+val const_decoders : Const.decoders
 val bool : store -> t
 val real : store -> t
 val int : store -> t

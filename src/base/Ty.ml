@@ -49,6 +49,20 @@ let ops_ty =
   in
   { Const.Ops.pp; equal; hash; ser }
 
+let const_decoders : Const.decoders =
+ fun _tst ->
+  [
+    ("ty.Real", ops_ty, Ser_decode.(fun _ -> return @@ Ty Ty_real));
+    ("ty.Int", ops_ty, Ser_decode.(fun _ -> return @@ Ty Ty_int));
+    ( "ty.id",
+      ops_ty,
+      Ser_decode.(
+        fun _ ->
+          let+ id = dict_field "id" ID.deser
+          and+ finite = dict_field "fin" bool in
+          Ty (Ty_uninterpreted { id; finite })) );
+  ]
+
 open struct
   let mk_ty0 tst view =
     let ty = Term.type_ tst in

@@ -4,25 +4,38 @@ module ID_cache = LRU.Make (Tr.Entry_id)
 module Dec = Ser_decode
 
 type term_ref = Tr.entry_id
+type const_decoders = Const.decoders
 
 type t = {
   tst: Term.store;
   src: Tr.Source.t;
   cache: (Term.t, string) result ID_cache.t;
-  const_decode: (Term.t Dec.t -> Const.t Dec.t) Util.Str_map.t;
+  mutable const_decode:
+    (Const.Ops.t * (Term.t Dec.t -> Const.view Dec.t)) Util.Str_map.t;
       (** tag -> const decoder *)
 }
 
-(* TODO: list of toplevel registrations for constant decoders,
-   as [tst -> (tag*dec)list] *)
+let add_const_decoders (self : t) decs : unit =
+  let decs = decs self.tst in
+  List.iter
+    (fun (tag, ops, dec) ->
+      (* check that there is no tag collision *)
+      if Util.Str_map.mem tag self.const_decode then
+        Error.errorf "Trace_reader: two distinct const decoders for tag %S" tag;
+      self.const_decode <- Util.Str_map.add tag (ops, dec) self.const_decode)
+    decs
 
-let create ~source tst : t =
-  {
-    src = source;
-    tst;
-    cache = ID_cache.create ~size:1024 ();
-    const_decode = Util.Str_map.empty;
-  }
+let create ?(const_decoders = []) ~source tst : t =
+  let self =
+    {
+      src = source;
+      tst;
+      cache = ID_cache.create ~size:1024 ();
+      const_decode = Util.Str_map.empty;
+    }
+  in
+  List.iter (add_const_decoders self) const_decoders;
+  self
 
 let decode_term (self : t) ~read_subterm ~tag : Term.t Dec.t =
   match tag with
@@ -52,14 +65,17 @@ let decode_term (self : t) ~read_subterm ~tag : Term.t Dec.t =
       Term.DB.pi_db self.tst ~var_name:v ~var_ty:ty bod)
   | "Tc" ->
     Dec.(
-      let* view = dict_field_opt "v" any and* c_tag = dict_field "tag" string in
+      let* view = dict_field_opt "v" any
+      and* ty = dict_field "ty" read_subterm
+      and* c_tag = dict_field "tag" string in
       let view = Option.value view ~default:Ser_value.null in
       (* look for the decoder for this constant tag *)
       (match Util.Str_map.find_opt c_tag self.const_decode with
       | None -> failf "unknown constant tag %S" c_tag
-      | Some c_dec ->
-        let+ c = reflect_or_fail (c_dec read_subterm) view in
-        Term.const self.tst c))
+      | Some (ops, c_dec) ->
+        let+ c_view = reflect_or_fail (c_dec read_subterm) view in
+        let const = Const.make c_view ops ~ty in
+        Term.const self.tst const))
   | "Tf@" -> assert false (* TODO *)
   | _ -> Dec.failf "unknown tag %S for a term" tag
 

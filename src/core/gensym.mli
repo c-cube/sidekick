@@ -15,6 +15,8 @@ type t
 val create : Term.store -> t
 (** New (stateful) generator instance. *)
 
+val const_decoders : Const.decoders
+
 val fresh_term : t -> pre:string -> ty -> term
 (** Make a fresh term of the given type *)
 

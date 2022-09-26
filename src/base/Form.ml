@@ -49,6 +49,14 @@ let ops =
   in
   { Const.Ops.pp; equal; hash; ser }
 
+let const_decoders : Const.decoders =
+ fun _tst ->
+  [
+    ("and", ops, Ser_decode.(fun _ -> return C_and));
+    ("or", ops, Ser_decode.(fun _ -> return C_or));
+    ("=>", ops, Ser_decode.(fun _ -> return C_imply));
+  ]
+
 (* ### view *)
 
 let view (t : T.t) : T.t view =

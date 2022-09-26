@@ -48,14 +48,18 @@ let ops : const_ops =
   let ser _sink self = "builtin", Ser_value.(string (to_string self)) in
   { Const.Ops.equal; hash; pp; ser }
 
-(* TODO
-   let deser _tst =
-     Ser_decode.(
-       let* v = string in
-       match of_string v with
-       | Some c -> return c
-       | None -> fail "expected builtin")
-*)
+let const_decoders : Const.decoders =
+ fun _tst ->
+  [
+    ( "builtin",
+      ops,
+      Ser_decode.(
+        fun _dec_term ->
+          let* v = string in
+          match of_string v with
+          | Some c -> return c
+          | None -> fail "expected builtin") );
+  ]
 
 let bool store = const store @@ Const.make C_bool ops ~ty:(type_ store)
 let true_ store = const store @@ Const.make C_true ops ~ty:(bool store)
