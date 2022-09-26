@@ -30,6 +30,7 @@ let[@inline] fail_ msg v = raise_notrace (Fail (Error.mk msg v))
 let[@inline] fail_e e = raise_notrace (Fail e)
 let return x = { deser = (fun _ -> x) }
 let fail s = { deser = (fun v -> fail_ s v) }
+let failf fmt = Printf.ksprintf fail fmt
 
 let unwrap_opt msg = function
   | Some x -> return x
@@ -60,6 +61,17 @@ let string =
       | V.Str s | V.Bytes s -> s
       | v -> fail_ "expected string" v);
   }
+
+let reflect dec v =
+  {
+    deser =
+      (fun _ ->
+        match dec.deser v with
+        | x -> Ok x
+        | exception Fail e -> Error e);
+  }
+
+let reflect_or_fail dec v = { deser = (fun _ -> dec.deser v) }
 
 let list d =
   {
@@ -145,6 +157,35 @@ module Infix = struct
 end
 
 include Infix
+
+let tup2 d1 d2 =
+  let* l = list any in
+  match l with
+  | [ x1; x2 ] ->
+    let+ x1 = reflect_or_fail d1 x1 and+ x2 = reflect_or_fail d2 x2 in
+    x1, x2
+  | _ -> fail "expected a pair"
+
+let tup3 d1 d2 d3 =
+  let* l = list any in
+  match l with
+  | [ x1; x2; x3 ] ->
+    let+ x1 = reflect_or_fail d1 x1
+    and+ x2 = reflect_or_fail d2 x2
+    and+ x3 = reflect_or_fail d3 x3 in
+    x1, x2, x3
+  | _ -> fail "expected a triple"
+
+let tup4 d1 d2 d3 d4 =
+  let* l = list any in
+  match l with
+  | [ x1; x2; x3; x4 ] ->
+    let+ x1 = reflect_or_fail d1 x1
+    and+ x2 = reflect_or_fail d2 x2
+    and+ x3 = reflect_or_fail d3 x3
+    and+ x4 = reflect_or_fail d4 x4 in
+    x1, x2, x3, x4
+  | _ -> fail "expected a 4-tuple"
 
 let run d v = try Ok (d.deser v) with Fail err -> Error err
 

@@ -2,6 +2,17 @@
 
     Combinators to decode values. *)
 
+(** Errors *)
+module Error : sig
+  type t
+
+  include Sidekick_sigs.PRINT with type t := t
+
+  val to_string : t -> string
+end
+
+(** {2 Main combinators *)
+
 type +'a t
 (** Decode a value of type ['a] *)
 
@@ -10,14 +21,24 @@ val bool : bool t
 val string : string t
 val return : 'a -> 'a t
 val fail : string -> 'a t
+val failf : ('a, unit, string, 'b t) format4 -> 'a
 val unwrap_opt : string -> 'a option -> 'a t
 (** Unwrap option, or fail *)
 val any : Ser_value.t t
 val list : 'a t -> 'a list t
+val tup2 : 'a t -> 'b t -> ('a*'b) t
+val tup3 : 'a t -> 'b t -> 'c t -> ('a*'b*'c) t
+val tup4 : 'a t -> 'b t ->  'c t -> 'd t -> ('a*'b*'c*'d) t
 val dict_field : string -> 'a t -> 'a t
 val dict_field_opt : string -> 'a t -> 'a option t
 val both : 'a t -> 'b t -> ('a * 'b) t
+val reflect : 'a t -> Ser_value.t -> ('a, Error.t) result t
+(** [reflect dec v] returns the result of decoding [v] with [dec] *)
+
+val reflect_or_fail : 'a t -> Ser_value.t -> 'a t
+
 val try_l : 'a t list -> 'a t
+(** [try_l fs] tries each [f in fs] turn by turn, until one succeeds *)
 
 module Infix : sig
   val ( >|= ) : 'a t -> ('a -> 'b) -> 'b t
@@ -31,14 +52,6 @@ end
 include module type of Infix
 
 (** {2 Deserializing} *)
-
-module Error : sig
-  type t
-
-  include Sidekick_sigs.PRINT with type t := t
-
-  val to_string : t -> string
-end
 
 val run : 'a t -> Ser_value.t -> ('a, Error.t) result
 
