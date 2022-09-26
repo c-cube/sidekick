@@ -20,3 +20,6 @@ type t = (module S)
 val get_entry : t -> Entry_id.t -> (tag * Ser_value.t) option
 val get_entry_exn : t -> Entry_id.t -> tag * Ser_value.t
 val iter_all : t -> (Entry_id.t -> tag:tag -> Ser_value.t -> unit) -> unit
+
+val of_string_using_bencode : string -> t
+(** Decode string, where entries are offsets *)

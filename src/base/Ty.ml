@@ -50,7 +50,6 @@ let ops_ty =
   { Const.Ops.pp; equal; hash; ser }
 
 let const_decoders : Const.decoders =
- fun _tst ->
   [
     ("ty.Real", ops_ty, Ser_decode.(fun _ -> return @@ Ty Ty_real));
     ("ty.Int", ops_ty, Ser_decode.(fun _ -> return @@ Ty Ty_int));

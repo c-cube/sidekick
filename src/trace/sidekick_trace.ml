@@ -16,8 +16,6 @@
 
 *)
 
-open Sidekick_sigs
-
 (** {2 Exports} *)
 
 module Entry_view = Entry_view

@@ -6,9 +6,11 @@ module Encode : sig
 end
 
 module Decode : sig
-  val of_string : string -> t option
+  val of_string : ?idx:int -> string -> t option
+  (** Decode string.
+    @param idx initial index (default 0) *)
 
-  val of_string_exn : string -> t
+  val of_string_exn : ?idx:int -> string -> t
   (** Parse string.
       @raise Error.Error if the string is not valid bencode. *)
 end

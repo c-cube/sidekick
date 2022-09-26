@@ -18,3 +18,6 @@ val emit' : t -> tag:tag -> Ser_value.t -> unit
 
 val of_out_channel_using_bencode : out_channel -> t
 (** A sink that emits entries using Bencode into the given channel *)
+
+val of_buffer_using_bencode : Buffer.t -> t
+(** Emit entries into the given buffer, in Bencode. *)

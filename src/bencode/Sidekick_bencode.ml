@@ -45,8 +45,8 @@ end
 module Decode = struct
   exception Fail
 
-  let of_string s =
-    let i = ref 0 in
+  let of_string ?(idx = 0) s =
+    let i = ref idx in
 
     let[@inline] check_not_eof () =
       if !i >= String.length s then raise_notrace Fail
@@ -113,8 +113,8 @@ module Decode = struct
 
     try Some (top ()) with Fail -> None
 
-  let of_string_exn s =
-    match of_string s with
+  let of_string_exn ?idx s =
+    match of_string ?idx s with
     | Some x -> x
     | None -> failwith "bencode.decode: invalid string"
 end

@@ -45,13 +45,12 @@ let ops : const_ops =
   in
 
   let pp out self = Fmt.string out (to_string self) in
-  let ser _sink self = "builtin", Ser_value.(string (to_string self)) in
+  let ser _sink self = "B", Ser_value.(string (to_string self)) in
   { Const.Ops.equal; hash; pp; ser }
 
 let const_decoders : Const.decoders =
- fun _tst ->
   [
-    ( "builtin",
+    ( "B",
       ops,
       Ser_decode.(
         fun _dec_term ->

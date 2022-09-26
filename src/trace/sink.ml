@@ -26,12 +26,21 @@ let of_out_channel_using_bencode (oc : out_channel) : t =
       assert (Buffer.length buf = 0);
       let id = Entry_id.of_int_unsafe !id_ in
       (* add tag+id around *)
-      let v' =
-        Ser_value.(dict_of_list [ "id", int !id_; "T", string tag; "v", v ])
-      in
+      let v' = Ser_value.(list [ int id; string tag; v ]) in
       incr id_;
       Sidekick_bencode.Encode.to_buffer buf v';
       Buffer.output_buffer oc buf;
       Buffer.clear buf;
+      id
+  end)
+
+let of_buffer_using_bencode (buf : Buffer.t) : t =
+  (module struct
+    let emit ~tag (v : Ser_value.t) =
+      let id = Entry_id.of_int_unsafe @@ Buffer.length buf in
+      (* add tag+id around *)
+      let v' = Ser_value.(list [ int id; string tag; v ]) in
+      Sidekick_bencode.Encode.to_buffer buf v';
+      Buffer.add_char buf '\n';
       id
   end)

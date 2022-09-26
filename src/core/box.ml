@@ -26,7 +26,6 @@ let ops =
   { Const.Ops.pp; equal; hash; ser }
 
 let const_decoders : Const.decoders =
- fun _tst ->
   [
     ( "box",
       ops,

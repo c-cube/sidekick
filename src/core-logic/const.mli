@@ -25,8 +25,7 @@ val ser : ser_t:(term -> Ser_value.t) -> t -> string * Ser_value.t
 val ty : t -> term
 
 type decoders =
-  Term.store ->
-  (string * Ops.t * (Term.t Ser_decode.t -> view Ser_decode.t)) list
+  (string * Ops.t * (term Ser_decode.t -> view Ser_decode.t)) list
 (** Decoders for constants: given a term store, return a list
     of supported tags, and for each tag, a decoder for constants
     that have this particular tag. *)

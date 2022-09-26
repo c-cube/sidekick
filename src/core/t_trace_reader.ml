@@ -15,8 +15,7 @@ type t = {
       (** tag -> const decoder *)
 }
 
-let add_const_decoders (self : t) decs : unit =
-  let decs = decs self.tst in
+let add_const_decoders (self : t) (decs : Const.decoders) : unit =
   List.iter
     (fun (tag, ops, dec) ->
       (* check that there is no tag collision *)

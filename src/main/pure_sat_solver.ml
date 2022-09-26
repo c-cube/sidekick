@@ -34,7 +34,6 @@ end = struct
     { Const.Ops.equal; hash; pp; ser }
 
   let const_decoders : Const.decoders =
-   fun _tst ->
     [
       ( "sat.lit",
         ops,
