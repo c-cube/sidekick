@@ -149,25 +149,28 @@ end = struct
   type Const.view += Cell_is of { x: int; y: int; value: Cell.t }
 
   let ops =
-    (module struct
-      let pp out = function
-        | Cell_is { x; y; value } ->
-          Fmt.fprintf out "(%d:%d=%a)" x y Cell.pp value
-        | _ -> ()
+    let pp out = function
+      | Cell_is { x; y; value } ->
+        Fmt.fprintf out "(%d:%d=%a)" x y Cell.pp value
+      | _ -> ()
+    in
 
-      let hash = function
-        | Cell_is { x; y; value } ->
-          Hash.(combine3 (int x) (int y) (Cell.hash value))
-        | _ -> assert false
+    let hash = function
+      | Cell_is { x; y; value } ->
+        Hash.(combine3 (int x) (int y) (Cell.hash value))
+      | _ -> assert false
+    in
 
-      let equal a b =
-        match a, b with
-        | Cell_is a, Cell_is b ->
-          a.x = b.x && a.y = b.y && Cell.equal a.value b.value
-        | _ -> false
+    let equal a b =
+      match a, b with
+      | Cell_is a, Cell_is b ->
+        a.x = b.x && a.y = b.y && Cell.equal a.value b.value
+      | _ -> false
+    in
 
-      let opaque_to_cc _ = false
-    end : Const.DYN_OPS)
+    (* we don't use [ser] *)
+    let ser _ _ = assert false in
+    { Const.Ops.pp; equal; hash; ser }
 
   module Sat = Sidekick_sat
 
