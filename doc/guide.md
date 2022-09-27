@@ -209,11 +209,11 @@ We start with `p = q`.
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (false := false)
+  (p := true)
   (q := true)
-  ((box (= Bool p q)) := true)
   (true := true)
-  (p := true))
+  (false := false)
+  ([[ (= p q) ]] := true))
 ```
 
 It is satisfiable, and we got a model where "p" and "q" are both false.
@@ -246,11 +246,11 @@ Note that this doesn't affect satisfiability without assumptions:
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (false := false)
+  (p := true)
   (q := true)
-  ((box (= Bool p q)) := true)
   (true := true)
-  (p := true))
+  (false := false)
+  ([[ (= p q) ]] := true))
 ```
 
 We can therefore add more formulas and see where it leads us.
@@ -264,13 +264,13 @@ We can therefore add more formulas and see where it leads us.
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (false := false)
+  (p := true)
   (q := true)
-  ((box (= Bool p q)) := true)
   (r := true)
-  ((box (or r (not p) false)) := true)
   (true := true)
-  (p := true))
+  (false := false)
+  ([[ (= p q) ]] := true)
+  ([[ (or r (not p) false) ]] := true))
 ```
 
 Still satisfiable, but now we see `r` in the model, too. And now:
@@ -331,12 +331,12 @@ We can play with assertions now:
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
  (model
-  (b := 0)
+  (true := true)
   (false := false)
-  ((box (<= (+ a ((* -1) b)) 0)) := true)
-  ($_le_comb[0] := 0)
   (a := 0)
-  (true := true))
+  (b := 0)
+  ([[ (<= (+ a ((* -1) b)) 0) ]] := true)
+  ($_le_comb[0] := 0))
 
 
 # let a_geq_1 = LRA_term.geq tstore a (LRA_term.const tstore (Q.of_int 1));;
