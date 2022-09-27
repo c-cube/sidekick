@@ -106,10 +106,10 @@ let ops =
     | _ -> assert false
   in
   let ser _ser_t = function
-    | Data d -> assert false (* TODO *)
-    | Cstor c -> assert false (* TODO *)
-    | Select s -> assert false (* TODO *)
-    | Is_a c -> assert false (* TODO *)
+    | Data _d -> Error.errorf "cannot serialize data type" (* TODO *)
+    | Cstor _c -> Error.errorf "cannot serialize data cstor" (* TODO *)
+    | Select _s -> Error.errorf "cannot serialize data select" (* TODO *)
+    | Is_a _c -> Error.errorf "cannot serialize data is-a" (* TODO *)
     | _ -> assert false
   in
 
