@@ -19,7 +19,6 @@
 (** {2 Exports} *)
 
 module Entry_view = Entry_view
-module Entry_read = Entry_read
 module Sink = Sink
 module Source = Source
 module Entry_id = Entry_id
