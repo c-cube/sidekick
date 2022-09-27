@@ -141,23 +141,43 @@ let ops =
   in
   { Const.Ops.equal; hash; ser; pp }
 
-(* TODO
-   let deser _tst =
-     Ser_decode.
-       [
-         ( "Qn",
-           let* s = string in
-           let+ q =
-             unwrap_opt "expected rational number"
-               (Sidekick_zarith.Rational.of_string s)
-           in
-           Const q );
-         ( "Qp",
-           let* s = string in
-           let+ p = unwrap_opt "expected predicate" (Pred.of_string s) in
-           Pred p );
-       ]
-*)
+let const_decoders : Const.decoders =
+  [
+    ( "Qn",
+      ops,
+      Ser_decode.(
+        fun _ ->
+          let* s = string in
+          let+ q =
+            unwrap_opt "expected rational number"
+              (Sidekick_zarith.Rational.of_string s)
+          in
+          Const q) );
+    ( "Qp",
+      ops,
+      Ser_decode.(
+        fun _ ->
+          let* s = string in
+          let+ p = unwrap_opt "expected predicate" (Pred.of_string s) in
+          Pred p) );
+    ( "Qo",
+      ops,
+      Ser_decode.(
+        fun _ ->
+          let* s = string in
+          let+ o = unwrap_opt "expected LRA operator" (Op.of_string s) in
+          Op o) );
+    ( "Q*",
+      ops,
+      Ser_decode.(
+        fun _ ->
+          let* s = string in
+          let+ q =
+            unwrap_opt "expected rational number"
+              (Sidekick_zarith.Rational.of_string s)
+          in
+          Mult_by q) );
+  ]
 
 let real tst = Ty.real tst
 let has_ty_real t = Ty.is_real (T.ty t)

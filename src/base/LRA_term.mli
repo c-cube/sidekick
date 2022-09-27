@@ -12,6 +12,8 @@ module Op : sig
   include Sidekick_sigs.EQ_HASH_PRINT with type t := t
 end
 
+val const_decoders : Const.decoders
+
 module View : sig
   type ('num, 'a) lra_view = ('num, 'a) Sidekick_th_lra.lra_view =
     | LRA_pred of Pred.t * 'a * 'a
