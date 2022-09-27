@@ -1,6 +1,6 @@
 # Sidekick [![Build](https://github.com/c-cube/sidekick/actions/workflows/main.yml/badge.svg)](https://github.com/c-cube/sidekick/actions/workflows/main.yml)
 
-Sidekick is an OCaml library with a functor to create SMT solvers following
+Sidekick is an OCaml library for creating SMT solvers following
 the CDCL(T) approach (so called "lazy SMT"). See [below](#short-summary)
 for a more detailed explanation.
 
@@ -35,11 +35,11 @@ arithmetic, algebraic datatypes, and others.
 
 Sidekick is a CDCL(T) solver implemented in pure [OCaml](https://ocaml.org/)
 and with a strong focus on modularity and reusability of components.
-Almost everything in the code is _functorized_ and generic over the concrete
-representation of terms, formulas, etc.
-The goal is for users to be able to implement their own theories and combine
-them with the pre-existing ones in a bespoke solver, something that is typically
-a lot of work in the C/C++ solvers.
+It _used to_ provide a functorized interface, but it now comes with its own
+representation of terms, in a simple version of the Calculus of Constructions.
+Users can extend that term representation by adding new custom _constants_
+to model their domain theories. Most of the constants defined in sidekick are
+defined exactly as outside constants would be.
 
 Sidekick comes in several components (as in, opam packages):
 
