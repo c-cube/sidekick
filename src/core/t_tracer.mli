@@ -22,15 +22,15 @@ type Tr.entry_view +=
   (* FIXME: remove *)
   [@@ocaml.warning "-38"]
 
-type t
+class t :
+  sink:Tr.Sink.t
+  -> object
+       method emit_term : Term.t -> term_ref
+     end
 
 val create : sink:Tr.Sink.t -> unit -> t
 (** [create ~sink ()] makes a tracer that will write terms
     into the given sink. *)
 
-val emit : t -> Term.t -> term_ref
-val emit' : t -> Term.t -> unit
-
-(* TODO
-   val reader : Term.store -> Tr.Entry_read.reader
-*)
+val emit : #t -> Term.t -> term_ref
+val emit' : #t -> Term.t -> unit

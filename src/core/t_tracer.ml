@@ -15,12 +15,9 @@ type Tr.entry_view +=
   (* FIXME: remove when we decode *)
   [@@ocaml.warning "-38"]
 
-(* tracer *)
-type t = { sink: Tr.Sink.t; emitted: Tr.Entry_id.t T.Weak_map.t }
+type state = { sink: Tr.Sink.t; emitted: Tr.Entry_id.t T.Weak_map.t }
 
-let create ~sink () : t = { sink; emitted = T.Weak_map.create 16 }
-
-let emit (self : t) (t : T.t) : term_ref =
+let emit_term_ (self : state) (t : Term.t) =
   let module V = Ser_value in
   let rec loop t =
     match T.Weak_map.find_opt self.emitted t with
@@ -58,4 +55,13 @@ let emit (self : t) (t : T.t) : term_ref =
   in
   loop t
 
+(* tracer *)
+class t ~sink =
+  object
+    val state = { sink; emitted = T.Weak_map.create 16 }
+    method emit_term (t : Term.t) : term_ref = emit_term_ state t
+  end
+
+let create ~sink () : t = new t ~sink
+let emit (self : #t) (t : T.t) : term_ref = self#emit_term t
 let emit' self t : unit = ignore (emit self t : term_ref)
