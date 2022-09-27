@@ -28,9 +28,11 @@ end
 let buf = Buffer.create 32
 let tracer = Tracer.create ~sink:(Sink.of_buffer_using_bencode buf) ()
 let id_pa = Tracer.emit tracer pa
-let id_pa' = Tracer.emit tracer pa;;
+let id_pa' = Tracer.emit tracer pa
+let id_qb = Tracer.emit tracer qb;;
 
 assert (Entry_id.equal id_pa id_pa');;
+assert (not @@ Entry_id.equal id_pa id_qb);;
 
 Printf.printf "buf containing pa: %s\n(len %d)\n%!" (Buffer.contents buf)
   (String.length @@ Buffer.contents buf)
@@ -47,3 +49,8 @@ let () =
   match Trace_reader.read_term trace_reader id_pa with
   | Ok t -> Fmt.printf "read pa: %a@." Term.pp t
   | Error e -> Fmt.printf "could not read pa: %s" e
+
+let () =
+  match Trace_reader.read_term trace_reader id_qb with
+  | Ok t -> Fmt.printf "read qb: %a@." Term.pp t
+  | Error e -> Fmt.printf "could not read qb: %s" e
