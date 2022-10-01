@@ -22,6 +22,7 @@ let file = ref ""
 let p_cnf = ref false
 let p_proof = ref false
 let p_model = ref false
+let file_trace = ref ""
 let check = ref false
 let time_limit = ref 300.
 let mem_limit = ref 1_000_000_000.
@@ -90,6 +91,7 @@ let argspec =
         " store temporary proof in given file (no cleanup)" );
       "-o", Arg.Set_string proof_file, " file into which to output a proof";
       "--model", Arg.Set p_model, " print model";
+      "--trace", Arg.Set_string file_trace, " emit trace into <file>";
       "--no-model", Arg.Clear p_model, " do not print model";
       ( "--bool",
         Arg.Symbol
@@ -133,6 +135,15 @@ let check_limits () =
   else if s > !mem_limit then
     raise Out_of_space
 
+let mk_tracer () =
+  if !file_trace = "" then
+    Sidekick_smt_solver.Tracer.dummy
+  else (
+    let oc = open_out_bin !file_trace in
+    Sidekick_smt_solver.Tracer.concrete
+      ~sink:(Sidekick_trace.Sink.of_out_channel_using_bencode oc)
+  )
+
 let main_smt ~config () : _ result =
   let tst = Term.Store.create ~size:4_096 () in
 
@@ -169,6 +180,7 @@ let main_smt ~config () : _ result =
      let proof = Proof.create ~config () in
   *)
   let proof = Proof.dummy in
+  let tracer = mk_tracer () in
 
   let solver =
     (* TODO: probes, to load only required theories *)
@@ -179,7 +191,7 @@ let main_smt ~config () : _ result =
             (Sidekick_smt_solver.Theory.name th_bool));
       [ th_bool; Process.th_ty_unin; Process.th_data; Process.th_lra ]
     in
-    Process.Solver.create_default ~proof ~theories tst
+    Process.Solver.create_default ~tracer ~proof ~theories tst
   in
 
   let finally () =
@@ -238,6 +250,7 @@ let main_cnf () : _ result =
   in
   CCFun.protect ~finally @@ fun () ->
   let tst = Term.Store.create () in
+  (* FIXME :tracer? *)
   let solver = S.SAT.create_pure_sat ~size:`Big ~proof ~stat () in
 
   S.Dimacs.parse_file solver tst !file >>= fun () ->

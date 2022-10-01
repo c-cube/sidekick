@@ -18,6 +18,11 @@ let[@inline] emit (module Sink : S) ~tag (v : Ser_value.t) : Entry_id.t =
 let[@inline] emit' (self : t) ~tag v : unit =
   ignore (emit self ~tag v : Entry_id.t)
 
+let null : t =
+  (module struct
+    let emit ~tag:_ _ = Entry_id.dummy
+  end)
+
 let of_out_channel_using_bencode (oc : out_channel) : t =
   let id_ = ref 0 in
   let buf = Buffer.create 128 in
@@ -29,6 +34,7 @@ let of_out_channel_using_bencode (oc : out_channel) : t =
       let v' = Ser_value.(list [ int id; string tag; v ]) in
       incr id_;
       Sidekick_bencode.Encode.to_buffer buf v';
+      Buffer.add_char buf '\n';
       Buffer.output_buffer oc buf;
       Buffer.clear buf;
       id

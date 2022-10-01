@@ -6,11 +6,11 @@ module Encode : sig
 end
 
 module Decode : sig
-  val of_string : ?idx:int -> string -> t option
-  (** Decode string.
-    @param idx initial index (default 0) *)
+  val of_string : ?idx:int -> string -> (int * t) option
+  (** Decode string, and also return how  many bytes were consumed.
+      @param idx initial index (default 0) *)
 
-  val of_string_exn : ?idx:int -> string -> t
+  val of_string_exn : ?idx:int -> string -> int * t
   (** Parse string.
       @raise Error.Error if the string is not valid bencode. *)
 end

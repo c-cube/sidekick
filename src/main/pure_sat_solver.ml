@@ -1,6 +1,7 @@
 (* pure SAT solver *)
 
 open Sidekick_core
+module Tracer = Sidekick_smt_solver.Tracer
 module E = CCResult
 module SS = Sidekick_sat
 

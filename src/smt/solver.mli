@@ -49,6 +49,7 @@ val create :
   ?stat:Stat.t ->
   ?size:[ `Big | `Tiny | `Small ] ->
   (* TODO? ?config:Config.t -> *)
+  ?tracer:Tracer.t ->
   proof:proof_trace ->
   theories:Theory.t list ->
   Term.store ->
@@ -71,6 +72,7 @@ val create_default :
   ?stat:Stat.t ->
   ?size:[ `Big | `Tiny | `Small ] ->
   (* TODO? ?config:Config.t -> *)
+  ?tracer:Tracer.t ->
   proof:proof_trace ->
   theories:Theory.t list ->
   Term.store ->
@@ -98,18 +100,18 @@ val mk_lit_t : t -> ?sign:bool -> term -> lit
 
 val add_clause : t -> lit array -> step_id -> unit
 (** [add_clause solver cs] adds a boolean clause to the solver.
-      Subsequent calls to {!solve} will need to satisfy this clause. *)
+    Subsequent calls to {!solve} will need to satisfy this clause. *)
 
 val add_clause_l : t -> lit list -> step_id -> unit
 (** Add a clause to the solver, given as a list. *)
 
 val assert_terms : t -> term list -> unit
-(** Helper that turns each term into an atom, before adding the result
-      to the solver as an assertion *)
+(** Helper that turns each term into an atom, before adding disjunction of
+    the resulting atoms to the solver as a clause assertion *)
 
 val assert_term : t -> term -> unit
 (** Helper that turns the term into an atom, before adding the result
-      to the solver as a unit clause assertion *)
+    to the solver as a unit clause assertion *)
 
 val add_ty : t -> ty -> unit
 

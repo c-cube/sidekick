@@ -6,3 +6,6 @@
    increasing with time. *)
 
 include Int_id.Make ()
+
+(** Dummy id *)
+let dummy : t = of_int_unsafe (-1)

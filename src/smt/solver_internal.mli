@@ -284,4 +284,10 @@ val add_theory_state :
   unit
 
 val create :
-  (module ARG) -> stat:Stat.t -> proof:Proof_trace.t -> Term.store -> unit -> t
+  (module ARG) ->
+  stat:Stat.t ->
+  tracer:Tracer.t ->
+  proof:Proof_trace.t ->
+  Term.store ->
+  unit ->
+  t

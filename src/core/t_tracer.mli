@@ -22,11 +22,20 @@ type Tr.entry_view +=
   (* FIXME: remove *)
   [@@ocaml.warning "-38"]
 
-class t :
-  sink:Tr.Sink.t
-  -> object
-       method emit_term : Term.t -> term_ref
-     end
+class type t =
+  object
+    method emit_term : Term.t -> term_ref
+  end
+
+(** Dummy implementation, returns {!Tr.Entry_id.dummy} *)
+class dummy :
+  object
+    inherit t
+    method emit_term : Term.t -> term_ref
+  end
+
+class concrete : sink:Tr.Sink.t -> t
+(** Concrete implementation of [t] *)
 
 val create : sink:Tr.Sink.t -> unit -> t
 (** [create ~sink ()] makes a tracer that will write terms

@@ -40,6 +40,7 @@ type t = {
   mutable last_res: res option;
   stat: Stat.t;
   proof: P.t;
+  tracer: Tracer.t; [@ocaml.warn "-69"]
   theory_id_gen: Theory_id.state;
   n_clause_input: int Stat.counter;
   n_clause_internal: int Stat.counter;
@@ -71,13 +72,15 @@ let add_theory (self : t) (th : theory) : unit =
 let add_theory_l self = List.iter (add_theory self)
 
 (* create a new solver *)
-let create arg ?(stat = Stat.global) ?size ~proof ~theories tst () : t =
+let create arg ?(stat = Stat.global) ?size ?(tracer = Tracer.dummy) ~proof
+    ~theories tst () : t =
   Log.debug 5 "smt-solver.create";
-  let si = Solver_internal.create arg ~stat ~proof tst () in
+  let si = Solver_internal.create arg ~tracer ~stat ~proof tst () in
   let self =
     {
       si;
       proof;
+      tracer;
       last_res = None;
       solver = Sat_solver.create ~proof ?size ~stat (SI.to_sat_plugin si);
       stat;
@@ -101,8 +104,8 @@ let default_arg =
     let view_as_cc = Default_cc_view.view_as_cc
   end : ARG)
 
-let create_default ?stat ?size ~proof ~theories tst () : t =
-  create default_arg ?stat ?size ~proof ~theories tst ()
+let create_default ?stat ?size ?tracer ~proof ~theories tst () : t =
+  create default_arg ?stat ?size ?tracer ~proof ~theories tst ()
 
 let[@inline] solver self = self.solver
 let[@inline] stats self = self.stat
@@ -155,6 +158,7 @@ end)
 
 let add_clause (self : t) (c : lit array) (proof : step_id) : unit =
   let c, proof = preprocess_clause_ self c proof in
+  Tracer.assert_clause_arr' self.tracer c;
   add_clause_nopreproc_ ~internal:false self c proof;
   Perform_delayed_.top self.si self;
   (* finish preproc *)

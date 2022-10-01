@@ -55,13 +55,23 @@ let emit_term_ (self : state) (t : Term.t) =
   in
   loop t
 
+class type t =
+  object
+    method emit_term : Term.t -> term_ref
+  end
+
+class dummy : t =
+  object
+    method emit_term _ = Tr.Entry_id.dummy
+  end
+
 (* tracer *)
-class t ~sink =
+class concrete ~sink : t =
   object
     val state = { sink; emitted = T.Weak_map.create 16 }
     method emit_term (t : Term.t) : term_ref = emit_term_ state t
   end
 
-let create ~sink () : t = new t ~sink
+let create ~sink () : t = new concrete ~sink
 let emit (self : #t) (t : T.t) : term_ref = self#emit_term t
 let emit' self t : unit = ignore (emit self t : term_ref)

@@ -58,6 +58,7 @@ type t = {
   mutable level: int;
   mutable complete: bool;
   stat: Stat.t;
+  tracer: Tracer.t; [@ocaml.warning "-69"]
   count_axiom: int Stat.counter;
   count_conflict: int Stat.counter;
   count_propagate: int Stat.counter;
@@ -520,7 +521,7 @@ let add_theory_state ~st ~push_level ~pop_levels (self : t) =
   self.th_states <-
     Ths_cons { st; push_level; pop_levels; next = self.th_states }
 
-let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
+let create (module A : ARG) ~stat ~tracer ~proof (tst : Term.store) () : t =
   let simp = Simplify.create tst ~proof in
   let cc = CC.create (module A : CC.ARG) ~size:`Big tst proof in
   let preprocess = Preprocess.create ~stat ~proof ~cc ~simplify:simp tst in
@@ -530,6 +531,7 @@ let create (module A : ARG) ~stat ~proof (tst : Term.store) () : t =
       tst;
       cc;
       proof;
+      tracer;
       th_states = Ths_nil;
       stat;
       simp;

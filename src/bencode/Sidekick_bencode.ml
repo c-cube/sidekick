@@ -45,7 +45,7 @@ end
 module Decode = struct
   exception Fail
 
-  let of_string ?(idx = 0) s =
+  let of_string ?(idx = 0) s : (int * _) option =
     let i = ref idx in
 
     let[@inline] check_not_eof () =
@@ -111,7 +111,11 @@ module Decode = struct
         read_map (Util.Str_map.add k v acc)
     in
 
-    try Some (top ()) with Fail -> None
+    try
+      let v = top () in
+      let len = !i - idx in
+      Some (len, v)
+    with Fail -> None
 
   let of_string_exn ?idx s =
     match of_string ?idx s with

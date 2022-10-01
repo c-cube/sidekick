@@ -4,9 +4,16 @@ module V = Ser_value
 
 type Tr.entry_view += Assert of Term.t | Assert_clause of Lit.t list
 
-class t (sink : Tr.Sink.t) =
+class type t =
   object
-    inherit Term.Tracer.t ~sink as emit_t
+    inherit Term.Tracer.t
+    method emit_assert_term : Term.t -> Tr.Entry_id.t
+    method emit_assert_clause : Lit.t list -> Tr.Entry_id.t
+  end
+
+class concrete (sink : Tr.Sink.t) : t =
+  object
+    inherit Term.Tracer.concrete ~sink as emit_t
 
     method emit_assert_term t =
       let id_t = emit_t#emit_term t in
@@ -29,7 +36,17 @@ class t (sink : Tr.Sink.t) =
       id
   end
 
+class dummy : t =
+  object
+    inherit Term.Tracer.dummy
+    method emit_assert_term _ = Tr.Entry_id.dummy
+    method emit_assert_clause _ = Tr.Entry_id.dummy
+  end
+
 let assert_term (self : #t) t = self#emit_assert_term t
 let assert_term' (self : #t) t = ignore (assert_term self t : Tr.Entry_id.t)
 let assert_clause (self : #t) c = self#emit_assert_clause c
 let assert_clause' (self : #t) c = ignore (assert_clause self c : Tr.Entry_id.t)
+let assert_clause_arr' (self : #t) c = assert_clause' self (Array.to_list c)
+let dummy : #t = new dummy
+let concrete ~sink = new concrete sink

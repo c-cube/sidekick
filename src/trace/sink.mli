@@ -16,6 +16,9 @@ type t = (module S)
 val emit : t -> tag:tag -> Ser_value.t -> Entry_id.t
 val emit' : t -> tag:tag -> Ser_value.t -> unit
 
+val null : t
+(** Sink that writes nowhere, just eats bytes. *)
+
 val of_out_channel_using_bencode : out_channel -> t
 (** A sink that emits entries using Bencode into the given channel *)
 
