@@ -42,7 +42,14 @@ let emit_term_ (self : state) (t : Term.t) =
             in
             V.dict_of_list fields )
         | T.E_app_fold { f; args; acc0 } ->
-          "Tf@", V.(list [ loop' f; list (List.map loop' args); loop' acc0 ])
+          ( "Tf@",
+            V.(
+              dict_of_list
+                [
+                  "f", loop' f;
+                  "l", list (List.map loop' args);
+                  "a0", loop' acc0;
+                ]) )
         | T.E_lam (name, ty, bod) ->
           "Tl", V.(list [ string name; loop' ty; loop' bod ])
         | T.E_pi (name, ty, bod) ->

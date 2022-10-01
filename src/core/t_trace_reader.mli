@@ -11,3 +11,4 @@ val create :
 
 val add_const_decoders : t -> const_decoders -> unit
 val read_term : t -> term_ref -> (Term.t, string) result
+val read_term_err : t -> term_ref -> (Term.t, Ser_decode.Error.t) result

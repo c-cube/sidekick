@@ -17,6 +17,7 @@ module Theory_id = Theory_id
 module Preprocess = Preprocess
 module Find_foreign = Find_foreign
 module Tracer = Tracer
+module Trace_reader = Trace_reader
 
 type theory = Theory.t
 type solver = Solver.t

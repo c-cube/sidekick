@@ -42,3 +42,14 @@ let th_bool_static : Solver.theory = Th_bool.theory_static
 let th_data : Solver.theory = Th_data.theory
 let th_lra : Solver.theory = Th_lra.theory
 let th_ty_unin : Solver.theory = Th_ty_unin.theory
+
+(** All constant decoders *)
+let const_decoders =
+  List.flatten
+    [
+      Uconst.const_decoders;
+      LRA_term.const_decoders;
+      Ty.const_decoders;
+      (* TODO Th_data *)
+      Form.const_decoders;
+    ]

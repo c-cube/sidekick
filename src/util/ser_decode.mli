@@ -9,6 +9,8 @@ module Error : sig
   include Sidekick_sigs.PRINT with type t := t
 
   val to_string : t -> string
+
+  val of_string : string -> Ser_value.t -> t
 end
 
 (** {2 Main combinators *)
@@ -20,8 +22,11 @@ val int : int t
 val bool : bool t
 val string : string t
 val return : 'a -> 'a t
+val return_result : ('a, string) result -> 'a t
+val return_result_err : ('a, Error.t) result -> 'a t
 val fail : string -> 'a t
 val failf : ('a, unit, string, 'b t) format4 -> 'a
+val fail_err : Error.t -> 'a t
 val unwrap_opt : string -> 'a option -> 'a t
 (** Unwrap option, or fail *)
 val any : Ser_value.t t

@@ -8,10 +8,11 @@ module Error = struct
   type t = { msg: string; v: V.t; subs: t list }
 
   let mk ?(subs = []) msg v : t = { msg; v; subs }
+  let of_string s v : t = mk s v
 
   let pp out (self : t) =
     let rec pp out self =
-      Fmt.fprintf out "@[<v2>@[<2>%s@ in %a@]" self.msg V.pp self.v;
+      Fmt.fprintf out "@[<v2>@[<2>%s@ in value %a@]" self.msg V.pp self.v;
       List.iter
         (fun s -> Fmt.fprintf out "@ @[<2>sub-error:@ %a@]" pp s)
         self.subs;
@@ -28,9 +29,18 @@ type 'a t = { deser: V.t -> 'a } [@@unboxed]
 
 let[@inline] fail_ msg v = raise_notrace (Fail (Error.mk msg v))
 let[@inline] fail_e e = raise_notrace (Fail e)
+let fail_err e = { deser = (fun _ -> fail_e e) }
 let return x = { deser = (fun _ -> x) }
 let fail s = { deser = (fun v -> fail_ s v) }
 let failf fmt = Printf.ksprintf fail fmt
+
+let return_result = function
+  | Ok x -> return x
+  | Error s -> fail s
+
+let return_result_err = function
+  | Ok x -> return x
+  | Error e -> fail_err e
 
 let unwrap_opt msg = function
   | Some x -> return x
@@ -43,6 +53,8 @@ let bool =
     deser =
       (function
       | V.Bool b -> b
+      | V.Int 1 -> true
+      | V.Int 0 -> false
       | v -> fail_ "expected bool" v);
   }
 

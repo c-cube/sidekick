@@ -9,7 +9,7 @@ type const_decoders = Const.decoders
 type t = {
   tst: Term.store;
   src: Tr.Source.t;
-  cache: (Term.t, string) result ID_cache.t;
+  cache: (Term.t, Dec.Error.t) result ID_cache.t;
   mutable const_decode:
     (Const.Ops.t * (Term.t Dec.t -> Const.view Dec.t)) Util.Str_map.t;
       (** tag -> const decoder *)
@@ -75,22 +75,32 @@ let decode_term (self : t) ~read_subterm ~tag : Term.t Dec.t =
         let+ c_view = reflect_or_fail (c_dec read_subterm) view in
         let const = Const.make c_view ops ~ty in
         Term.const self.tst const))
-  | "Tf@" -> assert false (* TODO *)
+  | "Tf@" ->
+    Dec.(
+      let+ f = dict_field "f" read_subterm
+      and+ l = dict_field "l" (list read_subterm)
+      and+ acc0 = dict_field "a0" read_subterm in
+      Term.app_fold self.tst ~f l ~acc0)
   | _ -> Dec.failf "unknown tag %S for a term" tag
 
-let rec read_term (self : t) (id : term_ref) : _ result =
+let rec read_term_err (self : t) (id : term_ref) : _ result =
   (* decoder for subterms *)
   let read_subterm : Term.t Dec.t =
     Dec.(
       let* id = int in
-      match read_term self id with
-      | Ok x -> return x
-      | Error e -> fail e)
+      return_result_err @@ read_term_err self id)
   in
 
   ID_cache.get self.cache id ~compute:(fun id ->
       match Tr.Source.get_entry self.src id with
-      | None -> Error (Printf.sprintf "invalid entry: %d" id)
+      | None ->
+        Error
+          (Dec.Error.of_string
+             (Printf.sprintf "invalid entry: %d" id)
+             (Ser_value.int id))
       | Some (tag, v) ->
         let dec = decode_term self ~tag ~read_subterm in
-        Dec.run dec v |> Result.map_error Dec.Error.to_string)
+        Dec.run dec v)
+
+let read_term self id =
+  Result.map_error Dec.Error.to_string @@ read_term_err self id

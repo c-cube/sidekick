@@ -42,7 +42,7 @@ let const_decoders : Const.decoders =
       ops,
       Ser_decode.(
         fun dec_t ->
-          let+ uc_id = ID.deser and+ uc_ty = dec_t in
+          let+ uc_id, uc_ty = tup2 ID.deser dec_t in
           Uconst { uc_id; uc_ty }) );
   ]
 

@@ -24,18 +24,19 @@ let null : t =
   end)
 
 let of_out_channel_using_bencode (oc : out_channel) : t =
-  let id_ = ref 0 in
+  (* id: offset in the channel *)
+  let off = ref 0 in
   let buf = Buffer.create 128 in
   (module struct
     let emit ~tag (v : Ser_value.t) =
       assert (Buffer.length buf = 0);
-      let id = Entry_id.of_int_unsafe !id_ in
+      let id = Entry_id.of_int_unsafe !off in
       (* add tag+id around *)
       let v' = Ser_value.(list [ int id; string tag; v ]) in
-      incr id_;
       Sidekick_bencode.Encode.to_buffer buf v';
       Buffer.add_char buf '\n';
       Buffer.output_buffer oc buf;
+      off := !off + Buffer.length buf;
       Buffer.clear buf;
       id
   end)

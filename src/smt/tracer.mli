@@ -1,8 +1,6 @@
 open Sidekick_core
 module Tr = Sidekick_trace
 
-type Tr.entry_view += Assert of Term.t | Assert_clause of Lit.t list
-
 class type t =
   object
     inherit Term.Tracer.t
