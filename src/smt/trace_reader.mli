@@ -3,7 +3,7 @@
 open Sidekick_core
 module Tr = Sidekick_trace
 
-type entry = Assert of Term.t | Assert_clause of Lit.t list
+type entry = Assert of Term.t | Assert_clause of { id: int; c: Lit.t list }
 
 val pp_entry : entry Fmt.printer
 

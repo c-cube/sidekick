@@ -1,12 +1,12 @@
 open Sidekick_core
 module Tr = Sidekick_trace
 
-type entry = Assert of Term.t | Assert_clause of Lit.t list
+type entry = Assert of Term.t | Assert_clause of { id: int; c: Lit.t list }
 
 let pp_entry out = function
   | Assert t -> Fmt.fprintf out "(@[assert@ %a@])" Term.pp t
-  | Assert_clause c ->
-    Fmt.fprintf out "(@[assert-c@ %a@])" (Fmt.Dump.list Lit.pp) c
+  | Assert_clause { id; c } ->
+    Fmt.fprintf out "(@[assert-c[%d]@ %a@])" id (Fmt.Dump.list Lit.pp) c
 
 type t = { tst: Term.store; src: Tr.Source.t; t_dec: Term.Trace_reader.t }
 
@@ -14,7 +14,8 @@ let create ?const_decoders tst src : t =
   let t_dec = Term.Trace_reader.create ?const_decoders tst ~source:src in
   { tst; src; t_dec }
 
-let add_const_decoders self c = Term.Trace_reader.add_const_decoders self.t_dec c
+let add_const_decoders self c =
+  Term.Trace_reader.add_const_decoders self.t_dec c
 
 let dec_t (self : t) =
   Ser_decode.(
@@ -27,7 +28,8 @@ let dec_c (self : t) =
       let+ b, t = tup2 bool @@ dec_t self in
       Lit.atom self.tst ~sign:b t
     in
-    list dec_lit)
+    let+ id = dict_field "id" int and+ c = dict_field "c" (list dec_lit) in
+    id, c)
 
 let decode (self : t) ~tag v =
   Log.debugf 30 (fun k ->
@@ -43,7 +45,7 @@ let decode (self : t) ~tag v =
   | "AssC" ->
     Ser_decode.(
       (match run (dec_c self) v with
-      | Ok c -> Some (Assert_clause c)
+      | Ok (id, c) -> Some (Assert_clause { id; c })
       | Error err ->
         Fmt.eprintf "cannot decode entry with tag %S:@ %a@." tag
           Ser_decode.Error.pp err;

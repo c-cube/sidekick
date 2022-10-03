@@ -141,8 +141,9 @@ let mk_smt_tracer () =
     Sidekick_smt_solver.Tracer.dummy
   else (
     let oc = open_out_bin !file_trace in
-    Sidekick_smt_solver.Tracer.concrete
+    Sidekick_smt_solver.Tracer.make
       ~sink:(Sidekick_trace.Sink.of_out_channel_using_bencode oc)
+      ()
   )
 
 let mk_sat_tracer () : Clause_tracer.t =

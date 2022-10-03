@@ -82,7 +82,8 @@ let create arg ?(stat = Stat.global) ?size ?(tracer = Tracer.dummy) ~proof
       proof;
       tracer;
       last_res = None;
-      solver = Sat_solver.create ~proof ?size ~stat (SI.to_sat_plugin si);
+      solver =
+        Sat_solver.create ~proof ?size ~tracer ~stat (SI.to_sat_plugin si);
       stat;
       theory_id_gen = Theory_id.create ();
       n_clause_input = Stat.mk_int stat "smt.solver.add-clause.input";
@@ -158,7 +159,7 @@ end)
 
 let add_clause (self : t) (c : lit array) (proof : step_id) : unit =
   let c, proof = preprocess_clause_ self c proof in
-  Tracer.assert_clause_arr' self.tracer c;
+  Tracer.assert_clause' self.tracer ~id:0 (Iter.of_array c);
   add_clause_nopreproc_ ~internal:false self c proof;
   Perform_delayed_.top self.si self;
   (* finish preproc *)

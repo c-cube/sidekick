@@ -11,6 +11,8 @@ class type t =
     method encode_lit : Lit.t -> Ser_value.t
   end
 
+class dummy : t
+
 val dummy : t
 (** Dummy tracer, recording nothing. *)
 

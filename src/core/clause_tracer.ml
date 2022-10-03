@@ -8,7 +8,7 @@ class type t =
     method encode_lit : Lit.t -> Ser_value.t
   end
 
-let dummy : t =
+class dummy : t =
   object
     method assert_clause ~id:_ _ = Tr.Entry_id.dummy
     method delete_clause ~id:_ _ = ()
@@ -16,6 +16,7 @@ let dummy : t =
     method encode_lit _ = Ser_value.null
   end
 
+let dummy : t = new dummy
 let assert_clause (self : #t) ~id c : Tr.Entry_id.t = self#assert_clause ~id c
 
 let assert_clause' (self : #t) ~id c : unit =
