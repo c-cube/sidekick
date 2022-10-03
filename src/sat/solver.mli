@@ -176,6 +176,7 @@ val mk_plugin_cdcl_t :
 val create :
   ?stat:Stat.t ->
   ?size:[ `Tiny | `Small | `Big ] ->
+  ?tracer:#Clause_tracer.t ->
   proof:Proof_trace.t ->
   plugin ->
   t
@@ -190,6 +191,7 @@ val plugin_pure_sat : plugin
 val create_pure_sat :
   ?stat:Stat.t ->
   ?size:[ `Tiny | `Small | `Big ] ->
+  ?tracer:#Clause_tracer.t ->
   proof:Proof_trace.t ->
   unit ->
   t

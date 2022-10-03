@@ -4,6 +4,7 @@ Copyright 2014 Guillaume Bury
 Copyright 2014 Simon Cruanes
 *)
 
+open Sidekick_core
 module E = CCResult
 module Fmt = CCFormat
 module Term = Sidekick_base.Term
@@ -135,13 +136,22 @@ let check_limits () =
   else if s > !mem_limit then
     raise Out_of_space
 
-let mk_tracer () =
+let mk_smt_tracer () =
   if !file_trace = "" then
     Sidekick_smt_solver.Tracer.dummy
   else (
     let oc = open_out_bin !file_trace in
     Sidekick_smt_solver.Tracer.concrete
       ~sink:(Sidekick_trace.Sink.of_out_channel_using_bencode oc)
+  )
+
+let mk_sat_tracer () : Clause_tracer.t =
+  if !file_trace = "" then
+    Clause_tracer.dummy
+  else (
+    let oc = open_out_bin !file_trace in
+    let sink = Sidekick_trace.Sink.of_out_channel_using_bencode oc in
+    Pure_sat_solver.tracer ~sink ()
   )
 
 let main_smt ~config () : _ result =
@@ -180,7 +190,7 @@ let main_smt ~config () : _ result =
      let proof = Proof.create ~config () in
   *)
   let proof = Proof.dummy in
-  let tracer = mk_tracer () in
+  let tracer = mk_smt_tracer () in
 
   let solver =
     (* TODO: probes, to load only required theories *)
@@ -250,8 +260,8 @@ let main_cnf () : _ result =
   in
   CCFun.protect ~finally @@ fun () ->
   let tst = Term.Store.create () in
-  (* FIXME :tracer? *)
-  let solver = S.SAT.create_pure_sat ~size:`Big ~proof ~stat () in
+  let tracer = mk_sat_tracer () in
+  let solver = S.SAT.create_pure_sat ~size:`Big ~tracer ~proof ~stat () in
 
   S.Dimacs.parse_file solver tst !file >>= fun () ->
   let r = S.solve ~check:!check ?in_memory_proof solver in

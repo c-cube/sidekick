@@ -46,5 +46,6 @@ module Proof_term = Proof_term
 module Subst = Sidekick_core_logic.Subst
 module Var = Sidekick_core_logic.Var
 module Box = Box
+module Clause_tracer = Clause_tracer
 
 exception Resource_exhausted

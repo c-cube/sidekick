@@ -1,11 +1,13 @@
 (* pure SAT solver *)
 
 open Sidekick_core
-module Tracer = Sidekick_smt_solver.Tracer
 module E = CCResult
 module SS = Sidekick_sat
+module Tr = Sidekick_trace
 
 module I_const : sig
+  type Const.view += I of int
+
   val make : Term.store -> int -> Lit.t
   val const_decoders : Const.decoders
 end = struct
@@ -76,6 +78,42 @@ module Dimacs = struct
           Ok ())
     with e -> E.of_exn_trace e
 end
+
+(** Tracer that emit list of integers. *)
+let tracer ~(sink : Tr.Sink.t) () : Clause_tracer.t =
+  object (self)
+    method encode_lit (lit : Lit.t) =
+      let sign = Lit.sign lit in
+      let i =
+        match Term.view (Lit.term lit) with
+        | Term.E_const { Const.c_view = I_const.I i; _ } -> abs i
+        | _ -> assert false
+      in
+      Ser_value.int
+        (if sign then
+          i
+        else
+          -i)
+
+    method assert_clause ~id (lits : Lit.t Iter.t) =
+      let v =
+        Ser_value.(
+          dict_of_list
+            [
+              "id", int id;
+              "c", list (lits |> Iter.map self#encode_lit |> Iter.to_rev_list);
+            ])
+      in
+      Tr.Sink.emit sink ~tag:"AssCSat" v
+
+    method unsat_clause ~id =
+      let v = Ser_value.(dict_of_list [ "id", int id ]) in
+      Tr.Sink.emit sink ~tag:"UnsatC" v
+
+    method delete_clause ~id _lits : unit =
+      let v = Ser_value.(dict_of_list [ "id", int id ]) in
+      ignore (Tr.Sink.emit sink ~tag:"DelCSat" v : Tr.Entry_id.t)
+  end
 
 (* FIXME
    let check_proof (proof : Proof.in_memory) : bool =

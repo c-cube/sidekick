@@ -244,6 +244,7 @@ type t = {
   store: store; (* atom/var/clause store *)
   plugin: plugin; (* user defined theory *)
   proof: Proof_trace.t; (* the proof object *)
+  tracer: Clause_tracer.t;
   (* Clauses are simplified for efficiency purposes. In the following
      vectors, the comments actually refer to the original non-simplified
      clause. *)
@@ -306,10 +307,12 @@ let restart_first = 100
 let _nop_on_conflict (_ : atom array) = ()
 
 (* Starting environment. *)
-let create_ ~store ~proof ~stat ~max_clauses_learnt (plugin : plugin) : t =
+let create_ ~store ~proof ~tracer ~stat ~max_clauses_learnt (plugin : plugin) :
+    t =
   {
     store;
     plugin;
+    tracer;
     unsat_at_0 = None;
     next_decisions = [];
     max_clauses_learnt;
@@ -677,6 +680,8 @@ let report_unsat self (us : unsat_cause) : _ =
       Event.emit self.on_learnt c;
       let p = Clause.proof_step self.store c in
       Proof_trace.add_unsat self.proof p;
+      Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int c) Iter.empty;
+      Clause_tracer.unsat_clause' self.tracer ~id:(Clause.to_int c);
       US_false c
     | US_local _ -> us
   in
@@ -1018,6 +1023,8 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
       Proof_sat.sat_redundant_clause lits ~hyps:(Step_vec.to_iter cr.cr_steps)
     in
     let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
+    Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int uclause)
+      (Clause.lits_iter store uclause);
     Event.emit self.on_learnt uclause;
 
     if Atom.is_false store fuip then
@@ -1034,6 +1041,8 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
       Proof_sat.sat_redundant_clause lits ~hyps:(Step_vec.to_iter cr.cr_steps)
     in
     let lclause = Clause.make_a store ~removable:true cr.cr_learnt p in
+    Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int lclause)
+      (Clause.lits_iter store lclause);
 
     add_clause_to_vec_ ~pool self lclause;
     attach_clause self lclause;
@@ -1071,6 +1080,8 @@ let add_clause_ (self : t) ~pool (init : clause) : unit =
   let store = self.store in
   Log.debugf 30 (fun k ->
       k "(@[sat.add-clause@ @[<hov>%a@]@])" (Clause.debug store) init);
+  Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int init)
+    (Clause.lits_iter store init);
   (* Insertion of new lits is done before simplification. Indeed, else a lit in a
      trivial clause could end up being not decided on, which is a bug. *)
   Clause.iter store init ~f:(fun x -> insert_var_order self (Atom.var x));
@@ -1530,6 +1541,8 @@ let reduce_clause_db (self : t) : unit =
     (* need to remove from watchlists *)
     mark_dirty_atom (Atom.neg atoms.(1));
     Event.emit self.on_gc (Clause.lits_a store c);
+    Clause_tracer.delete_clause self.tracer ~id:(Clause.to_int c)
+      (Clause.lits_iter store c);
     Proof_trace.delete self.proof (Clause.proof_step store c)
   in
 
@@ -1647,7 +1660,7 @@ let search (self : t) ~on_progress ~(max_conflicts : int) : unit =
     | Some confl ->
       (* Conflict *)
       incr n_conflicts;
-      (* When the theory has raised Unsat, add_boolean_conflict
+      (* When the theory has raised Unsat, [add_boolean_conflict]
          might 'forget' the initial conflict clause, and only add the
          analyzed backtrack clause. So in those case, we use add_clause
          to make sure the initial conflict clause is also added. *)
@@ -2034,10 +2047,15 @@ let[@inline] eval_lit self (lit : Lit.t) : lbool =
   | Some a -> eval_atom_ self a
   | None -> L_undefined
 
-let create ?(stat = Stat.global) ?(size = `Big) ~proof (p : plugin) : t =
+let create ?(stat = Stat.global) ?(size = `Big) ?tracer ~proof (p : plugin) : t
+    =
+  let tracer =
+    (tracer : #Clause_tracer.t option :> Clause_tracer.t option)
+    |> Option.value ~default:Clause_tracer.dummy
+  in
   let store = Store.create ~size ~stat () in
   let max_clauses_learnt = ref 0 in
-  let self = create_ ~max_clauses_learnt ~store ~proof ~stat p in
+  let self = create_ ~max_clauses_learnt ~store ~tracer ~proof ~stat p in
   self
 
 let plugin_cdcl_t (module P : THEORY_CDCL_T) : (module PLUGIN) =
@@ -2066,5 +2084,5 @@ let plugin_pure_sat : plugin =
     let has_theory = false
   end)
 
-let create_pure_sat ?stat ?size ~proof () : t =
-  create ?stat ?size ~proof plugin_pure_sat
+let create_pure_sat ?stat ?size ?tracer ~proof () : t =
+  create ?stat ?size ?tracer ~proof plugin_pure_sat
