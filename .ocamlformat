@@ -12,3 +12,4 @@ field-space=tight-decl
 leading-nested-match-parens=true
 module-item-spacing=compact
 quiet=true
+ocaml-version=4.08.0
