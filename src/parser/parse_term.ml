@@ -84,6 +84,10 @@ and p_term_atomic ?else_ ~f () =
   P.suspend @@ fun () ->
   P.try_or_l ?else_ ~msg:"expected atomic term" @@ p_term_atomic_cases ~f ()
 
+(* TODO: handle infix symbols, with a table (sym -> precedence * parser).
+   Start by registering "=" and "->" in there. *)
+(* TODO: handle lambda and pi *)
+
 (* parse application of [t] to 0 or more arguments *)
 and p_term_apply t args : A.term P.t =
   P.suspend @@ fun () ->

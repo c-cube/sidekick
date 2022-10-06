@@ -18,3 +18,10 @@ let test_str what s =
 
 let () = test_str "t1" "f (g x) y"
 let () = test_str "t2" "let x:= 1 in f (f x 2)"
+
+let () =
+  test_str "t3"
+    {|
+let l := map f (list 1 2 3) in
+let l2 := rev l in eq (rev l2) l
+    |}

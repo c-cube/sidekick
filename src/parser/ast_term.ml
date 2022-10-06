@@ -104,7 +104,7 @@ let rec pp_term out (e : term) : unit =
     let ppb out (x, t) = Fmt.fprintf out "@[<2>%s :=@ %a@]" x.name pp t in
     Fmt.fprintf out "@[@[<2>let@ %a@] in@ %a@]"
       (Util.pp_list ~sep:"and" ppb)
-      bs pp_sub bod
+      bs pp bod
   | Lambda (args, bod) ->
     Fmt.fprintf out "@[lam %a.@ %a@]" (Util.pp_list pp_tyvar) args pp_sub bod
   | Pi (args, bod) ->
