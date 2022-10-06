@@ -1,0 +1,4 @@
+(tests
+ (names p1)
+ (flags :standard -open Sidekick_util -open Sidekick_parser)
+ (libraries sidekick.util sidekick.parser))
