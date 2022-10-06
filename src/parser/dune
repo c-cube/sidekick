@@ -1,0 +1,6 @@
+(library
+ (name sidekick_parser)
+ (public_name sidekick.parser)
+ (synopsis "A term parser")
+ (libraries sidekick.core sidekick.util)
+ (flags :standard -open Sidekick_util))
