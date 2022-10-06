@@ -9,7 +9,6 @@ module Error : sig
   include Sidekick_sigs.PRINT with type t := t
 
   val to_string : t -> string
-
   val of_string : string -> Ser_value.t -> t
 end
 
@@ -27,16 +26,19 @@ val return_result_err : ('a, Error.t) result -> 'a t
 val fail : string -> 'a t
 val failf : ('a, unit, string, 'b t) format4 -> 'a
 val fail_err : Error.t -> 'a t
+
 val unwrap_opt : string -> 'a option -> 'a t
 (** Unwrap option, or fail *)
+
 val any : Ser_value.t t
 val list : 'a t -> 'a list t
-val tup2 : 'a t -> 'b t -> ('a*'b) t
-val tup3 : 'a t -> 'b t -> 'c t -> ('a*'b*'c) t
-val tup4 : 'a t -> 'b t ->  'c t -> 'd t -> ('a*'b*'c*'d) t
+val tup2 : 'a t -> 'b t -> ('a * 'b) t
+val tup3 : 'a t -> 'b t -> 'c t -> ('a * 'b * 'c) t
+val tup4 : 'a t -> 'b t -> 'c t -> 'd t -> ('a * 'b * 'c * 'd) t
 val dict_field : string -> 'a t -> 'a t
 val dict_field_opt : string -> 'a t -> 'a option t
 val both : 'a t -> 'b t -> ('a * 'b) t
+
 val reflect : 'a t -> Ser_value.t -> ('a, Error.t) result t
 (** [reflect dec v] returns the result of decoding [v] with [dec] *)
 
