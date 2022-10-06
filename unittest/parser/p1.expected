@@ -1,0 +1,4 @@
+t1: f (g x) y
+loc(t1): at line 0, column 0 - at line 0, column 9
+t2: let x := 1 in (f (f x 2))
+loc(t2): at line 0, column 0 - at line 0, column 21
