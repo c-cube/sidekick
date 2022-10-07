@@ -17,7 +17,7 @@
 
 (bug_reports "https://github.com/c-cube/sidekick/issues/")
 
-(using menhir 1.0)
+(using menhir 2.0)
 
 (package
  (name sidekick)
@@ -79,4 +79,18 @@
    (= :version))
   (sidekick-base
    (= :version))
+  menhir))
+
+(package
+ (name sidekick-parser)
+ (synopsis "High-level parser and syntax for sidekick-base")
+ (depends
+  zarith
+  (sidekick
+   (= :version))
+  (sidekick-base
+   (= :version))
+  (pp_loc
+   (>= 0.2))
+  (odoc :with-doc)
   menhir))
