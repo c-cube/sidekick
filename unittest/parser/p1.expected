@@ -3,11 +3,13 @@ loc(t1): at line 1, column 0 - at line 1, column 9
 t2: let x := 1 in f (f x 2)
 loc(t2): at line 1, column 0 - at line 1, column 22
 t3: let l := map f (list 1 2 3) in let l2 := rev l in = (rev l2) l
-loc(t3): at line 1, column 1 - at line 1, column 61
+loc(t3): at line 1, column 0 - at line 1, column 60
 t4: let assm := ==> (is_foo p) (= (filter p l) nil) in true
 loc(t4): at line 1, column 0 - at line 1, column 51
-t5: let
-      f := lam (x : int) (y : int) (z : bool). (= (+ x y) z) and 
-      g := lam x. (f (f x)) in
-    is_g g
+t5: let f := lam (x y : int) (z : bool). (= (+ x y) z)
+    and g := lam x. (f (f x)) in is_g g
 loc(t5): at line 1, column 0 - at line 1, column 84
+d1:
+  def f (x y : list int) : list int := if (= x 0) y whatever;
+  #ty f;
+  #sledgehammer lam x y. (= (f x y) (f x y));

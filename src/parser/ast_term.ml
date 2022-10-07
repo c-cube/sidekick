@@ -15,10 +15,14 @@ and term_view =
   | Int of string
   | App of term * term list
   | Let of let_binding list * term
-  | Lambda of var list * term
-  | Pi of var list * term
+  | Lambda of ty_var_group list * term
+  | Pi of ty_var_group list * term
   | Arrow of term list * term
   | Error_node of string
+
+and ty_var_group =
+  | VG_untyped of string
+  | VG_typed of { names: string list; ty: term }
 
 and let_binding = var * term
 
@@ -30,7 +34,12 @@ type decl = decl_view with_loc
 
 (* TODO: axiom *)
 and decl_view =
-  | D_def of { name: string; args: var list; ty_ret: term option; rhs: term }
+  | D_def of {
+      name: string;
+      args: ty_var_group list;
+      ty_ret: term option;
+      rhs: term;
+    }
   | D_hash of string * term
   | D_theorem of { name: string; goal: term; proof: proof }
 
@@ -131,18 +140,33 @@ let rec pp_term out (e : term) : unit =
     let ppb out ((x, t) : let_binding) =
       Fmt.fprintf out "@[<2>%s :=@ %a@]" x.name pp t
     in
-    Fmt.fprintf out "@[@[<2>let@ @[<hv>%a@]@] in@ %a@]"
-      (Util.pp_list ~sep:" and " ppb)
-      bs pp bod
+    let ppbs out l =
+      List.iteri
+        (fun i x ->
+          if i > 0 then Fmt.fprintf out "@ and ";
+          ppb out x)
+        l
+    in
+    Fmt.fprintf out "@[@[<hv>let %a@] in@ %a@]" ppbs bs pp bod
   | Lambda (args, bod) ->
-    Fmt.fprintf out "@[lam %a.@ %a@]" (Util.pp_list pp_tyvar) args pp_sub bod
+    Fmt.fprintf out "@[lam%a.@ %a@]"
+      (Util.pp_list ~sep:"" pp_ty_var_group)
+      args pp_sub bod
   | Pi (args, bod) ->
-    Fmt.fprintf out "@[pi %a.@ %a@]" (Util.pp_list pp_tyvar) args pp_sub bod
+    Fmt.fprintf out "@[pi%a.@ %a@]"
+      (Util.pp_list ~sep:"" pp_ty_var_group)
+      args pp_sub bod
 
 and pp_tyvar out (x : var) : unit =
   match x.ty with
   | None -> Fmt.string out x.name
   | Some ty -> Fmt.fprintf out "(@[%s : %a@])" x.name pp_term ty
+
+and pp_ty_var_group out (x : ty_var_group) : unit =
+  match x with
+  | VG_untyped x -> Fmt.fprintf out "@ %s" x
+  | VG_typed { names; ty } ->
+    Fmt.fprintf out "@ (@[%a : %a@])" (Util.pp_list Fmt.string) names pp_term ty
 
 let rec pp_proof out (p : proof) : unit =
   match p.view with
@@ -166,7 +190,8 @@ let pp_decl out (d : decl) =
       | None -> ()
       | Some ty -> Fmt.fprintf out " @[: %a@]" pp_term ty
     in
-    Fmt.fprintf out "@[<2>def %s%a%a :=@ %a@];" name (Util.pp_list pp_tyvar)
+    Fmt.fprintf out "@[<2>def %s%a%a :=@ %a@];" name
+      (Util.pp_list ~sep:"" pp_ty_var_group)
       args pp_tyret () pp_term rhs
   | D_hash (name, t) -> Fmt.fprintf out "@[<2>#%s@ %a@];" name pp_term t
   | D_theorem { name; goal; proof } ->

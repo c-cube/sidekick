@@ -32,6 +32,7 @@ rule token = parse
 | "let" { LET }
 | "in" { IN }
 | "and" { AND }
+| "def" { DEF }
 | "have" { HAVE }
 | "theorem" { THEOREM }
 | "by" { BY }

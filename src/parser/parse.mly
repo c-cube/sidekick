@@ -53,11 +53,11 @@ top_term: t=term EOF { t }
 decl:
 | h=HASH t=term SEMICOLON {
   let loc = Loc.of_lexloc $loc in
+  let h = String.sub h 1 (String.length h-1) in
   A.decl_hash ~loc h t
 }
-| DEF name=name args=tyvars* ty_ret=optional_ty EQDEF rhs=term SEMICOLON {
+| DEF name=name args=ty_var_group* ty_ret=optional_ty EQDEF rhs=term SEMICOLON {
   let loc = Loc.of_lexloc $loc in
-  let args = List.flatten args in
   A.decl_def ~loc name args ?ty_ret rhs
 }
 | THEOREM name=name EQDEF goal=term proof=proof SEMICOLON {
@@ -88,10 +88,10 @@ proof_step:
 tyvar:
 | name=name ty=optional_ty { A.var ?ty name }
 
-tyvars:
-| name=name { [A.var name] }
+ty_var_group:
+| name=name { A.VG_untyped name }
 | LPAREN names=name+ COLON ty=term RPAREN {
-  List.map (fun name -> A.var ~ty name) names
+  A.VG_typed {names; ty}
 }
 
 %inline optional_ty:
@@ -114,14 +114,12 @@ let_bindings:
 
 binder_term:
 | t=sym_term { t }
-| FUNCTION vars=tyvars+ DOT rhs=binder_term {
+| FUNCTION vars=ty_var_group+ DOT rhs=binder_term {
   let loc = Loc.of_lexloc $loc in
-  let vars = List.flatten vars in
   A.mk_lam ~loc vars rhs
 }
-| PI vars=tyvars+ DOT rhs=binder_term {
+| PI vars=ty_var_group+ DOT rhs=binder_term {
   let loc = Loc.of_lexloc $loc in
-  let vars = List.flatten vars in
   A.mk_pi ~loc vars rhs
 }
 
