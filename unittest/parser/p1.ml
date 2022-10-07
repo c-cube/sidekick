@@ -12,10 +12,12 @@ let () =
 
 let test_term_str what s =
   let t = P.term_of_string s in
+  let input = Loc.Input.string s in
   match t with
   | Ok t ->
     Fmt.printf "%s: %a@." what A.pp_term t;
-    Fmt.printf "loc(%s): %a@." what Loc.pp (A.loc t)
+    (*Fmt.printf "loc(%s): %a@." what Loc.pp @@ A.loc t*)
+    Fmt.printf "loc(%s): %a@." what (Loc.pp_loc ~max_lines:5 ~input) [ A.loc t ]
   | Error err ->
     Fmt.printf "FAIL:@ error while parsing %S:@ %a@." what P.Error.pp err
 

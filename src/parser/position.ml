@@ -24,3 +24,6 @@ let pp out self = Format.fprintf out "at line %d, column %d" self.line self.col
 (** Build position from a lexing position *)
 let of_lexpos (p : Lexing.position) : t =
   { file = p.pos_fname; line = p.pos_lnum; col = p.pos_cnum - p.pos_bol }
+
+let to_pploc_pos (self : t) : Pp_loc.Position.t =
+  Pp_loc.Position.of_line_col self.line (self.col + 1)
