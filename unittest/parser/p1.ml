@@ -43,7 +43,9 @@ let test_decl what s =
   | Ok l ->
     Fmt.printf "@[<v2>%s:@ %a@]@." what (Util.pp_list ~sep:"" A.pp_decl) l
   | Error err ->
-    Fmt.printf "FAIL:@ error while parsing %S:@ %a@." what P.Error.pp err
+    Fmt.printf "FAIL:@ error while parsing %S:@ %a@." what
+      (P.Error.pp_with_loc ~input:(Loc.Input.string s))
+      err
 
 let () =
   test_decl "d1"
@@ -51,3 +53,11 @@ let () =
     #ty f;
     #sledgehammer fn x y. f x y = f x y;
   |}
+
+let () =
+  test_decl "d2"
+    {|theorem foo := (a=b) => (f a = f b)
+       { have s1 := b=a by obvious;
+         have s2 := f b = f a by congr f s1;
+         exact symm s2
+       }; |}
