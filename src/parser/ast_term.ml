@@ -179,8 +179,8 @@ let rec pp_proof out (p : proof) : unit =
 
 and pp_proof_step out (step : proof_step) : unit =
   let s = step.view in
-  Fmt.fprintf out "@[<2>have %s := %a@ proof %a@]" s.name pp_term s.goal
-    pp_proof s.proof
+  Fmt.fprintf out "@[<2>have %s := %a@ %a@]" s.name pp_term s.goal pp_proof
+    s.proof
 
 let pp_decl out (d : decl) =
   match d.view with
@@ -195,5 +195,5 @@ let pp_decl out (d : decl) =
       args pp_tyret () pp_term rhs
   | D_hash (name, t) -> Fmt.fprintf out "@[<2>#%s@ %a@];" name pp_term t
   | D_theorem { name; goal; proof } ->
-    Fmt.fprintf out "@[<hv2>theorem %s :=@ %a@ @[<hv2>proof %a@]@];" name
-      pp_term goal pp_proof proof
+    Fmt.fprintf out "@[<hv2>theorem %s :=@ %a@ @[<hv>%a@]@];" name pp_term goal
+      pp_proof proof

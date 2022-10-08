@@ -8,6 +8,11 @@ module Error = struct
   let pp out (self : t) =
     Fmt.fprintf out "parse error: %s@ %a" self.msg Loc.pp self.loc
 
+  let pp_with_loc ~input out (self : t) =
+    Fmt.fprintf out "parse error: %s@ %a" self.msg
+      (Loc.pp_loc ~max_lines:5 ~input)
+      [ self.loc ]
+
   let to_string = Fmt.to_string pp
 end
 
