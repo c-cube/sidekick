@@ -12,7 +12,6 @@ depends: [
   "zarith"
   "smtlib-utils" {>= "0.1" & < "0.4"}
   "sidekick" {= version}
-  "sidekick-base" {= version}
   "qcheck" {with-test & >= "0.16"}
   "mdx" {with-test}
   "odoc" {with-doc}

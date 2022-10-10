@@ -56,8 +56,6 @@
     (< "0.4")))
   (sidekick
    (= :version))
-  (sidekick-base
-   (= :version))
   (qcheck
    (and
     :with-test
