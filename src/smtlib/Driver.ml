@@ -1,5 +1,6 @@
 open Sidekick_core
 module Profile = Sidekick_util.Profile
+module Asolver = Solver.Asolver
 open! Sidekick_base
 open Common_
 
@@ -55,7 +56,7 @@ module Fmt = CCFormat
 
 type t = {
   progress: Progress_bar.t option;
-  solver: Solver.t;
+  solver: Asolver.t;
   time_start: float;
   time_limit: float;
   memory_limit: float;
@@ -68,7 +69,8 @@ type t = {
 
 (* call the solver to check-sat *)
 let create ?(restarts = true) ?(pp_cnf = false) ?proof_file ?(pp_model = false)
-    ?(check = false) ?time ?memory ?(progress = false) (solver : Solver.t) : t =
+    ?(check = false) ?time ?memory ?(progress = false) (solver : Asolver.t) : t
+    =
   let time_start = now () in
   let progress =
     if progress then
@@ -107,7 +109,7 @@ let decl_fun (_self : t) id args ret : unit =
 (* call the solver to check satisfiability *)
 let solve (self : t) ~assumptions () : Solver.res =
   let t1 = now () in
-  let should_stop _ _ =
+  let should_stop _n =
     if now () -. self.time_start > self.time_limit then (
       Log.debugf 0 (fun k -> k "timeout");
       true
@@ -125,12 +127,12 @@ let solve (self : t) ~assumptions () : Solver.res =
 
   let res =
     let@ () = Profile.with_ "process.solve" in
-    Solver.solve ~assumptions ?on_progress ~should_stop self.solver
+    Asolver.solve ~assumptions ?on_progress ~should_stop self.solver ()
   in
   let t2 = now () in
   flush stdout;
   (match res with
-  | Solver.Sat m ->
+  | Asolver.Check_res.Sat m ->
     if self.pp_model then
       (* TODO: use actual {!Model} in the solver? or build it afterwards *)
       Format.printf "(@[<hv1>model@ %a@])@." Sidekick_smt_solver.Model.pp m;
@@ -143,7 +145,7 @@ let solve (self : t) ~assumptions () : Solver.res =
     let t3 = now () in
     Fmt.printf "sat@.";
     Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. time_start) (t2 -. t1) (t3 -. t2)
-  | Solver.Unsat { unsat_step_id; unsat_core = _ } ->
+  | Asolver.Check_res.Unsat { unsat_step_id; unsat_core = _ } ->
     if self.check then
       ()
     (* FIXME: check trace?
@@ -158,19 +160,17 @@ let solve (self : t) ~assumptions () : Solver.res =
       (match unsat_step_id () with
       | None -> ()
       | Some step_id ->
-        let proof = Solver.proof self.solver in
-        let proof_quip =
-          Profile.with_ "proof.to-quip" @@ fun () -> assert false
-          (* TODO
-             Proof_quip.of_proof proof ~unsat:step_id
-          *)
-        in
-        Profile.with_ "proof.write-file" @@ fun () ->
-        with_file_out file @@ fun oc ->
-        (* TODO
-           Proof_quip.output oc proof_quip;
+        (* TODO: read trace; emit proof
+              let proof = Solver.proof self.solver in
+              let proof_quip =
+                Profile.with_ "proof.to-quip" @@ fun () -> assert false
+                   Proof_quip.of_proof proof ~unsat:step_id
+              Profile.with_ "proof.write-file" @@ fun () ->
+              with_file_out file @@ fun oc ->
+                 Proof_quip.output oc proof_quip;
+           flush oc
         *)
-        flush oc)
+        ())
     | _ -> ());
 
     let t3 = now () in
@@ -193,7 +193,7 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
   Log.debugf 5 (fun k ->
       k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
 
-  let add_step r = Proof_trace.add_step (Solver.proof self.solver) r in
+  let add_step r = Proof_trace.add_step (Asolver.proof self.solver) r in
 
   match stmt with
   | Statement.Stmt_set_logic logic ->
@@ -211,7 +211,7 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
   | Statement.Stmt_check_sat l ->
     (* FIXME: how to map [l] to [assumptions] in proof? *)
     let assumptions =
-      List.map (fun (sign, t) -> Solver.mk_lit_t self.solver ~sign t) l
+      List.map (fun (sign, t) -> Asolver.lit_of_term self.solver ~sign t) l
     in
     ignore (solve self ~assumptions () : Solver.res);
     E.return ()
@@ -223,32 +223,32 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     E.return ()
   | Statement.Stmt_assert t ->
     if self.pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
-    let lit = Solver.mk_lit_t self.solver t in
-    Solver.add_clause self.solver [| lit |]
+    let lit = Asolver.lit_of_term self.solver t in
+    Asolver.assert_clause self.solver [| lit |]
       (add_step @@ fun () -> Proof_sat.sat_input_clause [ lit ]);
     E.return ()
   | Statement.Stmt_assert_clause c_ts ->
     if self.pp_cnf then
       Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c_ts;
 
-    let c = CCList.map (fun t -> Solver.mk_lit_t self.solver t) c_ts in
+    let c = CCList.map (fun t -> Asolver.lit_of_term self.solver t) c_ts in
 
     (* proof of assert-input + preprocessing *)
     let pr =
       add_step @@ fun () ->
-      let lits = List.map (Solver.mk_lit_t self.solver) c_ts in
+      let lits = List.map (Asolver.lit_of_term self.solver) c_ts in
       Proof_sat.sat_input_clause lits
     in
 
-    Solver.add_clause self.solver (CCArray.of_list c) pr;
+    Asolver.assert_clause self.solver (CCArray.of_list c) pr;
     E.return ()
   | Statement.Stmt_get_model ->
-    (match Solver.last_res self.solver with
+    (match Asolver.last_res self.solver with
     | Some (Solver.Sat m) -> Fmt.printf "%a@." Sidekick_smt_solver.Model.pp m
     | _ -> Error.errorf "cannot access model");
     E.return ()
   | Statement.Stmt_get_value l ->
-    (match Solver.last_res self.solver with
+    (match Asolver.last_res self.solver with
     | Some (Solver.Sat m) ->
       let l =
         List.map
@@ -265,7 +265,9 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     | _ -> Error.errorf "cannot access model");
     E.return ()
   | Statement.Stmt_data ds ->
-    List.iter (fun d -> Solver.add_ty self.solver (Data_ty.data_as_ty d)) ds;
+    List.iter
+      (fun d -> Asolver.add_ty self.solver ~ty:(Data_ty.data_as_ty d))
+      ds;
     E.return ()
   | Statement.Stmt_define _ ->
     (* TODO *)

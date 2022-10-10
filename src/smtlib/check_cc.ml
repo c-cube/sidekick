@@ -44,7 +44,7 @@ let check_propagation si _cc p reason : unit =
         k "(@[check-cc-prop.ok@ @[%a => %a@]@])" pp_and reason Lit.pp p)
 
 let theory =
-  Solver.mk_theory ~name:"cc-check"
+  Solver.Smt_solver.Solver.mk_theory ~name:"cc-check"
     ~create_and_setup:(fun ~id:_ si ->
       let n_calls = Stat.mk_int (SI.stats si) "check-cc.call" in
       SI.on_cc_conflict si (fun { cc; th; c } ->

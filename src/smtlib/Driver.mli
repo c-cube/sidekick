@@ -5,6 +5,7 @@
   calling "solve", etc.)
 *)
 
+module Asolver = Solver.Asolver
 open Sidekick_base
 
 val th_bool_dyn : Solver.theory
@@ -28,7 +29,7 @@ val create :
   ?time:float ->
   ?memory:float ->
   ?progress:bool ->
-  Solver.t ->
+  Asolver.t ->
   t
 
 val process_stmt : t -> Statement.t -> unit or_error

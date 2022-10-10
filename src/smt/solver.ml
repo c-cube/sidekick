@@ -6,32 +6,25 @@ open struct
   module Rule_ = Proof_core
 end
 
+module Check_res = Sidekick_abstract_solver.Check_res
+
 module Sat_solver = Sidekick_sat
 (** the parametrized SAT Solver *)
 
 (** {2 Result} *)
 
-module Unknown = struct
-  type t = U_timeout | U_max_depth | U_incomplete | U_asked_to_stop
+module Unknown = Sidekick_abstract_solver.Unknown [@@ocaml.warning "-37"]
 
-  let pp out = function
-    | U_timeout -> Fmt.string out {|"timeout"|}
-    | U_max_depth -> Fmt.string out {|"max depth reached"|}
-    | U_incomplete -> Fmt.string out {|"incomplete fragment"|}
-    | U_asked_to_stop -> Fmt.string out {|"asked to stop by callback"|}
-end
-[@@ocaml.warning "-37"]
-
-type res =
-  | Sat of Model.t
+type res = Check_res.t =
+  | Sat of Model.t  (** Satisfiable *)
   | Unsat of {
       unsat_core: unit -> lit Iter.t;
           (** Unsat core (subset of assumptions), or empty *)
       unsat_step_id: unit -> step_id option;
           (** Proof step for the empty clause *)
-    }
+    }  (** Unsatisfiable *)
   | Unknown of Unknown.t
-      (** Result of solving for the current set of clauses *)
+      (** Unknown, obtained after a timeout, memory limit, etc. *)
 
 (* main solver state *)
 type t = {
@@ -175,8 +168,8 @@ let assert_terms self c =
 let assert_term self t = assert_terms self [ t ]
 let add_ty (self : t) ty = SI.add_ty self.si ~ty
 
-let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
-    ?(should_stop = fun _ _ -> false) ~assumptions (self : t) : res =
+let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
+    ?(should_stop = fun _ -> false) ~assumptions (self : t) : res =
   let@ () = Profile.with_ "smt-solver.solve" in
   let do_on_exit () = List.iter (fun f -> f ()) on_exit in
 
@@ -184,9 +177,8 @@ let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
     let resource_counter = ref 0 in
     fun () ->
       incr resource_counter;
-      on_progress self;
-      if should_stop self !resource_counter then
-        raise_notrace Resource_exhausted
+      on_progress ();
+      if should_stop !resource_counter then raise_notrace Resource_exhausted
   in
   Event.on ~f:on_progress (SI.on_progress self.si);
 
@@ -218,8 +210,6 @@ let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
         | Some m -> m
         | None -> assert false
       in
-      (* TODO: check model *)
-      let _ = check in
 
       do_on_exit ();
       Sat m
@@ -232,6 +222,20 @@ let solve ?(on_exit = []) ?(check = true) ?(on_progress = fun _ -> ())
   in
   self.last_res <- Some res;
   res
+
+let as_asolver (self : t) : Sidekick_abstract_solver.Asolver.t =
+  object
+    method assert_term t : unit = assert_term self t
+    method assert_clause c p : unit = add_clause self c p
+    method assert_clause_l c p : unit = add_clause_l self c p
+    method lit_of_term ?sign t : Lit.t = mk_lit_t self ?sign t
+    method proof = self.proof
+    method last_res = last_res self
+    method add_ty ~ty = add_ty self ty
+
+    method solve ?on_exit ?on_progress ?should_stop ~assumptions () : res =
+      solve ?on_exit ?on_progress ?should_stop ~assumptions self
+  end
 
 let push_assumption self a =
   reset_last_res_ self;

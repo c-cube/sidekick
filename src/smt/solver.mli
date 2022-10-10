@@ -7,6 +7,8 @@
     Theory implementors will mostly interact with {!SOLVER_INTERNAL}. *)
 
 open Sigs
+module Check_res = Sidekick_abstract_solver.Check_res
+module Unknown = Sidekick_abstract_solver.Unknown
 
 type t
 (** The solver's state. *)
@@ -24,19 +26,6 @@ val mk_theory :
   unit ->
   Theory.t
 (** Helper to create a theory. *)
-
-(* TODO *)
-module Unknown : sig
-  type t
-
-  val pp : t CCFormat.printer
-
-  (*
-    type unknown =
-      | U_timeout
-      | U_incomplete
-       *)
-end
 
 (** {3 Main API} *)
 
@@ -116,7 +105,7 @@ val assert_term : t -> term -> unit
 val add_ty : t -> ty -> unit
 
 (** Result of solving for the current set of clauses *)
-type res =
+type res = Check_res.t =
   | Sat of Model.t  (** Satisfiable *)
   | Unsat of {
       unsat_core: unit -> lit Iter.t;
@@ -131,23 +120,24 @@ type res =
 
 val solve :
   ?on_exit:(unit -> unit) list ->
-  ?check:bool ->
-  ?on_progress:(t -> unit) ->
-  ?should_stop:(t -> int -> bool) ->
+  ?on_progress:(unit -> unit) ->
+  ?should_stop:(int -> bool) ->
   assumptions:lit list ->
   t ->
   res
 (** [solve s] checks the satisfiability of the clauses added so far to [s].
-      @param check if true, the model is checked before returning.
       @param on_progress called regularly during solving.
       @param assumptions a set of atoms held to be true. The unsat core,
         if any, will be a subset of [assumptions].
-      @param should_stop a callback regularly called with the solver,
-        and with a number of "steps" done since last call. The exact notion
+      @param should_stop a callback regularly called from within the solver.
+        It is given a number of "steps" done since last call. The exact notion
         of step is not defined, but is guaranteed to increase regularly.
         The function should return [true] if it judges solving
         must stop (returning [Unknown]), [false] if solving can proceed.
       @param on_exit functions to be run before this returns *)
+
+val as_asolver : t -> Sidekick_abstract_solver.Asolver.t
+(** Comply to the abstract solver interface *)
 
 val last_res : t -> res option
 (** Last result, if any. Some operations will erase this (e.g. {!assert_term}). *)
@@ -183,8 +173,6 @@ val check_sat_propagations_only :
       - [PR_unsat …] if the assumptions were found to be unsatisfiable, with
         the given core.
   *)
-
-(* TODO: allow on_progress to return a bool to know whether to stop? *)
 
 val pp_stats : t CCFormat.printer
 (** Print some statistics. What it prints exactly is unspecified. *)

@@ -199,11 +199,12 @@ let main_smt ~config () : _ result =
             (Sidekick_smt_solver.Theory.name th_bool));
       [ th_bool; Driver.th_ty_unin; Driver.th_data; Driver.th_lra ]
     in
-    Solver.create_default ~tracer ~proof ~theories tst
+    Solver.Smt_solver.Solver.create_default ~tracer ~proof ~theories tst ()
   in
 
   let finally () =
-    if !p_stat then Format.printf "%a@." Solver.pp_stats solver
+    if !p_stat then
+      Format.printf "%a@." Solver.Smt_solver.Solver.pp_stats solver
   in
   CCFun.protect ~finally @@ fun () ->
   (* FIXME: emit an actual proof *)
@@ -215,7 +216,7 @@ let main_smt ~config () : _ result =
   in
   if !check then
     (* might have to check conflicts *)
-    Solver.add_theory solver Sidekick_smtlib.Check_cc.theory;
+    Solver.Smt_solver.Solver.add_theory solver Sidekick_smtlib.Check_cc.theory;
 
   let parse_res =
     let@ () = Profile.with_ "parse" ~args:[ "file", !file ] in
@@ -224,9 +225,10 @@ let main_smt ~config () : _ result =
 
   parse_res >>= fun input ->
   let driver =
+    let asolver = Solver.Smt_solver.Solver.as_asolver solver in
     Driver.create ~restarts:!restarts ~pp_cnf:!p_cnf ~time:!time_limit
       ~memory:!mem_limit ~pp_model:!p_model ?proof_file ~check:!check
-      ~progress:!p_progress solver
+      ~progress:!p_progress asolver
   in
 
   (* process statements *)
