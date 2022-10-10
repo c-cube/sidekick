@@ -81,6 +81,7 @@ module Solver = Sidekick_base__.Solver
 module Solver = Sidekick_base.Solver
 module Solver :
   sig
+...
     type t = Solver.t
 ...
 ```
