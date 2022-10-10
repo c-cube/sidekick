@@ -1,8 +1,7 @@
-(** {2 Conversion into {!Term.t}} *)
-
 open Sidekick_core
 module Profile = Sidekick_util.Profile
 open! Sidekick_base
+open Common_
 
 [@@@ocaml.warning "-32"]
 
@@ -10,65 +9,6 @@ type 'a or_error = ('a, string) CCResult.t
 
 module E = CCResult
 module Fmt = CCFormat
-module Solver = Sidekick_base.Solver
-
-module Check_cc = struct
-  module SI = Sidekick_smt_solver.Solver_internal
-  module MCC = Sidekick_mini_cc
-
-  let pp_c out c = Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∨ " Lit.pp) c
-
-  let pp_and out c =
-    Fmt.fprintf out "(@[%a@])" (Util.pp_list ~sep:" ∧ " Lit.pp) c
-
-  let add_cc_lit (cc : MCC.t) (lit : Lit.t) : unit =
-    let t = Lit.term lit in
-    MCC.add_lit cc t (Lit.sign lit)
-
-  (* check that this is a proper CC conflict *)
-  let check_conflict si _cc (confl : Lit.t list) : unit =
-    Log.debugf 15 (fun k -> k "(@[check-cc-conflict@ %a@])" pp_c confl);
-    let tst = SI.tst si in
-    let cc = MCC.create_default tst in
-    (* add [¬confl] and check it's unsat *)
-    List.iter (fun lit -> add_cc_lit cc @@ Lit.neg lit) confl;
-    if MCC.check_sat cc then
-      Error.errorf
-        "@[<2>check-cc-conflict:@ @[clause %a@]@ is not a UF tautology \
-         (negation is sat)@]"
-        pp_c confl
-    else
-      Log.debugf 15 (fun k -> k "(@[check-cc-conflict.ok@ %a@])" pp_c confl)
-
-  let check_propagation si _cc p reason : unit =
-    let reason = reason () in
-    Log.debugf 15 (fun k ->
-        k "(@[check-cc-prop@ %a@ :reason %a@])" Lit.pp p pp_and reason);
-    let tst = SI.tst si in
-    let cc = MCC.create_default tst in
-    (* add [reason & ¬lit] and check it's unsat *)
-    List.iter (add_cc_lit cc) reason;
-    add_cc_lit cc (Lit.neg p);
-    if MCC.check_sat cc then
-      Error.errorf
-        "@[<2>check-cc-prop:@ @[%a => %a@]@ is not a UF tautology (negation is \
-         sat)@]"
-        pp_and reason Lit.pp p
-    else
-      Log.debugf 15 (fun k ->
-          k "(@[check-cc-prop.ok@ @[%a => %a@]@])" pp_and reason Lit.pp p)
-
-  let theory =
-    Solver.mk_theory ~name:"cc-check"
-      ~create_and_setup:(fun ~id:_ si ->
-        let n_calls = Stat.mk_int (SI.stats si) "check-cc.call" in
-        SI.on_cc_conflict si (fun { cc; th; c } ->
-            if not th then (
-              Stat.incr n_calls;
-              check_conflict si cc c
-            )))
-      ()
-end
 
 (* TODO: use external proof checker instead: check-sat(φ + model)
    (* check SMT model *)
@@ -113,78 +53,85 @@ end
      Vec.iter check_c hyps
 *)
 
-let reset_line = "\x1b[2K\r"
-let start = Sys.time ()
-
-let mk_progress (_s : Solver.t) : _ -> unit =
-  let n = ref 0 in
-  let syms = "|\\-/" in
-  fun _s ->
-    let diff = Sys.time () -. start in
-    incr n;
-    (* TODO: print some core stats in the progress bar
-       let n_cl = Solver.pp_stats
-    *)
-    (* limit frequency *)
-    if float !n > 6. *. diff then (
-      let sym = String.get syms (!n mod String.length syms) in
-      Printf.printf "%s[%.2fs %c]" reset_line diff sym;
-      n := 0;
-      flush stdout
-    )
-
-let with_file_out (file : string) (f : out_channel -> 'a) : 'a =
-  if Filename.extension file = ".gz" then (
-    let p =
-      Unix.open_process_out
-        (Printf.sprintf "gzip -c - > \"%s\"" (String.escaped file))
-    in
-    CCFun.finally1 ~h:(fun () -> Unix.close_process_out p) f p
-  ) else
-    CCIO.with_out file f
+type t = {
+  progress: Progress_bar.t option;
+  solver: Solver.t;
+  time_start: float;
+  time_limit: float;
+  memory_limit: float;
+  proof_file: string option;
+  pp_model: bool;
+  pp_cnf: bool;
+  check: bool;
+  restarts: bool;
+}
 
 (* call the solver to check-sat *)
-let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
-    ?time ?memory ?(progress = false) ~assumptions s : Solver.res =
-  let t1 = Sys.time () in
-  let on_progress =
+let create ?(restarts = true) ?(pp_cnf = false) ?proof_file ?(pp_model = false)
+    ?(check = false) ?time ?memory ?(progress = false) (solver : Solver.t) : t =
+  let time_start = now () in
+  let progress =
     if progress then
-      Some (mk_progress s)
+      Some (Progress_bar.create ())
     else
       None
-  and clear_line () = if progress then Printf.printf "%s%!" reset_line in
+  in
 
-  let should_stop =
-    match time, memory with
-    | None, None -> None
-    | _ ->
-      let time = Option.value ~default:3600. time in
-      (* default: 1 hour *)
-      let memory = Option.value ~default:4e9 memory in
-      (* default: 4 GB *)
-      let stop _ _ =
-        if Sys.time () -. t1 > time then (
-          Log.debugf 0 (fun k -> k "timeout");
-          true
-        ) else if float (Gc.quick_stat ()).Gc.heap_words *. 8. > memory then (
-          Log.debugf 0 (fun k -> k "%S" "exceeded memory limit");
-          true
-        ) else
-          false
-      in
-      Some stop
+  let time_limit = Option.value ~default:3600. time in
+  (* default: 1 hour *)
+  let memory_limit = Option.value ~default:4e9 memory in
+
+  {
+    time_start;
+    restarts;
+    progress;
+    solver;
+    proof_file;
+    pp_model;
+    pp_cnf;
+    check;
+    time_limit;
+    memory_limit;
+  }
+
+let decl_sort (_self : t) c n : unit =
+  (* TODO: more? pass to abstract solver? *)
+  Log.debugf 1 (fun k -> k "(@[declare-sort %a@ :arity %d@])" ID.pp c n)
+
+let decl_fun (_self : t) id args ret : unit =
+  (* TODO: more? record for model building *)
+  Log.debugf 1 (fun k ->
+      k "(@[declare-fun %a@ :args (@[%a@])@ :ret %a@])" ID.pp id
+        (Util.pp_list Ty.pp) args Ty.pp ret)
+
+(* call the solver to check satisfiability *)
+let solve (self : t) ~assumptions () : Solver.res =
+  let t1 = now () in
+  let should_stop _ _ =
+    if now () -. self.time_start > self.time_limit then (
+      Log.debugf 0 (fun k -> k "timeout");
+      true
+    ) else if float (Gc.quick_stat ()).Gc.heap_words *. 8. > self.memory_limit
+      then (
+      Log.debugf 0 (fun k -> k "%S" "exceeded memory limit");
+      true
+    ) else
+      false
+  in
+
+  let on_progress =
+    Option.map (fun p _s -> Progress_bar.tick p) self.progress
   in
 
   let res =
     let@ () = Profile.with_ "process.solve" in
-    Solver.solve ~assumptions ?on_progress ?should_stop s
-    (* ?gc ?restarts ?time ?memory ?progress *)
+    Solver.solve ~assumptions ?on_progress ~should_stop self.solver
   in
-  let t2 = Sys.time () in
+  let t2 = now () in
   flush stdout;
   (match res with
   | Solver.Sat m ->
-    if pp_model then
+    if self.pp_model then
       (* TODO: use actual {!Model} in the solver? or build it afterwards *)
       Format.printf "(@[<hv1>model@ %a@])@." Sidekick_smt_solver.Model.pp m;
     (* TODO
@@ -193,11 +140,11 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
          CCOpt.iter (fun h -> check_smt_model (Solver.solver s) h m) hyps;
        );
     *)
-    let t3 = Sys.time () in
+    let t3 = now () in
     Fmt.printf "sat@.";
-    Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. start) (t2 -. t1) (t3 -. t2)
+    Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. time_start) (t2 -. t1) (t3 -. t2)
   | Solver.Unsat { unsat_step_id; unsat_core = _ } ->
-    if check then
+    if self.check then
       ()
     (* FIXME: check trace?
        match proof_opt with
@@ -206,12 +153,12 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
        | _ -> ()
     *);
 
-    (match proof_file with
+    (match self.proof_file with
     | Some file ->
       (match unsat_step_id () with
       | None -> ()
       | Some step_id ->
-        let proof = Solver.proof s in
+        let proof = Solver.proof self.solver in
         let proof_quip =
           Profile.with_ "proof.to-quip" @@ fun () -> assert false
           (* TODO
@@ -226,14 +173,14 @@ let solve ?gc:_ ?restarts:_ ?proof_file ?(pp_model = false) ?(check = false)
         flush oc)
     | _ -> ());
 
-    let t3 = Sys.time () in
+    let t3 = now () in
     Fmt.printf "unsat@.";
-    Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. start) (t2 -. t1) (t3 -. t2)
+    Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. time_start) (t2 -. t1) (t3 -. t2)
   | Solver.Unknown reas ->
     Fmt.printf "unknown@.";
     Fmt.printf "; @[<h>:reason %a@]@." Solver.Unknown.pp reas
   | exception exn ->
-    clear_line ();
+    Option.iter Progress_bar.clear_line self.progress;
     raise exn);
   res
 
@@ -241,24 +188,12 @@ let known_logics =
   [ "QF_UF"; "QF_LRA"; "QF_UFLRA"; "QF_DT"; "QF_UFDT"; "QF_LIA"; "QF_UFLIA" ]
 
 (* process a single statement *)
-let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
-    ?(check = false) ?time ?memory ?progress (solver : Solver.t)
-    (stmt : Statement.t) : unit or_error =
+let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
   let@ () = Profile.with_ "smtlib.process-stmt" in
   Log.debugf 5 (fun k ->
       k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
-  let decl_sort c n : unit =
-    Log.debugf 1 (fun k -> k "(@[declare-sort %a@ :arity %d@])" ID.pp c n)
-    (* TODO: more? *)
-  in
-  let decl_fun id args ret : unit =
-    Log.debugf 1 (fun k ->
-        k "(@[declare-fun %a@ :args (@[%a@])@ :ret %a@])" ID.pp id
-          (Util.pp_list Ty.pp) args Ty.pp ret)
-    (* TODO: more? *)
-  in
 
-  let add_step r = Proof_trace.add_step (Solver.proof solver) r in
+  let add_step r = Proof_trace.add_step (Solver.proof self.solver) r in
 
   match stmt with
   | Statement.Stmt_set_logic logic ->
@@ -276,47 +211,44 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
   | Statement.Stmt_check_sat l ->
     (* FIXME: how to map [l] to [assumptions] in proof? *)
     let assumptions =
-      List.map (fun (sign, t) -> Solver.mk_lit_t solver ~sign t) l
+      List.map (fun (sign, t) -> Solver.mk_lit_t self.solver ~sign t) l
     in
-    ignore
-      (solve ?gc ?restarts ~check ?pp_model ?proof_file ?time ?memory ?progress
-         ~assumptions solver
-        : Solver.res);
+    ignore (solve self ~assumptions () : Solver.res);
     E.return ()
   | Statement.Stmt_ty_decl (id, n) ->
-    decl_sort id n;
+    decl_sort self id n;
     E.return ()
   | Statement.Stmt_decl (f, ty_args, ty_ret) ->
-    decl_fun f ty_args ty_ret;
+    decl_fun self f ty_args ty_ret;
     E.return ()
   | Statement.Stmt_assert t ->
-    if pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
-    let lit = Solver.mk_lit_t solver t in
-    Solver.add_clause solver [| lit |]
+    if self.pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
+    let lit = Solver.mk_lit_t self.solver t in
+    Solver.add_clause self.solver [| lit |]
       (add_step @@ fun () -> Proof_sat.sat_input_clause [ lit ]);
     E.return ()
   | Statement.Stmt_assert_clause c_ts ->
-    if pp_cnf then
+    if self.pp_cnf then
       Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c_ts;
 
-    let c = CCList.map (fun t -> Solver.mk_lit_t solver t) c_ts in
+    let c = CCList.map (fun t -> Solver.mk_lit_t self.solver t) c_ts in
 
     (* proof of assert-input + preprocessing *)
     let pr =
       add_step @@ fun () ->
-      let lits = List.map (Solver.mk_lit_t solver) c_ts in
+      let lits = List.map (Solver.mk_lit_t self.solver) c_ts in
       Proof_sat.sat_input_clause lits
     in
 
-    Solver.add_clause solver (CCArray.of_list c) pr;
+    Solver.add_clause self.solver (CCArray.of_list c) pr;
     E.return ()
   | Statement.Stmt_get_model ->
-    (match Solver.last_res solver with
+    (match Solver.last_res self.solver with
     | Some (Solver.Sat m) -> Fmt.printf "%a@." Sidekick_smt_solver.Model.pp m
     | _ -> Error.errorf "cannot access model");
     E.return ()
   | Statement.Stmt_get_value l ->
-    (match Solver.last_res solver with
+    (match Solver.last_res self.solver with
     | Some (Solver.Sat m) ->
       let l =
         List.map
@@ -333,9 +265,11 @@ let process_stmt ?gc ?restarts ?(pp_cnf = false) ?proof_file ?pp_model
     | _ -> Error.errorf "cannot access model");
     E.return ()
   | Statement.Stmt_data ds ->
-    List.iter (fun d -> Solver.add_ty solver (Data_ty.data_as_ty d)) ds;
+    List.iter (fun d -> Solver.add_ty self.solver (Data_ty.data_as_ty d)) ds;
     E.return ()
-  | Statement.Stmt_define _ -> Error.errorf "cannot deal with definitions yet"
+  | Statement.Stmt_define _ ->
+    (* TODO *)
+    Error.errorf "cannot deal with definitions yet"
 
 open Sidekick_base
 

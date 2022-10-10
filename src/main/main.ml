@@ -10,7 +10,7 @@ module Fmt = CCFormat
 module Term = Sidekick_base.Term
 module Config = Sidekick_base.Config
 module Solver = Sidekick_smtlib.Solver
-module Process = Sidekick_smtlib.Process
+module Driver = Sidekick_smtlib.Driver
 module Proof = Sidekick_smtlib.Proof_trace
 open E.Infix
 
@@ -28,7 +28,6 @@ let check = ref false
 let time_limit = ref 300.
 let mem_limit = ref 1_000_000_000.
 let restarts = ref true
-let gc = ref true
 let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
@@ -77,8 +76,6 @@ let argspec =
         Arg.Set check,
         " build, check and print the proof (if output is set), if unsat" );
       "--no-check", Arg.Clear check, " inverse of -check";
-      "--gc", Arg.Set gc, " enable garbage collection";
-      "--no-gc", Arg.Clear gc, " disable garbage collection";
       "--restarts", Arg.Set restarts, " enable restarts";
       "--no-restarts", Arg.Clear restarts, " disable restarts";
       "--stat", Arg.Set p_stat, " print statistics";
@@ -196,13 +193,13 @@ let main_smt ~config () : _ result =
   let solver =
     (* TODO: probes, to load only required theories *)
     let theories =
-      let th_bool = Process.th_bool config in
+      let th_bool = Driver.th_bool config in
       Log.debugf 1 (fun k ->
           k "(@[main.th-bool.pick@ %S@])"
             (Sidekick_smt_solver.Theory.name th_bool));
-      [ th_bool; Process.th_ty_unin; Process.th_data; Process.th_lra ]
+      [ th_bool; Driver.th_ty_unin; Driver.th_data; Driver.th_lra ]
     in
-    Process.Solver.create_default ~tracer ~proof ~theories tst
+    Solver.create_default ~tracer ~proof ~theories tst
   in
 
   let finally () =
@@ -218,7 +215,7 @@ let main_smt ~config () : _ result =
   in
   if !check then
     (* might have to check conflicts *)
-    Solver.add_theory solver Process.Check_cc.theory;
+    Solver.add_theory solver Sidekick_smtlib.Check_cc.theory;
 
   let parse_res =
     let@ () = Profile.with_ "parse" ~args:[ "file", !file ] in
@@ -226,15 +223,15 @@ let main_smt ~config () : _ result =
   in
 
   parse_res >>= fun input ->
+  let driver =
+    Driver.create ~restarts:!restarts ~pp_cnf:!p_cnf ~time:!time_limit
+      ~memory:!mem_limit ~pp_model:!p_model ?proof_file ~check:!check
+      ~progress:!p_progress solver
+  in
+
   (* process statements *)
   let res =
-    try
-      E.fold_l
-        (fun () ->
-          Process.process_stmt ~gc:!gc ~restarts:!restarts ~pp_cnf:!p_cnf
-            ~time:!time_limit ~memory:!mem_limit ~pp_model:!p_model ?proof_file
-            ~check:!check ~progress:!p_progress solver)
-        () input
+    try E.fold_l (fun () stmt -> Driver.process_stmt driver stmt) () input
     with Exit -> E.return ()
   in
   res

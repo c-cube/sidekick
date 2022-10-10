@@ -1,6 +1,6 @@
-(** {1 SMTLib-2 Interface} *)
+(** SMTLib-2.6 Driver *)
 
-(** This library provides a parser, a type-checker, and a solver interface
+(** This library provides a parser, a type-checker, and a driver
     for processing SMTLib-2 problems.
 *)
 
@@ -8,9 +8,10 @@ type 'a or_error = ('a, string) CCResult.t
 
 module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
-module Process = Process
-module Solver = Process.Solver
+module Driver = Driver
+module Solver = Solver
 module Proof_trace = Sidekick_core.Proof_trace
+module Check_cc = Check_cc
 
 val parse : Term.store -> string -> Stmt.t list or_error
 val parse_stdin : Term.store -> Stmt.t list or_error

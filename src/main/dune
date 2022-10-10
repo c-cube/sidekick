@@ -7,7 +7,7 @@
  (modules main pure_sat_solver)
  (modes native)
  (libraries containers iter result sidekick.sat sidekick.core sidekick-base
-   sidekick.smt-solver sidekick-bin.smtlib sidekick.tef sidekick.drup
+   sidekick.smt-solver sidekick-base.smtlib sidekick.tef sidekick.drup
    sidekick.memtrace sidekick-bin.lib)
  (flags :standard -safe-string -color always -open Sidekick_util))
 

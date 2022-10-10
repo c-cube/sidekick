@@ -71,10 +71,6 @@
  (synopsis "SMT solver based on msat and CDCL(T) (standalone binary)")
  (depends
   zarith
-  (smtlib-utils
-   (and
-    (>= "0.1")
-    (< "0.4")))
   (sidekick
    (= :version))
   (sidekick-base

@@ -1,7 +1,5 @@
 (* This file is free software. See file "license" for more details. *)
 
-(** {1 Preprocessing AST} *)
-
 open! Sidekick_base
 module Loc = Smtlib_utils.V_2_6.Loc
 module PA = Smtlib_utils.V_2_6.Ast
@@ -16,9 +14,7 @@ type 'a or_error = ('a, string) CCResult.t
 
 let pp_loc_opt = Loc.pp_opt
 
-(** {2 Parsing} *)
-
-module StrTbl = CCHashtbl.Make (CCString)
+module StrTbl = Util.Str_tbl
 
 module Ctx = struct
   type kind = K_ty of ty_kind | K_fun of Term.t

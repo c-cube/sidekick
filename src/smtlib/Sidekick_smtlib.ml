@@ -1,12 +1,11 @@
-(** {1 Process Statements} *)
-
 module Loc = Smtlib_utils.V_2_6.Loc
 module Parse_ast = Smtlib_utils.V_2_6.Ast
-module Process = Process
-module Solver = Process.Solver
+module Driver = Driver
+module Solver = Solver
 module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
 module Proof_trace = Sidekick_core.Proof_trace
+module Check_cc = Check_cc
 
 type 'a or_error = ('a, string) CCResult.t
 
