@@ -129,7 +129,7 @@ Let's look at some basic terms we can build immediately.
 - : Term.term = false
 
 # Term.eq tstore (Term.true_ tstore) (Term.false_ tstore);;
-- : Term.term = (= Bool true false)
+- : Term.term = (= Bool false true)
 ```
 
 Cool. Similarly, we need to manipulate types.
