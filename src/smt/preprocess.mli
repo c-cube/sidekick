@@ -14,7 +14,7 @@ type t
 
 val create :
   ?stat:Stat.t ->
-  proof:proof_trace ->
+  proof:#Proof.Tracer.t ->
   cc:CC.t ->
   simplify:Simplify.t ->
   Term.store ->
@@ -22,7 +22,7 @@ val create :
 
 (** Actions given to preprocessor hooks *)
 module type PREPROCESS_ACTS = sig
-  val proof : proof_trace
+  val proof_tracer : Proof.Tracer.t
 
   val mk_lit : ?sign:bool -> term -> lit
   (** [mk_lit t] creates a new literal for a boolean term [t]. *)

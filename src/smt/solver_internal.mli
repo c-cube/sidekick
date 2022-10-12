@@ -13,8 +13,8 @@ type solver = t
 val tst : t -> term_store
 val stats : t -> Stat.t
 
-val proof : t -> proof_trace
-(** Access the proof object *)
+val tracer : t -> Tracer.t
+(** Access the tracer object *)
 
 val registry : t -> Registry.t
 (** A solver contains a registry so that theories can share data *)
@@ -121,11 +121,13 @@ val propagate_l : t -> theory_actions -> lit -> lit list -> step_id -> unit
 (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-val add_clause_temp : t -> theory_actions -> lit list -> step_id -> unit
+val add_clause_temp :
+  t -> theory_actions -> lit list -> Proof.Pterm.delayed -> unit
 (** Add local clause to the SAT solver. This clause will be
       removed when the solver backtracks. *)
 
-val add_clause_permanent : t -> theory_actions -> lit list -> step_id -> unit
+val add_clause_permanent :
+  t -> theory_actions -> lit list -> Proof.Pterm.delayed -> unit
 (** Add toplevel clause to the SAT solver. This clause will
       not be backtracked. *)
 
@@ -150,7 +152,7 @@ val cc_find : t -> E_node.t -> E_node.t
 val cc_are_equal : t -> term -> term -> bool
 (** Are these two terms equal in the congruence closure? *)
 
-val cc_resolve_expl : t -> CC_expl.t -> lit list * step_id
+val cc_resolve_expl : t -> CC_expl.t -> lit list * Proof.Pterm.delayed
 
 (*
   val cc_raise_conflict_expl : t -> theory_actions -> CC_expl.t -> 'a
@@ -284,10 +286,4 @@ val add_theory_state :
   unit
 
 val create :
-  (module ARG) ->
-  stat:Stat.t ->
-  tracer:Tracer.t ->
-  proof:Proof_trace.t ->
-  Term.store ->
-  unit ->
-  t
+  (module ARG) -> stat:Stat.t -> tracer:#Tracer.t -> Term.store -> unit -> t

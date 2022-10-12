@@ -11,8 +11,6 @@ module Check_res = Sidekick_abstract_solver.Check_res
 module Sat_solver = Sidekick_sat
 (** the parametrized SAT Solver *)
 
-(** {2 Result} *)
-
 module Unknown = Sidekick_abstract_solver.Unknown [@@ocaml.warning "-37"]
 
 type res = Check_res.t =

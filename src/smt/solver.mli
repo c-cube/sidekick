@@ -31,15 +31,14 @@ val mk_theory :
 
 val stats : t -> Stat.t
 val tst : t -> Term.store
-val proof : t -> proof_trace
+val tracer : t -> #Tracer.t
 
 val create :
   (module ARG) ->
   ?stat:Stat.t ->
   ?size:[ `Big | `Tiny | `Small ] ->
   (* TODO? ?config:Config.t -> *)
-  ?tracer:Tracer.t ->
-  proof:proof_trace ->
+  tracer:Tracer.t ->
   theories:Theory.t list ->
   Term.store ->
   unit ->
@@ -61,8 +60,7 @@ val create_default :
   ?stat:Stat.t ->
   ?size:[ `Big | `Tiny | `Small ] ->
   (* TODO? ?config:Config.t -> *)
-  ?tracer:Tracer.t ->
-  proof:proof_trace ->
+  tracer:Tracer.t ->
   theories:Theory.t list ->
   Term.store ->
   unit ->

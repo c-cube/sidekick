@@ -39,7 +39,7 @@ type preprocess_hook =
 type t = {
   tst: Term.store;  (** state for managing terms *)
   cc: CC.t;  (** congruence closure *)
-  proof: proof_trace;  (** proof logger *)
+  tracer: Tracer.t;
   registry: Registry.t;
   seen_types: Term.Weak_set.t;  (** types we've seen so far *)
   on_progress: (unit, unit) Event.Emitter.t;
@@ -58,7 +58,6 @@ type t = {
   mutable level: int;
   mutable complete: bool;
   stat: Stat.t;
-  tracer: Tracer.t; [@ocaml.warning "-69"]
   count_axiom: int Stat.counter;
   count_conflict: int Stat.counter;
   count_propagate: int Stat.counter;
@@ -73,7 +72,7 @@ type solver = t
 
 let[@inline] cc (self : t) = self.cc
 let[@inline] tst self = self.tst
-let[@inline] proof self = self.proof
+let[@inline] tracer self = self.tracer
 let stats self = self.stat
 let registry self = self.registry
 let simplifier self = self.simp
@@ -111,7 +110,7 @@ let add_sat_clause_ self (acts : theory_actions) ~keep lits (proof : step_id) :
     unit =
   let (module A) = acts in
   Stat.incr self.count_axiom;
-  A.add_clause ~keep lits proof
+  A.add_clause ~keep lits (fun () -> Proof.Pterm.ref proof)
 
 let add_sat_lit_ _self ?default_pol (acts : theory_actions) (lit : Lit.t) : unit
     =
@@ -129,7 +128,7 @@ let delayed_add_clause (self : t) ~keep (c : Lit.t list) (pr : step_id) : unit =
 
 let preprocess_acts (self : t) : Preprocess.preprocess_actions =
   (module struct
-    let proof = self.proof
+    let proof_tracer = (self.tracer :> Proof.Tracer.t)
     let mk_lit ?sign t : Lit.t = Lit.atom ?sign self.tst t
     let add_clause c pr = delayed_add_clause self ~keep:true c pr
     let add_lit ?default_pol lit = delayed_add_lit self ?default_pol lit
@@ -307,7 +306,7 @@ let cc_are_equal self t1 t2 =
 
 let cc_resolve_expl self e : lit list * _ =
   let r = CC.explain_expl (cc self) e in
-  r.lits, r.pr self.proof
+  r.lits, r.pr
 
 (** {2 Interface with the SAT solver} *)
 
@@ -411,7 +410,7 @@ let check_cc_with_acts_ (self : t) (acts : theory_actions) =
       acts
   | Error (CC.Result_action.Conflict (lits, pr)) ->
     Stat.incr self.count_conflict;
-    A.raise_conflict lits pr
+    A.raise_conflict lits (fun () -> Proof.Pterm.ref pr)
 
 (* handle a literal assumed by the SAT solver *)
 let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
@@ -521,16 +520,18 @@ let add_theory_state ~st ~push_level ~pop_levels (self : t) =
   self.th_states <-
     Ths_cons { st; push_level; pop_levels; next = self.th_states }
 
-let create (module A : ARG) ~stat ~tracer ~proof (tst : Term.store) () : t =
-  let simp = Simplify.create tst ~proof in
-  let cc = CC.create (module A : CC.ARG) ~size:`Big tst proof in
-  let preprocess = Preprocess.create ~stat ~proof ~cc ~simplify:simp tst in
+let create (module A : ARG) ~stat ~tracer (tst : Term.store) () : t =
+  let tracer = (tracer : #Tracer.t :> Tracer.t) in
+  let simp = Simplify.create tst ~proof:tracer in
+  let cc = CC.create (module A : CC.ARG) ~size:`Big tst tracer in
+  let preprocess =
+    Preprocess.create ~stat ~proof:tracer ~cc ~simplify:simp tst
+  in
   let find_foreign = Find_foreign.create () in
   let self =
     {
       tst;
       cc;
-      proof;
       tracer;
       th_states = Ths_nil;
       stat;

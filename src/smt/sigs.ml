@@ -18,14 +18,14 @@ module Simplify = Sidekick_simplify
 module CC = Sidekick_cc.CC
 module E_node = Sidekick_cc.E_node
 module CC_expl = Sidekick_cc.Expl
+module Proof = Sidekick_proof
 
 type term = Term.t
 type ty = term
 type value = Term.t
 type lit = Lit.t
 type term_store = Term.store
-type proof_trace = Proof_trace.t
-type step_id = Proof_step.id
+type step_id = Sidekick_proof.Step.id
 
 (* actions from the sat solver *)
 type sat_acts = Sidekick_sat.acts

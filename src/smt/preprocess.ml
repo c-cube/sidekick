@@ -1,7 +1,7 @@
 open Sigs
 
 module type PREPROCESS_ACTS = sig
-  val proof : proof_trace
+  val proof_tracer : Proof.Tracer.t
   val mk_lit : ?sign:bool -> term -> lit
   val add_clause : lit list -> step_id -> unit
   val add_lit : ?default_pol:bool -> lit -> unit
@@ -13,7 +13,7 @@ type t = {
   tst: Term.store;  (** state for managing terms *)
   cc: CC.t;
   simplify: Simplify.t;
-  proof: proof_trace;
+  proof: Proof.Tracer.t;
   mutable preprocess: preprocess_hook list;
   preprocessed: Term.t Term.Tbl.t;
   n_preprocess_clause: int Stat.counter;
@@ -28,6 +28,7 @@ and preprocess_hook =
   term option
 
 let create ?(stat = Stat.global) ~proof ~cc ~simplify tst : t =
+  let proof = (proof : #Proof.Tracer.t :> Proof.Tracer.t) in
   {
     tst;
     proof;
@@ -130,8 +131,8 @@ module Preprocess_clause (A : ARR) = struct
         pr_c
       else (
         Stat.incr self.n_preprocess_clause;
-        Proof_trace.add_step self.proof @@ fun () ->
-        Proof_core.lemma_rw_clause pr_c ~res:(A.to_list c') ~using:!steps
+        Proof.Tracer.add_step self.proof @@ fun () ->
+        Proof.Core_rules.lemma_rw_clause pr_c ~res:(A.to_list c') ~using:!steps
       )
     in
     c', pr_c'
