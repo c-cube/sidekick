@@ -18,10 +18,8 @@
 
 (** {2 Exports} *)
 
-module Entry_view = Entry_view
 module Sink = Sink
 module Source = Source
 module Entry_id = Entry_id
 
 type entry_id = Entry_id.t
-type entry_view = Entry_view.t = ..
