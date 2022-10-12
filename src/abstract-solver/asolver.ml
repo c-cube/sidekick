@@ -48,7 +48,7 @@ class type t =
     (** Returns the result of the last call to {!solve}, if the logic statee
         has not changed (mostly by asserting new clauses). *)
 
-    method proof_tracer : #Proof.Tracer.t
+    method proof_tracer : Proof.Tracer.t
     (** TODO: remove, use Tracer instead *)
   end
 

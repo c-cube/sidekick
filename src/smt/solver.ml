@@ -2,8 +2,6 @@ open Sigs
 
 open struct
   module SI = Solver_internal
-  module P = Proof_trace
-  module Rule_ = Proof_core
 end
 
 module Check_res = Sidekick_abstract_solver.Check_res
@@ -18,7 +16,7 @@ type res = Check_res.t =
   | Unsat of {
       unsat_core: unit -> lit Iter.t;
           (** Unsat core (subset of assumptions), or empty *)
-      unsat_step_id: unit -> step_id option;
+      unsat_proof: unit -> step_id option;
           (** Proof step for the empty clause *)
     }  (** Unsatisfiable *)
   | Unknown of Unknown.t
@@ -30,7 +28,6 @@ type t = {
   solver: Sat_solver.t;
   mutable last_res: res option;
   stat: Stat.t;
-  proof: P.t;
   tracer: Tracer.t; [@ocaml.warn "-69"]
   theory_id_gen: Theory_id.state;
   n_clause_input: int Stat.counter;
@@ -63,18 +60,15 @@ let add_theory (self : t) (th : theory) : unit =
 let add_theory_l self = List.iter (add_theory self)
 
 (* create a new solver *)
-let create arg ?(stat = Stat.global) ?size ?(tracer = Tracer.dummy) ~proof
-    ~theories tst () : t =
+let create arg ?(stat = Stat.global) ?size ~tracer ~theories tst () : t =
   Log.debug 5 "smt-solver.create";
-  let si = Solver_internal.create arg ~tracer ~stat ~proof tst () in
+  let si = Solver_internal.create arg ~stat ~tracer tst () in
   let self =
     {
       si;
-      proof;
       tracer;
       last_res = None;
-      solver =
-        Sat_solver.create ~proof ?size ~tracer ~stat (SI.to_sat_plugin si);
+      solver = Sat_solver.create ?size ~tracer ~stat (SI.to_sat_plugin si);
       stat;
       theory_id_gen = Theory_id.create ();
       n_clause_input = Stat.mk_int stat "smt.solver.add-clause.input";
@@ -88,7 +82,7 @@ let create arg ?(stat = Stat.global) ?size ?(tracer = Tracer.dummy) ~proof
    let t_true = Term.true_ tst in
    Sat_solver.add_clause self.solver
      [ Lit.atom tst t_true ]
-     (P.add_step self.proof @@ fun () -> Rule_.lemma_true t_true));
+     (fun () -> Proof.Core_rules.lemma_true t_true));
   self
 
 let default_arg =
@@ -96,13 +90,13 @@ let default_arg =
     let view_as_cc = Default_cc_view.view_as_cc
   end : ARG)
 
-let create_default ?stat ?size ?tracer ~proof ~theories tst () : t =
-  create default_arg ?stat ?size ?tracer ~proof ~theories tst ()
+let create_default ?stat ?size ~tracer ~theories tst () : t =
+  create default_arg ?stat ?size ~tracer ~theories tst ()
 
 let[@inline] solver self = self.solver
 let[@inline] stats self = self.stat
 let[@inline] tst self = Solver_internal.tst self.si
-let[@inline] proof self = self.proof
+let[@inline] tracer self = self.tracer
 let[@inline] last_res self = self.last_res
 let[@inline] registry self = Solver_internal.registry self.si
 let reset_last_res_ self = self.last_res <- None
@@ -132,7 +126,9 @@ let add_clause_nopreproc_ ~internal (self : t) (c : lit array) (proof : step_id)
   Log.debugf 50 (fun k ->
       k "(@[solver.add-clause@ %a@])" (Util.pp_array Lit.pp) c);
   let pb = Profile.begin_ "add-clause" in
-  Sat_solver.add_clause_a self.solver (c :> lit array) proof;
+  Sat_solver.add_clause_a self.solver
+    (c :> lit array)
+    (fun () -> Proof.Pterm.ref proof);
   Profile.exit pb
 
 let add_clause_nopreproc_l_ ~internal self c p =
@@ -148,9 +144,10 @@ module Perform_delayed_ = Solver_internal.Perform_delayed (struct
     Sat_solver.add_lit solver.solver ?default_pol lit
 end)
 
-let add_clause (self : t) (c : lit array) (proof : step_id) : unit =
+let add_clause (self : t) (c : lit array) (proof : Proof.Pterm.delayed) : unit =
+  let proof = Proof.Tracer.add_step self.tracer proof in
   let c, proof = preprocess_clause_ self c proof in
-  Tracer.assert_clause' self.tracer ~id:0 (Iter.of_array c);
+  Tracer.assert_clause' self.tracer ~id:0 (Iter.of_array c) proof;
   add_clause_nopreproc_ ~internal:false self c proof;
   Perform_delayed_.top self.si self;
   (* finish preproc *)
@@ -160,7 +157,7 @@ let add_clause_l self c p = add_clause self (CCArray.of_list c) p
 
 let assert_terms self c =
   let c = CCList.map (Lit.atom (tst self)) c in
-  let pr_c = P.add_step self.proof @@ fun () -> Proof_sat.sat_input_clause c in
+  let pr_c () = Proof.Sat_rules.sat_input_clause c in
   add_clause_l self c pr_c
 
 let assert_term self t = assert_terms self [ t ]
@@ -213,9 +210,9 @@ let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
       Sat m
     | Sat_solver.Unsat (module UNSAT) ->
       let unsat_core () = UNSAT.unsat_assumptions () in
-      let unsat_step_id () = Some (UNSAT.unsat_proof ()) in
+      let unsat_proof () = Some (UNSAT.unsat_proof ()) in
       do_on_exit ();
-      Unsat { unsat_core; unsat_step_id }
+      Unsat { unsat_core; unsat_proof }
     | exception Resource_exhausted -> Unknown Unknown.U_asked_to_stop
   in
   self.last_res <- Some res;
@@ -227,7 +224,7 @@ let as_asolver (self : t) : Sidekick_abstract_solver.Asolver.t =
     method assert_clause c p : unit = add_clause self c p
     method assert_clause_l c p : unit = add_clause_l self c p
     method lit_of_term ?sign t : Lit.t = mk_lit_t self ?sign t
-    method proof = self.proof
+    method proof_tracer = (self.tracer :> Proof.Tracer.t)
     method last_res = last_res self
     method add_ty ~ty = add_ty self ty
 

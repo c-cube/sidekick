@@ -246,14 +246,16 @@ let simplify_and_preproc_lit self lit =
   find_foreign_vars_in_lit self lit;
   lit, pr
 
-let add_clause_temp self _acts c (proof : step_id) : unit =
+let add_clause_temp self _acts c (proof : Proof.Pterm.delayed) : unit =
+  let proof = Proof.Tracer.add_step self.tracer proof in
   let c, proof =
     Preprocess.preprocess_clause self.preprocess (preprocess_acts self) c proof
   in
   find_foreign_vars_in_lits self c;
   delayed_add_clause self ~keep:false c proof
 
-let add_clause_permanent self _acts c (proof : step_id) : unit =
+let add_clause_permanent self _acts c (proof : Proof.Pterm.delayed) : unit =
+  let proof = Proof.Tracer.add_step self.tracer proof in
   let c, proof =
     Preprocess.preprocess_clause self.preprocess (preprocess_acts self) c proof
   in

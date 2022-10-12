@@ -31,7 +31,7 @@ val mk_theory :
 
 val stats : t -> Stat.t
 val tst : t -> Term.store
-val tracer : t -> #Tracer.t
+val tracer : t -> Tracer.t
 
 val create :
   (module ARG) ->
@@ -85,11 +85,11 @@ val mk_lit_t : t -> ?sign:bool -> term -> lit
 
       The proof of [|- lit = lit'] is directly added to the solver's proof. *)
 
-val add_clause : t -> lit array -> step_id -> unit
+val add_clause : t -> lit array -> Proof.Pterm.delayed -> unit
 (** [add_clause solver cs] adds a boolean clause to the solver.
     Subsequent calls to {!solve} will need to satisfy this clause. *)
 
-val add_clause_l : t -> lit list -> step_id -> unit
+val add_clause_l : t -> lit list -> Proof.Pterm.delayed -> unit
 (** Add a clause to the solver, given as a list. *)
 
 val assert_terms : t -> term list -> unit
@@ -108,7 +108,7 @@ type res = Check_res.t =
   | Unsat of {
       unsat_core: unit -> lit Iter.t;
           (** Unsat core (subset of assumptions), or empty *)
-      unsat_step_id: unit -> step_id option;
+      unsat_proof: unit -> step_id option;
           (** Proof step for the empty clause *)
     }  (** Unsatisfiable *)
   | Unknown of Unknown.t

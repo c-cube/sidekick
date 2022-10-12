@@ -103,7 +103,8 @@ val on_find_foreign : t -> Find_foreign.hook -> unit
 
 (** {3 hooks for the theory} *)
 
-val raise_conflict : t -> theory_actions -> lit list -> step_id -> 'a
+val raise_conflict :
+  t -> theory_actions -> lit list -> Proof.Pterm.delayed -> 'a
 (** Give a conflict clause to the solver *)
 
 val push_decision : t -> theory_actions -> lit -> unit
@@ -113,11 +114,16 @@ val push_decision : t -> theory_actions -> lit -> unit
       and forgotten. *)
 
 val propagate :
-  t -> theory_actions -> lit -> reason:(unit -> lit list * step_id) -> unit
+  t ->
+  theory_actions ->
+  lit ->
+  reason:(unit -> lit list * Proof.Pterm.delayed) ->
+  unit
 (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
-val propagate_l : t -> theory_actions -> lit -> lit list -> step_id -> unit
+val propagate_l :
+  t -> theory_actions -> lit -> lit list -> Proof.Pterm.delayed -> unit
 (** Propagate a boolean using a unit clause.
       [expl => lit] must be a theory lemma, that is, a T-tautology *)
 
@@ -204,7 +210,8 @@ val on_cc_conflict : t -> (CC.ev_on_conflict -> unit) -> unit
 
 val on_cc_propagate :
   t ->
-  (CC.t * lit * (unit -> lit list * step_id) -> CC.Handler_action.t list) ->
+  (CC.t * lit * (unit -> lit list * Proof.Pterm.delayed) ->
+  CC.Handler_action.t list) ->
   unit
 (** Callback called on every CC propagation *)
 
