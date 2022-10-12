@@ -17,6 +17,7 @@ module Fmt = CCFormat
 (** {2 Re-exports from core-logic} *)
 
 module Const = Sidekick_core_logic.Const
+module Str_const = Sidekick_core_logic.Str_const
 
 module Term = struct
   include Sidekick_core_logic.Term
@@ -24,9 +25,8 @@ module Term = struct
   include T_printer
   module Tracer = T_tracer
   module Trace_reader = T_trace_reader
+  module Ref = T_ref
 end
-
-module Gensym = Gensym
 
 (** {2 view} *)
 
@@ -38,14 +38,20 @@ module Default_cc_view = Default_cc_view
 
 module Bvar = Sidekick_core_logic.Bvar
 module Lit = Lit
-module Proof_step = Proof_step
-module Proof_core = Proof_core
-module Proof_sat = Proof_sat
-module Proof_trace = Proof_trace
-module Proof_term = Proof_term
 module Subst = Sidekick_core_logic.Subst
 module Var = Sidekick_core_logic.Var
 module Box = Box
 module Clause_tracer = Clause_tracer
+module Gensym = Gensym
 
 exception Resource_exhausted
+
+(** {2 Const decoders for traces} *)
+
+let const_decoders =
+  List.flatten
+    [
+      Sidekick_core_logic.T_builtins.const_decoders;
+      T_ref.const_decoders;
+      Box.const_decoders;
+    ]

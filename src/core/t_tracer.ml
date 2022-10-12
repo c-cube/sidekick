@@ -3,18 +3,6 @@ module Tr = Sidekick_trace
 module T = Term
 
 type term_ref = Tr.entry_id
-
-type Tr.entry_view +=
-  | T_ty of int
-  | T_app of term_ref * term_ref
-  | T_var of string * term_ref
-  | T_bvar of int * term_ref
-  | T_const of { c: Const.view; c_ops: Const.Ops.t; ty: term_ref }
-  | T_lam of { v_name: string; v_ty: term_ref; body: term_ref }
-  | T_pi of { v_name: string; v_ty: term_ref; body: term_ref }
-  (* FIXME: remove when we decode *)
-  [@@ocaml.warning "-38"]
-
 type state = { sink: Tr.Sink.t; emitted: Tr.Entry_id.t T.Weak_map.t }
 
 let emit_term_ (self : state) (t : Term.t) =
