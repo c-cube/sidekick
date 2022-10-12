@@ -62,9 +62,7 @@ let show_file ~dump file : unit =
   let t_reader =
     Smt.Trace_reader.create tst src
       ~const_decoders:
-        [
-          Term.const_decoders; Box.const_decoders; Sidekick_base.const_decoders;
-        ]
+        [ Sidekick_core.const_decoders; Sidekick_base.const_decoders ]
   in
 
   let st = { t_reader; src; dump } in
