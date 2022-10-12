@@ -243,8 +243,7 @@ end
 type t = {
   store: store; (* atom/var/clause store *)
   plugin: plugin; (* user defined theory *)
-  proof: Proof_trace.t; (* the proof object *)
-  tracer: Clause_tracer.t;
+  tracer: Tracer.t;
   (* Clauses are simplified for efficiency purposes. In the following
      vectors, the comments actually refer to the original non-simplified
      clause. *)
@@ -307,8 +306,7 @@ let restart_first = 100
 let _nop_on_conflict (_ : atom array) = ()
 
 (* Starting environment. *)
-let create_ ~store ~proof ~tracer ~stat ~max_clauses_learnt (plugin : plugin) :
-    t =
+let create_ ~store ~tracer ~stat ~max_clauses_learnt (plugin : plugin) : t =
   {
     store;
     plugin;
@@ -335,7 +333,6 @@ let create_ ~store ~proof ~tracer ~stat ~max_clauses_learnt (plugin : plugin) :
     order = H.create store;
     var_incr = 1.;
     clause_incr = 1.;
-    proof;
     stat;
     n_conflicts = Stat.mk_int stat "sat.n-conflicts";
     n_decisions = Stat.mk_int stat "sat.n-decisions";
@@ -442,7 +439,7 @@ exception Trivial
 (* get/build the proof for [a], which must be an atom true at level 0.
    This uses a global cache to avoid repeated computations, as many clauses
    might resolve against a given 0-level atom. *)
-let rec proof_of_atom_lvl0_ (self : t) (a : atom) : Proof_step.id =
+let rec proof_of_atom_lvl0_ (self : t) (a : atom) : Proof.Step.id =
   assert (Atom.is_true self.store a && Atom.level self.store a = 0);
 
   match Atom.proof_lvl0 self.store a with
@@ -475,8 +472,8 @@ let rec proof_of_atom_lvl0_ (self : t) (a : atom) : Proof_step.id =
         if !steps = [] then
           proof_c2
         else
-          Proof_trace.add_step self.proof @@ fun () ->
-          Proof_sat.sat_redundant_clause
+          Proof.Tracer.add_step self.tracer @@ fun () ->
+          Proof.Sat_rules.sat_redundant_clause
             [ Atom.lit self.store a ]
             ~hyps:Iter.(cons proof_c2 (of_list !steps))
     in
@@ -567,12 +564,12 @@ let preprocess_clause_ (self : t) (c : Clause.t) : Clause.t =
         k "(@[sat.add-clause.resolved-lvl-0@ :into [@[%a@]]@])"
           (Atom.debug_a store) atoms);
     let proof =
-      Proof_trace.add_step self.proof @@ fun () ->
+      Proof.Tracer.add_step self.tracer @@ fun () ->
       let lits = Util.array_to_list_map (Atom.lit store) atoms in
       let hyps =
         Iter.(cons (Clause.proof_step self.store c) (of_list !res0_proofs))
       in
-      Proof_sat.sat_redundant_clause lits ~hyps
+      Proof.Sat_rules.sat_redundant_clause lits ~hyps
     in
     Clause.make_a store atoms proof ~removable:(Clause.removable store c)
   )
@@ -679,9 +676,8 @@ let report_unsat self (us : unsat_cause) : _ =
       self.unsat_at_0 <- Some c;
       Event.emit self.on_learnt c;
       let p = Clause.proof_step self.store c in
-      Proof_trace.add_unsat self.proof p;
-      Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int c) Iter.empty;
-      Clause_tracer.unsat_clause' self.tracer ~id:(Clause.to_int c);
+      Tracer.assert_clause' self.tracer ~id:(Clause.to_int c) Iter.empty p;
+      Tracer.unsat_clause' self.tracer ~id:(Clause.to_int c);
       US_false c
     | US_local _ -> us
   in
@@ -784,7 +780,7 @@ let lit_redundant (self : t) (abstract_levels : int) (steps : Step_vec.t)
     | Some (Bcp c | Bcp_lazy (lazy c)) ->
       let c_atoms = Clause.atoms_a store c in
       assert (Var.equal v (Atom.var c_atoms.(0)));
-      if Proof_trace.enabled self.proof then
+      if Proof.Tracer.enabled self.tracer then
         Step_vec.push steps (Clause.proof_step self.store c);
 
       (* check that all the other lits of [c] are marked or redundant *)
@@ -797,7 +793,7 @@ let lit_redundant (self : t) (abstract_levels : int) (steps : Step_vec.t)
           | _ when lvl_v2 = 0 ->
             (* can always remove literals at level 0, but got
                to update proof properly *)
-            if Proof_trace.enabled self.proof then (
+            if Proof.Tracer.enabled self.tracer then (
               let p = proof_of_atom_lvl0_ self (Atom.neg c_atoms.(i)) in
               Step_vec.push steps p
             )
@@ -915,7 +911,7 @@ let analyze (self : t) (c_clause : clause) : conflict_res =
           k "(@[sat.analyze-conflict.resolve@ %a@])" (Clause.debug store) clause);
 
       if Clause.removable store clause then clause_bump_activity self clause;
-      if Proof_trace.enabled self.proof then
+      if Proof.Tracer.enabled self.tracer then
         Step_vec.push steps (Clause.proof_step self.store clause);
 
       (* visit the current predecessors *)
@@ -927,7 +923,7 @@ let analyze (self : t) (c_clause : clause) : conflict_res =
         if Atom.level store q = 0 then (
           (* skip [q] entirely, resolved away at level 0 *)
           assert (Atom.is_false store q);
-          if Proof_trace.enabled self.proof then (
+          if Proof.Tracer.enabled self.tracer then (
             let step = proof_of_atom_lvl0_ self (Atom.neg q) in
             Step_vec.push steps step
           )
@@ -1018,13 +1014,15 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
     assert (cr.cr_backtrack_lvl = 0 && decision_level self = 0);
 
     let p =
-      Proof_trace.add_step self.proof @@ fun () ->
+      Proof.Tracer.add_step self.tracer @@ fun () ->
       let lits = Util.array_to_list_map (Atom.lit self.store) cr.cr_learnt in
-      Proof_sat.sat_redundant_clause lits ~hyps:(Step_vec.to_iter cr.cr_steps)
+      Proof.Sat_rules.sat_redundant_clause lits
+        ~hyps:(Step_vec.to_iter cr.cr_steps)
     in
     let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
-    Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int uclause)
-      (Clause.lits_iter store uclause);
+    Tracer.assert_clause' self.tracer ~id:(Clause.to_int uclause)
+      (Clause.lits_iter store uclause)
+      p;
     Event.emit self.on_learnt uclause;
 
     if Atom.is_false store fuip then
@@ -1036,13 +1034,15 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
   | _ ->
     let fuip = cr.cr_learnt.(0) in
     let p =
-      Proof_trace.add_step self.proof @@ fun () ->
+      Proof.Tracer.add_step self.tracer @@ fun () ->
       let lits = Util.array_to_list_map (Atom.lit self.store) cr.cr_learnt in
-      Proof_sat.sat_redundant_clause lits ~hyps:(Step_vec.to_iter cr.cr_steps)
+      Proof.Sat_rules.sat_redundant_clause lits
+        ~hyps:(Step_vec.to_iter cr.cr_steps)
     in
     let lclause = Clause.make_a store ~removable:true cr.cr_learnt p in
-    Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int lclause)
-      (Clause.lits_iter store lclause);
+    Tracer.assert_clause' self.tracer ~id:(Clause.to_int lclause)
+      (Clause.lits_iter store lclause)
+      p;
 
     add_clause_to_vec_ ~pool self lclause;
     attach_clause self lclause;
@@ -1080,8 +1080,10 @@ let add_clause_ (self : t) ~pool (init : clause) : unit =
   let store = self.store in
   Log.debugf 30 (fun k ->
       k "(@[sat.add-clause@ @[<hov>%a@]@])" (Clause.debug store) init);
-  Clause_tracer.assert_clause' self.tracer ~id:(Clause.to_int init)
-    (Clause.lits_iter store init);
+  let p = Clause.proof_step self.store init in
+  Tracer.assert_clause' self.tracer ~id:(Clause.to_int init)
+    (Clause.lits_iter store init)
+    p;
   (* Insertion of new lits is done before simplification. Indeed, else a lit in a
      trivial clause could end up being not decided on, which is a bug. *)
   Clause.iter store init ~f:(fun x -> insert_var_order self (Atom.var x));
@@ -1220,10 +1222,11 @@ let propagate_atom (self : t) a : unit =
 
 exception Th_conflict of Clause.t
 
-let acts_add_clause self ?(keep = false) (l : Lit.t list) (p : Proof_step.id) :
-    unit =
+let acts_add_clause self ?(keep = false) (l : Lit.t list)
+    (p : Proof.Pterm.delayed) : unit =
   let atoms = List.rev_map (make_atom_ self) l in
   let removable = not keep in
+  let p = Proof.Tracer.add_step self.tracer p in
   let c = Clause.make_l self.store ~removable atoms p in
   Log.debugf 5 (fun k ->
       k "(@[sat.th.add-clause@ %a@])" (Clause.debug self.store) c);
@@ -1245,9 +1248,10 @@ let acts_add_decision_lit (self : t) (f : Lit.t) (sign : bool) : unit =
     Delayed_actions.add_decision self.delayed_actions a
   )
 
-let acts_raise self (l : Lit.t list) (p : Proof_step.id) : 'a =
+let acts_raise self (l : Lit.t list) (p : Proof.Pterm.delayed) : 'a =
   let atoms = List.rev_map (make_atom_ self) l in
   (* conflicts can be removed *)
+  let p = Proof.Tracer.add_step self.tracer p in
   let c = Clause.make_l self.store ~removable:true atoms p in
   Log.debugf 5 (fun k ->
       k "(@[@{<yellow>sat.th.raise-conflict@}@ %a@])" (Clause.debug self.store)
@@ -1282,6 +1286,7 @@ let acts_propagate (self : t) f (expl : reason) =
       let lits, proof = mk_expl () in
       let guard = List.rev_map (fun f -> Atom.neg @@ make_atom_ self f) lits in
       check_consequence_lits_false_ self guard p;
+      let proof = Proof.Tracer.add_step self.tracer proof in
       let c = Clause.make_l store ~removable:true (p :: guard) proof in
       raise_notrace (Th_conflict c)
     ) else (
@@ -1309,7 +1314,10 @@ let acts_propagate (self : t) f (expl : reason) =
         in
         assert (level <= decision_level self);
         (* delay creating the actual clause. *)
-        lazy (Clause.make_l store ~removable:true (p :: guard) proof), level
+        ( lazy
+            (let proof = Proof.Tracer.add_step self.tracer proof in
+             Clause.make_l store ~removable:true (p :: guard) proof),
+          level )
       in
       Delayed_actions.propagate_atom self.delayed_actions p ~lvl:level c
     )
@@ -1367,7 +1375,7 @@ let[@inline] acts_add_lit self ?default_pol f : unit =
 
 let[@inline] current_slice st : acts =
   let module M = struct
-    let proof = st.proof
+    let proof_tracer = (st.tracer :> Proof.Tracer.t)
     let iter_assumptions = acts_iter st ~full:false st.th_head
     let eval_lit = acts_eval_lit st
     let add_lit = acts_add_lit st
@@ -1381,7 +1389,7 @@ let[@inline] current_slice st : acts =
 (* full slice, for [if_sat] final check *)
 let[@inline] full_slice st : acts =
   let module M = struct
-    let proof = st.proof
+    let proof_tracer = (st.tracer :> Proof.Tracer.t)
     let iter_assumptions = acts_iter st ~full:true st.th_head
     let eval_lit = acts_eval_lit st
     let add_lit = acts_add_lit st
@@ -1541,9 +1549,9 @@ let reduce_clause_db (self : t) : unit =
     (* need to remove from watchlists *)
     mark_dirty_atom (Atom.neg atoms.(1));
     Event.emit self.on_gc (Clause.lits_a store c);
-    Clause_tracer.delete_clause self.tracer ~id:(Clause.to_int c)
+    Tracer.delete_clause self.tracer ~id:(Clause.to_int c)
       (Clause.lits_iter store c);
-    Proof_trace.delete self.proof (Clause.proof_step store c)
+    Proof.Tracer.delete self.tracer (Clause.proof_step store c)
   in
 
   let gc_arg =
@@ -1776,8 +1784,8 @@ let assume self cnf : unit =
     (fun l ->
       let atoms = Util.array_of_list_map (make_atom_ self) l in
       let proof =
-        Proof_trace.add_step self.proof @@ fun () ->
-        Proof_sat.sat_input_clause l
+        Proof.Tracer.add_step self.tracer @@ fun () ->
+        Proof.Sat_rules.sat_input_clause l
       in
       let c = Clause.make_a self.store ~removable:false atoms proof in
       Log.debugf 10 (fun k ->
@@ -1785,8 +1793,8 @@ let assume self cnf : unit =
       Delayed_actions.add_clause_learnt self.delayed_actions c)
     cnf
 
-let[@inline] store st = st.store
-let[@inline] proof st = st.proof
+let[@inline] store self = self.store
+let[@inline] tracer self = self.tracer
 
 let[@inline] add_lit self ?default_pol lit =
   ignore (make_atom_ self lit ?default_pol : atom)
@@ -1860,10 +1868,10 @@ let resolve_with_lvl0 (self : t) (c : clause) : clause =
   (* no resolution happened *)
   else (
     let proof =
-      Proof_trace.add_step self.proof @@ fun () ->
+      Proof.Tracer.add_step self.tracer @@ fun () ->
       let lits = List.rev_map (Atom.lit self.store) !res in
       let hyps = Iter.of_list (Clause.proof_step self.store c :: !lvl0) in
-      Proof_sat.sat_redundant_clause lits ~hyps
+      Proof.Sat_rules.sat_redundant_clause lits ~hyps
     in
     Clause.make_l self.store ~removable:false !res proof
   )
@@ -1896,9 +1904,9 @@ let mk_unsat (self : t) (us : unsat_cause) : _ unsat_state =
            (* increasing trail order *)
            assert (Atom.equal first @@ List.hd core);
            let proof =
-             Proof_trace.add_step self.proof @@ fun () ->
+             Proof.Tracer.add_step self.tracer @@ fun () ->
              let lits = List.rev_map (Atom.lit self.store) core in
-             Proof_sat.sat_unsat_core lits
+             Proof.Sat_rules.sat_unsat_core lits
            in
            Clause.make_l self.store ~removable:false [] proof)
       in
@@ -1957,8 +1965,9 @@ let propagate_under_assumptions (self : t) : propagation_result =
   with Exit -> !result
 
 let add_clause_atoms_ self ~pool ~removable (c : atom array)
-    (pr : Proof_step.id) : unit =
+    (pr : Proof.Pterm.delayed) : unit =
   try
+    let pr = Proof.Tracer.add_step self.tracer pr in
     let c = Clause.make_a self.store ~removable c pr in
     add_clause_ ~pool self c
   with E_unsat (US_false c) -> self.unsat_at_0 <- Some c
@@ -1967,21 +1976,16 @@ let add_clause_a self c pr : unit =
   let c = Array.map (make_atom_ self) c in
   add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c pr
 
-let add_clause self (c : Lit.t list) (pr : Proof_step.id) : unit =
+let add_clause self (c : Lit.t list) (pr : Proof.Pterm.delayed) : unit =
   let c = Util.array_of_list_map (make_atom_ self) c in
   add_clause_atoms_ ~pool:self.clauses_learnt ~removable:false self c pr
 
 let add_input_clause self (c : Lit.t list) =
-  let pr =
-    Proof_trace.add_step self.proof @@ fun () -> Proof_sat.sat_input_clause c
-  in
+  let pr () = Proof.Sat_rules.sat_input_clause c in
   add_clause self c pr
 
 let add_input_clause_a self c =
-  let pr =
-    Proof_trace.add_step self.proof @@ fun () ->
-    Proof_sat.sat_input_clause (Array.to_list c)
-  in
+  let pr () = Proof.Sat_rules.sat_input_clause (Array.to_list c) in
   add_clause_a self c pr
 
 (* run [f()] with additional assumptions *)
@@ -2047,15 +2051,11 @@ let[@inline] eval_lit self (lit : Lit.t) : lbool =
   | Some a -> eval_atom_ self a
   | None -> L_undefined
 
-let create ?(stat = Stat.global) ?(size = `Big) ?tracer ~proof (p : plugin) : t
-    =
-  let tracer =
-    (tracer : #Clause_tracer.t option :> Clause_tracer.t option)
-    |> Option.value ~default:Clause_tracer.dummy
-  in
+let create ?(stat = Stat.global) ?(size = `Big) ~tracer (p : plugin) : t =
+  let tracer = (tracer : #Tracer.t :> Tracer.t) in
   let store = Store.create ~size ~stat () in
   let max_clauses_learnt = ref 0 in
-  let self = create_ ~max_clauses_learnt ~store ~tracer ~proof ~stat p in
+  let self = create_ ~max_clauses_learnt ~store ~tracer ~stat p in
   self
 
 let plugin_cdcl_t (module P : THEORY_CDCL_T) : (module PLUGIN) =
@@ -2084,5 +2084,5 @@ let plugin_pure_sat : plugin =
     let has_theory = false
   end)
 
-let create_pure_sat ?stat ?size ?tracer ~proof () : t =
-  create ?stat ?size ?tracer ~proof plugin_pure_sat
+let create_pure_sat ?stat ?size ~tracer () : t =
+  create ?stat ?size ~tracer plugin_pure_sat

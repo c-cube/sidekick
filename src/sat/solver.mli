@@ -54,7 +54,7 @@ val store : t -> store
 val stat : t -> Stat.t
 (** Statistics *)
 
-val proof : t -> Proof_trace.t
+val tracer : t -> Tracer.t
 (** Access the inner proof *)
 
 val on_conflict : t -> (Clause.t, unit) Event.t
@@ -80,10 +80,10 @@ val assume : t -> Lit.t list list -> unit
 (** Add the list of clauses to the current set of assumptions.
       Modifies the sat solver state in place. *)
 
-val add_clause : t -> Lit.t list -> Proof_step.id -> unit
+val add_clause : t -> Lit.t list -> Proof.Pterm.delayed -> unit
 (** Lower level addition of clauses *)
 
-val add_clause_a : t -> Lit.t array -> Proof_step.id -> unit
+val add_clause_a : t -> Lit.t array -> Proof.Pterm.delayed -> unit
 (** Lower level addition of clauses *)
 
 val add_input_clause : t -> Lit.t list -> unit
@@ -176,8 +176,7 @@ val mk_plugin_cdcl_t :
 val create :
   ?stat:Stat.t ->
   ?size:[ `Tiny | `Small | `Big ] ->
-  ?tracer:#Clause_tracer.t ->
-  proof:Proof_trace.t ->
+  tracer:#Tracer.t ->
   plugin ->
   t
 (** Create new solver
@@ -191,7 +190,6 @@ val plugin_pure_sat : plugin
 val create_pure_sat :
   ?stat:Stat.t ->
   ?size:[ `Tiny | `Small | `Big ] ->
-  ?tracer:#Clause_tracer.t ->
-  proof:Proof_trace.t ->
+  tracer:#Tracer.t ->
   unit ->
   t

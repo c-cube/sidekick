@@ -3,5 +3,5 @@
  (public_name sidekick.sat)
  (synopsis "Pure OCaml SAT solver implementation for sidekick")
  (private_modules heap heap_intf base_types_)
- (libraries iter sidekick.util sidekick.core)
+ (libraries iter sidekick.util sidekick.core sidekick.proof)
  (flags :standard -w +32 -open Sidekick_util))

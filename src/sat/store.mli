@@ -1,3 +1,4 @@
+open Sigs
 open Sidekick_core
 
 type var = Base_types_.var
@@ -72,8 +73,8 @@ module Atom : sig
   val reason : store -> t -> var_reason option
   val level : store -> t -> int
   val marked_both : store -> atom -> bool
-  val proof_lvl0 : store -> ATbl.key -> int32 option
-  val set_proof_lvl0 : store -> ATbl.key -> int32 -> unit
+  val proof_lvl0 : store -> ATbl.key -> Proof.Step.id option
+  val set_proof_lvl0 : store -> ATbl.key -> Proof.Step.id -> unit
   val pp : store -> Format.formatter -> atom -> unit
   val pp_a : store -> Format.formatter -> atom array -> unit
   val pp_sign : t -> string
@@ -96,8 +97,8 @@ module Clause : sig
   module Tbl : Hashtbl.S with type key = t
   module CVec = Base_types_.CVec
 
-  val make_a : store -> removable:bool -> atom array -> int32 -> t
-  val make_l : store -> removable:bool -> atom list -> int32 -> t
+  val make_a : store -> removable:bool -> atom array -> Proof.Step.id -> t
+  val make_l : store -> removable:bool -> atom list -> Proof.Step.id -> t
   val n_atoms : store -> t -> int
   val marked : store -> t -> bool
   val set_marked : store -> t -> bool -> unit
@@ -107,7 +108,7 @@ module Clause : sig
   val dead : store -> t -> bool
   val set_dead : store -> t -> bool -> unit
   val dealloc : store -> t -> unit
-  val proof_step : store -> t -> int32
+  val proof_step : store -> t -> Proof.Step.id
   val activity : store -> t -> float
   val set_activity : store -> t -> float -> unit
   val iter : store -> f:(atom -> unit) -> t -> unit

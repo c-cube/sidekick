@@ -31,7 +31,7 @@ type t = {
   a_form: Lit.t Vec.t;
   (* TODO: store watches in clauses instead *)
   a_watched: Clause0.CVec.t Vec.t;
-  a_proof_lvl0: Proof_step.id ATbl.t;
+  a_proof_lvl0: Proof.Step.id ATbl.t;
   (* atom -> proof for it to be true at level 0 *)
   stat_n_atoms: int Stat.counter;
   (* clauses *)

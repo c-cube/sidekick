@@ -7,6 +7,7 @@ Copyright 2016 Simon Cruanes
 *)
 
 open Sidekick_core
+module Proof = Sidekick_proof
 
 (** Solver in a "SATISFIABLE" state *)
 module type SAT_STATE = sig
@@ -40,7 +41,7 @@ module type UNSAT_STATE = sig
   val unsat_assumptions : unit -> Lit.t Iter.t
   (** Subset of assumptions responsible for "unsat" *)
 
-  val unsat_proof : unit -> Proof_term.step_id
+  val unsat_proof : unit -> Sidekick_proof.Step.id
 end
 
 type 'clause unsat_state = (module UNSAT_STATE with type clause = 'clause)
@@ -51,7 +52,9 @@ type same_sign = bool
     [true] means the literal stayed the same, [false] that its sign was flipped. *)
 
 (** The type of reasons for propagations of a lit [f]. *)
-type reason = Consequence of (unit -> Lit.t list * Proof_step.id) [@@unboxed]
+type reason =
+  | Consequence of (unit -> Lit.t list * Sidekick_proof.Pterm.delayed)
+[@@unboxed]
 (** [Consequence (l, p)] means that the lits in [l] imply the propagated
       lit [f]. The proof should be a proof of the clause "[l] implies [f]".
 
@@ -84,7 +87,7 @@ let pp_lbool out = function
     are provided with a [(module ACTS)] so they can modify the SAT solver
     by adding new lemmas, raise conflicts, etc. *)
 module type ACTS = sig
-  val proof : Proof_trace.t
+  val proof_tracer : Sidekick_proof.Tracer.t
 
   val iter_assumptions : (Lit.t -> unit) -> unit
   (** Traverse the new assumptions on the boolean trail. *)
@@ -96,7 +99,8 @@ module type ACTS = sig
   (** Map the given lit to an internal atom, which will be decided by the
       SAT solver. *)
 
-  val add_clause : ?keep:bool -> Lit.t list -> Proof_step.id -> unit
+  val add_clause :
+    ?keep:bool -> Lit.t list -> Sidekick_proof.Pterm.delayed -> unit
   (** Add a clause to the solver.
       @param keep if true, the clause will be kept by the solver.
         Otherwise the solver is allowed to GC the clause and propose this
@@ -104,7 +108,7 @@ module type ACTS = sig
       - [C_use_allocator alloc] puts the clause in the given allocator.
   *)
 
-  val raise_conflict : Lit.t list -> Proof_step.id -> 'b
+  val raise_conflict : Lit.t list -> Sidekick_proof.Pterm.delayed -> 'b
   (** Raise a conflict, yielding control back to the solver.
       The list of atoms must be a valid theory lemma that is false in the
       current trail. *)

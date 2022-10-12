@@ -46,7 +46,7 @@ end = struct
   module CVec = Veci
 end
 
-module Step_vec = Proof_trace.Step_vec
+module Step_vec = Sidekick_proof.Step_vec
 
 type atom = Atom0.t
 type clause = Clause0.t
