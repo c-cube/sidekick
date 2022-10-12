@@ -1,7 +1,7 @@
 open Types_
 open Term
 
-type const_view += C_bool | C_eq | C_ite | C_not | C_true | C_false
+type const_view += C_bool | C_eq | C_ite | C_not | C_true | C_false | C_proof
 
 let to_string = function
   | C_bool -> "Bool"
@@ -10,6 +10,7 @@ let to_string = function
   | C_not -> "not"
   | C_true -> "true"
   | C_false -> "false"
+  | C_proof -> "Proof"
   | _ -> assert false
 
 let of_string = function
@@ -19,12 +20,14 @@ let of_string = function
   | "not" -> Some C_not
   | "true" -> Some C_true
   | "false" -> Some C_false
+  | "Proof" -> Some C_proof
   | _ -> None
 
 let ops : const_ops =
   let equal a b =
     match a, b with
     | C_bool, C_bool
+    | C_proof, C_proof
     | C_eq, C_eq
     | C_ite, C_ite
     | C_not, C_not
@@ -41,6 +44,7 @@ let ops : const_ops =
     | C_not -> CCHash.int 170
     | C_true -> CCHash.int 171
     | C_false -> CCHash.int 172
+    | C_proof -> CCHash.int 173
     | _ -> assert false
   in
 
@@ -61,6 +65,7 @@ let const_decoders : Const.decoders =
   ]
 
 let bool store = const store @@ Const.make C_bool ops ~ty:(type_ store)
+let proof store = const store @@ Const.make C_proof ops ~ty:(type_ store)
 let true_ store = const store @@ Const.make C_true ops ~ty:(bool store)
 let false_ store = const store @@ Const.make C_false ops ~ty:(bool store)
 

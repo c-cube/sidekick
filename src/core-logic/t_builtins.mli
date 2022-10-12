@@ -3,9 +3,10 @@
 open Types_
 open Term
 
-type const_view += C_bool | C_eq | C_ite | C_not | C_true | C_false
+type const_view += C_bool | C_eq | C_ite | C_not | C_true | C_false | C_proof
 
 val bool : store -> t
+val proof : store -> t
 val c_not : store -> t
 val c_eq : store -> t
 val c_ite : store -> t
