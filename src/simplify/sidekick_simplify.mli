@@ -6,16 +6,16 @@ type t
 
 val tst : t -> Term.store
 
-val create : Term.store -> proof:Proof_trace.t -> t
+val create : Term.store -> proof:#Sidekick_proof.Tracer.t -> t
 (** Create a simplifier *)
 
 val clear : t -> unit
 (** Reset internal cache, etc. *)
 
-val proof : t -> Proof_trace.t
+val proof : t -> Sidekick_proof.Tracer.t
 (** Access proof *)
 
-type hook = t -> Term.t -> (Term.t * Proof_step.id Iter.t) option
+type hook = t -> Term.t -> (Term.t * Sidekick_proof.Step.id Iter.t) option
 (** Given a Term.t, try to simplify it. Return [None] if it didn't change.
 
     A simple example could be a hook that takes a Term.t [t],
@@ -28,12 +28,12 @@ type hook = t -> Term.t -> (Term.t * Proof_step.id Iter.t) option
 
 val add_hook : t -> hook -> unit
 
-val normalize : t -> Term.t -> (Term.t * Proof_step.id) option
+val normalize : t -> Term.t -> (Term.t * Sidekick_proof.Step.id) option
 (** Normalize a Term.t using all the hooks. This performs
     a fixpoint, i.e. it only stops when no hook applies anywhere inside
     the Term.t. *)
 
-val normalize_t : t -> Term.t -> Term.t * Proof_step.id option
+val normalize_t : t -> Term.t -> Term.t * Sidekick_proof.Step.id option
 (** Normalize a Term.t using all the hooks, along with a proof that the
     simplification is correct.
     returns [t, ø] if no simplification occurred. *)

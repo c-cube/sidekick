@@ -2,17 +2,18 @@ open Sidekick_core
 
 type t = {
   tst: Term.store;
-  proof: Proof_trace.t;
+  proof: Sidekick_proof.Tracer.t;
   mutable hooks: hook list;
   (* store [t --> u by step_ids] in the cache.
      We use a bag for the proof steps because it gives us structural
      sharing of subproofs. *)
-  cache: (Term.t * Proof_step.id Bag.t) Term.Tbl.t;
+  cache: (Term.t * Sidekick_proof.Step.id Bag.t) Term.Tbl.t;
 }
 
-and hook = t -> Term.t -> (Term.t * Proof_step.id Iter.t) option
+and hook = t -> Term.t -> (Term.t * Sidekick_proof.Step.id Iter.t) option
 
 let create tst ~proof : t =
+  let proof = (proof : #Sidekick_proof.Tracer.t :> Sidekick_proof.Tracer.t) in
   { tst; proof; hooks = []; cache = Term.Tbl.create 32 }
 
 let[@inline] tst self = self.tst
@@ -20,7 +21,8 @@ let[@inline] proof self = self.proof
 let add_hook self f = self.hooks <- f :: self.hooks
 let clear self = Term.Tbl.clear self.cache
 
-let normalize (self : t) (t : Term.t) : (Term.t * Proof_step.id) option =
+let normalize (self : t) (t : Term.t) : (Term.t * Sidekick_proof.Step.id) option
+    =
   (* compute and cache normal form of [t] *)
   let rec loop t : Term.t * _ Bag.t =
     match Term.Tbl.find self.cache t with
@@ -67,8 +69,8 @@ let normalize (self : t) (t : Term.t) : (Term.t * Proof_step.id) option =
   else (
     (* proof: [sub_proofs |- t=u] by CC + subproof *)
     let step =
-      Proof_trace.add_step self.proof @@ fun () ->
-      Proof_core.lemma_preprocess t u ~using:(Bag.to_list pr_u)
+      Sidekick_proof.Tracer.add_step self.proof @@ fun () ->
+      Sidekick_proof.Core_rules.lemma_preprocess t u ~using:(Bag.to_list pr_u)
     in
     Some (u, step)
   )
