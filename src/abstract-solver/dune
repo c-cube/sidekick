@@ -1,7 +1,5 @@
-
 (library
-  (name sidekick_abstract_solver)
-  (public_name sidekick.abstract-solver)
-  (flags :standard -open Sidekick_util -open Sidekick_core)
-  (libraries containers iter
-             sidekick.core sidekick.model))
+ (name sidekick_abstract_solver)
+ (public_name sidekick.abstract-solver)
+ (flags :standard -open Sidekick_util -open Sidekick_core)
+ (libraries containers iter sidekick.core sidekick.model sidekick.proof))

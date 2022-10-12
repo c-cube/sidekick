@@ -8,7 +8,7 @@ type t =
   | Unsat of {
       unsat_core: unit -> Lit.t Iter.t;
           (** Unsat core (subset of assumptions), or empty *)
-      unsat_step_id: unit -> Proof_trace.step_id option;
+      unsat_step_id: unit -> Sidekick_proof.Step.id option;
           (** Proof step for the empty clause *)
     }  (** Unsatisfiable *)
   | Unknown of Unknown.t

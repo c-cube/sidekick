@@ -3,6 +3,7 @@
 open Sidekick_core
 module Unknown = Unknown
 module Check_res = Check_res
+module Proof = Sidekick_proof
 
 class type t =
   object
@@ -12,11 +13,11 @@ class type t =
 
         This uses {!Proof_sat.sat_input_clause} to justify the assertion. *)
 
-    method assert_clause : Lit.t array -> Proof_step.id -> unit
+    method assert_clause : Lit.t array -> Proof.Pterm.delayed -> unit
     (** [add_clause solver cs] adds a boolean clause to the solver.
       Subsequent calls to {!solve} will need to satisfy this clause. *)
 
-    method assert_clause_l : Lit.t list -> Proof_step.id -> unit
+    method assert_clause_l : Lit.t list -> Proof.Pterm.delayed -> unit
     (** Add a clause to the solver, given as a list. *)
 
     method add_ty : ty:Term.t -> unit
@@ -47,7 +48,7 @@ class type t =
     (** Returns the result of the last call to {!solve}, if the logic statee
         has not changed (mostly by asserting new clauses). *)
 
-    method proof : Proof_trace.t
+    method proof_tracer : #Proof.Tracer.t
     (** TODO: remove, use Tracer instead *)
   end
 
@@ -62,4 +63,4 @@ let solve (self : #t) ?on_exit ?on_progress ?should_stop ~assumptions () :
   self#solve ?on_exit ?on_progress ?should_stop ~assumptions ()
 
 let last_res (self : #t) = self#last_res
-let proof (self : #t) : Proof_trace.t = self#proof
+let proof (self : #t) : #Proof.Tracer.t = self#proof
