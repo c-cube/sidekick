@@ -1,0 +1,5 @@
+(library
+ (name sidekick_proof)
+ (public_name sidekick.proof)
+ (flags :standard -open Sidekick_util -open Sidekick_core)
+ (libraries sidekick.core sidekick.trace))
