@@ -1,6 +1,20 @@
-(** Main congruence closure type. *)
+(** Main congruence closure signature.
 
-open Sidekick_core
+    The congruence closure handles the theory QF_UF (uninterpreted
+    function symbols).
+    It is also responsible for {i theory combination}, and provides
+    a general framework for equality reasoning that other
+    theories piggyback on.
+
+    For example, the theory of datatypes relies on the congruence closure
+    to do most of the work, and "only" adds injectivity/disjointness/acyclicity
+    lemmas when needed.
+
+    Similarly, a theory of arrays would hook into the congruence closure and
+    assert (dis)equalities as needed.
+*)
+
+open Types_
 
 type e_node = E_node.t
 (** A node of the congruence closure *)
@@ -20,22 +34,6 @@ type bitfield = Bits.field
     All fields are initially 0, are backtracked automatically,
     and are merged automatically when classes are merged. *)
 
-(** Main congruence closure signature.
-
-    The congruence closure handles the theory QF_UF (uninterpreted
-    function symbols).
-    It is also responsible for {i theory combination}, and provides
-    a general framework for equality reasoning that other
-    theories piggyback on.
-
-    For example, the theory of datatypes relies on the congruence closure
-    to do most of the work, and "only" adds injectivity/disjointness/acyclicity
-    lemmas when needed.
-
-    Similarly, a theory of arrays would hook into the congruence closure and
-    assert (dis)equalities as needed.
-*)
-
 type t
 (** The congruence closure object.
       It contains a fair amount of state and is mutable
@@ -44,7 +42,7 @@ type t
 (** {3 Accessors} *)
 
 val term_store : t -> Term.store
-val proof : t -> Proof_trace.t
+val proof_tracer : t -> Proof.Tracer.t
 val stat : t -> Stat.t
 
 val find : t -> e_node -> repr
@@ -78,7 +76,7 @@ val set_bitfield : t -> bitfield -> bool -> E_node.t -> unit
 (** Set the bitfield for the e_node. This will be backtracked.
       See {!E_node.bitfield}. *)
 
-type propagation_reason = unit -> Lit.t list * Proof_term.step_id
+type propagation_reason = unit -> Lit.t list * Proof.Pterm.delayed
 
 (** Handler Actions
 
@@ -120,7 +118,7 @@ module Result_action : sig
           to not propagate and only trigger conflicts. *)
 
   type conflict =
-    | Conflict of Lit.t list * Proof_term.step_id
+    | Conflict of Lit.t list * Sidekick_proof.Step.id
         (** [raise_conflict (c,pr)] declares that [c] is a tautology of
           the theory of congruence.
           @param pr the proof of [c] being a tautology *)
@@ -168,10 +166,7 @@ val on_conflict : t -> (ev_on_conflict, unit) Event.t
       closure triggers a conflict by asserting the tautology [c]. *)
 
 val on_propagate :
-  t ->
-  ( t * Lit.t * (unit -> Lit.t list * Proof_term.step_id),
-    Handler_action.t list )
-  Event.t
+  t -> (t * Lit.t * propagation_reason, Handler_action.t list) Event.t
 (** [ev_on_propagate Lit.t reason] is emitted whenever [reason() => Lit.t]
       is a propagated lemma. See {!CC_ACTIONS.propagate}. *)
 
@@ -266,7 +261,11 @@ end
 
 module type BUILD = sig
   val create :
-    ?stat:Stat.t -> ?size:[ `Small | `Big ] -> Term.store -> Proof_trace.t -> t
+    ?stat:Stat.t ->
+    ?size:[ `Small | `Big ] ->
+    Term.store ->
+    #Proof.Tracer.t ->
+    t
   (** Create a new congruence closure.
 
       @param term_store used to be able to create new terms. All terms
@@ -282,7 +281,7 @@ val create :
   ?stat:Stat.t ->
   ?size:[ `Small | `Big ] ->
   Term.store ->
-  Proof_trace.t ->
+  #Proof.Tracer.t ->
   t
 (** Create a new congruence closure.
 
@@ -292,7 +291,7 @@ val create :
   *)
 
 val create_default :
-  ?stat:Stat.t -> ?size:[ `Small | `Big ] -> Term.store -> Proof_trace.t -> t
+  ?stat:Stat.t -> ?size:[ `Small | `Big ] -> Term.store -> Proof.Tracer.t -> t
 (** Same as {!create} but with the default CC view *)
 
 (**/**)

@@ -26,7 +26,11 @@ val mk_list : t list -> t
 val mk_congruence : E_node.t -> E_node.t -> t
 
 val mk_theory :
-  Term.t -> Term.t -> (Term.t * Term.t * t list) list -> Proof_term.step_id -> t
+  Term.t ->
+  Term.t ->
+  (Term.t * Term.t * t list) list ->
+  Proof.Pterm.delayed ->
+  t
 (** [mk_theory t u expl_sets pr] builds a theory explanation for
     why [|- t=u]. It depends on sub-explanations [expl_sets] which
     are tuples [ (t_i, u_i, expls_i) ] where [expls_i] are

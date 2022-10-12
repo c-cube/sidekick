@@ -1,4 +1,5 @@
 include Sidekick_core
+module Proof = Sidekick_proof
 
 type e_node = {
   n_term: Term.t;
@@ -36,4 +37,4 @@ and explanation =
       Term.t
       * Term.t
       * (Term.t * Term.t * explanation list) list
-      * Proof_term.step_id
+      * Proof.Pterm.delayed

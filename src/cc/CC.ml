@@ -25,7 +25,7 @@ let[@inline] find _ n = find_ n
 module Sig_tbl = CCHashtbl.Make (Signature)
 module T_tbl = Term.Tbl
 
-type propagation_reason = unit -> Lit.t list * Proof_term.step_id
+type propagation_reason = unit -> Lit.t list * Proof.Pterm.delayed
 
 module Handler_action = struct
   type t =
@@ -38,7 +38,7 @@ end
 
 module Result_action = struct
   type t = Act_propagate of { lit: Lit.t; reason: propagation_reason }
-  type conflict = Conflict of Lit.t list * Proof_term.step_id
+  type conflict = Conflict of Lit.t list * Sidekick_proof.Step.id
   type or_conflict = (t list, conflict) result
 end
 
@@ -50,7 +50,7 @@ type t = {
   view_as_cc: view_as_cc;
   tst: Term.store;
   stat: Stat.t;
-  proof: Proof_trace.t;
+  proof: Proof.Tracer.t;
   tbl: e_node T_tbl.t; (* internalization [term -> e_node] *)
   signatures_tbl: e_node Sig_tbl.t;
   (* map a signature to the corresponding e_node in some equivalence class.
@@ -108,7 +108,7 @@ let n_bool self b =
     n_false self
 
 let[@inline] term_store self = self.tst
-let[@inline] proof self = self.proof
+let[@inline] proof_tracer self = self.proof
 let[@inline] stat self = self.stat
 
 let allocate_bitfield self ~descr : bitfield =
@@ -216,7 +216,8 @@ let[@unroll 2] rec reroot_expl (self : t) (n : e_node) : unit =
 
 exception E_confl of Result_action.conflict
 
-let raise_conflict_ (cc : t) ~th (e : Lit.t list) (p : Proof_term.step_id) : _ =
+let raise_conflict_ (cc : t) ~th (e : Lit.t list) (p : Sidekick_proof.Step.id) :
+    _ =
   Profile.instant "cc.conflict";
   (* clear tasks queue *)
   Vec.clear cc.pending;
@@ -287,59 +288,72 @@ module Expl_state = struct
   type t = {
     mutable lits: Lit.t list;
     mutable th_lemmas:
-      (Lit.t * (Lit.t * Lit.t list) list * Proof_term.step_id) list;
+      (Lit.t * (Lit.t * Lit.t list) list * Proof.Pterm.delayed) list;
+    mutable local_gen: int;
   }
 
-  let create () : t = { lits = []; th_lemmas = [] }
+  let create () : t = { lits = []; th_lemmas = []; local_gen = -2 }
   let[@inline] copy self : t = { self with lits = self.lits }
   let[@inline] add_lit (self : t) lit = self.lits <- lit :: self.lits
+
+  let[@inline] new_local_id (self : t) : Proof.Pterm.local_ref =
+    let n = self.local_gen in
+    self.local_gen <- n - 1;
+    n
 
   let[@inline] add_th (self : t) lit hyps pr : unit =
     self.th_lemmas <- (lit, hyps, pr) :: self.th_lemmas
 
   let merge self other =
-    let { lits = o_lits; th_lemmas = o_lemmas } = other in
+    let { lits = o_lits; th_lemmas = o_lemmas; local_gen = o_l } = other in
     self.lits <- List.rev_append o_lits self.lits;
     self.th_lemmas <- List.rev_append o_lemmas self.th_lemmas;
+    self.local_gen <- min self.local_gen o_l;
     ()
 
   (* proof of [\/_i ¬lits[i]] *)
-  let proof_of_th_lemmas (self : t) (proof : Proof_trace.t) : Proof_term.step_id
-      =
+  let proof_of_th_lemmas (self : t) : Proof.Pterm.delayed =
+    Proof.Pterm.delay @@ fun () ->
+    let bs = ref [] in
+    let bind (t : Proof.Pterm.t) : Proof.Pterm.local_ref =
+      let n = new_local_id self in
+      bs := (n, t) :: !bs;
+      n
+    in
+
     let p_lits1 = List.rev_map Lit.neg self.lits in
     let p_lits2 =
       self.th_lemmas |> List.rev_map (fun (lit_t_u, _, _) -> Lit.neg lit_t_u)
     in
-    let p_cc =
-      Proof_trace.add_step proof @@ fun () ->
-      Proof_core.lemma_cc (List.rev_append p_lits1 p_lits2)
-    in
+    let p_cc = Proof.Core_rules.lemma_cc (List.rev_append p_lits1 p_lits2) in
     let resolve_with_th_proof pr (lit_t_u, sub_proofs, pr_th) =
+      let pr_th = pr_th () in
       (* pr_th: [sub_proofs |- t=u].
-            now resolve away [sub_proofs] to get literals that were
-            asserted in the congruence closure *)
+          now resolve away [sub_proofs] to get literals that were
+          asserted in the congruence closure *)
       let pr_th =
         List.fold_left
           (fun pr_th (lit_i, hyps_i) ->
             (* [hyps_i |- lit_i] *)
             let lemma_i =
-              Proof_trace.add_step proof @@ fun () ->
-              Proof_core.lemma_cc (lit_i :: List.rev_map Lit.neg hyps_i)
+              bind
+              @@ Proof.Core_rules.lemma_cc (lit_i :: List.rev_map Lit.neg hyps_i)
             in
             (* resolve [lit_i] away. *)
-            Proof_trace.add_step proof @@ fun () ->
-            Proof_core.proof_res ~pivot:(Lit.term lit_i) lemma_i pr_th)
+            Proof.Core_rules.proof_res ~pivot:(Lit.term lit_i) lemma_i
+              (bind pr_th))
           pr_th sub_proofs
       in
-      Proof_trace.add_step proof @@ fun () ->
-      Proof_core.proof_res ~pivot:(Lit.term lit_t_u) pr_th pr
+      Proof.Core_rules.proof_res ~pivot:(Lit.term lit_t_u) (bind pr_th)
+        (bind pr)
     in
     (* resolve with theory proofs responsible for some merges, if any. *)
-    List.fold_left resolve_with_th_proof p_cc self.th_lemmas
+    let body = List.fold_left resolve_with_th_proof p_cc self.th_lemmas in
+    Proof.Pterm.let_ (List.rev !bs) body
 
   let to_resolved_expl (self : t) : Resolved_expl.t =
     (* FIXME: package the th lemmas too *)
-    let { lits; th_lemmas = _ } = self in
+    let { lits; th_lemmas = _; local_gen = _ } = self in
     let s2 = copy self in
     let pr proof = proof_of_th_lemmas s2 proof in
     { Resolved_expl.lits; pr }
@@ -507,10 +521,10 @@ let n_is_bool_value (self : t) n : bool =
    asserted literals needed in the explanation (which is useful for
    the SAT solver), and [pr] is a proof, including sub-proofs for theory
    merges. *)
-let lits_and_proof_of_expl (self : t) (st : Expl_state.t) :
-    Lit.t list * Proof_term.step_id =
-  let { Expl_state.lits; th_lemmas = _ } = st in
-  let pr = Expl_state.proof_of_th_lemmas st self.proof in
+let lits_and_proof_of_expl (_self : t) (st : Expl_state.t) :
+    Lit.t list * Proof.Pterm.delayed =
+  let { Expl_state.lits; th_lemmas = _; local_gen = _ } = st in
+  let pr = Expl_state.proof_of_th_lemmas st in
   lits, pr
 
 (* main CC algo: add terms from [pending] to the signature table,
@@ -602,6 +616,7 @@ and task_merge_ self a b e_ab : unit =
 
       (* regular conflict *)
       let lits, pr = lits_and_proof_of_expl self expl_st in
+      let pr = Proof.Tracer.add_step self.proof pr in
       raise_conflict_ self ~th:!th (List.rev_map Lit.neg lits) pr
     );
     (* We will merge [r_from] into [r_into].
@@ -759,6 +774,7 @@ and raise_conflict_from_expl self (expl : Expl.t) : 'a =
   let lits, pr = lits_and_proof_of_expl self st in
   let c = List.rev_map Lit.neg lits in
   let th = st.th_lemmas <> [] in
+  let pr = Proof.Tracer.add_step self.proof pr in
   raise_conflict_ self ~th c pr
 
 let add_iter self it : unit = it (fun t -> ignore @@ add_term_rec_ self t)
@@ -840,7 +856,8 @@ let[@inline] on_propagate self = Event.of_emitter self.on_propagate
 let[@inline] on_is_subterm self = Event.of_emitter self.on_is_subterm
 
 let create_ ?(stat = Stat.global) ?(size = `Big) (tst : Term.store)
-    (proof : Proof_trace.t) ~view_as_cc : t =
+    (proof : #Proof.Tracer.t) ~view_as_cc : t =
+  let proof = (proof : #Proof.Tracer.t :> Proof.Tracer.t) in
   let size =
     match size with
     | `Small -> 128
@@ -938,7 +955,11 @@ end
 
 module type BUILD = sig
   val create :
-    ?stat:Stat.t -> ?size:[ `Small | `Big ] -> Term.store -> Proof_trace.t -> t
+    ?stat:Stat.t ->
+    ?size:[ `Small | `Big ] ->
+    Term.store ->
+    #Proof.Tracer.t ->
+    t
   (** Create a new congruence closure.
 
       @param term_store used to be able to create new terms. All terms
