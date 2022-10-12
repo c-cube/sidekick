@@ -1,5 +1,0 @@
-(executable
- (name proof_trace_dump)
- (modes native)
- (libraries containers sidekick.util sidekick-base.proof-trace)
- (flags :standard -w -32 -warn-error -a+8 -open Sidekick_util))
