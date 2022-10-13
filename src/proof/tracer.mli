@@ -20,8 +20,13 @@ type step_id = Step.id
 *)
 class type t =
   object
+    inherit Term.Tracer.t
+
     method proof_enabled : bool
     (** If proof tracing enabled? *)
+
+    method proof_enable : bool -> unit
+    (** Enable/disable proof tracing, if supported *)
 
     method emit_proof_step : Pterm.delayed -> step_id
     (** Create a new step in the trace. *)
@@ -33,6 +38,9 @@ class type t =
 
 val enabled : #t -> bool
 (** Is proof tracing enabled? *)
+
+val enable : #t -> bool -> unit
+(** Enable proof tracing *)
 
 val add_step : #t -> Pterm.delayed -> step_id
 (** Create a new step in the trace. *)

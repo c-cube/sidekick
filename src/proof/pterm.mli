@@ -2,8 +2,6 @@
 
   A proof term is the description of a reasoning step, that yields a clause. *)
 
-open Sidekick_core_logic
-
 type step_id = Step.id
 type lit = Lit.t
 
@@ -36,6 +34,9 @@ val local_ref : local_ref -> t
 val let_ : (local_ref * t) list -> t -> t
 val delay : (unit -> t) -> delayed
 
+val dummy : t
+(** Reference to the dummy step *)
+
 val apply_rule :
   ?lits:lit list ->
   ?terms:Term.t list ->
@@ -44,3 +45,6 @@ val apply_rule :
   ?indices:int list ->
   string ->
   t
+
+val to_ser : Term.Tracer.t -> t -> Ser_value.t
+(** Serialize *)

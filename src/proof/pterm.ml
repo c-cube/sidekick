@@ -1,5 +1,3 @@
-open Sidekick_core_logic
-
 type step_id = Step.id
 type lit = Lit.t
 type local_ref = Step.id
@@ -34,6 +32,7 @@ let rec pp out = function
 let local_ref id = P_local id
 let ref id = P_ref id
 let[@inline] delay f = f
+let dummy = ref Step.dummy
 
 let let_ bs r =
   match bs with
@@ -51,3 +50,50 @@ let apply_rule ?(lits = []) ?(terms = []) ?(substs = []) ?(premises = [])
       premises;
       indices;
     }
+
+module V = Ser_value
+
+let ser_apply_rule (tracer : Term.Tracer.t) (r : rule_apply) : Ser_value.t =
+  let { rule_name; lit_args; subst_args; term_args; premises; indices } = r in
+
+  let enc_lit (lit : Lit.t) : V.t =
+    let sign = Lit.sign lit in
+    let id_t = Term.Tracer.emit tracer @@ Lit.term lit in
+    V.(list [ bool sign; int id_t ])
+  in
+
+  let enc_t t = V.int (Term.Tracer.emit tracer t) in
+  let enc_premise (p : step_id) = V.int p in
+  let enc_indice (p : step_id) = V.int p in
+  let enc_subst (_s : Subst.t) : V.t = assert false (* TODO *) in
+
+  (* add a field [x, v] if [v] is not the empty list *)
+  let add_ x v enc_v l =
+    match v with
+    | [] -> l
+    | _ ->
+      let v = V.list (List.map enc_v v) in
+      (x, v) :: l
+  in
+
+  let l =
+    [ "name", V.string rule_name ]
+    |> add_ "lits" lit_args enc_lit
+    |> add_ "su" subst_args enc_subst
+    |> add_ "t" term_args enc_t
+    |> add_ "ps" premises enc_premise
+    |> add_ "idx" indices enc_indice
+  in
+
+  V.dict_of_list l
+
+let rec to_ser (tracer : Term.Tracer.t) t : Ser_value.t =
+  let recurse = to_ser tracer in
+  V.(
+    match t with
+    | P_ref r -> list [ int 0; int r ]
+    | P_local id -> list [ int 1; int id ]
+    | P_apply r -> list [ int 2; ser_apply_rule tracer r ]
+    | P_let (bs, bod) ->
+      let ser_b (x, t) = list [ int x; recurse t ] in
+      list [ int 3; list (List.map ser_b bs); recurse bod ])
