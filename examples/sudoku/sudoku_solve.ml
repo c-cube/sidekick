@@ -1,6 +1,7 @@
 (** simple sudoku solver *)
 
 open Sidekick_util
+module Proof = Sidekick_proof
 
 let errorf msg = Fmt.kasprintf failwith msg
 
@@ -214,7 +215,7 @@ end = struct
                   mk_cell_lit self.tst x y (Cell.make (c + 1)))
             in
             Log.debugf 4 (fun k -> k "(@[add-clause@ %a@])" pp_c_ c);
-            A.add_clause ~keep:true c Proof_trace.dummy_step_id
+            A.add_clause ~keep:true c @@ fun () -> Proof.Pterm.dummy
           ))
 
     (* check constraints *)
@@ -242,7 +243,7 @@ end = struct
               in
               Stat.incr self.stat_conflict;
               logs_conflict c_kind c;
-              A.raise_conflict c Proof_trace.dummy_step_id
+              A.raise_conflict c @@ fun () -> Proof.Pterm.dummy
             ))
       in
       all_diff "rows" Grid.rows;
@@ -274,7 +275,7 @@ end = struct
                 ]
               in
               logs_conflict "at-most-one" c;
-              A.raise_conflict c Proof_trace.dummy_step_id
+              A.raise_conflict c @@ fun () -> Proof.Pterm.dummy
             )
           | _ -> ())
 
@@ -334,7 +335,7 @@ end = struct
     let plugin : Sat.plugin = Theory.to_plugin theory in
     {
       tst;
-      solver = Sat.create ~stat ~proof:Proof_trace.dummy plugin;
+      solver = Sat.create ~stat ~tracer:Sat.Tracer.dummy plugin;
       theory;
       grid0 = g;
     }
