@@ -1,4 +1,3 @@
-open Sidekick_core
 module Proof = Sidekick_proof
 
 let lemma_isa_cstor ~cstor_t t : Proof.Pterm.t =

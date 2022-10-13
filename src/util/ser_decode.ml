@@ -32,7 +32,8 @@ let[@inline] fail_e e = raise_notrace (Fail e)
 let fail_err e = { deser = (fun _ -> fail_e e) }
 let return x = { deser = (fun _ -> x) }
 let fail s = { deser = (fun v -> fail_ s v) }
-let failf fmt = Printf.ksprintf fail fmt
+let failf fmt = Fmt.kasprintf fail fmt
+let delay f = { deser = (fun v -> (f ()).deser v) }
 
 let return_result = function
   | Ok x -> return x
@@ -169,6 +170,12 @@ module Infix = struct
 end
 
 include Infix
+
+let dict_field_or default name d =
+  let+ r = dict_field_opt name d in
+  match r with
+  | Some r -> r
+  | None -> default
 
 let tup2 d1 d2 =
   let* l = list any in

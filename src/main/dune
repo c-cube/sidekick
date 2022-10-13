@@ -16,5 +16,5 @@
  (modules show_trace)
  (modes native)
  (libraries containers sidekick.util sidekick.core sidekick.trace
-   sidekick.smt-solver sidekick-base)
+   sidekick.smt-solver sidekick.proof sidekick-base)
  (flags :standard -safe-string -color always -open Sidekick_util))

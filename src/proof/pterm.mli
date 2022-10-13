@@ -48,3 +48,5 @@ val apply_rule :
 
 val to_ser : Term.Tracer.t -> t -> Ser_value.t
 (** Serialize *)
+
+val deser : Term.Trace_reader.t -> t Ser_decode.t

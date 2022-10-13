@@ -24,6 +24,8 @@ let add_const_decoders (self : t) (decs : Const.decoders) : unit =
       self.const_decode <- Util.Str_map.add tag (ops, dec) self.const_decode)
     decs
 
+let store self = self.tst
+
 let create ?(const_decoders = []) ~source tst : t =
   let self =
     {
@@ -104,3 +106,13 @@ let rec read_term_err (self : t) (id : term_ref) : _ result =
 
 let read_term self id =
   Result.map_error Dec.Error.to_string @@ read_term_err self id
+
+let read_term_exn self id =
+  match read_term_err self id with
+  | Ok t -> t
+  | Error err -> Error.errorf "term_reader: %a" Dec.Error.pp err
+
+let deref_term self t =
+  match T_ref.as_ref t with
+  | None -> t
+  | Some id -> read_term_exn self id

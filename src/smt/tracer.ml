@@ -44,7 +44,6 @@ class concrete (sink : Tr.Sink.t) : t =
 
 class dummy : t =
   object
-    inherit Term.Tracer.dummy
     inherit Sidekick_sat.Tracer.dummy
     method emit_assert_term _ = Tr.Entry_id.dummy
   end

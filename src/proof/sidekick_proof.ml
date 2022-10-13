@@ -4,6 +4,7 @@ module Sat_rules = Sat_rules
 module Core_rules = Core_rules
 module Pterm = Pterm
 module Tracer = Tracer
+module Trace_reader = Trace_reader
 module Arg = Arg
 
 type term = Pterm.t

@@ -1,10 +1,16 @@
 open Sidekick_core
 open Sidekick_trace
+module Proof = Sidekick_proof
 module Smt = Sidekick_smt_solver
 
-type state = { dump: bool; src: Source.t; t_reader: Smt.Trace_reader.t }
+type state = {
+  dump: bool;
+  src: Source.t;
+  t_reader: Smt.Trace_reader.t;
+  p_reader: Proof.Trace_reader.t;
+}
 
-let show_sat (_self : state) ~tag v : unit =
+let show_sat (self : state) ~tag v : unit =
   match tag with
   | "AssCSat" ->
     (match
@@ -64,8 +70,11 @@ let show_file ~dump file : unit =
       ~const_decoders:
         [ Sidekick_core.const_decoders; Sidekick_base.const_decoders ]
   in
+  let p_reader =
+    Proof.Trace_reader.create ~src (Smt.Trace_reader.term_trace_reader t_reader)
+  in
 
-  let st = { t_reader; src; dump } in
+  let st = { t_reader; src; dump; p_reader } in
   Source.iter_all src (fun i ~tag v -> show_event st i ~tag v)
 
 let () =
