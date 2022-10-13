@@ -125,7 +125,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   type state = {
     tst: Term.store;
-    proof: Proof_trace.t;
+    proof: Proof.Tracer.t;
     gensym: Gensym.t;
     in_model: unit Term.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit Term.Tbl.t;
@@ -145,7 +145,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   let create (si : SI.t) : state =
     let stat = SI.stats si in
-    let proof = SI.proof si in
+    let proof = (SI.tracer si :> Proof.Tracer.t) in
     let tst = SI.tst si in
     {
       tst;
@@ -255,14 +255,15 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   let add_clause_lra_ ?using (module PA : SI.PREPROCESS_ACTS) lits =
     let pr =
-      Proof_trace.add_step PA.proof @@ fun () -> Proof_rules.lemma_lra lits
+      Proof.Tracer.add_step PA.proof_tracer @@ fun () ->
+      Proof_rules.lemma_lra lits
     in
     let pr =
       match using with
       | None -> pr
       | Some using ->
-        Proof_trace.add_step PA.proof @@ fun () ->
-        Proof_core.lemma_rw_clause pr ~res:lits ~using
+        Proof.Tracer.add_step PA.proof_tracer @@ fun () ->
+        Proof.Core_rules.lemma_rw_clause pr ~res:lits ~using
     in
     PA.add_clause lits pr
 
@@ -405,14 +406,15 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     )
 
   let simplify (self : state) (_recurse : _) (t : Term.t) :
-      (Term.t * Proof_step.id Iter.t) option =
+      (Term.t * Proof.Step.id Iter.t) option =
     let proof_eq t u =
-      Proof_trace.add_step self.proof @@ fun () ->
+      Proof.Tracer.add_step self.proof @@ fun () ->
       Proof_rules.lemma_lra [ Lit.atom self.tst (Term.eq self.tst t u) ]
     in
     let proof_bool t ~sign:b =
       let lit = Lit.atom ~sign:b self.tst t in
-      Proof_trace.add_step self.proof @@ fun () -> Proof_rules.lemma_lra [ lit ]
+      Proof.Tracer.add_step self.proof @@ fun () ->
+      Proof_rules.lemma_lra [ lit ]
     in
 
     match A.view_as_lra t with
@@ -477,10 +479,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       |> CCList.flat_map (Tag.to_lits si)
       |> List.rev_map Lit.neg
     in
-    let pr =
-      Proof_trace.add_step (SI.proof si) @@ fun () ->
-      Proof_rules.lemma_lra confl
-    in
+    let pr () = Proof_rules.lemma_lra confl in
     Stat.incr self.n_conflict;
     SI.raise_conflict si acts confl pr
 
@@ -491,10 +490,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       Stat.incr self.n_propagate;
       SI.propagate si acts lit ~reason:(fun () ->
           let lits = CCList.flat_map (Tag.to_lits si) reason in
-          let pr =
-            Proof_trace.add_step (SI.proof si) @@ fun () ->
-            Proof_rules.lemma_lra (lit :: lits)
-          in
+          let pr () = Proof_rules.lemma_lra (lit :: lits) in
           CCList.flat_map (Tag.to_lits si) reason, pr)
     | _ -> ()
 
@@ -538,10 +534,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       if A.Q.(le_const <> zero) then (
         (* [c=0] when [c] is not 0 *)
         let lit = Lit.atom ~sign:false self.tst @@ Term.eq self.tst t1 t2 in
-        let pr =
-          Proof_trace.add_step self.proof @@ fun () ->
-          Proof_rules.lemma_lra [ lit ]
-        in
+        let pr () = Proof_rules.lemma_lra [ lit ] in
         SI.add_clause_permanent si acts [ lit ] pr
       )
     ) else (

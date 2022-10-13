@@ -2,6 +2,7 @@
 
 open Sidekick_core
 open Sidekick_cc
+module Proof = Sidekick_proof
 include Th_intf
 module SI = SMT.Solver_internal
 module Model_builder = SMT.Model_builder
@@ -174,7 +175,7 @@ end = struct
         Some { c_n = n; c_cstor = cstor; c_args = args }, []
       | _ -> None, []
 
-    let merge cc state n1 c1 n2 c2 e_n1_n2 : _ result =
+    let merge _cc state n1 c1 n2 c2 e_n1_n2 : _ result =
       Log.debugf 5 (fun k ->
           k "(@[%s.merge@ (@[:c1 %a@ %a@])@ (@[:c2 %a@ %a@])@])" name E_node.pp
             n1 pp c1 E_node.pp n2 pp c2);
@@ -189,14 +190,12 @@ end = struct
           pr
       in
 
-      let proof = CC.proof cc in
       if A.Cstor.equal c1.c_cstor c2.c_cstor then (
         (* same function: injectivity *)
         let expl_merge i =
           let t1 = E_node.term c1.c_n in
           let t2 = E_node.term c2.c_n in
-          mk_expl t1 t2 @@ Proof_trace.add_step proof
-          @@ fun () -> Proof_rules.lemma_cstor_inj t1 t2 i
+          mk_expl t1 t2 @@ fun () -> Proof_rules.lemma_cstor_inj t1 t2 i
         in
 
         assert (List.length c1.c_args = List.length c2.c_args);
@@ -212,8 +211,7 @@ end = struct
         (* different function: disjointness *)
         let expl =
           let t1 = E_node.term c1.c_n and t2 = E_node.term c2.c_n in
-          mk_expl t1 t2 @@ Proof_trace.add_step proof
-          @@ fun () -> Proof_rules.lemma_cstor_distinct t1 t2
+          mk_expl t1 t2 @@ fun () -> Proof_rules.lemma_cstor_distinct t1 t2
         in
 
         Stat.incr state.n_conflict;
@@ -297,7 +295,7 @@ end = struct
 
   type t = {
     tst: Term.store;
-    proof: Proof_trace.t;
+    proof: Proof.Tracer.t;
     cstors: ST_cstors.t; (* repr -> cstor for the class *)
     parents: ST_parents.t; (* repr -> parents for the class *)
     cards: Card.t; (* remember finiteness *)
@@ -353,15 +351,15 @@ end = struct
            with exhaustiveness: [|- is-c(t)] *)
         let proof =
           let pr_isa =
-            Proof_trace.add_step self.proof @@ fun () ->
+            Proof.Tracer.add_step self.proof @@ fun () ->
             Proof_rules.lemma_isa_split t
               [ Lit.atom self.tst (A.mk_is_a self.tst cstor t) ]
           and pr_eq_sel =
-            Proof_trace.add_step self.proof @@ fun () ->
+            Proof.Tracer.add_step self.proof @@ fun () ->
             Proof_rules.lemma_select_cstor ~cstor_t:u t
           in
-          Proof_trace.add_step self.proof @@ fun () ->
-          Proof_core.proof_r1 pr_isa pr_eq_sel
+          Proof.Tracer.add_step self.proof @@ fun () ->
+          Proof.Core_rules.proof_r1 pr_isa pr_eq_sel
         in
 
         Term.Tbl.add self.single_cstor_preproc_done t ();
@@ -416,8 +414,7 @@ end = struct
               "(@[%s.on-new-term.is-a.reduce@ :t %a@ :to %B@ :n %a@ :sub-cstor \
                %a@])"
               name Term.pp_debug t is_true E_node.pp n Monoid_cstor.pp cstor);
-        let pr =
-          Proof_trace.add_step self.proof @@ fun () ->
+        let pr () =
           Proof_rules.lemma_isa_cstor ~cstor_t:(E_node.term cstor.c_n) t
         in
         let n_bool = CC.n_bool cc is_true in
@@ -443,8 +440,7 @@ end = struct
               E_node.pp n i A.Cstor.pp c_t);
         assert (i < List.length cstor.c_args);
         let u_i = List.nth cstor.c_args i in
-        let pr =
-          Proof_trace.add_step self.proof @@ fun () ->
+        let pr () =
           Proof_rules.lemma_select_cstor ~cstor_t:(E_node.term cstor.c_n) t
         in
         let expl =
@@ -480,8 +476,7 @@ end = struct
              :sub-cstor %a@])"
             name Monoid_parents.pp_is_a is_a2 is_true E_node.pp n1 E_node.pp n2
             Monoid_cstor.pp c1);
-      let pr =
-        Proof_trace.add_step self.proof @@ fun () ->
+      let pr () =
         Proof_rules.lemma_isa_cstor ~cstor_t:(E_node.term c1.c_n)
           (E_node.term is_a2.is_a_n)
       in
@@ -509,8 +504,7 @@ end = struct
             k "(@[%s.on-merge.select.reduce@ :n2 %a@ :sel get[%d]-%a@])" name
               E_node.pp n2 sel2.sel_idx Monoid_cstor.pp c1);
         assert (sel2.sel_idx < List.length c1.c_args);
-        let pr =
-          Proof_trace.add_step self.proof @@ fun () ->
+        let pr () =
           Proof_rules.lemma_select_cstor ~cstor_t:(E_node.term c1.c_n)
             (E_node.term sel2.sel_n)
         in
@@ -618,8 +612,7 @@ end = struct
         | { flag = Open; cstor_n; _ } as node ->
           (* conflict: the [path] forms a cycle *)
           let path = (n, node) :: path in
-          let pr =
-            Proof_trace.add_step self.proof @@ fun () ->
+          let pr () =
             let path =
               List.rev_map
                 (fun (a, b) -> E_node.term a, E_node.term b.repr)
@@ -677,10 +670,7 @@ end = struct
         Log.debugf 50 (fun k ->
             k "(@[%s.assign-is-a@ :lhs %a@ :rhs %a@ :lit %a@])" name
               Term.pp_debug u Term.pp_debug rhs Lit.pp lit);
-        let pr =
-          Proof_trace.add_step self.proof @@ fun () ->
-          Proof_rules.lemma_isa_sel t
-        in
+        let pr () = Proof_rules.lemma_isa_sel t in
         (* merge [u] and [rhs] *)
         CC.merge_t (SI.cc solver) u rhs
           (Expl.mk_theory u rhs
@@ -706,14 +696,10 @@ end = struct
                (* TODO: set default polarity, depending on n° of args? *)
                lit)
       in
-      SI.add_clause_permanent solver acts c
-        ( Proof_trace.add_step self.proof @@ fun () ->
-          Proof_rules.lemma_isa_split t c );
+      SI.add_clause_permanent solver acts c (fun () ->
+          Proof_rules.lemma_isa_split t c);
       Iter.diagonal_l c (fun (l1, l2) ->
-          let pr =
-            Proof_trace.add_step self.proof @@ fun () ->
-            Proof_rules.lemma_isa_disj (Lit.neg l1) (Lit.neg l2)
-          in
+          let pr () = Proof_rules.lemma_isa_disj (Lit.neg l1) (Lit.neg l2) in
           SI.add_clause_permanent solver acts [ Lit.neg l1; Lit.neg l2 ] pr)
     )
 
@@ -789,10 +775,11 @@ end = struct
      early *)
 
   let create_and_setup ~id:_ (solver : SI.t) : t =
+    let proof = (SI.tracer solver :> Proof.Tracer.t) in
     let self =
       {
         tst = SI.tst solver;
-        proof = SI.proof solver;
+        proof;
         cstors = ST_cstors.create_and_setup ~size:32 (SI.cc solver);
         parents = ST_parents.create_and_setup ~size:32 (SI.cc solver);
         to_decide = N_tbl.create ~size:16 ();

@@ -1,4 +1,5 @@
 open Sidekick_core
+module Proof = Sidekick_proof
 module SMT = Sidekick_smt_solver
 module Simplify = Sidekick_simplify
 

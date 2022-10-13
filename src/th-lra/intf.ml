@@ -1,5 +1,6 @@
 open Sidekick_core
 module SMT = Sidekick_smt_solver
+module Proof = Sidekick_proof
 module Predicate = Sidekick_simplex.Predicate
 module Linear_expr = Sidekick_simplex.Linear_expr
 module Linear_expr_intf = Sidekick_simplex.Linear_expr_intf

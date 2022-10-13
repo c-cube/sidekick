@@ -1,4 +1,5 @@
 open Sidekick_core
+module Proof = Sidekick_proof
 module SMT = Sidekick_smt_solver
 module SI = SMT.Solver_internal
 module T = Term
@@ -9,7 +10,7 @@ let name = "th-cstor"
 
 module type ARG = sig
   val view_as_cstor : Term.t -> (Const.t, Term.t) cstor_view
-  val lemma_cstor : Lit.t list -> Proof_term.t
+  val lemma_cstor : Lit.t list -> Proof.Pterm.t
 end
 
 module Make (A : ARG) : sig

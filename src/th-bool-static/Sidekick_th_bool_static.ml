@@ -55,18 +55,18 @@ end = struct
     aux T.Set.empty t
 
   let simplify (self : state) (simp : Simplify.t) (t : T.t) :
-      (T.t * Proof_step.id Iter.t) option =
+      (T.t * Proof.step_id Iter.t) option =
     let tst = self.tst in
 
     let proof = Simplify.proof simp in
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
-    let mk_step_ r = Proof_trace.add_step proof r in
+    let mk_step_ r = Proof.Tracer.add_step proof r in
 
     let add_step_eq a b ~using ~c0 : unit =
       add_step_ @@ mk_step_
       @@ fun () ->
-      Proof_core.lemma_rw_clause c0 ~using
+      Proof.Core_rules.lemma_rw_clause c0 ~using
         ~res:[ Lit.atom tst (A.mk_bool tst (B_eq (a, b))) ]
     in
 
@@ -160,7 +160,7 @@ end = struct
   let cnf (self : state) (_preproc : SMT.Preprocess.t) ~is_sub:_ ~recurse
       (module PA : SI.PREPROCESS_ACTS) (t : T.t) : T.t option =
     Log.debugf 50 (fun k -> k "(@[th-bool.cnf@ %a@])" T.pp t);
-    let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
+    let[@inline] mk_step_ r = Proof.Tracer.add_step PA.proof_tracer r in
 
     (* handle boolean equality *)
     let equiv_ (self : state) ~is_xor ~t ~box_t t_a t_b : unit =

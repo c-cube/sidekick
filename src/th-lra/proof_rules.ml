@@ -1,3 +1,4 @@
 open Sidekick_core
+module Proof = Sidekick_proof
 
-let lemma_lra lits : Proof_term.t = Proof_term.apply_rule "lra.lemma" ~lits
+let lemma_lra lits : Proof.Pterm.t = Proof.Pterm.apply_rule "lra.lemma" ~lits

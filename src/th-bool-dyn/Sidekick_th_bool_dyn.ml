@@ -65,18 +65,18 @@ end = struct
   (* TODO: share this with th-bool-static by way of a library for
      boolean simplification? (also handle one-point rule and the likes) *)
   let simplify (self : state) (simp : Simplify.t) (t : T.t) :
-      (T.t * Proof_step.id Iter.t) option =
+      (T.t * Proof.Step.id Iter.t) option =
     let tst = self.tst in
 
     let proof = Simplify.proof simp in
     let steps = ref [] in
     let add_step_ s = steps := s :: !steps in
-    let mk_step_ r = Proof_trace.add_step proof r in
+    let mk_step_ r = Proof.Tracer.add_step proof r in
 
     let add_step_eq a b ~using ~c0 : unit =
       add_step_ @@ mk_step_
       @@ fun () ->
-      Proof_core.lemma_rw_clause c0 ~using
+      Proof.Core_rules.lemma_rw_clause c0 ~using
         ~res:[ Lit.atom tst (A.mk_bool tst (B_eq (a, b))) ]
     in
 
@@ -170,7 +170,7 @@ end = struct
   let preprocess_ (self : state) (_p : SMT.Preprocess.t) ~is_sub:_ ~recurse:_
       (module PA : SI.PREPROCESS_ACTS) (t : T.t) : T.t option =
     Log.debugf 50 (fun k -> k "(@[th-bool.dyn.preprocess@ %a@])" T.pp_debug t);
-    let[@inline] mk_step_ r = Proof_trace.add_step PA.proof r in
+    let[@inline] mk_step_ r = Proof.Tracer.add_step PA.proof_tracer r in
 
     match A.view_as_bool t with
     | B_ite (a, b, c) ->
@@ -201,8 +201,6 @@ end = struct
       SI.add_clause_permanent solver acts c pr
     in
 
-    let[@inline] mk_step_ r = Proof_trace.add_step (SI.proof solver) r in
-
     (* handle boolean equality *)
     let equiv_ ~is_xor a b : unit =
       (* [a xor b] is [(¬a) = b] *)
@@ -218,33 +216,37 @@ end = struct
       add_axiom
         [ Lit.neg lit; Lit.neg a; b ]
         (if is_xor then
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e+" [ t ]
+          fun () ->
+        Proof_rules.lemma_bool_c "xor-e+" [ t ]
         else
-          mk_step_ @@ fun () ->
-          Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term a ]);
+          fun () ->
+        Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term a ]);
 
       add_axiom
         [ Lit.neg lit; Lit.neg b; a ]
         (if is_xor then
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e-" [ t ]
+          fun () ->
+        Proof_rules.lemma_bool_c "xor-e-" [ t ]
         else
-          mk_step_ @@ fun () ->
-          Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term b ]);
+          fun () ->
+        Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term b ]);
 
       add_axiom [ lit; a; b ]
         (if is_xor then
-          mk_step_ @@ fun () ->
-          Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term a ]
+          fun () ->
+        Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term a ]
         else
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i+" [ t ]);
+          fun () ->
+        Proof_rules.lemma_bool_c "eq-i+" [ t ]);
 
       add_axiom
         [ lit; Lit.neg a; Lit.neg b ]
         (if is_xor then
-          mk_step_ @@ fun () ->
-          Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term b ]
+          fun () ->
+        Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term b ]
         else
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i-" [ t ])
+          fun () ->
+        Proof_rules.lemma_bool_c "eq-i-" [ t ])
     in
 
     match v with
@@ -254,7 +256,7 @@ end = struct
     | B_bool false ->
       SI.add_clause_permanent solver acts
         [ Lit.neg lit ]
-        (mk_step_ @@ fun () -> Proof_core.lemma_true (Lit.term lit))
+        (fun () -> Proof.Core_rules.lemma_true (Lit.term lit))
     | _ when expanded self lit -> () (* already done *)
     | B_and l ->
       let subs = List.map (Lit.atom self.tst) l in
@@ -265,14 +267,12 @@ end = struct
           (fun sub ->
             add_axiom
               [ Lit.neg lit; sub ]
-              ( mk_step_ @@ fun () ->
-                Proof_rules.lemma_bool_c "and-e" [ t; Lit.term sub ] ))
+              (fun () -> Proof_rules.lemma_bool_c "and-e" [ t; Lit.term sub ]))
           subs
       else (
         (* axiom [¬(and …t_i)=> \/_i (¬ t_i)], only in final-check *)
         let c = Lit.neg lit :: List.map Lit.neg subs in
-        add_axiom c
-          (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "and-i" [ t ])
+        add_axiom c (fun () -> Proof_rules.lemma_bool_c "and-i" [ t ])
       )
     | B_or l ->
       let subs = List.map (Lit.atom self.tst) l in
@@ -283,13 +283,12 @@ end = struct
           (fun sub ->
             add_axiom
               [ Lit.neg lit; Lit.neg sub ]
-              ( mk_step_ @@ fun () ->
-                Proof_rules.lemma_bool_c "or-i" [ t; Lit.term sub ] ))
+              (fun () -> Proof_rules.lemma_bool_c "or-i" [ t; Lit.term sub ]))
           subs
       else (
         (* axiom [lit => \/_i subs_i] *)
         let c = Lit.neg lit :: subs in
-        add_axiom c (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "or-e" [ t ])
+        add_axiom c (fun () -> Proof_rules.lemma_bool_c "or-e" [ t ])
       )
     | B_imply (a, b) ->
       let a = Lit.atom self.tst a in
@@ -297,19 +296,16 @@ end = struct
       if Lit.sign lit then (
         (* axiom [lit => a => b] *)
         let c = [ Lit.neg lit; Lit.neg a; b ] in
-        add_axiom c
-          (mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "imp-e" [ t ])
+        add_axiom c (fun () -> Proof_rules.lemma_bool_c "imp-e" [ t ])
       ) else if not @@ Lit.sign lit then (
         (* propagate [¬ lit => ¬b] and [¬lit => a] *)
         add_axiom
           [ a; Lit.neg lit ]
-          ( mk_step_ @@ fun () ->
-            Proof_rules.lemma_bool_c "imp-i" [ t; Lit.term a ] );
+          (fun () -> Proof_rules.lemma_bool_c "imp-i" [ t; Lit.term a ]);
 
         add_axiom
           [ Lit.neg b; Lit.neg lit ]
-          ( mk_step_ @@ fun () ->
-            Proof_rules.lemma_bool_c "imp-i" [ t; Lit.term b ] )
+          (fun () -> Proof_rules.lemma_bool_c "imp-i" [ t; Lit.term b ])
       )
     | B_ite (a, b, c) ->
       assert (T.is_bool b);
@@ -319,10 +315,10 @@ end = struct
       let lit_a = Lit.atom self.tst a in
       add_axiom
         [ Lit.neg lit_a; Lit.make_eq self.tst t b ]
-        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_true ~ite:t);
+        (fun () -> Proof_rules.lemma_ite_true ~ite:t);
       add_axiom
         [ Lit.neg lit; lit_a; Lit.make_eq self.tst t c ]
-        (mk_step_ @@ fun () -> Proof_rules.lemma_ite_false ~ite:t)
+        (fun () -> Proof_rules.lemma_ite_false ~ite:t)
     | B_equiv (a, b) ->
       let a = Lit.atom self.tst a in
       let b = Lit.atom self.tst b in
