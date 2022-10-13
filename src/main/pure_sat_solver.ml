@@ -80,9 +80,12 @@ module Dimacs = struct
 end
 
 (** Tracer that emit list of integers. *)
-let tracer ~(sink : Tr.Sink.t) () : Clause_tracer.t =
+let tracer ~(sink : Tr.Sink.t) () : SAT.Tracer.t =
   object (self)
-    method encode_lit (lit : Lit.t) =
+    (* we don't use the proofs, actually. *)
+    inherit Sidekick_proof.Tracer.dummy
+
+    method sat_encode_lit (lit : Lit.t) =
       let sign = Lit.sign lit in
       let i =
         match Term.view (Lit.term lit) with
@@ -95,22 +98,22 @@ let tracer ~(sink : Tr.Sink.t) () : Clause_tracer.t =
         else
           -i)
 
-    method assert_clause ~id (lits : Lit.t Iter.t) =
+    method sat_assert_clause ~id (lits : Lit.t Iter.t) _p =
       let v =
         Ser_value.(
           dict_of_list
             [
               "id", int id;
-              "c", list (lits |> Iter.map self#encode_lit |> Iter.to_rev_list);
+              "c", list (lits |> Iter.map self#sat_encode_lit |> Iter.to_rev_list);
             ])
       in
       Tr.Sink.emit sink ~tag:"AssCSat" v
 
-    method unsat_clause ~id =
+    method sat_unsat_clause ~id =
       let v = Ser_value.(dict_of_list [ "id", int id ]) in
       Tr.Sink.emit sink ~tag:"UnsatC" v
 
-    method delete_clause ~id _lits : unit =
+    method sat_delete_clause ~id _lits : unit =
       let v = Ser_value.(dict_of_list [ "id", int id ]) in
       ignore (Tr.Sink.emit sink ~tag:"DelCSat" v : Tr.Entry_id.t)
   end
@@ -144,7 +147,7 @@ let tracer ~(sink : Tr.Sink.t) () : Clause_tracer.t =
 
 let start = Sys.time ()
 
-let solve ?(check = false) ?in_memory_proof (solver : SAT.t) :
+let solve ?(check = false) (solver : SAT.t) :
     (unit, string) result =
   let res = Profile.with_ "solve" (fun () -> SAT.solve solver) in
   let t2 = Sys.time () in
@@ -155,14 +158,8 @@ let solve ?(check = false) ?in_memory_proof (solver : SAT.t) :
     let t3 = Sys.time () in
     Format.printf "Sat (%.3f/%.3f)@." (t2 -. start) (t3 -. t2)
   | SAT.Unsat _ ->
-    if check then (
-      match in_memory_proof with
-      | None ->
-        Error.errorf "Cannot validate proof, no in-memory proof provided"
-      | Some _proof ->
-        let ok = true (* FIXME check_proof proof *) in
-        if not ok then Error.errorf "Proof validation failed"
-    );
+
+      (* TODO: extract proof from trace; use check_proof *)
 
     let t3 = Sys.time () in
     Format.printf "Unsat (%.3f/%.3f)@." (t2 -. start) (t3 -. t2));

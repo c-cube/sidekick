@@ -13,18 +13,17 @@ class type t =
 
 class concrete (sink : Tr.Sink.t) : t =
   object (self)
-    inherit Term.Tracer.concrete ~sink as emit_t
-    inherit Sidekick_proof.Tracer.concrete ~sink
+    inherit Sidekick_proof.Tracer.concrete ~sink as p_tracer
 
     method emit_assert_term t =
-      let id_t = emit_t#emit_term t in
+      let id_t = p_tracer#emit_term t in
       let v = V.int id_t in
       let id = Tr.Sink.emit sink ~tag:"AssT" v in
       id
 
     method sat_encode_lit (lit : Lit.t) : V.t =
       let sign = Lit.sign lit in
-      let id_t = emit_t#emit_term @@ Lit.term lit in
+      let id_t = p_tracer#emit_term @@ Lit.term lit in
       V.(list [ bool sign; int id_t ])
 
     method sat_assert_clause ~id (c : Lit.t Iter.t) (pr : Proof.Step.id) =

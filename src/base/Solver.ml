@@ -5,5 +5,5 @@ let default_arg =
     let view_as_cc = Term.view_as_cc
   end : Sidekick_smt_solver.Sigs.ARG)
 
-let create_default ?stat ?size ?tracer ~proof ~theories tst : t =
-  create default_arg ?stat ?size ?tracer ~proof ~theories tst ()
+let create_default ?stat ?size ~tracer ~theories tst : t =
+  create default_arg ?stat ?size ~tracer ~theories tst ()

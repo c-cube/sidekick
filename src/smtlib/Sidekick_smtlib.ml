@@ -4,7 +4,6 @@ module Driver = Driver
 module Solver = Solver
 module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
-module Proof_trace = Sidekick_core.Proof_trace
 module Check_cc = Check_cc
 
 type 'a or_error = ('a, string) CCResult.t

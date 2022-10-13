@@ -63,4 +63,4 @@ let solve (self : #t) ?on_exit ?on_progress ?should_stop ~assumptions () :
   self#solve ?on_exit ?on_progress ?should_stop ~assumptions ()
 
 let last_res (self : #t) = self#last_res
-let proof (self : #t) : #Proof.Tracer.t = self#proof
+let proof (self : #t) : Proof.Tracer.t = self#proof_tracer

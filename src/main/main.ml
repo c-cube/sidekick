@@ -4,14 +4,13 @@ Copyright 2014 Guillaume Bury
 Copyright 2014 Simon Cruanes
 *)
 
-open Sidekick_core
 module E = CCResult
 module Fmt = CCFormat
 module Term = Sidekick_base.Term
 module Config = Sidekick_base.Config
 module Solver = Sidekick_smtlib.Solver
 module Driver = Sidekick_smtlib.Driver
-module Proof = Sidekick_smtlib.Proof_trace
+module Proof = Sidekick_proof
 open E.Infix
 
 type 'a or_error = ('a, string) E.t
@@ -23,7 +22,6 @@ let file = ref ""
 let p_cnf = ref false
 let p_proof = ref false
 let p_model = ref false
-let file_trace = ref ""
 let check = ref false
 let time_limit = ref 300.
 let mem_limit = ref 1_000_000_000.
@@ -31,9 +29,9 @@ let restarts = ref true
 let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
+let enable_trace = ref false
 let proof_file = ref ""
-let proof_store_memory = ref false
-let proof_store_file = ref ""
+let trace_file = ref ""
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -81,15 +79,12 @@ let argspec =
       "--stat", Arg.Set p_stat, " print statistics";
       "--proof", Arg.Set p_proof, " print proof";
       "--no-proof", Arg.Clear p_proof, " do not print proof";
-      ( "--proof-in-memory",
-        Arg.Set proof_store_memory,
-        " store temporary proof in memory" );
-      ( "--proof-trace-file",
-        Arg.Set_string proof_store_file,
-        " store temporary proof in given file (no cleanup)" );
       "-o", Arg.Set_string proof_file, " file into which to output a proof";
       "--model", Arg.Set p_model, " print model";
-      "--trace", Arg.Set_string file_trace, " emit trace into <file>";
+      "--trace", Arg.Set enable_trace, " enable/disable tracing";
+      ( "--trace-file",
+        Arg.Set_string trace_file,
+        " store trace in given file (no cleanup)" );
       "--no-model", Arg.Clear p_model, " do not print model";
       ( "--bool",
         Arg.Symbol
@@ -133,21 +128,34 @@ let check_limits () =
   else if s > !mem_limit then
     raise Out_of_space
 
-let mk_smt_tracer () =
-  if !file_trace = "" then
-    Sidekick_smt_solver.Tracer.dummy
-  else (
-    let oc = open_out_bin !file_trace in
+(* call [k] with the name of a temporary proof file, and cleanup if necessary *)
+let run_with_tmp_file ~enable_proof k =
+  (* TODO: use memory writer if [!proof_store_memory] *)
+  if enable_proof then
+    if !trace_file <> "" then (
+      let file = !trace_file in
+      k file
+    ) else
+      CCIO.File.with_temp ~temp_dir:"." ~prefix:".sidekick-proof" ~suffix:".dat"
+        k
+  else
+    k "/dev/null"
+
+let mk_smt_tracer ~trace_file () =
+  if !enable_trace || trace_file <> "" then (
+    Log.debugf 1 (fun k -> k "(@[emit-trace-into@ %S@])" trace_file);
+    let oc = open_out_bin trace_file in
     Sidekick_smt_solver.Tracer.make
       ~sink:(Sidekick_trace.Sink.of_out_channel_using_bencode oc)
       ()
-  )
+  ) else
+    Sidekick_smt_solver.Tracer.dummy
 
-let mk_sat_tracer () : Clause_tracer.t =
-  if !file_trace = "" then
-    Clause_tracer.dummy
+let mk_sat_tracer () : Sidekick_sat.Tracer.t =
+  if !trace_file = "" then
+    Sidekick_sat.Tracer.dummy
   else (
-    let oc = open_out_bin !file_trace in
+    let oc = open_out_bin !trace_file in
     let sink = Sidekick_trace.Sink.of_out_channel_using_bencode oc in
     Pure_sat_solver.tracer ~sink ()
   )
@@ -155,25 +163,11 @@ let mk_sat_tracer () : Clause_tracer.t =
 let main_smt ~config () : _ result =
   let tst = Term.Store.create ~size:4_096 () in
 
-  let enable_proof_ = !check || !p_proof || !proof_file <> "" in
-  Log.debugf 1 (fun k -> k "(@[proof-enable@ %B@])" enable_proof_);
+  let enable_proof = !check || !p_proof || !proof_file <> "" in
+  Log.debugf 1 (fun k -> k "(@[proof-enable@ %B@])" enable_proof);
 
-  (* call [k] with the name of a temporary proof file, and cleanup if necessary *)
-  let run_with_tmp_file k =
-    (* TODO: use memory writer if [!proof_store_memory] *)
-    if enable_proof_ then
-      if !proof_store_file <> "" then (
-        let file = !proof_store_file in
-        k file
-      ) else
-        CCIO.File.with_temp ~temp_dir:"." ~prefix:".sidekick-proof"
-          ~suffix:".dat" k
-    else
-      k "/dev/null"
-  in
-
-  run_with_tmp_file @@ fun temp_proof_file ->
-  Log.debugf 1 (fun k -> k "(@[temp-proof-file@ %S@])" temp_proof_file);
+  run_with_tmp_file ~enable_proof @@ fun trace_file ->
+  Log.debugf 1 (fun k -> k "(@[trace_file@ %S@])" trace_file);
 
   (* FIXME
      let config =
@@ -187,8 +181,8 @@ let main_smt ~config () : _ result =
      (* main proof object *)
      let proof = Proof.create ~config () in
   *)
-  let proof = Proof.dummy in
-  let tracer = mk_smt_tracer () in
+  let tracer = mk_smt_tracer ~trace_file () in
+  Proof.Tracer.enable tracer enable_proof;
 
   let solver =
     (* TODO: probes, to load only required theories *)
@@ -199,7 +193,7 @@ let main_smt ~config () : _ result =
             (Sidekick_smt_solver.Theory.name th_bool));
       [ th_bool; Driver.th_ty_unin; Driver.th_data; Driver.th_lra ]
     in
-    Solver.Smt_solver.Solver.create_default ~tracer ~proof ~theories tst ()
+    Solver.Smt_solver.Solver.create_default ~tracer ~theories tst ()
   in
 
   let finally () =
@@ -240,31 +234,19 @@ let main_smt ~config () : _ result =
 
 let main_cnf () : _ result =
   let module S = Pure_sat_solver in
-  let proof, in_memory_proof =
-    (* FIXME
-       if !check then (
-         let pr, inmp = Proof.create_in_memory () in
-         pr, Some inmp
-       ) else if !proof_file <> "" then
-         Proof.create_to_file !proof_file, None
-       else
-    *)
-    Proof.dummy, None
-  in
-
   let stat = Stat.create () in
 
-  let finally () =
-    if !p_stat then Fmt.printf "%a@." Stat.pp stat;
-    Proof.close proof
-  in
+  let finally () = if !p_stat then Fmt.printf "%a@." Stat.pp stat in
   CCFun.protect ~finally @@ fun () ->
+  let enable_proof_ = !check || !p_proof || !proof_file <> "" in
+
   let tst = Term.Store.create () in
   let tracer = mk_sat_tracer () in
-  let solver = S.SAT.create_pure_sat ~size:`Big ~tracer ~proof ~stat () in
+  Proof.Tracer.enable tracer enable_proof_;
+  let solver = S.SAT.create_pure_sat ~size:`Big ~tracer ~stat () in
 
   S.Dimacs.parse_file solver tst !file >>= fun () ->
-  let r = S.solve ~check:!check ?in_memory_proof solver in
+  let r = S.solve ~check:!check solver in
   (* FIXME: if in memory proof and !proof_file<>"",
      then dump proof into file now *)
   r

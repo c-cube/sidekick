@@ -10,7 +10,6 @@ module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
 module Driver = Driver
 module Solver = Solver
-module Proof_trace = Sidekick_core.Proof_trace
 module Check_cc = Check_cc
 
 val parse : Term.store -> string -> Stmt.t list or_error

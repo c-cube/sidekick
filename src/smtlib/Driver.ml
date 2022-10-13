@@ -1,5 +1,6 @@
 open Sidekick_core
 module Profile = Sidekick_util.Profile
+module Proof = Sidekick_proof
 module Asolver = Solver.Asolver
 open! Sidekick_base
 open Common_
@@ -145,7 +146,7 @@ let solve (self : t) ~assumptions () : Solver.res =
     let t3 = now () in
     Fmt.printf "sat@.";
     Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. time_start) (t2 -. t1) (t3 -. t2)
-  | Asolver.Check_res.Unsat { unsat_step_id; unsat_core = _ } ->
+  | Asolver.Check_res.Unsat { unsat_proof; unsat_core = _ } ->
     if self.check then
       ()
     (* FIXME: check trace?
@@ -157,7 +158,7 @@ let solve (self : t) ~assumptions () : Solver.res =
 
     (match self.proof_file with
     | Some file ->
-      (match unsat_step_id () with
+      (match unsat_proof () with
       | None -> ()
       | Some step_id ->
         (* TODO: read trace; emit proof
@@ -193,7 +194,7 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
   Log.debugf 5 (fun k ->
       k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
 
-  let add_step r = Proof_trace.add_step (Asolver.proof self.solver) r in
+  let add_step r = Proof.Tracer.add_step (Asolver.proof self.solver) r in
 
   match stmt with
   | Statement.Stmt_set_logic logic ->
@@ -225,7 +226,7 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     if self.pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
     let lit = Asolver.lit_of_term self.solver t in
     Asolver.assert_clause self.solver [| lit |]
-      (add_step @@ fun () -> Proof_sat.sat_input_clause [ lit ]);
+      (fun () -> Proof.Sat_rules.sat_input_clause [ lit ]);
     E.return ()
   | Statement.Stmt_assert_clause c_ts ->
     if self.pp_cnf then
@@ -235,9 +236,9 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
 
     (* proof of assert-input + preprocessing *)
     let pr =
-      add_step @@ fun () ->
+      fun () ->
       let lits = List.map (Asolver.lit_of_term self.solver) c_ts in
-      Proof_sat.sat_input_clause lits
+      Proof.Sat_rules.sat_input_clause lits
     in
 
     Asolver.assert_clause self.solver (CCArray.of_list c) pr;
