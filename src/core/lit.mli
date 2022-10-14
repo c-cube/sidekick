@@ -16,6 +16,8 @@ type t
 
 include Sidekick_sigs.EQ_ORD_HASH_PRINT with type t := t
 
+val pp_limit : max_depth:int -> max_nodes:int -> t Fmt.printer
+
 val term : t -> term
 (** Get the (positive) term *)
 

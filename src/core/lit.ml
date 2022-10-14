@@ -39,6 +39,12 @@ let pp out l =
   else
     Format.fprintf out "(@[@<1>¬@ %a@])" T_printer.pp l.lit_term
 
+let pp_limit ~max_depth ~max_nodes out l =
+  if l.lit_sign then
+    T_printer.pp_limit ~max_depth ~max_nodes out l.lit_term
+  else
+    Format.fprintf out "(@[@<1>¬@ %a@])" T_printer.pp l.lit_term
+
 let norm_sign l =
   if l.lit_sign then
     l, true

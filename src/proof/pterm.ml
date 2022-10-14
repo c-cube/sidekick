@@ -27,7 +27,13 @@ let rec pp out = function
     if r.premises <> [] then
       Fmt.fprintf out "@ :prem %a" Fmt.Dump.(list int) r.premises;
     if r.term_args <> [] then
-      Fmt.fprintf out "@ :ts %a" Fmt.Dump.(list Term.pp) r.term_args;
+      Fmt.fprintf out "@ :ts %a"
+        Fmt.Dump.(list @@ Term.pp_limit ~max_nodes:200 ~max_depth:5)
+        r.term_args;
+    if r.lit_args <> [] then
+      Fmt.fprintf out "@ :lits %a"
+        Fmt.Dump.(list @@ Lit.pp_limit ~max_nodes:200 ~max_depth:5)
+        r.lit_args;
     Fmt.fprintf out "@]}"
   | P_let (bs, bod) ->
     let pp_b out (x, t) = Fmt.fprintf out "s%d := %a" x pp t in

@@ -41,7 +41,6 @@ module Lit = Lit
 module Subst = Sidekick_core_logic.Subst
 module Var = Sidekick_core_logic.Var
 module Box = Box
-module Clause_tracer = Clause_tracer
 module Gensym = Gensym
 
 exception Resource_exhausted
