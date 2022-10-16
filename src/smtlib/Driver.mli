@@ -21,7 +21,6 @@ type t
 (** The SMTLIB driver *)
 
 val create :
-  ?restarts:bool ->
   ?pp_cnf:bool ->
   ?proof_file:string ->
   ?pp_model:bool ->

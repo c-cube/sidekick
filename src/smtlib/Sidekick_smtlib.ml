@@ -5,6 +5,7 @@ module Solver = Solver
 module Term = Sidekick_base.Term
 module Stmt = Sidekick_base.Statement
 module Check_cc = Check_cc
+module Model = Model
 
 type 'a or_error = ('a, string) CCResult.t
 

@@ -102,15 +102,30 @@ val assert_term : t -> term -> unit
 
 val add_ty : t -> ty -> unit
 
+type value = Term.t
+
+type sat_result = Check_res.sat_result = {
+  get_value: Term.t -> value option;  (** Value for this term *)
+  iter_classes: (Term.t Iter.t * value) Iter.t;
+      (** All equivalence classes in the congruence closure *)
+  eval_lit: Lit.t -> bool option;  (** Evaluate literal *)
+  iter_true_lits: Lit.t Iter.t;
+      (** Iterate on literals that are true in the trail *)
+}
+(** Satisfiable *)
+
+type unsat_result = Check_res.unsat_result = {
+  unsat_core: unit -> Lit.t Iter.t;
+      (** Unsat core (subset of assumptions), or empty *)
+  unsat_proof: unit -> Sidekick_proof.Step.id option;
+      (** Proof step for the empty clause *)
+}
+(** Unsatisfiable *)
+
 (** Result of solving for the current set of clauses *)
 type res = Check_res.t =
-  | Sat of Model.t  (** Satisfiable *)
-  | Unsat of {
-      unsat_core: unit -> lit Iter.t;
-          (** Unsat core (subset of assumptions), or empty *)
-      unsat_proof: unit -> step_id option;
-          (** Proof step for the empty clause *)
-    }  (** Unsatisfiable *)
+  | Sat of sat_result
+  | Unsat of unsat_result
   | Unknown of Unknown.t
       (** Unknown, obtained after a timeout, memory limit, etc. *)
 

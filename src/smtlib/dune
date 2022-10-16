@@ -4,6 +4,5 @@
  (synopsis "SMTLIB 2.6 driver for Sidekick")
  (private_modules Common_)
  (libraries containers zarith sidekick.core sidekick.util sidekick-base
-            sidekick.abstract-solver
-   sidekick.mini-cc smtlib-utils sidekick.tef)
+   sidekick.abstract-solver sidekick.mini-cc smtlib-utils sidekick.tef)
  (flags :standard -warn-error -a+8 -open Sidekick_util))

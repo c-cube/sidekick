@@ -1,24 +1,23 @@
 open Sigs
 module T = Term
+module TM = Term.Map
 
 type t = {
   tst: Term.store;
-  mutable m: Model.t;
+  mutable m: Term.t TM.t;
   required: Term.t Queue.t;
   gensym: Gensym.t;
 }
 
 let create tst : t =
-  {
-    tst;
-    m = Model.empty;
-    required = Queue.create ();
-    gensym = Gensym.create tst;
-  }
+  { tst; m = TM.empty; required = Queue.create (); gensym = Gensym.create tst }
 
 let pp out (self : t) : unit =
-  Fmt.fprintf out "(@[model-builder@ :model %a@ :q (@[%a@])@])" Model.pp self.m
-    (Util.pp_iter T.pp)
+  let pp_kv out (k, v) =
+    Fmt.fprintf out "(@[%a@ := %a@])" Term.pp k Term.pp v
+  in
+  Fmt.fprintf out "(@[model-builder@ :model %a@ :q (@[%a@])@])"
+    (Util.pp_iter pp_kv) (TM.to_iter self.m) (Util.pp_iter T.pp)
     (Iter.of_queue self.required)
 
 let gensym self ~pre ~ty : Term.t = Gensym.fresh_term self.gensym ~pre ty
@@ -26,33 +25,33 @@ let gensym self ~pre ~ty : Term.t = Gensym.fresh_term self.gensym ~pre ty
 let rec pop_required (self : t) : _ option =
   match Queue.take_opt self.required with
   | None -> None
-  | Some t when Model.mem self.m t -> pop_required self
+  | Some t when TM.mem t self.m -> pop_required self
   | Some t -> Some t
 
 let require_eval (self : t) t : unit =
-  if not @@ Model.mem self.m t then Queue.push t self.required
+  if not @@ TM.mem t self.m then Queue.push t self.required
 
-let[@inline] mem self t : bool = Model.mem self.m t
+let[@inline] mem self t : bool = TM.mem t self.m
 
 let add (self : t) ?(subs = []) t v : unit =
   if not @@ mem self t then (
-    self.m <- Model.add t v self.m;
+    self.m <- TM.add t v self.m;
     List.iter (fun u -> require_eval self u) subs
   )
 
 type eval_cache = Term.Internal_.cache
 
 let eval ?(cache = Term.Internal_.create_cache 8) (self : t) (t : Term.t) =
-  let t = Model.find self.m t |> Option.value ~default:t in
+  let t = TM.get t self.m |> Option.value ~default:t in
   T.Internal_.replace_ ~cache self.tst ~recursive:true t ~f:(fun ~recurse:_ u ->
-      Model.find self.m u)
+      TM.get u self.m)
 
-let to_model (self : t) : Model.t =
+let to_map (self : t) : _ TM.t =
   (* ensure we evaluate each term only once *)
   let cache = T.Internal_.create_cache 8 in
   let m =
-    Model.keys self.m
+    TM.keys self.m
     |> Iter.map (fun t -> t, eval ~cache self t)
-    |> Iter.fold (fun m (t, v) -> Model.add t v m) Model.empty
+    |> Iter.fold (fun m (t, v) -> TM.add t v m) TM.empty
   in
   m

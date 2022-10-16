@@ -36,7 +36,7 @@ type unsat_cause =
 
 exception E_sat
 exception E_unsat of unsat_cause
-exception UndecidedLit
+exception UndecidedLit = Sigs.UndecidedLit
 exception Restart
 exception Conflict of clause
 

@@ -1,4 +1,3 @@
-open Sidekick_core
 module Profile = Sidekick_util.Profile
 module Proof = Sidekick_proof
 module Asolver = Solver.Asolver
@@ -12,52 +11,10 @@ type 'a or_error = ('a, string) CCResult.t
 module E = CCResult
 module Fmt = CCFormat
 
-(* TODO: use external proof checker instead: check-sat(φ + model)
-   (* check SMT model *)
-   let check_smt_model (solver:Solver.Sat_solver.t) (hyps:_ Vec.t) (m:Model.t) : unit =
-     Log.debug 1 "(smt.check-smt-model)";
-     let module S = Solver.Sat_solver in
-     let check_atom (lit:Lit.t) : Msat.lbool =
-       Log.debugf 5 (fun k->k "(@[smt.check-smt-model.atom@ %a@])" Lit.pp lit);
-       let a = S.make_atom solver lit in
-       let sat_value = S.eval_atom solver a in
-       let t, sign = Lit.as_atom lit in
-       begin match Model.eval m t with
-         | Some (V_bool b) ->
-           let b = if sign then b else not b in
-           if (sat_value <> Msat.L_undefined) &&
-              ((b && sat_value=Msat.L_false) || (not b && sat_value=Msat.L_true)) then (
-             Error.errorf "(@[check-model.error@ :atom %a@ :model-val %B@ :sat-val %a@])"
-               S.Atom.pp a b Msat.pp_lbool sat_value
-           ) else (
-             Log.debugf 5
-               (fun k->k "(@[check-model@ :atom %a@ :model-val %B@ :sat-val %a@])"
-                   S.Atom.pp a b Msat.pp_lbool sat_value);
-           )
-         | Some v ->
-           Error.errorf "(@[check-model.error@ :atom %a@ :non-bool-value %a@])"
-             S.Atom.pp a Value.pp v
-         | None ->
-           if sat_value <> Msat.L_undefined then (
-             Error.errorf "(@[check-model.error@ :atom %a@ :no-smt-value@ :sat-val %a@])"
-               S.Atom.pp a Msat.pp_lbool sat_value
-           );
-       end;
-       sat_value
-     in
-     let check_c c =
-       let bs = List.map check_atom c in
-       if List.for_all (function Msat.L_true -> false | _ -> true) bs then (
-         Error.errorf "(@[check-model.error.none-true@ :clause %a@ :vals %a@])"
-           (Fmt.Dump.list Lit.pp) c Fmt.(Dump.list @@ Msat.pp_lbool) bs
-       );
-     in
-     Vec.iter check_c hyps
-*)
-
 type t = {
   progress: Progress_bar.t option;
   solver: Asolver.t;
+  build_model: Build_model.t;
   time_start: float;
   time_limit: float;
   memory_limit: float;
@@ -65,13 +22,11 @@ type t = {
   pp_model: bool;
   pp_cnf: bool;
   check: bool;
-  restarts: bool;
 }
 
 (* call the solver to check-sat *)
-let create ?(restarts = true) ?(pp_cnf = false) ?proof_file ?(pp_model = false)
-    ?(check = false) ?time ?memory ?(progress = false) (solver : Asolver.t) : t
-    =
+let create ?(pp_cnf = false) ?proof_file ?(pp_model = false) ?(check = false)
+    ?time ?memory ?(progress = false) (solver : Asolver.t) : t =
   let time_start = now () in
   let progress =
     if progress then
@@ -86,7 +41,7 @@ let create ?(restarts = true) ?(pp_cnf = false) ?proof_file ?(pp_model = false)
 
   {
     time_start;
-    restarts;
+    build_model = Build_model.create ();
     progress;
     solver;
     proof_file;
@@ -97,15 +52,20 @@ let create ?(restarts = true) ?(pp_cnf = false) ?proof_file ?(pp_model = false)
     memory_limit;
   }
 
-let decl_sort (_self : t) c n : unit =
-  (* TODO: more? pass to abstract solver? *)
-  Log.debugf 1 (fun k -> k "(@[declare-sort %a@ :arity %d@])" ID.pp c n)
-
-let decl_fun (_self : t) id args ret : unit =
-  (* TODO: more? record for model building *)
+let decl_sort (self : t) c n ty_const : unit =
   Log.debugf 1 (fun k ->
-      k "(@[declare-fun %a@ :args (@[%a@])@ :ret %a@])" ID.pp id
-        (Util.pp_list Ty.pp) args Ty.pp ret)
+      k "(@[declare-sort %a@ :arity %d@ :ty-const %a@])" ID.pp c n Term.pp
+        ty_const);
+  Build_model.add_ty self.build_model ty_const
+
+let decl_fun (self : t) f args ret const : unit =
+  Log.debugf 1 (fun k ->
+      k "(@[declare-fun %a@ :args (@[%a@])@ :ret %a@ :const %a@])" ID.pp f
+        (Util.pp_list Ty.pp) args Ty.pp ret Term.pp const);
+  Build_model.add_fun self.build_model const
+
+let build_model (self : t) (sat : Solver.sat_result) : Model.t =
+  Build_model.build self.build_model sat
 
 (* call the solver to check satisfiability *)
 let solve (self : t) ~assumptions () : Solver.res =
@@ -133,10 +93,12 @@ let solve (self : t) ~assumptions () : Solver.res =
   let t2 = now () in
   flush stdout;
   (match res with
-  | Asolver.Check_res.Sat m ->
-    if self.pp_model then
+  | Asolver.Check_res.Sat sat ->
+    if self.pp_model then (
+      let m = build_model self sat in
       (* TODO: use actual {!Model} in the solver? or build it afterwards *)
-      Format.printf "(@[<hv1>model@ %a@])@." Sidekick_smt_solver.Model.pp m;
+      Format.printf "(@[<hv1>model@ %a@])@." Model.pp m
+    );
     (* TODO
        if check then (
          Solver.check_model s;
@@ -194,8 +156,6 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
   Log.debugf 5 (fun k ->
       k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
 
-  let add_step r = Proof.Tracer.add_step (Asolver.proof self.solver) r in
-
   match stmt with
   | Statement.Stmt_set_logic logic ->
     if not @@ List.mem logic known_logics then
@@ -216,17 +176,17 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     in
     ignore (solve self ~assumptions () : Solver.res);
     E.return ()
-  | Statement.Stmt_ty_decl (id, n) ->
-    decl_sort self id n;
+  | Statement.Stmt_ty_decl { name; arity; ty_const } ->
+    decl_sort self name arity ty_const;
     E.return ()
-  | Statement.Stmt_decl (f, ty_args, ty_ret) ->
-    decl_fun self f ty_args ty_ret;
+  | Statement.Stmt_decl { name; ty_args; ty_ret; const } ->
+    decl_fun self name ty_args ty_ret const;
     E.return ()
   | Statement.Stmt_assert t ->
     if self.pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
     let lit = Asolver.lit_of_term self.solver t in
-    Asolver.assert_clause self.solver [| lit |]
-      (fun () -> Proof.Sat_rules.sat_input_clause [ lit ]);
+    Asolver.assert_clause self.solver [| lit |] (fun () ->
+        Proof.Sat_rules.sat_input_clause [ lit ]);
     E.return ()
   | Statement.Stmt_assert_clause c_ts ->
     if self.pp_cnf then
@@ -235,8 +195,7 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     let c = CCList.map (fun t -> Asolver.lit_of_term self.solver t) c_ts in
 
     (* proof of assert-input + preprocessing *)
-    let pr =
-      fun () ->
+    let pr () =
       let lits = List.map (Asolver.lit_of_term self.solver) c_ts in
       Proof.Sat_rules.sat_input_clause lits
     in
@@ -245,16 +204,19 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     E.return ()
   | Statement.Stmt_get_model ->
     (match Asolver.last_res self.solver with
-    | Some (Solver.Sat m) -> Fmt.printf "%a@." Sidekick_smt_solver.Model.pp m
+    | Some (Solver.Sat sat) ->
+      let m = build_model self sat in
+      Fmt.printf "%a@." Model.pp m
     | _ -> Error.errorf "cannot access model");
     E.return ()
   | Statement.Stmt_get_value l ->
     (match Asolver.last_res self.solver with
-    | Some (Solver.Sat m) ->
+    | Some (Solver.Sat sat) ->
+      let m = build_model self sat in
       let l =
         List.map
           (fun t ->
-            match Sidekick_smt_solver.Model.eval m t with
+            match Model.eval t m with
             | None -> Error.errorf "cannot evaluate %a" Term.pp t
             | Some u -> t, u)
           l

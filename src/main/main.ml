@@ -25,7 +25,6 @@ let p_model = ref false
 let check = ref false
 let time_limit = ref 300.
 let mem_limit = ref 1_000_000_000.
-let restarts = ref true
 let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
@@ -74,8 +73,6 @@ let argspec =
         Arg.Set check,
         " build, check and print the proof (if output is set), if unsat" );
       "--no-check", Arg.Clear check, " inverse of -check";
-      "--restarts", Arg.Set restarts, " enable restarts";
-      "--no-restarts", Arg.Clear restarts, " disable restarts";
       "--stat", Arg.Set p_stat, " print statistics";
       "--proof", Arg.Set p_proof, " print proof";
       "--no-proof", Arg.Clear p_proof, " do not print proof";
@@ -220,9 +217,8 @@ let main_smt ~config () : _ result =
   parse_res >>= fun input ->
   let driver =
     let asolver = Solver.Smt_solver.Solver.as_asolver solver in
-    Driver.create ~restarts:!restarts ~pp_cnf:!p_cnf ~time:!time_limit
-      ~memory:!mem_limit ~pp_model:!p_model ?proof_file ~check:!check
-      ~progress:!p_progress asolver
+    Driver.create ~pp_cnf:!p_cnf ~time:!time_limit ~memory:!mem_limit
+      ~pp_model:!p_model ?proof_file ~check:!check ~progress:!p_progress asolver
   in
 
   (* process statements *)

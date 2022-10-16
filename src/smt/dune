@@ -3,6 +3,6 @@
  (public_name sidekick.smt-solver)
  (synopsis "main SMT solver")
  (libraries containers iter sidekick.core sidekick.util sidekick.cc
-   sidekick.sat sidekick.abstract-solver sidekick.simplify sidekick.model
-   sidekick.proof sidekick.trace)
+   sidekick.sat sidekick.abstract-solver sidekick.simplify sidekick.proof
+   sidekick.trace)
  (flags :standard -w +32 -open Sidekick_util))

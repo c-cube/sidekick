@@ -11,14 +11,30 @@ module Sat_solver = Sidekick_sat
 
 module Unknown = Sidekick_abstract_solver.Unknown [@@ocaml.warning "-37"]
 
+type value = Term.t
+
+type sat_result = Check_res.sat_result = {
+  get_value: Term.t -> value option;  (** Value for this term *)
+  iter_classes: (Term.t Iter.t * value) Iter.t;
+      (** All equivalence classes in the congruence closure *)
+  eval_lit: Lit.t -> bool option;  (** Evaluate literal *)
+  iter_true_lits: Lit.t Iter.t;
+      (** Iterate on literals that are true in the trail *)
+}
+(** Satisfiable *)
+
+type unsat_result = Check_res.unsat_result = {
+  unsat_core: unit -> Lit.t Iter.t;
+      (** Unsat core (subset of assumptions), or empty *)
+  unsat_proof: unit -> Sidekick_proof.Step.id option;
+      (** Proof step for the empty clause *)
+}
+(** Unsatisfiable *)
+
+(** Result of solving for the current set of clauses *)
 type res = Check_res.t =
-  | Sat of Model.t  (** Satisfiable *)
-  | Unsat of {
-      unsat_core: unit -> lit Iter.t;
-          (** Unsat core (subset of assumptions), or empty *)
-      unsat_proof: unit -> step_id option;
-          (** Proof step for the empty clause *)
-    }  (** Unsatisfiable *)
+  | Sat of sat_result
+  | Unsat of unsat_result
   | Unknown of Unknown.t
       (** Unknown, obtained after a timeout, memory limit, etc. *)
 
@@ -188,17 +204,8 @@ let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
             "(@[sidekick.smt-solver: SAT@ actual: UNKNOWN@ :reason \
              incomplete-fragment@])");
       Unknown Unknown.U_incomplete
-    | Sat_solver.Sat _ ->
+    | Sat_solver.Sat (module SAT) ->
       Log.debug 1 "(sidekick.smt-solver: SAT)";
-
-      Log.debugf 5 (fun k ->
-          let ppc out n =
-            Fmt.fprintf out "{@[<hv1>class@ %a@]}"
-              (Util.pp_iter ~sep:";" E_node.pp)
-              (E_node.iter_class n)
-          in
-          k "(@[sidekick.smt-solver.classes@ (@[%a@])@])" (Util.pp_iter ppc)
-            (CC.all_classes @@ Solver_internal.cc self.si));
 
       let m =
         match SI.last_model self.si with
@@ -206,8 +213,48 @@ let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
         | None -> assert false
       in
 
+      let iter_classes =
+        CC.all_classes (Solver_internal.cc self.si)
+        |> Iter.filter (fun repr ->
+               not @@ Term.is_pi (Term.ty @@ E_node.term repr))
+        |> Iter.map (fun repr ->
+               let v =
+                 match
+                   (* find value for this class *)
+                   Iter.find_map
+                     (fun en -> Term.Map.get (E_node.term en) m)
+                     (E_node.iter_class repr)
+                 with
+                 | None ->
+                   Error.errorf
+                     "(@[solver.mk-model.no-value-for-repr@ %a@ :ty %a@])"
+                     E_node.pp repr Term.pp
+                     (Term.ty @@ E_node.term repr)
+                 | Some v -> v
+               in
+               let terms = E_node.iter_class repr |> Iter.map E_node.term in
+               terms, v)
+      in
+
+      Log.debugf 5 (fun k ->
+          let ppc out (cls, v) =
+            Fmt.fprintf out "{@[<hv1>class@ :value %a@ %a@]}" Term.pp v
+              (Util.pp_iter ~sep:";" Term.pp)
+              cls
+          in
+          k "(@[sidekick.smt-solver.classes@ (@[%a@])@])" (Util.pp_iter ppc)
+            iter_classes);
+
       do_on_exit ();
-      Sat m
+      Sat
+        {
+          get_value = (fun t -> Term.Map.get t m);
+          iter_classes;
+          eval_lit =
+            (fun l ->
+              try Some (SAT.eval l) with Sat_solver.UndecidedLit -> None);
+          iter_true_lits = SAT.iter_trail;
+        }
     | Sat_solver.Unsat (module UNSAT) ->
       let unsat_core () = UNSAT.unsat_assumptions () in
       let unsat_proof () = Some (UNSAT.unsat_proof ()) in

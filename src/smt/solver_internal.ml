@@ -53,7 +53,7 @@ type t = {
   mutable model_complete: model_completion_hook list;
   simp: Simplify.t;
   delayed_actions: delayed_action Queue.t;
-  mutable last_model: Model.t option;
+  mutable last_model: Term.t Term.Map.t option;
   mutable th_states: th_states;  (** Set of theories *)
   mutable level: int;
   mutable complete: bool;
@@ -327,7 +327,7 @@ let rec pop_lvls_theories_ n = function
 (** {2 Model construction and theory combination} *)
 
 (* make model from the congruence closure *)
-let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
+let mk_model_ (self : t) (lits : lit Iter.t) : Term.t Term.Map.t =
   let@ () = Profile.with_ "smt-solver.mk-model" in
   Log.debug 1 "(smt.solver.mk-model)";
   let module MB = Model_builder in
@@ -395,7 +395,7 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
   in
 
   compute_fixpoint ();
-  MB.to_model model
+  MB.to_map model
 
 (* call congruence closure, perform the actions it scheduled *)
 let check_cc_with_acts_ (self : t) (acts : theory_actions) =

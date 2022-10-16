@@ -66,8 +66,9 @@ type statement =
   | Stmt_set_option of string list
   | Stmt_set_info of string * string
   | Stmt_data of data list
-  | Stmt_ty_decl of ID.t * int (* new atomic cstor *)
-  | Stmt_decl of ID.t * ty list * ty
+  | Stmt_ty_decl of { name: ID.t; arity: int; ty_const: ty }
+      (** new atomic cstor *)
+  | Stmt_decl of { name: ID.t; ty_args: ty list; ty_ret: ty; const: term }
   | Stmt_define of definition list
   | Stmt_assert of term
   | Stmt_assert_clause of term list

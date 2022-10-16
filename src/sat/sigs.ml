@@ -9,6 +9,8 @@ Copyright 2016 Simon Cruanes
 open Sidekick_core
 module Proof = Sidekick_proof
 
+exception UndecidedLit
+
 (** Solver in a "SATISFIABLE" state *)
 module type SAT_STATE = sig
   val eval : Lit.t -> bool

@@ -457,13 +457,13 @@ and conv_statement_aux (ctx : Ctx.t) (stmt : PA.statement) : Stmt.t list =
     let id = ID.make s in
     let ty = Ty.uninterpreted tst id in
     Ctx.add_id_ ctx s id (Ctx.K_ty (Ctx.K_atomic ty));
-    [ Stmt.Stmt_ty_decl (id, n) ]
+    [ Stmt.Stmt_ty_decl { name = id; arity = n; ty_const = ty } ]
   | PA.Stmt_decl fr ->
     let f, args, ret = conv_fun_decl ctx fr in
     let id = ID.make f in
     let c_f = Uconst.uconst_of_id' tst id args ret in
     Ctx.add_id_ ctx f id (Ctx.K_fun c_f);
-    [ Stmt.Stmt_decl (id, args, ret) ]
+    [ Stmt.Stmt_decl { name = id; ty_args = args; ty_ret = ret; const = c_f } ]
   | PA.Stmt_data l ->
     (* first, read and declare each datatype (it can occur in the other
        datatypes' constructors) *)
@@ -572,7 +572,10 @@ and conv_statement_aux (ctx : Ctx.t) (stmt : PA.statement) : Stmt.t list =
     let f = Uconst.uconst_of_id tst id ret in
     Ctx.add_id_ ctx fun_name id (Ctx.K_fun f);
     let rhs = conv_term ctx fr_body in
-    [ Stmt.Stmt_decl (id, [], ret); Stmt.Stmt_assert (Form.eq tst f rhs) ]
+    [
+      Stmt.Stmt_decl { name = id; ty_args = []; ty_ret = ret; const = f };
+      Stmt.Stmt_assert (Form.eq tst f rhs);
+    ]
   | PA.Stmt_fun_rec _ | PA.Stmt_fun_def _ ->
     errorf_ctx ctx "unsupported definition: %a" PA.pp_stmt stmt
   | PA.Stmt_assert t ->

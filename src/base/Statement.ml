@@ -5,8 +5,9 @@ type t = statement =
   | Stmt_set_option of string list
   | Stmt_set_info of string * string
   | Stmt_data of data list
-  | Stmt_ty_decl of ID.t * int (* new atomic cstor *)
-  | Stmt_decl of ID.t * ty list * ty
+  | Stmt_ty_decl of { name: ID.t; arity: int; ty_const: ty }
+      (** new atomic cstor *)
+  | Stmt_decl of { name: ID.t; ty_args: ty list; ty_ret: ty; const: term }
   | Stmt_define of definition list
   | Stmt_assert of term
   | Stmt_assert_clause of term list
@@ -30,10 +31,11 @@ let pp out = function
         Fmt.fprintf out "(@[not %a@])" Term.pp_debug t
     in
     Fmt.fprintf out "(@[check-sat-assuming@ (@[%a@])@])" (Fmt.list pp_pair) l
-  | Stmt_ty_decl (s, n) -> Fmt.fprintf out "(@[declare-sort@ %a %d@])" ID.pp s n
-  | Stmt_decl (id, args, ret) ->
-    Fmt.fprintf out "(@[<1>declare-fun@ %a (@[%a@])@ %a@])" ID.pp id
-      (Util.pp_list Ty.pp) args Ty.pp ret
+  | Stmt_ty_decl { name; arity; ty_const = _ } ->
+    Fmt.fprintf out "(@[declare-sort@ %a %d@])" ID.pp name arity
+  | Stmt_decl { name; ty_args; ty_ret; const = _ } ->
+    Fmt.fprintf out "(@[<1>declare-fun@ %a (@[%a@])@ %a@])" ID.pp name
+      (Util.pp_list Ty.pp) ty_args Ty.pp ty_ret
   | Stmt_assert t -> Fmt.fprintf out "(@[assert@ %a@])" Term.pp_debug t
   | Stmt_assert_clause c ->
     Fmt.fprintf out "(@[assert-clause@ %a@])" (Util.pp_list Term.pp_debug) c

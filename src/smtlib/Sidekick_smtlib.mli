@@ -11,6 +11,7 @@ module Stmt = Sidekick_base.Statement
 module Driver = Driver
 module Solver = Solver
 module Check_cc = Check_cc
+module Model = Model
 
 val parse : Term.store -> string -> Stmt.t list or_error
 val parse_stdin : Term.store -> Stmt.t list or_error

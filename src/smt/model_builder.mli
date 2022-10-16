@@ -33,4 +33,4 @@ val eval : ?cache:eval_cache -> t -> Term.t -> value
 val pop_required : t -> Term.t option
 (** gives the next subterm that is required but has no value yet *)
 
-val to_model : t -> Model.t
+val to_map : t -> Term.t Term.Map.t
