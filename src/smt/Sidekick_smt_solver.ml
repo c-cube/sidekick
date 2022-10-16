@@ -11,6 +11,7 @@ module Model_builder = Model_builder
 module Registry = Registry
 module Solver_internal = Solver_internal
 module Solver = Solver
+module Model = Model
 module Theory = Theory
 module Theory_id = Theory_id
 module Preprocess = Preprocess

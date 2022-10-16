@@ -219,12 +219,8 @@ let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
                not @@ Term.is_pi (Term.ty @@ E_node.term repr))
         |> Iter.map (fun repr ->
                let v =
-                 match
-                   (* find value for this class *)
-                   Iter.find_map
-                     (fun en -> Term.Map.get (E_node.term en) m)
-                     (E_node.iter_class repr)
-                 with
+                 (* find value for this class *)
+                 match Model.eval m (E_node.term repr) with
                  | None ->
                    Error.errorf
                      "(@[solver.mk-model.no-value-for-repr@ %a@ :ty %a@])"
@@ -248,7 +244,7 @@ let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
       do_on_exit ();
       Sat
         {
-          get_value = (fun t -> Term.Map.get t m);
+          get_value = Model.eval m;
           iter_classes;
           eval_lit =
             (fun l ->

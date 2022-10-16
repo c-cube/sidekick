@@ -22,8 +22,7 @@ let build (self : t) (sat : Solver.sat_result) : Model.t =
       match List.map (fun t -> sat.get_value t |> Option.get) args with
       | exception _ ->
         Log.debugf 1 (fun k ->
-            k "(@[build-model.warn@ :no-entry-for %a@])" Term.pp t);
-        () (* TODO: warning? *)
+            k "(@[build-model.warn@ :no-entry-for %a@])" Term.pp t)
       | v_args ->
         (* see if [v_args] already maps to a value *)
         let other_v = Model.get_fun_entry f v_args !m in

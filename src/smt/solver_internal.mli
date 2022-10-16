@@ -270,7 +270,7 @@ val on_progress : t -> (unit, unit) Event.t
 val is_complete : t -> bool
 (** Are we still in a complete logic fragment? *)
 
-val last_model : t -> Term.t Term.Map.t option
+val last_model : t -> Model.t option
 
 (** {2 Delayed actions} *)
 

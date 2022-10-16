@@ -41,17 +41,26 @@ let add (self : t) ?(subs = []) t v : unit =
 
 type eval_cache = Term.Internal_.cache
 
+let create_cache = Term.Internal_.create_cache
+
+let eval_opt ?(cache = Term.Internal_.create_cache 8) (self : t) (t : Term.t) =
+  match TM.get t self.m with
+  | None -> None
+  | Some t ->
+    Some
+      (T.Internal_.replace_ ~cache self.tst ~recursive:true t
+         ~f:(fun ~recurse:_ u -> TM.get u self.m))
+
 let eval ?(cache = Term.Internal_.create_cache 8) (self : t) (t : Term.t) =
   let t = TM.get t self.m |> Option.value ~default:t in
   T.Internal_.replace_ ~cache self.tst ~recursive:true t ~f:(fun ~recurse:_ u ->
       TM.get u self.m)
 
-let to_map (self : t) : _ TM.t =
-  (* ensure we evaluate each term only once *)
-  let cache = T.Internal_.create_cache 8 in
-  let m =
+let to_map ?(cache = T.Internal_.create_cache 8) (self : t) : _ TM.t =
+  (* ensure we evaluate each term only once by using a cache *)
+  let map =
     TM.keys self.m
     |> Iter.map (fun t -> t, eval ~cache self t)
     |> Iter.fold (fun m (t, v) -> TM.add t v m) TM.empty
   in
-  m
+  map

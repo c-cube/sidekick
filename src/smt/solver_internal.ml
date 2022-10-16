@@ -53,7 +53,7 @@ type t = {
   mutable model_complete: model_completion_hook list;
   simp: Simplify.t;
   delayed_actions: delayed_action Queue.t;
-  mutable last_model: Term.t Term.Map.t option;
+  mutable last_model: Model.t option;
   mutable th_states: th_states;  (** Set of theories *)
   mutable level: int;
   mutable complete: bool;
@@ -327,12 +327,13 @@ let rec pop_lvls_theories_ n = function
 (** {2 Model construction and theory combination} *)
 
 (* make model from the congruence closure *)
-let mk_model_ (self : t) (lits : lit Iter.t) : Term.t Term.Map.t =
+let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
   let@ () = Profile.with_ "smt-solver.mk-model" in
   Log.debug 1 "(smt.solver.mk-model)";
   let module MB = Model_builder in
   let { cc; tst; model_ask = model_ask_hooks; model_complete; _ } = self in
 
+  let cache = Model_builder.create_cache 8 in
   let model = Model_builder.create tst in
 
   Model_builder.add model (Term.true_ tst) (Term.true_ tst);
@@ -395,7 +396,18 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Term.t Term.Map.t =
   in
 
   compute_fixpoint ();
-  MB.to_map model
+
+  let map = MB.to_map ~cache model in
+
+  let eval (t : Term.t) : value option =
+    try Some (Term.Map.find t map)
+    with Not_found ->
+      MB.require_eval model t;
+      compute_fixpoint ();
+      MB.eval_opt ~cache model t
+  in
+
+  { Model.map; eval }
 
 (* call congruence closure, perform the actions it scheduled *)
 let check_cc_with_acts_ (self : t) (acts : theory_actions) =

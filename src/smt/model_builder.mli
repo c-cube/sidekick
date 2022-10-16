@@ -28,9 +28,11 @@ val gensym : t -> pre:string -> ty:Term.t -> Term.t
 
 type eval_cache = Term.Internal_.cache
 
+val create_cache : int -> eval_cache
 val eval : ?cache:eval_cache -> t -> Term.t -> value
+val eval_opt : ?cache:eval_cache -> t -> Term.t -> value option
 
 val pop_required : t -> Term.t option
 (** gives the next subterm that is required but has no value yet *)
 
-val to_map : t -> Term.t Term.Map.t
+val to_map : ?cache:eval_cache -> t -> value Term.Map.t
