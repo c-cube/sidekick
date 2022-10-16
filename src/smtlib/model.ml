@@ -41,7 +41,7 @@ let rec eval t (self : t) : value option =
 
 let pp out (self : t) =
   if is_empty self then
-    Fmt.string out "(model)"
+    Fmt.string out "()"
   else (
     let rec pp_entries out = function
       | [] -> ()
@@ -72,6 +72,5 @@ let pp out (self : t) =
           (List.mapi (fun i v -> i, Term.ty v) args)
           Term.pp (Term.ty v) pp_entries (TL_map.to_list entries)
     in
-    Fmt.fprintf out "(@[<hv>model@ %a@])" (Util.pp_iter pp_fun)
-      (TM.to_iter self.m)
+    Fmt.fprintf out "(@[<hv>%a@])" (Util.pp_iter pp_fun) (TM.to_iter self.m)
   )
