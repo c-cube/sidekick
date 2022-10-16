@@ -1,4 +1,3 @@
-open Common_
 open! Sidekick_base
 
 type t = { fun_symbols: unit Term.Tbl.t; ty_symbols: unit Term.Tbl.t }

@@ -209,12 +209,8 @@ We start with `p = q`.
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
- (model
-  (p := true)
-  (q := true)
-  (true := true)
-  (false := false)
-  ([[ (= p q) ]] := true))
+ {Sidekick_smt_solver.Solver.get_value = <fun>; iter_classes = <fun>;
+  eval_lit = <fun>; iter_true_lits = <fun>}
 ```
 
 It is satisfiable, and we got a model where "p" and "q" are both false.
@@ -246,12 +242,8 @@ Note that this doesn't affect satisfiability without assumptions:
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
- (model
-  (p := true)
-  (q := true)
-  (true := true)
-  (false := false)
-  ([[ (= p q) ]] := true))
+ {Sidekick_smt_solver.Solver.get_value = <fun>; iter_classes = <fun>;
+  eval_lit = <fun>; iter_true_lits = <fun>}
 ```
 
 We can therefore add more formulas and see where it leads us.
@@ -264,14 +256,8 @@ We can therefore add more formulas and see where it leads us.
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
- (model
-  (p := true)
-  (q := true)
-  (r := true)
-  (true := true)
-  (false := false)
-  ([[ (= p q) ]] := true)
-  ([[ (or r (not p) false) ]] := true))
+ {Sidekick_smt_solver.Solver.get_value = <fun>; iter_classes = <fun>;
+  eval_lit = <fun>; iter_true_lits = <fun>}
 ```
 
 Still satisfiable, but now we see `r` in the model, too. And now:
@@ -331,13 +317,8 @@ We can play with assertions now:
 # Solver.solve ~assumptions:[] solver;;
 - : Solver.res =
 Sidekick_smt_solver.Solver.Sat
- (model
-  (true := true)
-  (false := false)
-  (a := 0)
-  (b := 0)
-  ([[ (<= (+ a ((* -1) b)) 0) ]] := true)
-  ($_le_comb[0] := 0))
+ {Sidekick_smt_solver.Solver.get_value = <fun>; iter_classes = <fun>;
+  eval_lit = <fun>; iter_true_lits = <fun>}
 
 
 # let a_geq_1 = LRA_term.geq tstore a (LRA_term.const tstore (Q.of_int 1));;
