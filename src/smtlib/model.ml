@@ -52,9 +52,9 @@ let pp out (self : t) =
           | [] -> ()
           | [ t ] -> Fmt.fprintf out "(@[= x0 %a@])" Term.pp t
           | _ ->
-            Fmt.fprintf out "(@[and@ ";
+            Fmt.fprintf out "(@[and";
             List.iteri
-              (fun i t -> Fmt.fprintf out "(@[= x%d %a@])" i Term.pp t)
+              (fun i t -> Fmt.fprintf out "@ (@[= x%d %a@])" i Term.pp t)
               vs;
             Fmt.fprintf out "@])"
         in
@@ -68,7 +68,7 @@ let pp out (self : t) =
       | Some (args, v) ->
         let pp_arg out (i, ty) = Fmt.fprintf out "(@[x%d %a@])" i Term.pp ty in
         Fmt.fprintf out "(@[<1>define-fun %a (@[%a@])@ %a@ %a@])" Term.pp f
-          (Util.pp_list ~sep:"" pp_arg)
+          (Util.pp_list ~sep:" " pp_arg)
           (List.mapi (fun i v -> i, Term.ty v) args)
           Term.pp (Term.ty v) pp_entries (TL_map.to_list entries)
     in
