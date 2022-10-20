@@ -78,7 +78,8 @@ let argspec =
       "--no-proof", Arg.Clear p_proof, " do not print proof";
       "-o", Arg.Set_string proof_file, " file into which to output a proof";
       "--model", Arg.Set p_model, " print model";
-      "--trace", Arg.Set enable_trace, " enable/disable tracing";
+      "--trace", Arg.Set enable_trace, " enable tracing";
+      "--no-trace", Arg.Clear enable_trace, " disable tracing";
       ( "--trace-file",
         Arg.Set_string trace_file,
         " store trace in given file (no cleanup)" );
@@ -136,7 +137,7 @@ let run_with_tmp_file ~enable_proof k =
       CCIO.File.with_temp ~temp_dir:"." ~prefix:".sidekick-proof" ~suffix:".dat"
         k
   else
-    k "/dev/null"
+    k ""
 
 let mk_smt_tracer ~trace_file () =
   if !enable_trace || trace_file <> "" then (
