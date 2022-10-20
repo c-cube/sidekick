@@ -363,8 +363,7 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
       Log.debugf 5 (fun k ->
           k "(@[model.fixpoint.require-cls@ %a@])" E_node.pp repr);
       let t = E_node.term repr in
-      let ts = E_node.iter_class repr |> Iter.map E_node.term in
-      MB.require_eval model t ~cls:ts);
+      MB.require_eval model t);
 
   (* now for the fixpoint. This is typically where composite theories such
      as arrays and datatypes contribute their skeleton values. *)
@@ -373,10 +372,10 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
     while !continue do
       match MB.pop_required model with
       | None -> continue := false
-      | Some (t, _cls) when Term.is_pi (Term.ty t) ->
+      | Some t when Term.is_pi (Term.ty t) ->
         (* TODO: when we support lambdas? *)
         ()
-      | Some (t, cls) ->
+      | Some t ->
         (* compute a value for [t] *)
         Log.debugf 5 (fun k ->
             k "(@[model.fixpoint.compute-for-required@ %a@])" Term.pp t);
@@ -386,10 +385,7 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
           | h :: hooks ->
             (match h self model t with
             | None -> try_hooks_ hooks
-            | Some (v, subs) ->
-              MB.add model ~subs t v;
-              cls (fun u -> MB.add model ~subs:[] u v);
-              ())
+            | Some (v, subs) -> MB.add model ~subs t v)
           | [] ->
             (* should not happen *)
             Error.errorf "cannot build a value for term@ `%a`@ of type `%a`"
@@ -407,7 +403,7 @@ let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
   let eval (t : Term.t) : value option =
     try Some (Term.Map.find t map)
     with Not_found ->
-      MB.require_eval model t ~cls:Iter.empty;
+      MB.require_eval model t;
       compute_fixpoint ();
       MB.eval_opt ~cache model t
   in

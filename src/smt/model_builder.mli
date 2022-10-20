@@ -15,7 +15,7 @@ include Sidekick_sigs.PRINT with type t := t
 val create : Term.store -> t
 val mem : t -> Term.t -> bool
 
-val require_eval : t -> Term.t -> cls:Term.t Iter.t -> unit
+val require_eval : t -> Term.t -> unit
 (** Require that this term gets a value, and assign it to all terms
   in the given class. *)
 
@@ -33,7 +33,7 @@ val create_cache : int -> eval_cache
 val eval : ?cache:eval_cache -> t -> Term.t -> value
 val eval_opt : ?cache:eval_cache -> t -> Term.t -> value option
 
-val pop_required : t -> (Term.t * Term.t Iter.t) option
+val pop_required : t -> Term.t option
 (** gives the next subterm that is required but has no value yet *)
 
 val to_map : ?cache:eval_cache -> t -> value Term.Map.t
