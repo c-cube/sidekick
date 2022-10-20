@@ -59,7 +59,7 @@ let pp out (self : t) =
             Fmt.fprintf out "@])"
         in
 
-        Fmt.fprintf out "(@[ite %a@ %a@ %a@])" pp_guard () Term.pp v pp_entries
+        Fmt.fprintf out "@[(ite %a@ %a@ %a)@]" pp_guard () Term.pp v pp_entries
           tl
     in
     let pp_fun out (f, entries) =
@@ -67,7 +67,7 @@ let pp out (self : t) =
       | None -> ()
       | Some (args, v) ->
         let pp_arg out (i, ty) = Fmt.fprintf out "(@[x%d %a@])" i Term.pp ty in
-        Fmt.fprintf out "(@[<1>define-fun %a (@[%a@])@ %a@ %a@])" Term.pp f
+        Fmt.fprintf out "(@[<1>define-fun %a (@[%a@])@ %a@ @[%a@]@])" Term.pp f
           (Util.pp_list ~sep:" " pp_arg)
           (List.mapi (fun i v -> i, Term.ty v) args)
           Term.pp (Term.ty v) pp_entries (TL_map.to_list entries)
