@@ -25,7 +25,7 @@ let ops =
   in
 
   let pp out = function
-    | Fresh { id; pre; _ } -> Fmt.fprintf out "$%s[%d]" pre id
+    | Fresh { id; pre; _ } -> Fmt.fprintf out "%s%d" pre id
     | _ -> assert false
   in
 
