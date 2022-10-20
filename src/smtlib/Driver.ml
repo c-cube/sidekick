@@ -97,7 +97,7 @@ let solve (self : t) ~assumptions () : Solver.res =
     if self.pp_model then (
       let m = build_model self sat in
       (* TODO: use actual {!Model} in the solver? or build it afterwards *)
-      Format.printf "(@[<hv1>model@ %a@])@." Model.pp m
+      Fmt.printf "%a@." Model.pp m
     );
     (* TODO
        if check then (
