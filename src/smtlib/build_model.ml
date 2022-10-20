@@ -29,10 +29,10 @@ let build (self : t) (sat : Solver.sat_result) : Model.t =
           (fun v' ->
             if not (Term.equal value v') then
               Error.errorf
-                "Inconsistent model@ for fun `%a`,@ values %a@ map to `%a` and \
-                 `%a`"
+                "Inconsistent model@ for fun `%a`,@ arguments %a@ map to `%a` \
+                 and `%a` (already existing binding)@ found from term `%a`"
                 Term.pp f (Fmt.Dump.list Term.pp) v_args Term.pp value Term.pp
-                v')
+                v' Term.pp t)
           other_v;
         (* save mapping *)
         m := Model.add_fun_entry f v_args value !m
