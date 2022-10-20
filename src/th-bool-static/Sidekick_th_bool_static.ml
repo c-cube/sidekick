@@ -12,7 +12,6 @@ module Make (A : ARG) : sig
 end = struct
   type state = {
     tst: T.store;
-    gensym: Gensym.t;
     n_simplify: int Stat.counter;
     n_clauses: int Stat.counter;
   }
@@ -20,7 +19,6 @@ end = struct
   let create ~stat tst : state =
     {
       tst;
-      gensym = Gensym.create tst;
       n_simplify = Stat.mk_int stat "th.bool.simplified";
       n_clauses = Stat.mk_int stat "th.bool.cnf-clauses";
     }
@@ -144,17 +142,6 @@ end = struct
     | B_eq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
     | B_neq (a, b) when T.equal a b -> ret_bequiv t (T.true_ tst)
     | B_eq _ | B_neq _ -> None
-
-  let fresh_term self ~for_t ~pre ty =
-    let u = Gensym.fresh_term self.gensym ~pre ty in
-    Log.debugf 20 (fun k ->
-        k "(@[sidekick.bool.proxy@ :t %a@ :for %a@])" T.pp u T.pp for_t);
-    assert (Term.equal ty (T.ty u));
-    u
-
-  let fresh_lit (self : state) ~for_t ~mk_lit ~pre : T.t * Lit.t =
-    let proxy = fresh_term ~for_t ~pre self (Term.bool self.tst) in
-    proxy, mk_lit proxy
 
   (* TODO: polarity? *)
   let cnf (self : state) (_preproc : SMT.Preprocess.t) ~is_sub:_ ~recurse
