@@ -1,0 +1,8 @@
+(library
+ (name sidekick_cdsat)
+ (public_name sidekick.cdsat)
+ (synopsis "CDSAT-based SMT core for sidekick")
+ (flags :standard -open Sidekick_util -open Sidekick_core)
+ (private_modules types_)
+ (libraries containers sidekick.util sidekick.core sidekick.sigs
+   sidekick.proof sidekick.abstract-solver))
