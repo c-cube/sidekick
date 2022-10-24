@@ -15,6 +15,7 @@ type t = {
   progress: Progress_bar.t option;
   solver: Asolver.t;
   build_model: Build_model.t;
+  asserts: Term.t Vec.t;
   time_start: float;
   time_limit: float;
   memory_limit: float;
@@ -42,6 +43,7 @@ let create ?(pp_cnf = false) ?proof_file ?(pp_model = false) ?(check = false)
   {
     time_start;
     build_model = Build_model.create ();
+    asserts = Vec.create ();
     progress;
     solver;
     proof_file;
@@ -66,6 +68,8 @@ let decl_fun (self : t) f args ret const : unit =
 
 let build_model (self : t) (sat : Solver.sat_result) : Model.t =
   Build_model.build self.build_model sat
+
+let check_model (self : t) (m : Model.t) : unit = assert false
 
 (* call the solver to check satisfiability *)
 let solve (self : t) ~assumptions () : Solver.res =
@@ -96,15 +100,9 @@ let solve (self : t) ~assumptions () : Solver.res =
   | Asolver.Check_res.Sat sat ->
     if self.pp_model then (
       let m = build_model self sat in
-      (* TODO: use actual {!Model} in the solver? or build it afterwards *)
+      if self.check then check_model self m;
       Fmt.printf "%a@." Model.pp m
     );
-    (* TODO
-       if check then (
-         Solver.check_model s;
-         CCOpt.iter (fun h -> check_smt_model (Solver.solver s) h m) hyps;
-       );
-    *)
     let t3 = now () in
     Fmt.printf "sat@.";
     Fmt.printf "; (%.3f/%.3f/%.3f)@." (t1 -. time_start) (t2 -. t1) (t3 -. t2)
@@ -184,6 +182,7 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     E.return ()
   | Statement.Stmt_assert t ->
     if self.pp_cnf then Format.printf "(@[<hv1>assert@ %a@])@." Term.pp t;
+    if self.check then Vec.push self.asserts t;
     let lit = Asolver.lit_of_term self.solver t in
     Asolver.assert_clause self.solver [| lit |] (fun () ->
         Proof.Sat_rules.sat_input_clause [ lit ]);
@@ -192,6 +191,8 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     if self.pp_cnf then
       Format.printf "(@[<hv1>assert-clause@ %a@])@." (Util.pp_list Term.pp) c_ts;
 
+    if self.check then
+      Vec.push self.asserts (Form.or_l (Asolver.tst self.solver) c_ts);
     let c = CCList.map (fun t -> Asolver.lit_of_term self.solver t) c_ts in
 
     (* proof of assert-input + preprocessing *)
@@ -206,6 +207,7 @@ let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
     (match Asolver.last_res self.solver with
     | Some (Solver.Sat sat) ->
       let m = build_model self sat in
+      if self.check then check_model self m;
       Fmt.printf "%a@." Model.pp m
     | _ -> Error.errorf "cannot access model");
     E.return ()

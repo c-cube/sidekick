@@ -263,6 +263,7 @@ let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
 
 let as_asolver (self : t) : Sidekick_abstract_solver.Asolver.t =
   object
+    method tst = SI.tst self.si
     method assert_term t : unit = assert_term self t
     method assert_clause c p : unit = add_clause self c p
     method assert_clause_l c p : unit = add_clause_l self c p

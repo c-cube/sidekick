@@ -26,6 +26,8 @@ class type t =
     method lit_of_term : ?sign:bool -> Term.t -> Lit.t
     (** Convert a term into a simplified literal. *)
 
+    method tst : Term.store
+
     method solve :
       ?on_exit:(unit -> unit) list ->
       ?on_progress:(unit -> unit) ->
@@ -52,6 +54,7 @@ class type t =
     (** TODO: remove, use Tracer instead *)
   end
 
+let tst (self : #t) : Term.store = self#tst
 let assert_term (self : #t) t : unit = self#assert_term t
 let assert_clause (self : #t) c p : unit = self#assert_clause c p
 let assert_clause_l (self : #t) c p : unit = self#assert_clause_l c p
