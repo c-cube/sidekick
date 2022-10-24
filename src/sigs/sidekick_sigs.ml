@@ -69,6 +69,15 @@ module type BACKTRACKABLE0 = sig
   (** [pop_levels st n] removes [n] levels *)
 end
 
+module type BACKTRACKABLE0_CB = sig
+  include BACKTRACKABLE0
+
+  type elt
+
+  val pop_levels : t -> int -> f:(elt -> unit) -> unit
+  (** [pop_levels st n ~f] removes [n] levels and calls [f] on each element *)
+end
+
 module type BACKTRACKABLE1 = sig
   type 'a t
 
