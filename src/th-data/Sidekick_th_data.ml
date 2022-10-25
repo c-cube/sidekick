@@ -175,7 +175,7 @@ end = struct
         Some { c_n = n; c_cstor = cstor; c_args = args }, []
       | _ -> None, []
 
-    let merge _cc state n1 c1 n2 c2 e_n1_n2 : _ result =
+    let merge cc state n1 c1 n2 c2 e_n1_n2 : _ result =
       Log.debugf 5 (fun k ->
           k "(@[%s.merge@ (@[:c1 %a@ %a@])@ (@[:c2 %a@ %a@])@])" name E_node.pp
             n1 pp c1 E_node.pp n2 pp c2);
@@ -209,13 +209,19 @@ end = struct
         Ok (c1, !acts)
       ) else (
         (* different function: disjointness *)
+        let t = E_node.term c1.c_n
+        and u = E_node.term c2.c_n in
         let expl =
-          let t1 = E_node.term c1.c_n and t2 = E_node.term c2.c_n in
-          mk_expl t1 t2 @@ fun () -> Proof_rules.lemma_cstor_distinct t1 t2
+          mk_expl t u @@ fun () -> Proof_rules.lemma_cstor_distinct t u
+        in
+        let pr =
+          let proof = CC.proof_tracer cc in
+          Proof.Tracer.add_step proof @@ fun () ->
+          Proof_rules.lemma_cstor_distinct t u
         in
 
         Stat.incr state.n_conflict;
-        Error (CC.Handler_action.Conflict expl)
+        Error (CC.Handler_action.Conflict { t; u; expl; pr })
       )
   end
 

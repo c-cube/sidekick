@@ -32,7 +32,10 @@ module Handler_action = struct
     | Act_merge of E_node.t * E_node.t * Expl.t
     | Act_propagate of Lit.t * propagation_reason
 
-  type conflict = Conflict of Expl.t [@@unboxed]
+  type conflict =
+    | Conflict of { expl: Expl.t; t: Term.t; u: Term.t; pr: Proof.step_id }
+        (** Conflict: [expl => t=u], where [pr] is a proof of [|- t!=u] *)
+
   type or_conflict = (t list, conflict) result
 end
 
@@ -216,13 +219,15 @@ let[@unroll 2] rec reroot_expl (self : t) (n : e_node) : unit =
 
 exception E_confl of Result_action.conflict
 
-let raise_conflict_ (cc : t) ~th (e : Lit.t list) (p : Sidekick_proof.Step.id) :
-    _ =
+let raise_conflict_ (cc : t) ~th (e : Lit.t list) ~cc_lemma
+    (p : Sidekick_proof.Step.id) : _ =
   Profile.instant "cc.conflict";
   (* clear tasks queue *)
   Vec.clear cc.pending;
   Vec.clear cc.combine;
-  Event.emit cc.on_conflict { cc; th; c = e };
+  (* here we emit the original CC lemma, not the final clause that might
+     have been simplified *)
+  Event.emit cc.on_conflict { cc; th; c = cc_lemma };
   Stat.incr cc.count_conflict;
   Vec.clear cc.res_acts;
   raise (E_confl (Conflict (e, p)))
@@ -617,7 +622,8 @@ and task_merge_ self a b e_ab : unit =
       (* regular conflict *)
       let lits, pr = lits_and_proof_of_expl self expl_st in
       let pr = Proof.Tracer.add_step self.proof pr in
-      raise_conflict_ self ~th:!th (List.rev_map Lit.neg lits) pr
+      let c = List.rev_map Lit.neg lits in
+      raise_conflict_ self ~th:!th c ~cc_lemma:c pr
     );
     (* We will merge [r_from] into [r_into].
        we try to ensure that [size ra <= size rb] in general, but always
@@ -647,14 +653,14 @@ and task_merge_ self a b e_ab : unit =
     Log.debugf 15 (fun k ->
         k "(@[cc.merge@ :from %a@ :into %a@])" E_node.pp r_from E_node.pp r_into);
 
-    (* call [on_pre_merge] functions, and merge theory data items *)
-    (* explanation is [a=ra & e_ab & b=rb] *)
+    (* call [on_pre_merge] functions, and merge theory data items.
+       explanation is [a=ra & e_ab & b=rb] *)
     (let expl = Expl.mk_list [ e_ab; Expl.mk_merge a ra; Expl.mk_merge b rb ] in
 
      let handle_act = function
        | Ok l -> push_action_l self l
-       | Error (Handler_action.Conflict expl) ->
-         raise_conflict_from_expl self expl
+       | Error (Handler_action.Conflict { t; u; expl; pr }) ->
+         raise_conflict_from_expl self t u expl pr
      in
 
      Event.emit_iter self.on_pre_merge
@@ -764,18 +770,31 @@ and propagate_bools self r1 t1 r2 t2 (e_12 : explanation) sign : unit =
         Stat.incr self.count_props
       | _ -> ())
 
-(* raise a conflict from an explanation, typically from an event handler.
-   Raises E_confl with a result conflict. *)
-and raise_conflict_from_expl self (expl : Expl.t) : 'a =
+(* raise a conflict from an explanation [expl] which justifies [a=b],
+   when [a] and [b] cannot be equal.
+   This is typically called from an event handler.
+   @raises E_confl with a result conflict. *)
+and raise_conflict_from_expl self (t : Term.t) (u : Term.t) (expl : Expl.t)
+    (pr_t_neq_u : Proof.step_id) : 'a =
   Log.debugf 5 (fun k ->
       k "(@[cc.theory.raise-conflict@ :expl %a@])" Expl.pp expl);
   let st = Expl_state.create () in
   explain_decompose_expl self st expl;
-  let lits, pr = lits_and_proof_of_expl self st in
-  let c = List.rev_map Lit.neg lits in
+  let lits, pr_c = lits_and_proof_of_expl self st in
+  (* we obtain [c_result] by resolving [t=u] away using the theory lemma
+     which proves [|- t != u] *)
+  let c_result = List.rev_map Lit.neg lits in
+  let cc_lemma = Lit.make_eq ~sign:true self.tst t u :: c_result in
   let th = st.th_lemmas <> [] in
-  let pr = Proof.Tracer.add_step self.proof pr in
-  raise_conflict_ self ~th c pr
+  let pr =
+    (* resolve [expl => t=u] with [pr_t_neq_u] : [|- t != u] *)
+    Proof.Tracer.add_step self.proof @@ fun () ->
+    let pivot = Term.eq self.tst t u in
+    Proof.Core_rules.proof_res ~pivot
+      (Proof.Tracer.add_step self.proof pr_c)
+      pr_t_neq_u
+  in
+  raise_conflict_ self ~th c_result ~cc_lemma pr
 
 let add_iter self it : unit = it (fun t -> ignore @@ add_term_rec_ self t)
 

@@ -43,7 +43,7 @@ end = struct
         Some { n; t; cstor; args }, []
       | _ -> None, []
 
-    let merge _cc state n1 v1 n2 v2 e_n1_n2 : _ result =
+    let merge cc state n1 v1 n2 v2 e_n1_n2 : _ result =
       Log.debugf 5 (fun k ->
           k "(@[%s.merge@ @[:c1 %a (t %a)@]@ @[:c2 %a (t %a)@]@])" name
             E_node.pp n1 T.pp_debug v1.t E_node.pp n2 T.pp_debug v2.t);
@@ -69,7 +69,15 @@ end = struct
       ) else (
         (* different function: disjointness *)
         Stat.incr state.n_conflict;
-        Error (CC.Handler_action.Conflict expl)
+        let t = E_node.term n1 in
+        let u = E_node.term n2 in
+        let pr =
+          let tst = CC.term_store cc in
+          let proof = CC.proof_tracer cc in
+          Proof.Tracer.add_step proof @@ fun () ->
+          A.lemma_cstor [ Lit.make_eq ~sign:false tst t u ]
+        in
+        Error (CC.Handler_action.Conflict { t; u; expl; pr })
       )
   end
 

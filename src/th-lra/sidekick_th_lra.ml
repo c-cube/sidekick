@@ -100,25 +100,38 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         Some [ { n; le } ], []
       | LRA_other _ | LRA_pred _ -> None, []
 
-    exception Confl of Expl.t
+    exception Confl of term * term * Expl.t * Proof.step_id
 
     (* merge lists. If two linear expressions equal up to a constant are
        merged, conflict. *)
-    let merge _cc () n1 l1 n2 l2 expl_12 : _ result =
+    let merge cc () n1 l1 n2 l2 expl_12 : _ result =
       try
         let i = Iter.(product (of_list l1) (of_list l2)) in
         i (fun (s1, s2) ->
             let le = LE.(s1.le - s2.le) in
             if LE.is_const le && not (LE.is_zero le) then (
-              (* conflict: [le+c = le + d] is impossible *)
+              (* conflict: [le + c = le + d] is impossible *)
+              let t1 = E_node.term s1.n in
+              let t2 = E_node.term s2.n in
               let expl =
                 let open Expl in
                 mk_list [ mk_merge s1.n n1; mk_merge s2.n n2; expl_12 ]
               in
-              raise (Confl expl)
+              let pr =
+                let tst = CC.term_store cc in
+                Proof.Tracer.add_step (CC.proof_tracer cc) @@ fun () ->
+                Proof_rules.lemma_lra [ Lit.make_eq ~sign:false tst t1 t2 ]
+              in
+
+              Log.debugf 50 (fun k ->
+                  k "(@[lra.on-merge.conflict@ :n1 %a@ :n2 %a@])" E_node.pp n1
+                    E_node.pp n2);
+
+              raise (Confl (t1, t2, expl, pr))
             ));
         Ok (List.rev_append l1 l2, [])
-      with Confl expl -> Error (CC.Handler_action.Conflict expl)
+      with Confl (t, u, expl, pr) ->
+        Error (CC.Handler_action.Conflict { t; u; expl; pr })
   end
 
   module ST_exprs = Sidekick_cc.Plugin.Make (Monoid_exprs)
@@ -720,14 +733,21 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     SI.on_final_check si (final_check_ st);
     (* SI.on_partial_check si (partial_check_ st); *)
     SI.on_model si ~ask:(model_ask_ st) ~complete:(model_complete_ st);
-    SI.on_cc_pre_merge si (fun (_cc, n1, n2, expl) ->
-        match as_const_ (E_node.term n1), as_const_ (E_node.term n2) with
+    SI.on_cc_pre_merge si (fun (cc, n1, n2, expl) ->
+        let t = E_node.term n1 in
+        let u = E_node.term n2 in
+        let tst = CC.term_store cc in
+        match as_const_ t, as_const_ u with
         | Some q1, Some q2 when A.Q.(q1 <> q2) ->
           (* classes with incompatible constants *)
+          let pr =
+            Proof.Tracer.add_step (CC.proof_tracer cc) @@ fun () ->
+            Proof_rules.lemma_lra [ Lit.make_eq ~sign:false tst t u ]
+          in
           Log.debugf 30 (fun k ->
               k "(@[lra.merge-incompatible-consts@ %a@ %a@])" E_node.pp n1
                 E_node.pp n2);
-          Error (CC.Handler_action.Conflict expl)
+          Error (CC.Handler_action.Conflict { t; u; expl; pr })
         | _ -> Ok []);
     st
 

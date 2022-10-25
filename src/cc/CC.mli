@@ -90,7 +90,9 @@ module Handler_action : sig
      - an action to modify data associated with a class
   *)
 
-  type conflict = Conflict of Expl.t [@@unboxed]
+  type conflict =
+    | Conflict of { expl: Expl.t; t: Term.t; u: Term.t; pr: Proof.step_id }
+        (** Conflict: [expl => t=u], where [pr] is a proof of [|- t!=u] *)
 
   type or_conflict = (t list, conflict) result
   (** Actions or conflict scheduled by an event handler.

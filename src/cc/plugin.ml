@@ -88,10 +88,12 @@ module Make (M : MONOID_PLUGIN_ARG) :
             in
 
             match M.merge cc plugin_st n_u m_u n_u m_u' (Expl.mk_list []) with
-            | Error (CC.Handler_action.Conflict expl) ->
+            | Error (CC.Handler_action.Conflict { t; u; expl; pr = _ }) ->
               Error.errorf
-                "when merging@ @[for node %a@],@ values %a and %a:@ conflict %a"
-                E_node.pp n_u M.pp m_u M.pp m_u' Expl.pp expl
+                "when merging@ @[for node %a@],@ values %a and %a:@ conflict \
+                 %a ==> %a=%a"
+                E_node.pp n_u M.pp m_u M.pp m_u' Expl.pp expl Term.pp t Term.pp
+                u
             | Ok (m_u_merged, merge_acts) ->
               acts := List.rev_append merge_acts !acts;
               Log.debugf 20 (fun k ->
