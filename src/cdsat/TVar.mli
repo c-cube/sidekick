@@ -48,5 +48,15 @@ val level : store -> t -> int
 val value : store -> t -> Value.t option
 (** Value in the current assignment *)
 
+val set_value : store -> t -> Value.t -> unit
+val unset_value : store -> t -> unit
+
+val watchers : store -> t -> t Vec.t
+(** [watchers store t] is a vector of other variables watching [t],
+    generally updated via {!Watch1} and {!Watch2}.
+    These other variables are notified when [t] is assigned. *)
+
+val add_watcher : store -> t -> watcher:t -> unit
+
 val pop_new_var : store -> t option
 (** Pop a new variable if any, or return [None] *)
