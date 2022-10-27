@@ -44,6 +44,13 @@ let lazy_map2 f x y =
     (let (lazy x) = x and (lazy y) = y in
      f x y)
 
+let[@inline] swap_array a i j : unit =
+  if i != j then (
+    let tmp = a.(i) in
+    a.(i) <- a.(j);
+    a.(j) <- tmp
+  )
+
 let setup_gc () =
   let g = Gc.get () in
   Gc.set

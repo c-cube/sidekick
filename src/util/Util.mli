@@ -17,6 +17,7 @@ val array_to_list_map : ('a -> 'b) -> 'a array -> 'b list
 val lazy_map : ('a -> 'b) -> 'a lazy_t -> 'b lazy_t
 val lazy_map2 : ('a -> 'b -> 'c) -> 'a lazy_t -> 'b lazy_t -> 'c lazy_t
 val array_iteri2 : f:(int -> 'a -> 'b -> unit) -> 'a array -> 'b array -> unit
+val swap_array : 'a array -> int -> int -> unit
 
 val setup_gc : unit -> unit
 (** Change parameters of the GC *)
