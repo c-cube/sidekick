@@ -8,6 +8,10 @@ module Vec_of = Veci
 (* TODO: GC API, + reuse existing slots that have been GC'd at the
    next [new_var_] allocation *)
 
+type reason =
+  | Decide
+  | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
+
 type store = {
   tst: Term.store;
   of_term: t Term.Weak_map.t;
@@ -19,10 +23,6 @@ type store = {
   has_value: Bitvec.t;
   new_vars: Vec_of.t;
 }
-
-and reason =
-  | Decide
-  | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
 
 (* create a new variable *)
 let new_var_ (self : store) ~term:(term_for_v : Term.t) () : t =
@@ -85,33 +85,6 @@ let pop_new_var self : _ option =
     None
   else
     Some (Vec_of.pop self.new_vars)
-
-module Reason = struct
-  type t = reason =
-    | Decide
-    | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
-
-  let pp out (self : t) : unit =
-    match self with
-    | Decide -> Fmt.string out "decide"
-    | Propagate { level; hyps; proof = _ } ->
-      Fmt.fprintf out "(@[propagate[lvl=%d]@ :n-hyps %d@])" level
-        (Vec_of.size hyps)
-
-  let decide : t = Decide
-
-  let[@inline] propagate_ level v proof : t =
-    Propagate { level; hyps = v; proof }
-
-  let propagate_v store v proof : t =
-    let level = Vec_of.fold_left (fun l v -> max l (level store v)) 0 v in
-    propagate_ level v proof
-
-  let propagate_l store l proof : t =
-    let v = Vec_of.create ~cap:(List.length l) () in
-    List.iter (Vec_of.push v) l;
-    propagate_v store v proof
-end
 
 module Store = struct
   type t = store

@@ -2,5 +2,5 @@
 
 module Trail = Trail
 module TVar = TVar
-module Reason = TVar.Reason
+module Reason = Reason
 module Value = Value

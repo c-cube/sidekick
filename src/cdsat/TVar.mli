@@ -20,18 +20,9 @@ module Vec_of : Vec_sig.S with type elt := t
 
 type store = Store.t
 
-(** Reason for assignment *)
-module Reason : sig
-  type t =
-    | Decide
-    | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
-
-  include Sidekick_sigs.PRINT with type t := t
-
-  val decide : t
-  val propagate_v : store -> Vec_of.t -> Sidekick_proof.step_id -> t
-  val propagate_l : store -> var list -> Sidekick_proof.step_id -> t
-end
+type reason =
+  | Decide
+  | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
 
 val of_term : store -> Term.t -> t
 (** Obtain a variable for this term. *)
