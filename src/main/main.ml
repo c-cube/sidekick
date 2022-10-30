@@ -11,6 +11,7 @@ module Config = Sidekick_base.Config
 module Solver = Sidekick_smtlib.Solver
 module Driver = Sidekick_smtlib.Driver
 module Proof = Sidekick_proof
+module Asolver = Sidekick_abstract_solver.Asolver
 open E.Infix
 
 type 'a or_error = ('a, string) E.t
@@ -28,6 +29,7 @@ let mem_limit = ref 1_000_000_000.
 let p_stat = ref false
 let p_gc_stat = ref false
 let p_progress = ref false
+let cdsat = ref false
 let enable_trace = ref false
 let proof_file = ref ""
 let trace_file = ref ""
@@ -78,6 +80,7 @@ let argspec =
       "--no-proof", Arg.Clear p_proof, " do not print proof";
       "-o", Arg.Set_string proof_file, " file into which to output a proof";
       "--model", Arg.Set p_model, " print model";
+      "--cdsat", Arg.Set cdsat, " use cdsat solver";
       "--trace", Arg.Set enable_trace, " enable tracing";
       "--no-trace", Arg.Clear enable_trace, " disable tracing";
       ( "--trace-file",
@@ -182,23 +185,40 @@ let main_smt ~config () : _ result =
   let tracer = mk_smt_tracer ~trace_file () in
   Proof.Tracer.enable tracer enable_proof;
 
-  let solver =
-    (* TODO: probes, to load only required theories *)
-    let theories =
-      let th_bool = Driver.th_bool config in
-      Log.debugf 1 (fun k ->
-          k "(@[main.th-bool.pick@ %S@])"
-            (Sidekick_smt_solver.Theory.name th_bool));
-      [ th_bool; Driver.th_ty_unin; Driver.th_data; Driver.th_lra ]
-    in
-    Solver.Smt_solver.Solver.create_default ~tracer ~theories tst ()
+  let asolver =
+    if !cdsat then
+      let open Sidekick_cdsat in
+      let vst = TVar.Store.create tst in
+      Core.create tst vst ~proof_tracer:(tracer :> Proof.Tracer.t) ()
+      |> Core.as_asolver
+    else (
+      (* TODO: probes, to load only required theories *)
+      let theories =
+        let th_bool = Driver.th_bool config in
+        Log.debugf 1 (fun k ->
+            k "(@[main.th-bool.pick@ %S@])"
+              (Sidekick_smt_solver.Theory.name th_bool));
+        [ th_bool; Driver.th_ty_unin; Driver.th_data; Driver.th_lra ]
+      in
+
+      let solver =
+        Solver.Smt_solver.Solver.create_default ~tracer ~theories tst ()
+      in
+
+      if !check then
+        (* might have to check conflicts *)
+        Solver.Smt_solver.Solver.add_theory solver
+          Sidekick_smtlib.Check_cc.theory;
+
+      Solver.Smt_solver.Solver.as_asolver solver
+    )
   in
 
   let finally () =
-    if !p_stat then
-      Format.printf "%a@." Solver.Smt_solver.Solver.pp_stats solver
+    if !p_stat then Format.printf "%a@." Asolver.pp_stats asolver
   in
-  CCFun.protect ~finally @@ fun () ->
+  let@ () = CCFun.protect ~finally in
+
   (* FIXME: emit an actual proof *)
   let proof_file =
     if !proof_file = "" then
@@ -206,9 +226,6 @@ let main_smt ~config () : _ result =
     else
       Some !proof_file
   in
-  if !check then
-    (* might have to check conflicts *)
-    Solver.Smt_solver.Solver.add_theory solver Sidekick_smtlib.Check_cc.theory;
 
   let parse_res =
     let@ () = Profile.with_ "parse" ~args:[ "file", !file ] in
@@ -217,7 +234,6 @@ let main_smt ~config () : _ result =
 
   parse_res >>= fun input ->
   let driver =
-    let asolver = Solver.Smt_solver.Solver.as_asolver solver in
     Driver.create ~pp_cnf:!p_cnf ~time:!time_limit ~memory:!mem_limit
       ~pp_model:!p_model ?proof_file ~check:!check ~progress:!p_progress asolver
   in
