@@ -26,16 +26,18 @@ end
 type t = {
   tst: Term.store;
   vst: TVar.store;
+  stats: Stat.t;
   trail: Trail.t;
   plugins: Plugin.t Vec.t;
   mutable last_res: Check_res.t option;
   proof_tracer: Proof.Tracer.t;
 }
 
-let create tst vst ~proof_tracer () : t =
+let create ?(stats = Stat.create ()) tst vst ~proof_tracer () : t =
   {
     tst;
     vst;
+    stats;
     trail = Trail.create ();
     plugins = Vec.create ();
     last_res = None;
@@ -53,6 +55,7 @@ let[@inline] vst self = self.vst
 let add_ty (_self : t) ~ty:_ : unit = ()
 let assert_clause (self : t) lits p : unit = assert false
 let assert_term (self : t) t : unit = assert false
+let pp_stats out self = Stat.pp out self.stats
 
 let solve ?on_exit ?on_progress ?should_stop ~assumptions (self : t) :
     Check_res.t =
@@ -73,6 +76,7 @@ let as_asolver (self : t) : Asolver.t =
     method assert_term t : unit = assert_term self t
     method last_res = self.last_res
     method proof_tracer = self.proof_tracer
+    method pp_stats out () = pp_stats out self
 
     method solve ?on_exit ?on_progress ?should_stop ~assumptions ()
         : Check_res.t =

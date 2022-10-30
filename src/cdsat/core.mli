@@ -35,7 +35,12 @@ end
 type t
 
 val create :
-  Term.store -> TVar.store -> proof_tracer:Sidekick_proof.Tracer.t -> unit -> t
+  ?stats:Stat.t ->
+  Term.store ->
+  TVar.store ->
+  proof_tracer:Sidekick_proof.Tracer.t ->
+  unit ->
+  t
 (** Create new solver *)
 
 val tst : t -> Term.store
