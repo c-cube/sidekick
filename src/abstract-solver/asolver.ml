@@ -27,6 +27,7 @@ class type t =
     (** Convert a term into a simplified literal. *)
 
     method tst : Term.store
+    method pp_stats : unit Fmt.printer
 
     method solve :
       ?on_exit:(unit -> unit) list ->
@@ -60,6 +61,7 @@ let assert_clause (self : #t) c p : unit = self#assert_clause c p
 let assert_clause_l (self : #t) c p : unit = self#assert_clause_l c p
 let add_ty (self : #t) ~ty : unit = self#add_ty ~ty
 let lit_of_term (self : #t) ?sign t : Lit.t = self#lit_of_term ?sign t
+let pp_stats out (self : #t) : unit = self#pp_stats out ()
 
 let solve (self : #t) ?on_exit ?on_progress ?should_stop ~assumptions () :
     Check_res.t =

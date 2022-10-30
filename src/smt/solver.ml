@@ -271,6 +271,7 @@ let as_asolver (self : t) : Sidekick_abstract_solver.Asolver.t =
     method proof_tracer = (self.tracer :> Proof.Tracer.t)
     method last_res = last_res self
     method add_ty ~ty = add_ty self ty
+    method pp_stats out () = pp_stats out self
 
     method solve ?on_exit ?on_progress ?should_stop ~assumptions () : res =
       solve ?on_exit ?on_progress ?should_stop ~assumptions self
