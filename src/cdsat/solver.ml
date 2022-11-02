@@ -5,19 +5,31 @@ module Check_res = Asolver.Check_res
 module Plugin_action = Core.Plugin_action
 module Plugin = Core.Plugin
 
-module type ARG = Core.ARG
+module type ARG = sig
+  module Core : Core.ARG
+  module Bool : Plugin_bool.ARG
+  module UF : Plugin_uninterpreted.ARG
+end
 
 type t = {
   tst: Term.store;
   vst: TVar.store;
   core: Core.t;
   stats: Stat.t;
+  arg: (module ARG);
   proof_tracer: Proof.Tracer.t;
 }
 
-let create ?(stats = Stat.create ()) ~arg tst vst ~proof_tracer () : t =
-  let core = Core.create ~stats ~arg tst vst ~proof_tracer () in
-  { tst; vst; core; stats; proof_tracer }
+let create ?(stats = Stat.create ()) ~(arg : (module ARG)) tst vst ~proof_tracer
+    () : t =
+  let (module A) = arg in
+  let core =
+    Core.create ~stats ~arg:(module A.Core : Core.ARG) tst vst ~proof_tracer ()
+  in
+  Core.add_plugin core (Plugin_bool.builder (module A.Bool : Plugin_bool.ARG));
+  Core.add_plugin core
+    (Plugin_uninterpreted.builder (module A.UF : Plugin_uninterpreted.ARG));
+  { tst; vst; arg; core; stats; proof_tracer }
 
 let[@inline] core self = self.core
 let add_plugin self p = Core.add_plugin self.core p
@@ -56,13 +68,27 @@ let assert_term self t : unit =
   in
   assert_term_ self t pr
 
-let assert_clause (self : t) lits p : unit = assert false (* TODO *)
+let assert_clause (self : t) (lits : Lit.t array) p : unit =
+  let (module A) = self.arg in
+  (* turn literals into a or-term *)
+  let args =
+    Util.array_to_list_map
+      (fun lit ->
+        let t = Lit.term lit in
+        if Lit.sign lit then
+          t
+        else
+          Term.not self.tst t)
+      lits
+  in
+  let t = A.Core.or_l self.tst args in
+  assert_term_ self t p
 
 let pp_stats out self = Stat.pp out self.stats
 
-let solve ?on_exit ?on_progress ?should_stop ~assumptions (self : t) :
-    Check_res.t =
-  assert false
+let solve ?(on_exit = []) ?(on_progress = ignore)
+    ?(should_stop = fun _ -> false) ~assumptions (self : t) : Check_res.t =
+  Core.solve self.core ~on_exit ~on_progress ~should_stop ~assumptions
 
 (* asolver interface *)
 

@@ -11,10 +11,11 @@ module Vec_of = Veci
    next [new_var_] allocation *)
 
 type reason =
-  | Decide
+  | Decide of { level: int }
   | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
 
 let dummy_level_ = -1
+let dummy_reason_ : reason = Decide { level = dummy_level_ }
 
 type store = {
   tst: Term.store;
@@ -50,7 +51,7 @@ let new_var_ (self : store) ~term:(term_for_v : Term.t) ~theory_view () : t =
   Veci.push level dummy_level_;
   Vec.push value None;
   (* fake *)
-  Vec.push reason Decide;
+  Vec.push reason dummy_reason_;
   Vec.push watches (Vec.create ());
   Vec.push theory_views theory_view;
   Bitvec.ensure_size has_value (v + 1);
@@ -83,7 +84,7 @@ let[@inline] add_watcher (self : store) (v : t) ~watcher : unit =
 
 let assign (self : store) (v : t) ~value ~level ~reason : unit =
   Log.debugf 50 (fun k ->
-      k "(@[cdsat.assign[lvl=%d]@ %a@ :val %a@])" level
+      k "(@[cdsat.tvar.assign[lvl=%d]@ %a@ :val %a@])" level
         (Term.pp_limit ~max_depth:5 ~max_nodes:30)
         (term self v) Term.pp value);
   assert (level >= 0);
@@ -94,7 +95,7 @@ let assign (self : store) (v : t) ~value ~level ~reason : unit =
 let unassign (self : store) (v : t) : unit =
   Vec.set self.value v None;
   Veci.set self.level v dummy_level_;
-  Vec.set self.reason v Decide
+  Vec.set self.reason v dummy_reason_
 
 let pop_new_var self : _ option =
   if Vec_of.is_empty self.new_vars then
@@ -104,6 +105,8 @@ let pop_new_var self : _ option =
 
 module Store = struct
   type t = store
+
+  let tst self = self.tst
 
   let create tst : t =
     {

@@ -191,7 +191,12 @@ let main_smt ~config () : _ result =
       let vst = TVar.Store.create tst in
       let arg =
         (module struct
-          let or_l = Sidekick_base.Form.or_l
+          module Core = Sidekick_base.Form
+          module Bool = Sidekick_base.Form
+
+          module UF = struct
+            let is_unin_function = Sidekick_base.Uconst.is_uconst
+          end
         end : Solver.ARG)
       in
       Solver.create tst vst ~arg ~proof_tracer:(tracer :> Proof.Tracer.t) ()

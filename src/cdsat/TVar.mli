@@ -14,6 +14,8 @@ type theory_view = ..
 module Store : sig
   type t
 
+  val tst : t -> Term.store
+
   val create : Term.store -> t
   (** Create a new store *)
 end
@@ -24,7 +26,7 @@ module Vec_of : Vec_sig.S with type elt := t
 type store = Store.t
 
 type reason =
-  | Decide
+  | Decide of { level: int }
   | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
 
 val get_of_term : store -> Term.t -> t option

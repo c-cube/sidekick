@@ -8,39 +8,31 @@ module type ARG = sig
   (** build a disjunction *)
 end
 
-module Plugin_action = struct
-  type t = { propagate: TVar.t -> Value.t -> Reason.t -> unit }
-
-  let propagate (self : t) var v reas : unit = self.propagate var v reas
-end
-
-(** Core plugin *)
-module Plugin = struct
-  type t = {
-    name: string;
-    push_level: unit -> unit;
-    pop_levels: int -> unit;
-    decide: TVar.t -> Value.t option;
-    propagate: Plugin_action.t -> TVar.t -> Value.t -> unit;
-    term_to_var_hooks: Term_to_var.hook list;
-  }
-
-  let make ~name ~push_level ~pop_levels ~decide ~propagate ~term_to_var_hooks
-      () : t =
-    { name; push_level; pop_levels; decide; propagate; term_to_var_hooks }
-end
-
 type t = {
   tst: Term.store;
   vst: TVar.store;
   arg: (module ARG);
   stats: Stat.t;
   trail: Trail.t;
-  plugins: Plugin.t Vec.t;
+  plugins: plugin Vec.t;
   term_to_var: Term_to_var.t;
   mutable last_res: Check_res.t option;
   proof_tracer: Proof.Tracer.t;
 }
+
+and plugin_action = t
+
+and plugin =
+  | P : {
+      st: 'st;
+      name: string;
+      push_level: 'st -> unit;
+      pop_levels: 'st -> int -> unit;
+      decide: 'st -> TVar.t -> Value.t option;
+      propagate: 'st -> plugin_action -> TVar.t -> Value.t -> unit;
+      term_to_var_hooks: 'st -> Term_to_var.hook list;
+    }
+      -> plugin
 
 let create ?(stats = Stat.create ()) ~arg tst vst ~proof_tracer () : t =
   {
@@ -61,6 +53,21 @@ let[@inline] tst self = self.tst
 let[@inline] vst self = self.vst
 let[@inline] last_res self = self.last_res
 
+(* plugins *)
+
+module Plugin = struct
+  type t = plugin
+  type builder = TVar.store -> t
+
+  let[@inline] name (P p) = p.name
+
+  let make_builder ~name ~create ~push_level ~pop_levels ~decide ~propagate
+      ~term_to_var_hooks () : builder =
+   fun vst ->
+    let st = create vst in
+    P { name; st; push_level; pop_levels; decide; propagate; term_to_var_hooks }
+end
+
 (* backtracking *)
 
 let n_levels (self : t) : int = Trail.n_levels self.trail
@@ -68,14 +75,14 @@ let n_levels (self : t) : int = Trail.n_levels self.trail
 let push_level (self : t) : unit =
   Log.debugf 50 (fun k -> k "(@[cdsat.core.push-level@])");
   Trail.push_level self.trail;
-  Vec.iter self.plugins ~f:(fun (p : Plugin.t) -> p.push_level ());
+  Vec.iter self.plugins ~f:(fun (P p) -> p.push_level p.st);
   ()
 
 let pop_levels (self : t) n : unit =
   Log.debugf 50 (fun k -> k "(@[cdsat.core.pop-levels %d@])" n);
   if n > 0 then self.last_res <- None;
   Trail.pop_levels self.trail n ~f:(fun v -> TVar.unassign self.vst v);
-  Vec.iter self.plugins ~f:(fun (p : Plugin.t) -> p.pop_levels n);
+  Vec.iter self.plugins ~f:(fun (P p) -> p.pop_levels p.st n);
   ()
 
 (* term to var *)
@@ -89,9 +96,10 @@ let add_term_to_var_hook self h = Term_to_var.add_hook self.term_to_var h
 
 (* plugins *)
 
-let add_plugin self p =
-  Vec.push self.plugins p;
-  List.iter (add_term_to_var_hook self) p.term_to_var_hooks
+let add_plugin self (pb : Plugin.builder) : unit =
+  let (P p as plugin) = pb self.vst in
+  Vec.push self.plugins plugin;
+  List.iter (add_term_to_var_hook self) (p.term_to_var_hooks p.st)
 
 (* solving *)
 
@@ -100,7 +108,8 @@ let add_ty (_self : t) ~ty:_ : unit = ()
 let assign (self : t) (v : TVar.t) ~(value : Value.t) ~level:v_level ~reason :
     unit =
   Log.debugf 50 (fun k ->
-      k "(@[cdsat.core.assign@ %a@ <- %a@])" (TVar.pp self.vst) v Value.pp value);
+      k "(@[cdsat.core.assign@ `%a`@ @[<- %a@]@ :reason %a@])"
+        (TVar.pp self.vst) v Value.pp value Reason.pp reason);
   self.last_res <- None;
   match TVar.value self.vst v with
   | None ->
@@ -118,3 +127,14 @@ let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
   (* TODO: outer loop (propagate; decide)* *)
   (* TODO: propagation loop, involving plugins *)
   assert false
+
+(* plugin actions *)
+
+module Plugin_action = struct
+  type t = plugin_action
+
+  let[@inline] propagate (self : t) var value reason : unit =
+    assign self var ~value ~level:(Reason.level reason) ~reason
+
+  let term_to_var = term_to_var
+end

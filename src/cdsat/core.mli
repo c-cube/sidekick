@@ -15,28 +15,26 @@ module Plugin_action : sig
   type t
 
   val propagate : t -> TVar.t -> Value.t -> Reason.t -> unit
+  val term_to_var : t -> Term.t -> TVar.t
 end
 
 (** Core plugin *)
 module Plugin : sig
-  type t = private {
-    name: string;
-    push_level: unit -> unit;
-    pop_levels: int -> unit;
-    decide: TVar.t -> Value.t option;
-    propagate: Plugin_action.t -> TVar.t -> Value.t -> unit;
-    term_to_var_hooks: Term_to_var.hook list;
-  }
+  type t
+  type builder
 
-  val make :
+  val name : t -> string
+
+  val make_builder :
     name:string ->
-    push_level:(unit -> unit) ->
-    pop_levels:(int -> unit) ->
-    decide:(TVar.t -> Value.t option) ->
-    propagate:(Plugin_action.t -> TVar.t -> Value.t -> unit) ->
-    term_to_var_hooks:Term_to_var.hook list ->
+    create:(TVar.store -> 'st) ->
+    push_level:('st -> unit) ->
+    pop_levels:('st -> int -> unit) ->
+    decide:('st -> TVar.t -> Value.t option) ->
+    propagate:('st -> Plugin_action.t -> TVar.t -> Value.t -> unit) ->
+    term_to_var_hooks:('st -> Term_to_var.hook list) ->
     unit ->
-    t
+    builder
 end
 
 (** {2 Basics} *)
@@ -56,7 +54,7 @@ val create :
 val tst : t -> Term.store
 val vst : t -> TVar.store
 val trail : t -> Trail.t
-val add_plugin : t -> Plugin.t -> unit
+val add_plugin : t -> Plugin.builder -> unit
 val iter_plugins : t -> Plugin.t Iter.t
 
 val last_res : t -> Check_res.t option
@@ -78,9 +76,9 @@ val assign :
   t -> TVar.t -> value:Value.t -> level:int -> reason:Reason.t -> unit
 
 val solve :
-  on_exit:(unit -> unit) ->
+  on_exit:(unit -> unit) list ->
   on_progress:(unit -> unit) ->
-  should_stop:(unit -> bool) ->
-  assumptions:Term.t list ->
+  should_stop:(int -> bool) ->
+  assumptions:Lit.t list ->
   t ->
   Check_res.t

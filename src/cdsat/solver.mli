@@ -9,7 +9,11 @@ open Sidekick_proof
 module Plugin_action = Core.Plugin_action
 module Plugin = Core.Plugin
 
-module type ARG = Core.ARG
+module type ARG = sig
+  module Core : Core.ARG
+  module Bool : Plugin_bool.ARG
+  module UF : Plugin_uninterpreted.ARG
+end
 
 (** {2 Basics} *)
 
@@ -28,7 +32,7 @@ val create :
 val tst : t -> Term.store
 val vst : t -> TVar.store
 val core : t -> Core.t
-val add_plugin : t -> Plugin.t -> unit
+val add_plugin : t -> Plugin.builder -> unit
 val iter_plugins : t -> Plugin.t Iter.t
 
 (** {2 Solving} *)

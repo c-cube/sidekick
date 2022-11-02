@@ -1,5 +1,5 @@
 type t = TVar.reason =
-  | Decide
+  | Decide of { level: int }
   | Propagate of {
       level: int;
       hyps: TVar.Vec_of.t;
@@ -8,13 +8,18 @@ type t = TVar.reason =
 
 let pp out (self : t) : unit =
   match self with
-  | Decide -> Fmt.string out "decide"
+  | Decide { level } -> Fmt.fprintf out "decide[lvl=%d]" level
   | Propagate { level; hyps; proof = _ } ->
     Fmt.fprintf out "(@[propagate[lvl=%d]@ :n-hyps %d@])" level
       (TVar.Vec_of.size hyps)
 
-let decide : t = Decide
+let[@inline] decide level : t = Decide { level }
 let[@inline] propagate_ level v proof : t = Propagate { level; hyps = v; proof }
+
+let[@inline] level self =
+  match self with
+  | Decide d -> d.level
+  | Propagate p -> p.level
 
 let propagate_v store v proof : t =
   let level =
