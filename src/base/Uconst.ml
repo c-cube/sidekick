@@ -60,6 +60,11 @@ let uconst_of_id' tst id args ret =
 let uconst_of_str tst name args ret : term =
   uconst_of_id' tst (ID.make name) args ret
 
+let is_uconst (t : Term.t) =
+  match Term.view t with
+  | Term.E_const { Const.c_view = Uconst _; _ } -> true
+  | _ -> false
+
 module As_key = struct
   type nonrec t = t
 
