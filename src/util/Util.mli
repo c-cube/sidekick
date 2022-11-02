@@ -8,6 +8,7 @@ val pp_list : ?sep:string -> 'a printer -> 'a list printer
 val pp_iter : ?sep:string -> 'a printer -> 'a Iter.t printer
 val pp_array : ?sep:string -> 'a printer -> 'a array printer
 val pp_pair : ?sep:string -> 'a printer -> 'b printer -> ('a * 'b) printer
+val pp_string_with_lines : string printer
 val flat_map_l_arr : ('a -> 'b array) -> 'a list -> 'b list
 
 val array_of_list_map : ('a -> 'b) -> 'a list -> 'b array

@@ -15,13 +15,16 @@ let start_ = Unix.gettimeofday ()
 let[@inline never] debug_real_ l k =
   k (fun fmt ->
       let now = Unix.gettimeofday () -. start_ in
+      (* print into buf_ in one go, so that outputs of nested debug calls
+         do not interleave on stdout *)
       Buffer.clear buf_;
       let once_done _fmt =
         Format.fprintf _fmt "@]@?";
         let msg = Buffer.contents buf_ in
         (* forward to profiling *)
         if Profile.enabled () then Profile.instant msg;
-        Format.fprintf !debug_fmt_ "@[<2>@{<Blue>[%d|%.3f]@}@ %s@]@." l now msg
+        Format.fprintf !debug_fmt_ "@[<2>@{<Blue>[%d|%.3f]@}@ %a@]@." l now
+          Util.pp_string_with_lines msg
       in
 
       Format.fprintf buf_fmt_ "@[<2>";

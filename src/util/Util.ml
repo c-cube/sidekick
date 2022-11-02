@@ -10,6 +10,18 @@ let pp_sep sep out () = Format.fprintf out "%s@," sep
 let pp_list ?(sep = " ") pp out l = Fmt.list ~sep:(pp_sep sep) pp out l
 let pp_iter ?(sep = " ") pp out l = Fmt.iter ~sep:(pp_sep sep) pp out l
 
+let pp_string_with_lines out (s : string) : unit =
+  Fmt.fprintf out "@[<v>";
+  let i = ref 0 in
+  let n = String.length s in
+  while !i < n do
+    let j = try String.index_from s !i '\n' with Not_found -> n in
+    if !i > 0 then Fmt.fprintf out "@,";
+    Fmt.substring out (s, !i, j - !i);
+    i := j + 1
+  done;
+  Fmt.fprintf out "@]"
+
 let pp_pair ?(sep = " ") pp1 pp2 out t =
   Fmt.pair ~sep:(pp_sep sep) pp1 pp2 out t
 
