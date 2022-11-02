@@ -7,6 +7,9 @@
 type t = private int
 type var = t
 
+type theory_view = ..
+(** The theory-specific data *)
+
 (** Store of variables *)
 module Store : sig
   type t
@@ -24,8 +27,8 @@ type reason =
   | Decide
   | Propagate of { level: int; hyps: Vec_of.t; proof: Sidekick_proof.step_id }
 
-val of_term : store -> Term.t -> t
-(** Obtain a variable for this term. *)
+val get_of_term : store -> Term.t -> t option
+(** Get variable from term, if already associated *)
 
 val term : store -> t -> Term.t
 (** Term for this variable *)
@@ -39,8 +42,14 @@ val level : store -> t -> int
 val value : store -> t -> Value.t option
 (** Value in the current assignment *)
 
-val set_value : store -> t -> Value.t -> unit
-val unset_value : store -> t -> unit
+val bool_value : store -> t -> bool option
+(** Value in the current assignment, as a boolean *)
+
+val theory_view : store -> t -> theory_view
+(** Theory-specific view of the variable *)
+
+val assign : store -> t -> value:Value.t -> level:int -> reason:reason -> unit
+val unassign : store -> t -> unit
 
 val watchers : store -> t -> t Vec.t
 (** [watchers store t] is a vector of other variables watching [t],
@@ -51,3 +60,15 @@ val add_watcher : store -> t -> watcher:t -> unit
 
 val pop_new_var : store -> t option
 (** Pop a new variable if any, or return [None] *)
+
+val pp : store -> t Fmt.printer
+
+(**/**)
+
+module Internal : sig
+  val create : store -> Term.t -> theory_view:theory_view -> t
+  (** Obtain a variable for this term. Fails if the term already maps
+      to a variable. *)
+end
+
+(**/**)

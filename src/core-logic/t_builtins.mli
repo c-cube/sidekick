@@ -25,6 +25,8 @@ val ite : store -> t -> t -> t -> t
 
 val is_eq : t -> bool
 val is_bool : t -> bool
+val is_true : t -> bool
+val is_false : t -> bool
 
 val abs : store -> t -> bool * t
 (** [abs t] returns an "absolute value" for the term, along with the

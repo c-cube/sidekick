@@ -1,7 +1,12 @@
 open Sidekick_core
 module Proof = Sidekick_proof
-module Asolver = Sidekick_abstract_solver
-module Check_res = Asolver.Check_res
+module Check_res = Sidekick_abstract_solver.Check_res
+
+(** Argument to the solver *)
+module type ARG = sig
+  val or_l : Term.store -> Term.t list -> Term.t
+  (** build a disjunction *)
+end
 
 module Plugin_action = struct
   type t = { propagate: TVar.t -> Value.t -> Reason.t -> unit }
@@ -17,68 +22,99 @@ module Plugin = struct
     pop_levels: int -> unit;
     decide: TVar.t -> Value.t option;
     propagate: Plugin_action.t -> TVar.t -> Value.t -> unit;
+    term_to_var_hooks: Term_to_var.hook list;
   }
 
-  let make ~name ~push_level ~pop_levels ~decide ~propagate () : t =
-    { name; push_level; pop_levels; decide; propagate }
+  let make ~name ~push_level ~pop_levels ~decide ~propagate ~term_to_var_hooks
+      () : t =
+    { name; push_level; pop_levels; decide; propagate; term_to_var_hooks }
 end
 
 type t = {
   tst: Term.store;
   vst: TVar.store;
+  arg: (module ARG);
   stats: Stat.t;
   trail: Trail.t;
   plugins: Plugin.t Vec.t;
+  term_to_var: Term_to_var.t;
   mutable last_res: Check_res.t option;
   proof_tracer: Proof.Tracer.t;
 }
 
-let create ?(stats = Stat.create ()) tst vst ~proof_tracer () : t =
+let create ?(stats = Stat.create ()) ~arg tst vst ~proof_tracer () : t =
   {
     tst;
     vst;
+    arg;
     stats;
     trail = Trail.create ();
     plugins = Vec.create ();
+    term_to_var = Term_to_var.create vst;
     last_res = None;
     proof_tracer;
   }
 
 let[@inline] trail self = self.trail
-let add_plugin self p = Vec.push self.plugins p
 let[@inline] iter_plugins self f = Vec.iter ~f self.plugins
 let[@inline] tst self = self.tst
 let[@inline] vst self = self.vst
+let[@inline] last_res self = self.last_res
+
+(* backtracking *)
+
+let n_levels (self : t) : int = Trail.n_levels self.trail
+
+let push_level (self : t) : unit =
+  Log.debugf 50 (fun k -> k "(@[cdsat.core.push-level@])");
+  Trail.push_level self.trail;
+  Vec.iter self.plugins ~f:(fun (p : Plugin.t) -> p.push_level ());
+  ()
+
+let pop_levels (self : t) n : unit =
+  Log.debugf 50 (fun k -> k "(@[cdsat.core.pop-levels %d@])" n);
+  if n > 0 then self.last_res <- None;
+  Trail.pop_levels self.trail n ~f:(fun v -> TVar.unassign self.vst v);
+  Vec.iter self.plugins ~f:(fun (p : Plugin.t) -> p.pop_levels n);
+  ()
+
+(* term to var *)
+
+let[@inline] get_term_to_var self = self.term_to_var
+
+let[@inline] term_to_var self t : TVar.t =
+  Term_to_var.convert self.term_to_var t
+
+let add_term_to_var_hook self h = Term_to_var.add_hook self.term_to_var h
+
+(* plugins *)
+
+let add_plugin self p =
+  Vec.push self.plugins p;
+  List.iter (add_term_to_var_hook self) p.term_to_var_hooks
 
 (* solving *)
 
 let add_ty (_self : t) ~ty:_ : unit = ()
-let assert_clause (self : t) lits p : unit = assert false
-let assert_term (self : t) t : unit = assert false
-let pp_stats out self = Stat.pp out self.stats
 
-let solve ?on_exit ?on_progress ?should_stop ~assumptions (self : t) :
+let assign (self : t) (v : TVar.t) ~(value : Value.t) ~level:v_level ~reason :
+    unit =
+  Log.debugf 50 (fun k ->
+      k "(@[cdsat.core.assign@ %a@ <- %a@])" (TVar.pp self.vst) v Value.pp value);
+  self.last_res <- None;
+  match TVar.value self.vst v with
+  | None ->
+    TVar.assign self.vst v ~value ~level:v_level ~reason;
+    Trail.push_assignment self.trail v
+  | Some value' when Value.equal value value' -> () (* idempotent *)
+  | Some value' ->
+    (* TODO: conflict *)
+    Log.debugf 0 (fun k -> k "TODO: conflict (incompatible values)");
+    ()
+
+let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
     Check_res.t =
+  self.last_res <- None;
+  (* TODO: outer loop (propagate; decide)* *)
+  (* TODO: propagation loop, involving plugins *)
   assert false
-
-(* asolver interface *)
-
-let as_asolver (self : t) : Asolver.t =
-  object (asolver)
-    method tst = self.tst
-    method assert_clause lits p : unit = assert_clause self lits p
-
-    method assert_clause_l lits p : unit =
-      asolver#assert_clause (Array.of_list lits) p
-
-    method add_ty ~ty : unit = add_ty self ~ty
-    method lit_of_term ?sign t = Lit.atom ?sign self.tst t
-    method assert_term t : unit = assert_term self t
-    method last_res = self.last_res
-    method proof_tracer = self.proof_tracer
-    method pp_stats out () = pp_stats out self
-
-    method solve ?on_exit ?on_progress ?should_stop ~assumptions ()
-        : Check_res.t =
-      solve ?on_exit ?on_progress ?should_stop ~assumptions self
-  end

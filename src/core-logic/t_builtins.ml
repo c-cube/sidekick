@@ -126,6 +126,16 @@ let is_bool t =
   | E_const { c_view = C_bool; _ } -> true
   | _ -> false
 
+let is_true t =
+  match view t with
+  | E_const { c_view = C_true; _ } -> true
+  | _ -> false
+
+let is_false t =
+  match view t with
+  | E_const { c_view = C_false; _ } -> true
+  | _ -> false
+
 let is_eq t =
   match view t with
   | E_const { c_view = C_eq; _ } -> true

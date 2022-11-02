@@ -189,8 +189,13 @@ let main_smt ~config () : _ result =
     if !cdsat then
       let open Sidekick_cdsat in
       let vst = TVar.Store.create tst in
-      Core.create tst vst ~proof_tracer:(tracer :> Proof.Tracer.t) ()
-      |> Core.as_asolver
+      let arg =
+        (module struct
+          let or_l = Sidekick_base.Form.or_l
+        end : Solver.ARG)
+      in
+      Solver.create tst vst ~arg ~proof_tracer:(tracer :> Proof.Tracer.t) ()
+      |> Solver.as_asolver
     else (
       (* TODO: probes, to load only required theories *)
       let theories =
