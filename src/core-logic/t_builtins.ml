@@ -126,6 +126,8 @@ let is_bool t =
   | E_const { c_view = C_bool; _ } -> true
   | _ -> false
 
+let[@inline] is_a_bool t = is_bool (ty t)
+
 let is_true t =
   match view t with
   | E_const { c_view = C_true; _ } -> true

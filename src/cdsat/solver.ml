@@ -33,7 +33,7 @@ let create ?(stats = Stat.create ()) ~(arg : (module ARG)) tst vst ~proof_tracer
 
 let[@inline] core self = self.core
 let add_plugin self p = Core.add_plugin self.core p
-let[@inline] iter_plugins self f = Core.iter_plugins self.core f
+let[@inline] iter_plugins self f = Core.iter_plugins self.core ~f
 let[@inline] tst self = self.tst
 let[@inline] vst self = self.vst
 

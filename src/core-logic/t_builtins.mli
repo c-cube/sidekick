@@ -24,7 +24,14 @@ val ite : store -> t -> t -> t -> t
 (** [ite a b c] is [if a then b else c] *)
 
 val is_eq : t -> bool
+(** [is_eq t] is true if [t] is the [=] constant *)
+
 val is_bool : t -> bool
+(** [is_bool t] is true if [t] is the type bool itself *)
+
+val is_a_bool : t -> bool
+(** [is_a_bool t] is true if [t] has type [bool] *)
+
 val is_true : t -> bool
 val is_false : t -> bool
 

@@ -40,7 +40,7 @@ let propagate (self : t) _act (v : TVar.t) (value : Value.t) =
   | Unin_const _ -> ()
   | Unin_fun { f = _; args } ->
     (* TODO: update congruence table *)
-    Log.debugf 1 (fun k -> k "FIXME: congruence rule");
+    Log.debugf 0 (fun k -> k "FIXME: congruence rule");
     ()
   | _ -> ()
 

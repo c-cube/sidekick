@@ -55,7 +55,7 @@ val tst : t -> Term.store
 val vst : t -> TVar.store
 val trail : t -> Trail.t
 val add_plugin : t -> Plugin.builder -> unit
-val iter_plugins : t -> Plugin.t Iter.t
+val iter_plugins : t -> f:(Plugin.t -> unit) -> unit
 
 val last_res : t -> Check_res.t option
 (** Last result. Reset on backtracking/assertion *)

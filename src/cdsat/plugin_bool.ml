@@ -31,6 +31,8 @@ let decide (self : t) (v : TVar.t) : Value.t option =
 
 let propagate (self : t) (act : Core.Plugin_action.t) (v : TVar.t)
     (value : Value.t) : unit =
+  Log.debugf 0 (fun k ->
+      k "(@[bool-plugin.propagate %a@])" (TVar.pp self.vst) v);
   ()
 (* TODO: BCP *)
 
