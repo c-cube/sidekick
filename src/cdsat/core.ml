@@ -27,6 +27,7 @@ type t = {
   trail: Trail.t;
   plugins: plugin Vec.t;
   term_to_var: Term_to_var.t;
+  vars_to_decide: Vars_to_decide.t;
   pending_assignments: pending_assignment Vec.t;
   mutable last_res: Check_res.t option;
   proof_tracer: Proof.Tracer.t;
@@ -69,6 +70,7 @@ let create ?(stats = Stat.create ()) ~arg tst vst ~proof_tracer () : t =
     plugins = Vec.create ();
     pending_assignments = Vec.create ();
     term_to_var = Term_to_var.create vst;
+    vars_to_decide = Vars_to_decide.create ();
     last_res = None;
     proof_tracer;
     n_restarts = Stat.mk_int stats "cdsat.restarts";
@@ -116,6 +118,7 @@ let pop_levels (self : t) n : unit =
     trail;
     plugins;
     term_to_var = _;
+    vars_to_decide = _;
     pending_assignments;
     last_res = _;
     proof_tracer = _;
@@ -183,7 +186,7 @@ let perform_pending_assignments (self : t) : unit =
     | Some _value' ->
       (* conflict should only occur on booleans since they're the only
          propagation-able variables *)
-      assert (Term.is_a_bool (TVar.term self.vst v));
+      assert (Term.has_ty_bool (TVar.term self.vst v));
       Log.debugf 0 (fun k ->
           k "TODO: conflict (incompatible values for %a)" (TVar.pp self.vst) v);
       raise_conflict
@@ -222,6 +225,41 @@ let propagate (self : t) : Conflict.t option =
     None
   with E_conflict c -> Some c
 
+(* TODO *)
+let make_sat_res (_self : t) : Check_res.sat_result =
+  {
+    Check_res.get_value = (fun _ -> assert false);
+    iter_classes = (fun _ -> assert false);
+    eval_lit = (fun _ -> assert false);
+    iter_true_lits = (fun _ -> assert false);
+  }
+
+let rec decide (self : t) : [ `Decided | `Full_model ] =
+  match Vars_to_decide.pop_next self.vars_to_decide with
+  | None -> `Full_model
+  | Some v ->
+    if TVar.has_value self.vst v then
+      decide self
+    else (
+      (* try to find a plugin that can decide [v] *)
+      Log.debugf 20 (fun k -> k "(@[cdsat.decide@ %a@])" (TVar.pp self.vst) v);
+
+      let exception Decided of Value.t in
+      try
+        iter_plugins self ~f:(fun (P p) ->
+            match p.decide p.st v with
+            | Some value -> raise_notrace (Decided value)
+            | None -> ());
+
+        Error.errorf "no plugin can decide %a" (TVar.pp self.vst) v
+      with Decided value ->
+        Trail.push_level self.trail;
+        let level = Trail.n_levels self.trail in
+        Log.debugf 5 (fun k -> k "(@[cdsat.new-level %d@])" level);
+        assign self v ~value ~level ~reason:(Reason.decide level);
+        `Decided
+    )
+
 let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
     Check_res.t =
   let@ () = Profile.with_ "cdsat.solve" in
@@ -254,9 +292,13 @@ let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
       (* TODO: see if we want to restart *)
       assert false
     | None ->
-      Log.debugf 0 (fun k -> k "TODO: decide");
-      (* TODO: decide *)
-      ());
+      (match decide self with
+      | `Decided -> ()
+      | `Full_model ->
+        let sat = make_sat_res self in
+
+        res := Check_res.Sat sat;
+        continue := false));
 
     (* regularly check if it's time to stop *)
     if !n_conflicts mod 64 = 0 then

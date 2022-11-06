@@ -27,6 +27,9 @@ let decide (self : t) (v : TVar.t) : Value.t option =
   | T_and _ | T_or _ ->
     (* TODO: phase saving? or is it done directly in the core? *)
     Some (Term.true_ self.tst)
+  | _ when Term.has_ty_bool (TVar.term self.vst v) ->
+    (* TODO: phase saving? or is it done directly in the core? *)
+    Some (Term.true_ self.tst)
   | _ -> None
 
 let propagate (self : t) (act : Core.Plugin_action.t) (v : TVar.t)

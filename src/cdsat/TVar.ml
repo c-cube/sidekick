@@ -129,6 +129,10 @@ let pp (self : store) out (v : t) : unit =
     (Term.pp_limit ~max_depth:5 ~max_nodes:30)
     t
 
+module Tbl = Util.Int_tbl
+module Set = Util.Int_set
+module Map = Util.Int_map
+
 module Internal = struct
   let create (self : store) (t : Term.t) ~theory_view : t =
     assert (not @@ Term.Weak_map.mem self.of_term t);

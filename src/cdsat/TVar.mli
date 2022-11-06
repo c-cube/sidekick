@@ -65,6 +65,10 @@ val pop_new_var : store -> t option
 
 val pp : store -> t Fmt.printer
 
+module Tbl : CCHashtbl.S with type key = t
+module Set : CCSet.S with type elt = t
+module Map : CCMap.S with type key = t
+
 (**/**)
 
 module Internal : sig

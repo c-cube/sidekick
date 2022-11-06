@@ -29,8 +29,8 @@ val is_eq : t -> bool
 val is_bool : t -> bool
 (** [is_bool t] is true if [t] is the type bool itself *)
 
-val is_a_bool : t -> bool
-(** [is_a_bool t] is true if [t] has type [bool] *)
+val has_ty_bool : t -> bool
+(** [has_ty_bool t] is true if [t] has type [bool] *)
 
 val is_true : t -> bool
 val is_false : t -> bool

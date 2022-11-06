@@ -41,6 +41,13 @@ let[@inline] vst self = self.vst
 
 let add_ty (_self : t) ~ty:_ : unit = ()
 
+(* TODO:
+   when asserting [t], we convert it into [v].
+   At that point we need to add [v] and its sub-variables (recursively)
+   to the [Core.t], so it can itself add them to [Vars_to_decide.t].
+
+   Sub-variables of asserted terms are what needs to be decided. *)
+
 let assert_term_ (self : t) (t : Term.t) pr : unit =
   Log.debugf 50 (fun k -> k "(@[cdsat.core.assert@ %a@])" Term.pp t);
   let sign, t = Term.abs self.tst t in
