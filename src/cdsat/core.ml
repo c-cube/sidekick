@@ -187,8 +187,21 @@ let pop_levels (self : t) n : unit =
 
 let[@inline] get_term_to_var self = self.term_to_var
 
-let[@inline] term_to_var self t : TVar.t =
-  Term_to_var.convert self.term_to_var t
+let term_to_var self t : TVar.t =
+  (* TODO: simplify [t] *)
+  let v = Term_to_var.convert self.term_to_var t in
+
+  (* add new variables to vars_to_decide *)
+  while
+    match TVar.pop_new_var self.vst with
+    | None -> false
+    | Some v ->
+      Vars_to_decide.add self.vars_to_decide v;
+      true
+  do
+    ()
+  done;
+  v
 
 let add_term_to_var_hook self h = Term_to_var.add_hook self.term_to_var h
 
