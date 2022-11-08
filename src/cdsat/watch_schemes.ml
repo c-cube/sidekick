@@ -133,6 +133,7 @@ struct
   (* update a single watch *)
   let update1 (self : t) (h : handle) (w : watch) ~updated_var ~f :
       watch_update_res =
+    assert (TVar.has_value self.vst updated_var);
     match w with
     | No_watch -> Watch_remove
     | _ when not (alive self h) -> Watch_remove

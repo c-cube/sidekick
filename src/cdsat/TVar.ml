@@ -25,7 +25,6 @@ type store = {
   value: Value.t option Vec.t;
   reason: reason Vec.t;
   theory_views: theory_view Vec.t;
-  has_value: Bitvec.t;
   new_vars: Vec_of.t; (* TODO: a recycle vec to reuse identifiers *)
 }
 
@@ -40,7 +39,6 @@ let new_var_ (self : store) ~term:(term_for_v : Term.t) ~theory_view () : t =
     value;
     reason;
     theory_views;
-    has_value;
     new_vars;
   } =
     self
@@ -51,22 +49,21 @@ let new_var_ (self : store) ~term:(term_for_v : Term.t) ~theory_view () : t =
   (* fake *)
   Vec.push reason dummy_reason_;
   Vec.push theory_views theory_view;
-  Bitvec.ensure_size has_value (v + 1);
-  Bitvec.set has_value v false;
   Vec_of.push new_vars v;
   v
 
 let[@inline] get_of_term (self : store) (t : Term.t) : t option =
   Term.Weak_map.find_opt self.of_term t
 
-let[@inline] has_value (self : store) (v : t) : bool =
-  Bitvec.get self.has_value v
-
 let[@inline] equal (a : t) (b : t) = a = b
 let[@inline] compare (a : t) (b : t) = compare a b
 let[@inline] hash (a : t) = CCHash.int a
 let[@inline] level (self : store) (v : t) : int = Veci.get self.level v
 let[@inline] value (self : store) (v : t) : _ option = Vec.get self.value v
+
+let[@inline] has_value (self : store) (v : t) : bool =
+  Option.is_some (value self v)
+
 let[@inline] theory_view (self : store) (v : t) = Vec.get self.theory_views v
 
 let[@inline] bool_value (self : store) (v : t) : _ option =
@@ -113,7 +110,6 @@ module Store = struct
       level = Veci.create ();
       value = Vec.create ();
       theory_views = Vec.create ();
-      has_value = Bitvec.create ();
       new_vars = Vec_of.create ();
     }
 end
