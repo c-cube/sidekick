@@ -23,11 +23,11 @@ module Plugin_action : sig
   val term_to_var : t -> Term.t -> TVar.t
   (** Convert a term to a variable *)
 
-  val watch1 : t -> TVar.t array -> plugin_event -> unit
+  val watch1 : t -> TVar.t list -> plugin_event -> unit
   (** Create a watcher for the given set of variables, which will trigger
       the event *)
 
-  val watch2 : t -> TVar.t array -> plugin_event -> unit
+  val watch2 : t -> TVar.t list -> plugin_event -> unit
   (** Create a watcher for the given set of variables, which will trigger
       the event *)
 end
@@ -41,19 +41,16 @@ module Plugin : sig
 
   type event = plugin_event = ..
 
-  type watch_request =
-    | Watch2 of TVar.t array * event
-    | Watch1 of TVar.t array * event
-
   val make_builder :
     name:string ->
     create:(TVar.store -> 'st) ->
     push_level:('st -> unit) ->
     pop_levels:('st -> int -> unit) ->
+    iter_theory_view:('st -> TVar.theory_view -> TVar.t Iter.t) ->
     ?decide:('st -> TVar.t -> Value.t option) ->
     ?on_assign:('st -> Plugin_action.t -> TVar.t -> Value.t -> unit) ->
     ?on_event:('st -> Plugin_action.t -> unit:bool -> event -> unit) ->
-    ?on_add_var:('st -> TVar.t -> watch_request list) ->
+    ?on_add_var:('st -> Plugin_action.t -> TVar.t -> unit) ->
     ?term_to_var_hooks:('st -> Term_to_var.hook list) ->
     unit ->
     builder
@@ -94,8 +91,7 @@ val add_term_to_var_hook : t -> Term_to_var.hook -> unit
 
 (** {2 Main solving API} *)
 
-val assign :
-  t -> TVar.t -> value:Value.t -> level:int -> reason:Reason.t -> unit
+val assign : t -> TVar.t -> value:Value.t -> reason:Reason.t -> unit
 
 val solve :
   on_exit:(unit -> unit) list ->

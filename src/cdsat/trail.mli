@@ -10,3 +10,5 @@ val head : t -> int
 val set_head : t -> int -> unit
 
 include Sidekick_sigs.BACKTRACKABLE0_CB with type t := t and type elt := TVar.t
+
+val pp_full : TVar.store -> t Fmt.printer

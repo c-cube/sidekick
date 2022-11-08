@@ -79,7 +79,8 @@ struct
     let vec = Handle_v_map.get self.by_var v in
     Veci.push vec h
 
-  let watch1 (self : t) (arr : TVar.t array) (ev : Ev.t) ~(f : cb_) : handle =
+  let watch1 (self : t) (vars : TVar.t list) (ev : Ev.t) ~(f : cb_) : handle =
+    let arr = Array.of_list vars in
     let h = make_watch_ self (Watch1 { arr; ev }) in
     let i, all_set = find_watch_ self.vst arr ~idx0:0 in
     (* put watched var first *)
@@ -88,7 +89,8 @@ struct
     if all_set then f ~unit:false ev;
     h
 
-  let watch2 (self : t) (arr : TVar.t array) (ev : Ev.t) ~(f : cb_) : handle =
+  let watch2 (self : t) (vars : TVar.t list) (ev : Ev.t) ~(f : cb_) : handle =
+    let arr = Array.of_list vars in
     let h = make_watch_ self (Watch2 { arr; ev }) in
     (* put watched vars first *)
     let i0, all_set0 = find_watch_ self.vst arr ~idx0:0 in

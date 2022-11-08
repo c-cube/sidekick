@@ -62,8 +62,14 @@ let term_to_var_hooks (self : t) : _ list =
   in
   [ h ]
 
+let iter_theory_view _ (v : TVar.theory_view) k : unit =
+  match v with
+  | Unin_const _ -> ()
+  | Unin_fun { f = _; args } -> Array.iter k args
+  | _ -> ()
+
 (* TODO: congruence rules *)
 
 let builder ((module A : ARG) as arg) : Core.Plugin.builder =
   Core.Plugin.make_builder ~name:"uf" ~create:(create arg) ~push_level
-    ~pop_levels ~decide ~on_assign ~term_to_var_hooks ()
+    ~pop_levels ~iter_theory_view ~decide ~on_assign ~term_to_var_hooks ()

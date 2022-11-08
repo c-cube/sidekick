@@ -28,3 +28,8 @@ let pop_levels (self : t) (n : int) ~f : unit =
     (* also reset head *)
     if self.head > idx then self.head <- idx
   )
+
+let pp_full vst out (self : t) : unit =
+  Fmt.fprintf out "(@[<hv>trail@ %a@])"
+    (Util.pp_iter (TVar.pp_with_assignment vst))
+    (VVec.to_iter self.vars)

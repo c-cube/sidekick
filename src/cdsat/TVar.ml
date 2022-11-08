@@ -124,6 +124,15 @@ let pp (self : store) out (v : t) : unit =
     (Term.pp_limit ~max_depth:5 ~max_nodes:30)
     t
 
+let pp_with_assignment (self : store) out (v : t) : unit =
+  let t = term self v in
+  match value self v with
+  | Some value ->
+    Fmt.fprintf out "(@[var[%d]@ :term %a@ :value %a@ :level %d@])" v
+      (Term.pp_limit ~max_depth:5 ~max_nodes:30)
+      t Value.pp value (level self v)
+  | None -> pp self out v
+
 module Tbl = Util.Int_tbl
 module Set = Util.Int_set
 module Map = Util.Int_map

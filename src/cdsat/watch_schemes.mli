@@ -10,12 +10,14 @@ end) : sig
   (** New set of watchers *)
 
   val watch2 :
-    t -> TVar.t array -> Ev.t -> f:(unit:bool -> Ev.t -> unit) -> handle
+    t -> TVar.t list -> Ev.t -> f:(unit:bool -> Ev.t -> unit) -> handle
   (** 2-watch scheme on these variables. *)
 
   val watch1 :
-    t -> TVar.t array -> Ev.t -> f:(unit:bool -> Ev.t -> unit) -> handle
+    t -> TVar.t list -> Ev.t -> f:(unit:bool -> Ev.t -> unit) -> handle
   (** 1-watch scheme on these variables. *)
+
+  (* TODO: remove var *)
 
   val kill : t -> handle -> unit
   (** Disable watch *)

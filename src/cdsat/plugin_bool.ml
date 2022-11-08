@@ -32,13 +32,26 @@ let decide (self : t) (v : TVar.t) : Value.t option =
     Some (Term.true_ self.tst)
   | _ -> None
 
-let on_assign (self : t) (act : Core.Plugin_action.t) (v : TVar.t)
-    (value : Value.t) : unit =
-  Log.debugf 0 (fun k ->
-      k "(@[bool-plugin.on-assign %a@])" (TVar.pp self.vst) v);
-  ()
+type Core.Plugin.event += Eval of TVar.t | BCP of TVar.t
 
-(* TODO: BCP via on_event *)
+(* create watch *)
+let on_add_var (self : t) acts (v : TVar.t) : unit =
+  match TVar.theory_view self.vst v with
+  | T_and lits | T_or lits ->
+    let vars_of_lits = Util.array_to_list_map TLit.var lits in
+    Core.Plugin_action.watch1 acts vars_of_lits (Eval v);
+    Core.Plugin_action.watch2 acts (v :: vars_of_lits) (BCP v)
+  | _ -> ()
+
+let on_event (self : t) acts ~unit (ev : Core.Plugin.event) : unit =
+  match ev with
+  | Eval v ->
+    (* TODO: evaluate [v] *)
+    Log.debugf 1 (fun k -> k "(@[cdsat.bool.eval@ %a@])" (TVar.pp self.vst) v)
+  | BCP v ->
+    (* TODO: check if we can eval *)
+    Log.debugf 1 (fun k -> k "(@[cdsat.bool.bcp@ %a@])" (TVar.pp self.vst) v)
+  | _ -> ()
 
 let term_to_var_hooks (self : t) : _ list =
   let (module A) = self.arg in
@@ -67,10 +80,15 @@ let term_to_var_hooks (self : t) : _ list =
   in
   [ h ]
 
+let iter_theory_view _ (v : TVar.theory_view) k =
+  match v with
+  | T_and lits | T_or lits -> Array.iter (fun { TLit.var; _ } -> k var) lits
+  | _ -> ()
+
 let builder ((module A : ARG) as arg) : Core.Plugin.builder =
   let create vst : t =
     let tst = TVar.Store.tst vst in
     { arg; vst; tst }
   in
-  Core.Plugin.make_builder ~name:"bool" ~create ~push_level ~pop_levels ~decide
-    ~on_assign ~term_to_var_hooks ()
+  Core.Plugin.make_builder ~name:"bool" ~create ~push_level ~pop_levels
+    ~iter_theory_view ~decide ~on_add_var ~on_event ~term_to_var_hooks ()

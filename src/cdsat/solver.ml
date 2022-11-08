@@ -57,7 +57,6 @@ let assert_term_ (self : t) (t : Term.t) pr : unit =
     let pr = Proof.Tracer.add_step self.proof_tracer pr in
     Core.assign self.core v
       ~value:(Term.bool_val self.tst sign)
-      ~level:0
       ~reason:(Reason.propagate_l self.vst [] pr)
   | Some value when Term.is_true value && sign -> ()
   | Some value when Term.is_false value && not sign -> ()

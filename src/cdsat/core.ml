@@ -24,26 +24,32 @@ type plugin_id = int
 
 type plugin_event = ..
 
-type watch_request =
-  | Watch2 of TVar.t array * plugin_event
-  | Watch1 of TVar.t array * plugin_event
-
 module Watches = Watch_schemes.Make (struct
   type t = plugin_id * plugin_event
 end)
+
+(* TODO: regular GC, where we remove variables with a low activity/high LBD (?)
+   that are also not assigned in current trail.
+
+   need to cooperate with plugins to mark sub-variables kept alive by alive
+   variables.
+*)
 
 type t = {
   tst: Term.store;
   vst: TVar.store;
   arg: (module ARG);
   stats: Stat.t;
-  trail: Trail.t;
-  plugins: plugin Vec.t;
-  term_to_var: Term_to_var.t;
+  trail: Trail.t;  (** partial model (stack of assigned variables) *)
+  plugins: plugin Vec.t;  (** plugins registered to this solver *)
+  term_to_var: Term_to_var.t;  (** convert terms to vars *)
   vars_to_decide: Vars_to_decide.t;
-  pending_assignments: pending_assignment Vec.t;
+      (** set of variables (potentially) undecided *)
+  added_vars: unit TVar.Tbl.t;  (** set of variables added to all plugins *)
+  pending_assignments: pending_assignment Vec.t;  (** assignments to process *)
   watches: Watches.t;
   mutable last_res: Check_res.t option;
+      (** last result, useful to get unsat core/model *)
   proof_tracer: Proof.Tracer.t;
   n_conflicts: int Stat.counter;
   n_propagations: int Stat.counter;
@@ -53,8 +59,7 @@ type t = {
 and plugin_action = t * plugin_id
 
 (* FIXME:
-   - add [on_add_var: TVar.t -> unit]
-     and [on_remove_var: TVar.t -> unit].
+   - add [on_remove_var: TVar.t -> unit].
      these are called when a variable becomes relevant/is removed or GC'd
        (in particular: setup watches + var constraints on add,
         kill watches and remove constraints on remove)
@@ -73,7 +78,9 @@ and plugin =
       on_assign: 'st -> plugin_action -> TVar.t -> Value.t -> unit;
       on_event: 'st -> plugin_action -> unit:bool -> plugin_event -> unit;
       term_to_var_hooks: 'st -> Term_to_var.hook list;
-      on_add_var: 'st -> TVar.t -> watch_request list;
+      iter_theory_view: 'st -> TVar.theory_view -> TVar.t Iter.t;
+          (** return [true] if it iterated *)
+      on_add_var: 'st -> plugin_action -> TVar.t -> unit;
     }
       -> plugin
 
@@ -88,6 +95,7 @@ let create ?(stats = Stat.create ()) ~arg tst vst ~proof_tracer () : t =
     pending_assignments = Vec.create ();
     term_to_var = Term_to_var.create vst;
     vars_to_decide = Vars_to_decide.create ();
+    added_vars = TVar.Tbl.create 32;
     watches = Watches.create vst;
     last_res = None;
     proof_tracer;
@@ -113,13 +121,9 @@ module Plugin = struct
 
   type nonrec event = plugin_event = ..
 
-  type nonrec watch_request = watch_request =
-    | Watch2 of TVar.t array * event
-    | Watch1 of TVar.t array * event
-
-  let make_builder ~name ~create ~push_level ~pop_levels
+  let make_builder ~name ~create ~push_level ~pop_levels ~iter_theory_view
       ?(decide = fun _ _ -> None) ?(on_assign = fun _ _ _ _ -> ())
-      ?(on_event = fun _ _ ~unit:_ _ -> ()) ?(on_add_var = fun _ _ -> [])
+      ?(on_event = fun _ _ ~unit:_ _ -> ()) ?(on_add_var = fun _ _ _ -> ())
       ?(term_to_var_hooks = fun _ -> []) () : builder =
    fun ~id vst ->
     let st = create vst in
@@ -131,6 +135,7 @@ module Plugin = struct
         push_level;
         pop_levels;
         decide;
+        iter_theory_view;
         on_assign;
         on_event;
         term_to_var_hooks;
@@ -159,6 +164,7 @@ let pop_levels (self : t) n : unit =
     term_to_var = _;
     watches = _;
     vars_to_decide = _;
+    added_vars = _;
     pending_assignments;
     last_res = _;
     proof_tracer = _;
@@ -200,13 +206,28 @@ let add_ty (_self : t) ~ty:_ : unit = ()
 
 (** Assign [v <- value] for [reason] at [level].
     This assignment is delayed. *)
-let assign (self : t) (v : TVar.t) ~(value : Value.t) ~level:v_level ~reason :
+let assign_ (self : t) (v : TVar.t) ~(value : Value.t) ~level:v_level ~reason :
     unit =
   Log.debugf 50 (fun k ->
       k "(@[cdsat.core.assign@ `%a`@ @[<- %a@]@ :reason %a@])"
         (TVar.pp self.vst) v Value.pp value Reason.pp reason);
   self.last_res <- None;
   Vec.push self.pending_assignments { var = v; value; level = v_level; reason }
+
+let rec add_var_ (self : t) (v : TVar.t) : unit =
+  if not (TVar.Tbl.mem self.added_vars v) then (
+    Log.debugf 50 (fun k -> k "(@[cdsat.add-var@ %a@])" (TVar.pp self.vst) v);
+    TVar.Tbl.add self.added_vars v ();
+    Vars_to_decide.add self.vars_to_decide v;
+
+    (* add variable to plugins *)
+    iter_plugins self ~f:(fun (P p) -> p.on_add_var p.st (self, p.id) v);
+
+    (* add sub-variables as well *)
+    let tview = TVar.theory_view self.vst v in
+    iter_plugins self ~f:(fun (P p) ->
+        p.iter_theory_view p.st tview (fun sub -> add_var_ self sub))
+  )
 
 exception E_conflict of Conflict.t
 
@@ -254,9 +275,6 @@ let propagate (self : t) : Conflict.t option =
 
       while Trail.head self.trail < Trail.size self.trail do
         let var = Trail.get self.trail (Trail.head self.trail) in
-
-        (* TODO: call plugins *)
-        Log.debugf 0 (fun k -> k "TODO: propagate %a" (TVar.pp self.vst) var);
 
         let value =
           match TVar.value self.vst var with
@@ -314,12 +332,17 @@ let rec decide (self : t) : [ `Decided | `Full_model ] =
 
         Error.errorf "no plugin can decide %a" (TVar.pp self.vst) v
       with Decided value ->
-        Trail.push_level self.trail;
         let level = Trail.n_levels self.trail in
+        Trail.push_level self.trail;
         Log.debugf 5 (fun k -> k "(@[cdsat.new-level %d@])" level);
-        assign self v ~value ~level ~reason:(Reason.decide level);
+        assign_ self v ~value ~level ~reason:(Reason.decide level);
         `Decided
     )
+
+let assign (self : t) v ~value ~reason : unit =
+  let level = Reason.level reason in
+  add_var_ self v;
+  assign_ self v ~value ~level ~reason
 
 (** Solve satisfiability of the current set of assertions *)
 let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
@@ -357,6 +380,9 @@ let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
       (match decide self with
       | `Decided -> ()
       | `Full_model ->
+        Log.debugf 50 (fun k ->
+            k "(@[cdsat.sat.full-trail@ %a@])" (Trail.pp_full self.vst)
+              self.trail);
         let sat = make_sat_res self in
 
         res := Check_res.Sat sat;
@@ -382,11 +408,12 @@ module Plugin_action = struct
   type t = plugin_action
 
   let[@inline] propagate ((self, _) : t) var value reason : unit =
-    assign self var ~value ~level:(Reason.level reason) ~reason
+    assign_ self var ~value ~level:(Reason.level reason) ~reason
 
   let term_to_var (self, _) t : TVar.t = term_to_var self t
 
-  let watch1 ((self, pl_id) : t) (vars : _ array) (ev : plugin_event) : unit =
+  let watch1 ((self, pl_id) : t) (vars : TVar.t list) (ev : plugin_event) : unit
+      =
     let _h : Watches.handle =
       Watches.watch1 self.watches vars (pl_id, ev) ~f:(fun ~unit (_, ev) ->
           let (P p) = get_plugin self pl_id in
@@ -395,7 +422,8 @@ module Plugin_action = struct
     in
     ()
 
-  let watch2 ((self, pl_id) : t) (vars : _ array) (ev : plugin_event) : unit =
+  let watch2 ((self, pl_id) : t) (vars : TVar.t list) (ev : plugin_event) : unit
+      =
     let _h : Watches.handle =
       Watches.watch2 self.watches vars (pl_id, ev) ~f:(fun ~unit (_, ev) ->
           let (P p) = get_plugin self pl_id in

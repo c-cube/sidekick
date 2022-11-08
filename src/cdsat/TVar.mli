@@ -59,6 +59,7 @@ val pop_new_var : store -> t option
 (** Pop a new variable if any, or return [None] *)
 
 val pp : store -> t Fmt.printer
+val pp_with_assignment : store -> t Fmt.printer
 
 module Tbl : CCHashtbl.S with type key = t
 module Set : CCSet.S with type elt = t
