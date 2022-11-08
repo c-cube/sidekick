@@ -25,9 +25,8 @@ type store = {
   value: Value.t option Vec.t;
   reason: reason Vec.t;
   theory_views: theory_view Vec.t;
-  watches: t Vec.t Vec.t;
   has_value: Bitvec.t;
-  new_vars: Vec_of.t;
+  new_vars: Vec_of.t; (* TODO: a recycle vec to reuse identifiers *)
 }
 
 (* create a new variable *)
@@ -39,7 +38,6 @@ let new_var_ (self : store) ~term:(term_for_v : Term.t) ~theory_view () : t =
     term;
     level;
     value;
-    watches;
     reason;
     theory_views;
     has_value;
@@ -52,7 +50,6 @@ let new_var_ (self : store) ~term:(term_for_v : Term.t) ~theory_view () : t =
   Vec.push value None;
   (* fake *)
   Vec.push reason dummy_reason_;
-  Vec.push watches (Vec.create ());
   Vec.push theory_views theory_view;
   Bitvec.ensure_size has_value (v + 1);
   Bitvec.set has_value v false;
@@ -65,6 +62,9 @@ let[@inline] get_of_term (self : store) (t : Term.t) : t option =
 let[@inline] has_value (self : store) (v : t) : bool =
   Bitvec.get self.has_value v
 
+let[@inline] equal (a : t) (b : t) = a = b
+let[@inline] compare (a : t) (b : t) = compare a b
+let[@inline] hash (a : t) = CCHash.int a
 let[@inline] level (self : store) (v : t) : int = Veci.get self.level v
 let[@inline] value (self : store) (v : t) : _ option = Vec.get self.value v
 let[@inline] theory_view (self : store) (v : t) = Vec.get self.theory_views v
@@ -77,10 +77,6 @@ let[@inline] bool_value (self : store) (v : t) : _ option =
 
 let[@inline] term (self : store) (v : t) : Term.t = Vec.get self.term v
 let[@inline] reason (self : store) (v : t) : reason = Vec.get self.reason v
-let[@inline] watchers (self : store) (v : t) : t Vec.t = Vec.get self.watches v
-
-let[@inline] add_watcher (self : store) (v : t) ~watcher : unit =
-  Vec.push (watchers self v) watcher
 
 let assign (self : store) (v : t) ~value ~level ~reason : unit =
   Log.debugf 50 (fun k ->
@@ -115,7 +111,6 @@ module Store = struct
       reason = Vec.create ();
       term = Vec.create ();
       level = Veci.create ();
-      watches = Vec.create ();
       value = Vec.create ();
       theory_views = Vec.create ();
       has_value = Bitvec.create ();
@@ -132,6 +127,28 @@ let pp (self : store) out (v : t) : unit =
 module Tbl = Util.Int_tbl
 module Set = Util.Int_set
 module Map = Util.Int_map
+
+module Dense_map (Elt : sig
+  type t
+
+  val create : unit -> t
+end) =
+struct
+  type elt = Elt.t
+  type t = { v: elt Vec.t } [@@unboxed]
+
+  let create () : t = { v = Vec.create () }
+
+  let[@inline] get self v =
+    Vec.ensure_size_with self.v Elt.create (v + 1);
+    Vec.get self.v v
+
+  let[@inline] set self v x =
+    Vec.ensure_size_with self.v Elt.create (v + 1);
+    Vec.set self.v v x
+
+  let[@inline] iter self ~f = Vec.iteri self.v ~f
+end
 
 module Internal = struct
   let create (self : store) (t : Term.t) ~theory_view : t =

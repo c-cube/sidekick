@@ -32,12 +32,13 @@ let decide (self : t) (v : TVar.t) : Value.t option =
     Some (Term.true_ self.tst)
   | _ -> None
 
-let propagate (self : t) (act : Core.Plugin_action.t) (v : TVar.t)
+let on_assign (self : t) (act : Core.Plugin_action.t) (v : TVar.t)
     (value : Value.t) : unit =
   Log.debugf 0 (fun k ->
-      k "(@[bool-plugin.propagate %a@])" (TVar.pp self.vst) v);
+      k "(@[bool-plugin.on-assign %a@])" (TVar.pp self.vst) v);
   ()
-(* TODO: BCP *)
+
+(* TODO: BCP via on_event *)
 
 let term_to_var_hooks (self : t) : _ list =
   let (module A) = self.arg in
@@ -72,4 +73,4 @@ let builder ((module A : ARG) as arg) : Core.Plugin.builder =
     { arg; vst; tst }
   in
   Core.Plugin.make_builder ~name:"bool" ~create ~push_level ~pop_levels ~decide
-    ~propagate ~term_to_var_hooks ()
+    ~on_assign ~term_to_var_hooks ()

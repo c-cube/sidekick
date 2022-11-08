@@ -11,11 +11,25 @@ end
 
 (** {2 Plugins} *)
 
+type plugin_event = ..
+
+(** Actions passed to plugins *)
 module Plugin_action : sig
   type t
 
   val propagate : t -> TVar.t -> Value.t -> Reason.t -> unit
+  (** Propagate given assignment *)
+
   val term_to_var : t -> Term.t -> TVar.t
+  (** Convert a term to a variable *)
+
+  val watch1 : t -> TVar.t array -> plugin_event -> unit
+  (** Create a watcher for the given set of variables, which will trigger
+      the event *)
+
+  val watch2 : t -> TVar.t array -> plugin_event -> unit
+  (** Create a watcher for the given set of variables, which will trigger
+      the event *)
 end
 
 (** Core plugin *)
@@ -25,14 +39,22 @@ module Plugin : sig
 
   val name : t -> string
 
+  type event = plugin_event = ..
+
+  type watch_request =
+    | Watch2 of TVar.t array * event
+    | Watch1 of TVar.t array * event
+
   val make_builder :
     name:string ->
     create:(TVar.store -> 'st) ->
     push_level:('st -> unit) ->
     pop_levels:('st -> int -> unit) ->
-    decide:('st -> TVar.t -> Value.t option) ->
-    propagate:('st -> Plugin_action.t -> TVar.t -> Value.t -> unit) ->
-    term_to_var_hooks:('st -> Term_to_var.hook list) ->
+    ?decide:('st -> TVar.t -> Value.t option) ->
+    ?on_assign:('st -> Plugin_action.t -> TVar.t -> Value.t -> unit) ->
+    ?on_event:('st -> Plugin_action.t -> unit:bool -> event -> unit) ->
+    ?on_add_var:('st -> TVar.t -> watch_request list) ->
+    ?term_to_var_hooks:('st -> Term_to_var.hook list) ->
     unit ->
     builder
 end

@@ -19,6 +19,19 @@ type pending_assignment = {
   reason: Reason.t;
 }
 
+type plugin_id = int
+(** Each plugin gets a unique identifier *)
+
+type plugin_event = ..
+
+type watch_request =
+  | Watch2 of TVar.t array * plugin_event
+  | Watch1 of TVar.t array * plugin_event
+
+module Watches = Watch_schemes.Make (struct
+  type t = plugin_id * plugin_event
+end)
+
 type t = {
   tst: Term.store;
   vst: TVar.store;
@@ -29,6 +42,7 @@ type t = {
   term_to_var: Term_to_var.t;
   vars_to_decide: Vars_to_decide.t;
   pending_assignments: pending_assignment Vec.t;
+  watches: Watches.t;
   mutable last_res: Check_res.t option;
   proof_tracer: Proof.Tracer.t;
   n_conflicts: int Stat.counter;
@@ -36,7 +50,7 @@ type t = {
   n_restarts: int Stat.counter;
 }
 
-and plugin_action = t
+and plugin_action = t * plugin_id
 
 (* FIXME:
    - add [on_add_var: TVar.t -> unit]
@@ -51,12 +65,15 @@ and plugin_action = t
 and plugin =
   | P : {
       st: 'st;
+      id: plugin_id;
       name: string;
       push_level: 'st -> unit;
       pop_levels: 'st -> int -> unit;
       decide: 'st -> TVar.t -> Value.t option;
-      propagate: 'st -> plugin_action -> TVar.t -> Value.t -> unit;
+      on_assign: 'st -> plugin_action -> TVar.t -> Value.t -> unit;
+      on_event: 'st -> plugin_action -> unit:bool -> plugin_event -> unit;
       term_to_var_hooks: 'st -> Term_to_var.hook list;
+      on_add_var: 'st -> TVar.t -> watch_request list;
     }
       -> plugin
 
@@ -71,6 +88,7 @@ let create ?(stats = Stat.create ()) ~arg tst vst ~proof_tracer () : t =
     pending_assignments = Vec.create ();
     term_to_var = Term_to_var.create vst;
     vars_to_decide = Vars_to_decide.create ();
+    watches = Watches.create vst;
     last_res = None;
     proof_tracer;
     n_restarts = Stat.mk_int stats "cdsat.restarts";
@@ -80,6 +98,7 @@ let create ?(stats = Stat.create ()) ~arg tst vst ~proof_tracer () : t =
 
 let[@inline] trail self = self.trail
 let[@inline] iter_plugins self ~f = Vec.iter ~f self.plugins
+let[@inline] get_plugin (self : t) (id : plugin_id) = Vec.get self.plugins id
 let[@inline] tst self = self.tst
 let[@inline] vst self = self.vst
 let[@inline] last_res self = self.last_res
@@ -88,15 +107,35 @@ let[@inline] last_res self = self.last_res
 
 module Plugin = struct
   type t = plugin
-  type builder = TVar.store -> t
+  type builder = id:plugin_id -> TVar.store -> t
 
   let[@inline] name (P p) = p.name
 
-  let make_builder ~name ~create ~push_level ~pop_levels ~decide ~propagate
-      ~term_to_var_hooks () : builder =
-   fun vst ->
+  type nonrec event = plugin_event = ..
+
+  type nonrec watch_request = watch_request =
+    | Watch2 of TVar.t array * event
+    | Watch1 of TVar.t array * event
+
+  let make_builder ~name ~create ~push_level ~pop_levels
+      ?(decide = fun _ _ -> None) ?(on_assign = fun _ _ _ _ -> ())
+      ?(on_event = fun _ _ ~unit:_ _ -> ()) ?(on_add_var = fun _ _ -> [])
+      ?(term_to_var_hooks = fun _ -> []) () : builder =
+   fun ~id vst ->
     let st = create vst in
-    P { name; st; push_level; pop_levels; decide; propagate; term_to_var_hooks }
+    P
+      {
+        name;
+        id;
+        st;
+        push_level;
+        pop_levels;
+        decide;
+        on_assign;
+        on_event;
+        term_to_var_hooks;
+        on_add_var;
+      }
 end
 
 (* backtracking *)
@@ -118,6 +157,7 @@ let pop_levels (self : t) n : unit =
     trail;
     plugins;
     term_to_var = _;
+    watches = _;
     vars_to_decide = _;
     pending_assignments;
     last_res = _;
@@ -149,7 +189,8 @@ let add_term_to_var_hook self h = Term_to_var.add_hook self.term_to_var h
 (* plugins *)
 
 let add_plugin self (pb : Plugin.builder) : unit =
-  let (P p as plugin) = pb self.vst in
+  let id = Vec.size self.plugins in
+  let (P p as plugin) = pb ~id self.vst in
   Vec.push self.plugins plugin;
   List.iter (add_term_to_var_hook self) (p.term_to_var_hooks p.st)
 
@@ -157,8 +198,8 @@ let add_plugin self (pb : Plugin.builder) : unit =
 
 let add_ty (_self : t) ~ty:_ : unit = ()
 
-(* Assign [v <- value] for [reason] at [level].
-   This assignment is delayed. *)
+(** Assign [v <- value] for [reason] at [level].
+    This assignment is delayed. *)
 let assign (self : t) (v : TVar.t) ~(value : Value.t) ~level:v_level ~reason :
     unit =
   Log.debugf 50 (fun k ->
@@ -173,27 +214,37 @@ let raise_conflict (c : Conflict.t) : 'a = raise (E_conflict c)
 
 (* add pending assignments to the trail. This might trigger a conflict
    in case an assignment contradicts an already existing assignment. *)
-let perform_pending_assignments (self : t) : unit =
-  while not (Vec.is_empty self.pending_assignments) do
-    let { var = v; level = v_level; value; reason } =
-      Vec.pop_exn self.pending_assignments
-    in
-    match TVar.value self.vst v with
-    | None ->
-      TVar.assign self.vst v ~value ~level:v_level ~reason;
-      Trail.push_assignment self.trail v
-    | Some value' when Value.equal value value' -> () (* idempotent *)
-    | Some _value' ->
-      (* conflict should only occur on booleans since they're the only
-         propagation-able variables *)
-      assert (Term.has_ty_bool (TVar.term self.vst v));
-      Log.debugf 0 (fun k ->
-          k "TODO: conflict (incompatible values for %a)" (TVar.pp self.vst) v);
-      raise_conflict
-      @@ Conflict.make self.vst ~lit:(TLit.make true v) ~propagate_reason:reason
-           ()
+let perform_pending_assignments_real_ (self : t) : unit =
+  while
+    match Vec.pop self.pending_assignments with
+    | None -> false
+    | Some { var = v; level = v_level; value; reason } ->
+      (match TVar.value self.vst v with
+      | None ->
+        (* assign [v], put it on the trail. Do not notify watchers yet. *)
+        TVar.assign self.vst v ~value ~level:v_level ~reason;
+        Trail.push_assignment self.trail v
+      | Some value' when Value.equal value value' -> () (* idempotent *)
+      | Some _value' ->
+        (* conflict should only occur on booleans since they're the only
+           propagation-able variables *)
+        assert (Term.has_ty_bool (TVar.term self.vst v));
+        Log.debugf 0 (fun k ->
+            k "TODO: conflict (incompatible values for %a)" (TVar.pp self.vst) v);
+        raise_conflict
+        @@ Conflict.make self.vst ~lit:(TLit.make true v)
+             ~propagate_reason:reason ());
+      true
+  do
+    ()
   done
 
+let[@inline] perform_pending_assignments (self : t) : unit =
+  if not (Vec.is_empty self.pending_assignments) then
+    perform_pending_assignments_real_ self
+
+(** Perform unit propagation in theories. Returns [Some c] if [c]
+    is a conflict detected during propagation. *)
 let propagate (self : t) : Conflict.t option =
   let@ () = Profile.with_ "cdsat.propagate" in
   try
@@ -213,7 +264,16 @@ let propagate (self : t) : Conflict.t option =
           | None -> assert false
         in
 
-        iter_plugins self ~f:(fun (P p) -> p.propagate p.st self var value);
+        (* directly give assignment to plugins *)
+        iter_plugins self ~f:(fun (P p) ->
+            p.on_assign p.st (self, p.id) var value;
+            perform_pending_assignments self);
+
+        (* notifier watchers *)
+        Watches.update self.watches var ~f:(fun ~unit (pl_id, ev) ->
+            let (P p) = get_plugin self pl_id in
+            p.on_event p.st (self, p.id) ~unit ev;
+            perform_pending_assignments self);
 
         (* move to next var *)
         Trail.set_head self.trail (Trail.head self.trail + 1)
@@ -234,6 +294,7 @@ let make_sat_res (_self : t) : Check_res.sat_result =
     iter_true_lits = (fun _ -> assert false);
   }
 
+(** Make a decision, or return [`Full_model] *)
 let rec decide (self : t) : [ `Decided | `Full_model ] =
   match Vars_to_decide.pop_next self.vars_to_decide with
   | None -> `Full_model
@@ -260,6 +321,7 @@ let rec decide (self : t) : [ `Decided | `Full_model ] =
         `Decided
     )
 
+(** Solve satisfiability of the current set of assertions *)
 let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
     Check_res.t =
   let@ () = Profile.with_ "cdsat.solve" in
@@ -319,8 +381,26 @@ let solve ~on_exit ~on_progress ~should_stop ~assumptions (self : t) :
 module Plugin_action = struct
   type t = plugin_action
 
-  let[@inline] propagate (self : t) var value reason : unit =
+  let[@inline] propagate ((self, _) : t) var value reason : unit =
     assign self var ~value ~level:(Reason.level reason) ~reason
 
-  let term_to_var = term_to_var
+  let term_to_var (self, _) t : TVar.t = term_to_var self t
+
+  let watch1 ((self, pl_id) : t) (vars : _ array) (ev : plugin_event) : unit =
+    let _h : Watches.handle =
+      Watches.watch1 self.watches vars (pl_id, ev) ~f:(fun ~unit (_, ev) ->
+          let (P p) = get_plugin self pl_id in
+          p.on_event p.st (self, pl_id) ~unit ev;
+          perform_pending_assignments self)
+    in
+    ()
+
+  let watch2 ((self, pl_id) : t) (vars : _ array) (ev : plugin_event) : unit =
+    let _h : Watches.handle =
+      Watches.watch2 self.watches vars (pl_id, ev) ~f:(fun ~unit (_, ev) ->
+          let (P p) = get_plugin self pl_id in
+          p.on_event p.st (self, pl_id) ~unit ev;
+          perform_pending_assignments self)
+    in
+    ()
 end

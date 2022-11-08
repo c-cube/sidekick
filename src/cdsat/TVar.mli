@@ -23,6 +23,8 @@ end
 module Vec_of : Vec_sig.S with type elt := t
 (** Vector of variables *)
 
+include Sidekick_sigs.EQ_ORD_HASH with type t := t
+
 type store = Store.t
 
 type reason =
@@ -53,13 +55,6 @@ val theory_view : store -> t -> theory_view
 val assign : store -> t -> value:Value.t -> level:int -> reason:reason -> unit
 val unassign : store -> t -> unit
 
-val watchers : store -> t -> t Vec.t
-(** [watchers store t] is a vector of other variables watching [t],
-    generally updated via {!Watch1} and {!Watch2}.
-    These other variables are notified when [t] is assigned. *)
-
-val add_watcher : store -> t -> watcher:t -> unit
-
 val pop_new_var : store -> t option
 (** Pop a new variable if any, or return [None] *)
 
@@ -68,6 +63,23 @@ val pp : store -> t Fmt.printer
 module Tbl : CCHashtbl.S with type key = t
 module Set : CCSet.S with type elt = t
 module Map : CCMap.S with type key = t
+
+(** A map optimized for dense storage.
+
+  This is useful when most variables have an entry in the map. *)
+module Dense_map (Elt : sig
+  type t
+
+  val create : unit -> t
+end) : sig
+  type elt = Elt.t
+  type t
+
+  val create : unit -> t
+  val get : t -> var -> elt
+  val set : t -> var -> elt -> unit
+  val iter : t -> f:(var -> elt -> unit) -> unit
+end
 
 (**/**)
 

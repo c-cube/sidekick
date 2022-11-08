@@ -35,7 +35,8 @@ let pop_levels self n = Cong_tbl.pop_levels self.cong_table n
 (* let other theories decide, depending on the type *)
 let decide _ _ = None
 
-let propagate (self : t) _act (v : TVar.t) (value : Value.t) =
+(* FIXME: use on_event instead, watch (term + set of args) for congruence *)
+let on_assign (self : t) _act (v : TVar.t) (value : Value.t) =
   match TVar.theory_view self.vst v with
   | Unin_const _ -> ()
   | Unin_fun { f = _; args } ->
@@ -65,4 +66,4 @@ let term_to_var_hooks (self : t) : _ list =
 
 let builder ((module A : ARG) as arg) : Core.Plugin.builder =
   Core.Plugin.make_builder ~name:"uf" ~create:(create arg) ~push_level
-    ~pop_levels ~decide ~propagate ~term_to_var_hooks ()
+    ~pop_levels ~decide ~on_assign ~term_to_var_hooks ()
