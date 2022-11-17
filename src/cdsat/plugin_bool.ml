@@ -53,6 +53,13 @@ let on_event (self : t) acts ~unit (ev : Core.Plugin.event) : unit =
     Log.debugf 1 (fun k -> k "(@[cdsat.bool.bcp@ %a@])" (TVar.pp self.vst) v)
   | _ -> ()
 
+(* TODO: BCP *)
+let propagate (self : t) (act : Core.Plugin_action.t) (v : TVar.t)
+    (value : Value.t) : unit =
+  Log.debugf 0 (fun k ->
+      k "(@[bool-plugin.propagate %a@])" (TVar.pp self.vst) v);
+  ()
+
 let term_to_var_hooks (self : t) : _ list =
   let (module A) = self.arg in
 
