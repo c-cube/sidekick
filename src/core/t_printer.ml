@@ -45,8 +45,8 @@ let expr_pp_with_ ~max_depth ~max_nodes ~hooks out (e : term) : unit =
     let hook_fired = List.exists (fun h -> h ~recurse:pp' out e) hooks in
     if not hook_fired then (
       match Term.view e with
-      | E_type 0 -> Fmt.string out "Type"
-      | E_type i -> Fmt.fprintf out "Type(%d)" i
+      | E_type lvl when Level.is_one lvl -> Fmt.string out "Type"
+      | E_type lvl -> Fmt.fprintf out "Type.{%a}" Level.pp lvl
       | E_var v -> Fmt.string out (Var.name v)
       (* | E_var v -> Fmt.fprintf out "(@[%s : %a@])" v.v_name pp v.v_ty *)
       | E_bound_var v ->

@@ -17,7 +17,9 @@ let emit_term_ (self : state) (t : Term.t) =
         | T.E_var v -> "TV", V.(list [ string (Var.name v); loop' v.v_ty ])
         | T.E_bound_var v -> "Tv", V.(list [ int (Bvar.idx v); loop' v.bv_ty ])
         | T.E_app (f, a) -> "T@", V.(list [ loop' f; loop' a ])
-        | T.E_type i -> "Ty", V.int i
+        | T.E_type lvl ->
+          (* FIXME: actually serialize level *)
+          "Ty", V.string (Level.to_string lvl)
         | T.E_const ({ Const.c_ty; _ } as const) ->
           let tag, view = Const.ser ~ser_t:loop' const in
           ( "Tc",
