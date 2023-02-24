@@ -54,8 +54,12 @@ let decode_term (self : t) ~read_subterm ~tag : Term.t Dec.t =
       Term.app self.tst f a)
   | "Ty" ->
     Dec.(
-      let+ i = int in
-      Term.type_of_univ self.tst i)
+      let* lvl = string in
+      (match int_of_string_opt lvl with
+      | Some i -> return @@ Term.type_of_univ_int self.tst i
+      | None ->
+        (* FIXME: parse/deserialize the level here *)
+        failf "cannot parse level %S" lvl))
   | "Tl" ->
     Dec.(
       let+ v, ty, bod = tup3 string read_subterm read_subterm in
