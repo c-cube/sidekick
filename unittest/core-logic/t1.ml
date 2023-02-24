@@ -1,6 +1,7 @@
 open Sidekick_core_logic
 
 let store = Store.create ()
+let lvl_store = Store.lvl_store store
 let type_ = Term.type_ store
 let () = Fmt.printf "type0 : %a@." Term.pp_debug type_
 let () = Fmt.printf "typeof(type0) : %a@." Term.pp_debug (Term.ty type_)
@@ -110,3 +111,26 @@ let () =
   Fmt.printf "@[<v2>f_vec: %a@ type: %a@ type of type: %a@]@." Term.pp_debug
     f_vec Term.pp_debug (Term.ty f_vec) Term.pp_debug
     (Term.ty @@ Term.ty f_vec)
+
+(* now with some universes *)
+
+let f_vec_weird =
+  let v_A =
+    Var.make "A" @@ Term.type_of_univ store Level.(var lvl_store "l1")
+  in
+  let v_n =
+    Var.make "n"
+    @@ Term.type_of_univ store Level.(succ lvl_store @@ var lvl_store "l2")
+  in
+  Term.const store
+  @@ Str_const.make "vec?"
+       ~ty:
+         Term.(
+           pi store v_A @@ pi store v_n
+           @@ Term.type_of_univ store
+                Level.(max lvl_store (var lvl_store "l2") (var lvl_store "l1")))
+
+let () =
+  Fmt.printf "@[<v2>f_vec_weird: %a@ type: %a@ type of type: %a@]@."
+    Term.pp_debug f_vec_weird Term.pp_debug (Term.ty f_vec_weird) Term.pp_debug
+    (Term.ty @@ Term.ty f_vec_weird)
