@@ -2,8 +2,19 @@ module H = CCHash
 
 type const_view = ..
 
+(** View of a level expression. *)
+type level_view =
+  | L_zero
+  | L_succ of level
+  | L_var of string  (** variable *)
+  | L_max of level * level  (** max *)
+  | L_imax of level * level  (** impredicative max. *)
+
+and level = { l_view: level_view; mutable l_id: int }
+(** A level expression *)
+
 type term_view =
-  | E_type of int
+  | E_type of level
   | E_var of var
   | E_bound_var of bvar
   | E_const of const

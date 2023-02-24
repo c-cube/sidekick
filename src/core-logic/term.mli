@@ -27,7 +27,7 @@ type store
 
     A view is the shape of the root node of a term. *)
 type view = term_view =
-  | E_type of int
+  | E_type of level
   | E_var of var
   | E_bound_var of bvar
   | E_const of const
@@ -57,6 +57,8 @@ val unfold_app : t -> t * t list
 val is_app : t -> bool
 val is_const : t -> bool
 val is_pi : t -> bool
+val as_type : t -> Level.t option
+val as_type_exn : t -> Level.t
 
 val iter_dag : ?seen:unit Tbl.t -> iter_ty:bool -> f:(t -> unit) -> t -> unit
 (** [iter_dag t ~f] calls [f] once on each subterm of [t], [t] included.
@@ -114,12 +116,14 @@ val ty : t -> t
 module Store : sig
   type t = store
 
-  val create : ?size:int -> unit -> t
+  val create : ?level_store:Level.store -> ?size:int -> unit -> t
   val size : t -> int
+  val lvl_store : t -> Level.store
 end
 
 val type_ : store -> t
-val type_of_univ : store -> int -> t
+val type_of_univ : store -> level -> t
+val type_of_univ_int : store -> int -> t
 val var : store -> var -> t
 val var_str : store -> string -> ty:t -> t
 val bvar : store -> bvar -> t
