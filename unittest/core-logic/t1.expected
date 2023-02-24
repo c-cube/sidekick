@@ -1,6 +1,6 @@
 type0 : Type
-typeof(type0) : Type(1)
-type tower: [Type;Type(1);Type(2);Type(3);Type(4)]
+typeof(type0) : Type.{2}
+type tower: [Type;Type.{2};Type.{3};Type.{4};Type.{5}]
 Bool: [true, false]
 a: a, b: b, typeof(a): Bool
 b2b: (Bool -> Bool)
@@ -22,4 +22,7 @@ t2: (= (tau -> (tau -> Bool)) (\x:tau. (\y:tau. (p2 x[1] y[0]))) (= tau))
   type: Bool
 f_vec: vec
   type: (Type -> (nat -> Type))
-  type of type: Type(1)
+  type of type: Type.{2}
+f_vec_weird: vec?
+  type: (Pi A:Type.{l1}. (Pi n:Type.{l2 + 1}. Type.{max(l1, l2)}))
+  type of type: Type.{imax(l1, imax(l2 + 1, max(l1, l2))) + 1}
