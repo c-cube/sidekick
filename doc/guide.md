@@ -34,6 +34,7 @@ OCaml prompt):
 
 ```ocaml
 # #use "topfind";;
+...
 # #require "sidekick-base";;
 # #show Sidekick_base;;
 module Sidekick_base :
