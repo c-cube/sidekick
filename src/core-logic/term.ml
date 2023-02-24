@@ -5,7 +5,7 @@ type bvar = Bvar.t
 type nonrec term = term
 
 type view = term_view =
-  | E_type of int
+  | E_type of level
   | E_var of var
   | E_bound_var of bvar
   | E_const of const
@@ -70,13 +70,23 @@ let[@inline] is_pi e =
   | E_pi _ -> true
   | _ -> false
 
+let as_type e : level option =
+  match e.view with
+  | E_type l -> Some l
+  | _ -> None
+
+let as_type_exn e : level =
+  match e.view with
+  | E_type l -> l
+  | _ -> Error.errorf "Term.as_type_exn: `%a` is not a type" !pp_debug_ e
+
 (* debug printer *)
 let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
   let rec loop k ~depth names out e =
     let pp' = loop k ~depth:(depth + 1) names in
     (match e.view with
-    | E_type 0 -> Fmt.string out "Type"
-    | E_type i -> Fmt.fprintf out "Type(%d)" i
+    | E_type lvl when Level.is_one lvl -> Fmt.string out "Type"
+    | E_type lvl -> Fmt.fprintf out "Type.{%a}" Level.pp lvl
     | E_var v -> Fmt.string out v.v_name
     (* | E_var v -> Fmt.fprintf out "(@[%s : %a@])" v.v_name pp v.v_ty *)
     | E_bound_var v ->
@@ -103,15 +113,16 @@ let expr_pp_with_ ~pp_ids ~max_depth out (e : term) : unit =
       Fmt.fprintf out "(@[\\%s:@[%a@].@ %a@])" n pp' _ty
         (loop (k + 1) ~depth:(depth + 1) (n :: names))
         bod
-    | E_pi (_, ty, bod) when is_closed bod ->
+    | E_pi (_, ty_arg, bod)
+      when is_closed bod && Level.is_int (as_type_exn @@ ty ty_arg) ->
       (* actually just an arrow *)
       Fmt.fprintf out "(@[%a@ -> %a@])"
         (loop k ~depth:(depth + 1) names)
-        ty
+        ty_arg
         (loop (k + 1) ~depth:(depth + 1) ("" :: names))
         bod
-    | E_pi ("", _ty, bod) ->
-      Fmt.fprintf out "(@[Pi _:@[%a@].@ %a@])" pp' _ty
+    | E_pi ("", ty_arg, bod) ->
+      Fmt.fprintf out "(@[Pi _:@[%a@].@ %a@])" pp' ty_arg
         (loop (k + 1) ~depth:(depth + 1) ("" :: names))
         bod
     | E_pi (n, _ty, bod) ->
@@ -164,7 +175,7 @@ module Hcons = Hashcons.Make (struct
 
   let hash e : int =
     match e.view with
-    | E_type i -> H.combine2 10 (H.int i)
+    | E_type i -> H.combine2 10 (Level.hash i)
     | E_const c -> H.combine2 20 (Const.hash c)
     | E_var v -> H.combine2 30 (Var.hash v)
     | E_bound_var v -> H.combine2 40 (Bvar.hash v)
@@ -180,18 +191,22 @@ module Hcons = Hashcons.Make (struct
 end)
 
 module Store = struct
-  type t = { (* unique ID for this store *)
-             s_uid: int; s_exprs: Hcons.t }
+  type t = {
+    s_uid: int;  (** unique ID for this store *)
+    s_exprs: Hcons.t;
+    s_lvl_store: Level.store;
+  }
 
   (* TODO: use atomic? CCAtomic? *)
   let n = ref 0
-  let size self = Hcons.size self.s_exprs
+  let[@inline] size self = Hcons.size self.s_exprs
+  let[@inline] lvl_store self = self.s_lvl_store
 
-  let create ?(size = 256) () : t =
+  let create ?(level_store = Level.Store.create ()) ?(size = 256) () : t =
     (* store id, modulo 2^5 *)
     let s_uid = !n land store_id_mask in
     incr n;
-    { s_uid; s_exprs = Hcons.create ~size () }
+    { s_uid; s_exprs = Hcons.create ~size (); s_lvl_store = level_store }
 
   (* check that [e] belongs in this store *)
   let[@inline] check_e_uid (self : t) (e : term) =
@@ -353,14 +368,15 @@ module Make_ = struct
         has_fvars f || has_fvars acc0 || List.exists has_fvars args
       | E_lam (_, ty, bod) | E_pi (_, ty, bod) -> has_fvars ty || has_fvars bod
 
-  let universe_ (e : term) : int =
+  let universe_ (e : term) : level =
     match e.view with
     | E_type i -> i
     | _ -> assert false
 
-  let[@inline] universe_of_ty_ (e : term) : int =
+  (** Universe of the type of [e] *)
+  let universe_of_ty_ (self : store) (e : term) : level =
     match e.view with
-    | E_type i -> i + 1
+    | E_type lvl -> Level.succ self.s_lvl_store lvl
     | _ -> universe_ (ty e)
 
   module T_int_tbl = CCHashtbl.Make (struct
@@ -438,34 +454,39 @@ module Make_ = struct
     else
       aux e 0
 
-  let compute_ty_ store ~make (view : view) : term =
+  (* TODO: have beta-reduction here; level checking; and pluggable reduction
+     rules (in the store) so we can reduce quotients and recursors *)
+
+  (** compute the type of [view]. *)
+  let compute_ty_ (self : store) ~make (view : view) : term =
     match view with
     | E_var v -> Var.ty v
     | E_bound_var v -> Bvar.ty v
-    | E_type i -> make (E_type (i + 1))
+    | E_type lvl -> make (E_type (Level.succ self.s_lvl_store lvl))
     | E_const c ->
       let ty = Const.ty c in
-      Store.check_e_uid store ty;
+      Store.check_e_uid self ty;
       if not (is_closed ty) then
         Error.errorf "const %a@ cannot have a non-closed type like %a" Const.pp
           c pp_debug ty;
       ty
     | E_lam (name, ty_v, bod) ->
-      Store.check_e_uid store ty_v;
-      Store.check_e_uid store bod;
+      Store.check_e_uid self ty_v;
+      Store.check_e_uid self bod;
       (* type of [\x:tau. bod] is [pi x:tau. typeof(bod)] *)
       let ty_bod = ty bod in
       make (E_pi (name, ty_v, ty_bod))
     | E_app (f, a) ->
       (* type of [f a], where [a:tau] and [f: Pi x:tau. ty_bod_f],
          is [ty_bod_f[x := a]] *)
-      Store.check_e_uid store f;
-      Store.check_e_uid store a;
+      Store.check_e_uid self f;
+      Store.check_e_uid self a;
       let ty_f = ty f in
       let ty_a = ty a in
       (match ty_f.view with
       | E_pi (_, ty_arg_f, ty_bod_f) ->
         (* check that the expected type matches *)
+        (* FIXME: replace [equal] with definitional equality *)
         if not (equal ty_arg_f ty_a) then
           Error.errorf
             "@[<2>cannot @[apply `%a`@]@ @[to `%a`@],@ expected argument type: \
@@ -480,9 +501,9 @@ module Make_ = struct
           pp_debug f pp_debug a pp_debug ty_f)
     | E_app_fold { args = []; _ } -> assert false
     | E_app_fold { f; args = a0 :: other_args as args; acc0 } ->
-      Store.check_e_uid store f;
-      Store.check_e_uid store acc0;
-      List.iter (Store.check_e_uid store) args;
+      Store.check_e_uid self f;
+      Store.check_e_uid self acc0;
+      List.iter (Store.check_e_uid self) args;
       let ty_result = ty acc0 in
       let ty_a0 = ty a0 in
       (* check that all arguments have the same type *)
@@ -503,32 +524,34 @@ module Make_ = struct
           pp_debug app1 pp_debug (ty app1) pp_debug ty_result;
       ty_result
     | E_pi (_, ty, bod) ->
-      (* TODO: check the actual triplets for COC *)
       (*Fmt.printf "pi %a %a@." pp_debug ty pp_debug bod;*)
-      Store.check_e_uid store ty;
-      Store.check_e_uid store bod;
-      let u = max (universe_of_ty_ ty) (universe_of_ty_ bod) in
+      Store.check_e_uid self ty;
+      Store.check_e_uid self bod;
+      let u =
+        Level.imax self.s_lvl_store (universe_of_ty_ self ty)
+          (universe_of_ty_ self bod)
+      in
       make (E_type u)
 
   let ty_assert_false_ () = assert false
 
   (* hashconsing + computing metadata + computing type (for new terms) *)
-  let rec make_ (store : store) view : term =
+  let rec make_ (self : store) view : term =
     let e = { view; ty = T_ty_delayed ty_assert_false_; id = -1; flags = 0 } in
-    let e2 = Hcons.hashcons store.s_exprs e in
+    let e2 = Hcons.hashcons self.s_exprs e in
     if e == e2 then (
       (* new term, compute metadata *)
-      assert (store.s_uid land store_id_mask == store.s_uid);
+      assert (self.s_uid land store_id_mask == self.s_uid);
 
       (* first, compute type *)
       (match e.view with
-      | E_type i ->
+      | E_type lvl ->
         (* cannot force type now, as it's an infinite tower of types.
            Instead we will produce the type on demand. *)
-        let get_ty () = make_ store (E_type (i + 1)) in
+        let get_ty () = make_ self (E_type (Level.succ self.s_lvl_store lvl)) in
         e.ty <- T_ty_delayed get_ty
       | _ ->
-        let ty = compute_ty_ store ~make:(make_ store) view in
+        let ty = compute_ty_ self ~make:(make_ self) view in
         e.ty <- T_ty ty);
       let has_fvars = compute_has_fvars_ e in
       e2.flags <-
@@ -537,13 +560,17 @@ module Make_ = struct
               1 lsl store_id_bits
             else
               0)
-        lor store.s_uid;
-      Store.check_e_uid store e2
+        lor self.s_uid;
+      Store.check_e_uid self e2
     );
     e2
 
-  let type_of_univ store i : term = make_ store (E_type i)
-  let type_ store : term = type_of_univ store 0
+  let type_of_univ store lvl : term = make_ store (E_type lvl)
+
+  let type_of_univ_int store i : term =
+    type_of_univ store (Level.of_int store.s_lvl_store i)
+
+  let type_ store : term = type_of_univ store (Level.one store.s_lvl_store)
   let var store v : term = make_ store (E_var v)
   let var_str store name ~ty : term = var store (Var.make name ty)
   let bvar store v : term = make_ store (E_bound_var v)
