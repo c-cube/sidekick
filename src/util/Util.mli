@@ -13,6 +13,7 @@ val flat_map_l_arr : ('a -> 'b array) -> 'a list -> 'b list
 val array_of_list_map : ('a -> 'b) -> 'a list -> 'b array
 (** [array_of_list_map f l] is the same as [Array.of_list @@ List.map f l] *)
 
+val int_of_bool : bool -> int
 val array_to_list_map : ('a -> 'b) -> 'a array -> 'b list
 val lazy_map : ('a -> 'b) -> 'a lazy_t -> 'b lazy_t
 val lazy_map2 : ('a -> 'b -> 'c) -> 'a lazy_t -> 'b lazy_t -> 'c lazy_t

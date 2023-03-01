@@ -10,7 +10,7 @@ type level_view =
   | L_max of level * level  (** max *)
   | L_imax of level * level  (** impredicative max. *)
 
-and level = { l_view: level_view; mutable l_id: int }
+and level = { l_view: level_view; mutable l_id: int; mutable l_flags: int }
 (** A level expression *)
 
 type term_view =
