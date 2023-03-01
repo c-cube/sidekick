@@ -41,7 +41,8 @@ let parse (input : input) (cb : callback) : unit =
     match IN.next_line () with
     | None -> ()
     | Some line ->
-      Printf.eprintf "line %S\n" line;
+      Log.debugf 50 (fun k -> k "(leancheck.parse-line %S)" line);
+      CB.line line;
 
       (* TODO: cb *)
       loop ()
