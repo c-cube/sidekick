@@ -39,3 +39,13 @@ val is_zero : t -> bool
 val is_one : t -> bool
 val is_int : t -> bool
 val as_int : t -> int option
+
+(** {2 Equivalence} *)
+
+val leq_judge : store -> t -> t -> bool
+(** [leq_judge st l1 l2] is [true] if [l1] is proven to be lower
+    or equal to [l2] *)
+
+val eq_judge : store -> t -> t -> bool
+(** [eq_judge st l1 l2] is [true] iff [leq_judge l1 l2]
+    and [leq_judge l2 l1] *)

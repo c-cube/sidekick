@@ -556,10 +556,7 @@ module Make_ = struct
       let has_fvars = compute_has_fvars_ e in
       e2.flags <-
         (compute_db_depth_ e lsl (1 + store_id_bits))
-        lor (if has_fvars then
-              1 lsl store_id_bits
-            else
-              0)
+        lor (Util.int_of_bool has_fvars lsl store_id_bits)
         lor self.s_uid;
       Store.check_e_uid self e2
     );

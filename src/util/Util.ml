@@ -16,6 +16,12 @@ let pp_pair ?(sep = " ") pp1 pp2 out t =
 let pp_array ?(sep = " ") pp out l = Fmt.array ~sep:(pp_sep sep) pp out l
 let flat_map_l_arr f l = CCList.flat_map (fun x -> CCArray.to_list @@ f x) l
 
+let[@inline] int_of_bool (b : bool) : int =
+  if b then
+    1
+  else
+    0
+
 let array_iteri2 ~f a b =
   let open Array in
   if length a <> length b then invalid_arg "iteri2";
