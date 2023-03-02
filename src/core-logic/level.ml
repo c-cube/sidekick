@@ -115,6 +115,7 @@ let rec max self a b : t =
     | L_zero, _ -> b
     | _, L_zero -> a
     | _ ->
+      (* normalize wrt commutativity *)
       let a, b =
         if compare a b > 0 then
           b, a
@@ -131,6 +132,7 @@ let rec imax self a b : t =
     match view a, view b with
     | _, L_zero -> zero self (* imax(_, 0) = 0 *)
     | L_succ a', L_succ b' -> succ self (imax self a' b')
+    | _, L_succ _ -> max self a b (* imax(, S_) is just max *)
     | L_zero, _ -> b
     | _ -> make_ self (L_imax (a, b))
   )
@@ -186,18 +188,32 @@ let leq_judge st l1 l2 : bool =
   assert (store_id l2 = st.id);
 
   (* [l <= l' + n] *)
-  let rec prove_rec ~max_inst (l : t) (l' : t) n : bool =
-    let prove = prove_rec ~max_inst in
+  let rec prove (l : t) (l' : t) n : bool =
+    (* replace [v] as [0] and [succ v], prove in both cases *)
+    let split_on_var (v : string) =
+      (let v' = zero st in
+       prove (subst_v st l v v') (subst_v st l' v v') n)
+      &&
+      let v' = succ st (var st v) in
+      prove (subst_v st l v v') (subst_v st l' v v') n
+    in
+
     match l.l_view, l'.l_view with
-    | L_zero, _ when n >= 0 -> true
     | _ when equal l l' && n >= 0 -> true
+    | L_zero, L_zero -> n >= 0
+    | L_zero, _ when n >= 0 -> true
+    | _, L_zero when n < 0 -> false
+    | L_var v, L_var v' -> String.equal v v' && n >= 0
+    | L_var _, L_zero -> false (* can instantiate var high enough to refute *)
+    | L_zero, L_var _ -> n >= 0
     | L_succ l, _ -> prove l l' (n - 1)
     | _, L_succ l' -> prove l l' (n + 1)
     | _, L_max (l1, l2) -> prove l l1 n || prove l l2 n
     | L_max (l1, l2), _ -> prove l1 l' n && prove l2 l' n
-    | L_imax (_l1, { l_view = L_zero; _ }), _ -> prove (zero st) l' n
-    | L_imax (l1, ({ l_view = L_succ _; _ } as l2)), _ ->
-      prove (max st l1 l2) l' n
+    | L_imax (_, { l_view = L_var v; _ }), _
+    | _, L_imax (_, { l_view = L_var v; _ }) ->
+      (* imax containing var? split *)
+      split_on_var v
     | L_imax (l1, { l_view = L_imax (l2, l3); _ }), _ ->
       prove (max st (imax st l1 l3) (imax st l2 l3)) l' n
     | _, L_imax (l1, { l_view = L_imax (l2, l3); _ }) ->
@@ -206,22 +222,15 @@ let leq_judge st l1 l2 : bool =
       prove (max st (imax st l1 l2) (imax st l1 l3)) l' n
     | _, L_imax (l1, { l_view = L_max (l2, l3); _ }) ->
       prove l (max st (imax st l1 l2) (imax st l1 l3)) n
-    | (L_var v, _ | _, L_var v) when max_inst > 0 ->
-      (* replace [v] as [0] and [succ v], prove in both cases *)
-      (let v' = zero st in
-       prove_rec ~max_inst:(max_inst - 1) (subst_v st l v v')
-         (subst_v st l' v v') n)
-      &&
-      let v' = succ st (var st v) in
-      prove_rec ~max_inst:(max_inst - 1) (subst_v st l v v')
-        (subst_v st l' v v') n
-    | _ -> false
+    | L_imax (_, { l_view = L_zero | L_succ _; _ }), _
+    | _, L_imax (_, { l_view = L_zero | L_succ _; _ }) ->
+      assert false (* smart cstor makes this impossible *)
   in
 
   equal l1 l2
   ||
   let l2, n = as_offset l2 in
-  prove_rec ~max_inst:10 l1 l2 n
+  prove l1 l2 n
 
 let eq_judge st l1 l2 : bool =
   equal l1 l2 || (leq_judge st l1 l2 && leq_judge st l2 l1)
