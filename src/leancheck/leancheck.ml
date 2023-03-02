@@ -14,10 +14,10 @@ module Obj = struct
   type t = obj
 
   let pp out = function
-    | O_level lvl -> Level.pp out lvl
-    | O_name n -> Fmt.fprintf out "#name %S" n
+    | O_level lvl -> Fmt.fprintf out "(#lvl %a)" Level.pp lvl
+    | O_name n -> Fmt.fprintf out "(#name %S)" n
     | O_term t -> T.pp_debug out t
-    | O_ind (n, _) -> Fmt.fprintf out "#ind %s" n
+    | O_ind (n, _) -> Fmt.fprintf out "(#ind %s)" n
 
   let dummy : t = O_name ""
 end
@@ -27,13 +27,18 @@ module Idx = struct
   type t = { obj: obj Vec.t }
 
   (* create. The slot 0 is already filled with name "" *)
-  let create () : t = { obj = Vec.make 1 Obj.dummy }
+  let create () : t =
+    let obj = Vec.create () in
+    Vec.push obj Obj.dummy;
+    { obj }
 
   (** ensure that index [n] is valid *)
   let ensure_size (self : t) (n : int) : unit =
     if n >= Vec.size self.obj then Vec.ensure_size self.obj ~elt:Obj.dummy n
 
-  let[@inline] get (self : t) (i : int) : obj = Vec.get self.obj i
+  let[@inline] get (self : t) (i : int) : obj =
+    try Vec.get self.obj i
+    with _ -> Error.errorf "cannot access object at index %d" i
 
   let[@inline] set (self : t) (i : int) o : unit =
     ensure_size self i;
@@ -57,6 +62,11 @@ module Idx = struct
     match get self i with
     | O_term t -> t
     | _o -> Error.errorf "expected a term at %d, got %a" i Obj.pp _o
+
+  let dump out (self : t) : unit =
+    Fmt.fprintf out "(@[idx %a@])"
+      (Fmt.iter ~sep:(Fmt.return "@ ") Obj.pp)
+      (Vec.to_iter self.obj)
 end
 
 (** Join two names with "." *)
@@ -66,25 +76,51 @@ let name_join a b =
   else
     a ^ "." ^ b
 
-let process_files (files : string list) : unit =
+let process_files ~max_err (files : string list) : unit =
   let start = Mtime_clock.now () in
   let st = T.Store.create ~size:1024 () in
+  let lvl_st = T.Store.lvl_store st in
+
   Log.debugf 1 (fun k ->
       k "(@[process-files %a@])" Fmt.Dump.(list string) files);
 
   let n_lines = ref 0 in
 
+  (* get a level. 0 means level 0. *)
+  let get_level idx i =
+    if i = 0 then
+      Level.zero lvl_st
+    else
+      Idx.get_level idx i
+  in
+
   let proc_file (file : string) : unit =
     let@ ic = CCIO.with_in file in
     let idx = Idx.create () in
 
-    Parse.parse (`In ic)
+    Parse.parse ~max_errors:max_err (`In ic)
       (module struct
         let line _ = incr n_lines
-        let ns ~at i s = Idx.set_name idx at (name_join (Idx.get_name idx i) s)
 
-        let ni ~at i n =
+        let ns ~at i s : unit =
+          Idx.set_name idx at (name_join (Idx.get_name idx i) s)
+
+        let ni ~at i n : unit =
           Idx.set_name idx at (name_join (Idx.get_name idx i) (string_of_int n))
+
+        let us ~at i : unit =
+          Idx.set_level idx at (Level.succ lvl_st @@ get_level idx i)
+
+        let um ~at i j : unit =
+          Idx.set_level idx at
+            (Level.max lvl_st (get_level idx i) (get_level idx j))
+
+        let uim ~at i j : unit =
+          Idx.set_level idx at
+            (Level.imax lvl_st (get_level idx i) (get_level idx j))
+
+        let up ~at i : unit =
+          Idx.set_level idx at (Level.var lvl_st @@ Idx.get_name idx i)
       end)
   in
 
@@ -100,10 +136,14 @@ let process_files (files : string list) : unit =
 
 let () =
   let files = ref [] in
+  let max_err = ref max_int in
   let opts =
     [
       "--debug", Arg.Int Log.set_debug, " set debug level";
       "-d", Arg.Int Log.set_debug, " like --debug";
+      ( "--max-err",
+        Arg.Set_int max_err,
+        " maximum number of errors before bailing out" );
     ]
     |> Arg.align
   in
@@ -111,4 +151,4 @@ let () =
   Arg.parse opts (CCList.Ref.push files) "leancheck file+";
   if !files = [] then failwith "provide at least one file";
 
-  process_files (List.rev !files)
+  process_files ~max_err:!max_err (List.rev !files)

@@ -33,9 +33,25 @@ let in_of_input (i : input) : (module IN) =
       let next_line () = try Some (input_line ic) with End_of_file -> None
     end)
 
-let parse (input : input) (cb : callback) : unit =
+module Lex = struct
+  type token = I of int | S of string
+
+  let lex_line (s : string) : token list =
+    let l = String.split_on_char ' ' s in
+    List.map
+      (fun s ->
+        match int_of_string_opt s with
+        | None -> S s
+        | Some i -> I i)
+      l
+end
+
+let parse ?(max_errors = max_int) (input : input) (cb : callback) : unit =
   let (module CB) = cb in
   let (module IN) = in_of_input input in
+
+  let n_line = ref 0 in
+  let n_errors = ref 0 in
 
   let rec loop () =
     match IN.next_line () with
@@ -44,8 +60,23 @@ let parse (input : input) (cb : callback) : unit =
       Log.debugf 50 (fun k -> k "(leancheck.parse-line %S)" line);
       CB.line line;
 
-      (* TODO: cb *)
-      loop ()
+      (try
+         let open Lex in
+         match Lex.lex_line line with
+         | [ I at; S "#NS"; I i; S name ] -> CB.ns ~at i name
+         | [ I at; S "#NI"; I i; I j ] -> CB.ni ~at i j
+         | [ I at; S "#US"; I i ] -> CB.us ~at i
+         | [ I at; S "#UM"; I i; I j ] -> CB.um ~at i j
+         | [ I at; S "#UIM"; I i; I j ] -> CB.uim ~at i j
+         | [ I at; S "#UP"; I i ] -> CB.up ~at i
+         | _ -> ()
+       with e ->
+         incr n_errors;
+         Fmt.eprintf "error on line %d:@.%s@." !n_line (Printexc.to_string e));
+
+      incr n_line;
+
+      if !n_errors < max_errors then loop ()
   in
 
   loop ()
