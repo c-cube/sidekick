@@ -183,7 +183,7 @@ let as_int self : _ option =
 
 let is_int self : bool = Option.is_some (as_int self)
 
-let leq_judge st l1 l2 : bool =
+let judge_leq st l1 l2 : bool =
   assert (store_id l1 = st.id);
   assert (store_id l2 = st.id);
 
@@ -232,5 +232,8 @@ let leq_judge st l1 l2 : bool =
   let l2, n = as_offset l2 in
   prove l1 l2 n
 
-let eq_judge st l1 l2 : bool =
-  equal l1 l2 || (leq_judge st l1 l2 && leq_judge st l2 l1)
+let judge_eq st l1 l2 : bool =
+  equal l1 l2 || (judge_leq st l1 l2 && judge_leq st l2 l1)
+
+let judge_is_zero st l : bool = judge_leq st l (zero st)
+let judge_is_nonzero st l : bool = judge_leq st (one st) l
