@@ -1,4 +1,4 @@
 (executable
  (name leancheck)
  (flags :standard -w +32 -open Sidekick_sigs -open Sidekick_util)
- (libraries containers sidekick.core-logic sidekick.util mtime mtime.clock.os))
+ (libraries containers sidekick.cic-lib sidekick.util mtime mtime.clock.os))
