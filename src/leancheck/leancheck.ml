@@ -1,5 +1,5 @@
-module T = Sidekick_core_logic.Term
-module Level = Sidekick_core_logic.Level
+module T = Sidekick_cic_lib.Term
+module Level = Sidekick_cic_lib.Level
 
 let ( let@ ) = ( @@ )
 
@@ -78,8 +78,6 @@ let name_join a b =
 
 let process_files ~max_err (files : string list) : unit =
   let start = Mtime_clock.now () in
-  let st = T.Store.create ~size:1024 () in
-  let lvl_st = T.Store.lvl_store st in
 
   Log.debugf 1 (fun k ->
       k "(@[process-files %a@])" Fmt.Dump.(list string) files);
@@ -89,7 +87,7 @@ let process_files ~max_err (files : string list) : unit =
   (* get a level. 0 means level 0. *)
   let get_level idx i =
     if i = 0 then
-      Level.zero lvl_st
+      Level.zero
     else
       Idx.get_level idx i
   in
@@ -109,18 +107,16 @@ let process_files ~max_err (files : string list) : unit =
           Idx.set_name idx at (name_join (Idx.get_name idx i) (string_of_int n))
 
         let us ~at i : unit =
-          Idx.set_level idx at (Level.succ lvl_st @@ get_level idx i)
+          Idx.set_level idx at (Level.succ @@ get_level idx i)
 
         let um ~at i j : unit =
-          Idx.set_level idx at
-            (Level.max lvl_st (get_level idx i) (get_level idx j))
+          Idx.set_level idx at (Level.max (get_level idx i) (get_level idx j))
 
         let uim ~at i j : unit =
-          Idx.set_level idx at
-            (Level.imax lvl_st (get_level idx i) (get_level idx j))
+          Idx.set_level idx at (Level.imax (get_level idx i) (get_level idx j))
 
         let up ~at i : unit =
-          Idx.set_level idx at (Level.var lvl_st @@ Idx.get_name idx i)
+          Idx.set_level idx at (Level.var @@ Idx.get_name idx i)
       end)
   in
 

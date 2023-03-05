@@ -1,0 +1,7 @@
+(library
+ (name sidekick_cic_lib)
+ (public_name sidekick.cic-lib)
+ (synopsis "CiC checker, for the Lean logic")
+ (private_modules types_)
+ (flags :standard -w +32 -open Sidekick_sigs -open Sidekick_util)
+ (libraries containers iter sidekick.sigs sidekick.util))
