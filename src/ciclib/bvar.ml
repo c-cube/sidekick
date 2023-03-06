@@ -1,6 +1,6 @@
 open Types_
 
-type t = bvar = { bv_idx: int }
+type t = bvar = { bv_idx: int } [@@unboxed]
 
 let equal (v1 : t) v2 = v1.bv_idx = v2.bv_idx
 let hash v = H.combine2 10 (H.int v.bv_idx)

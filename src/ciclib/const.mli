@@ -7,7 +7,6 @@ open Types_
 type t = const
 
 val name : t -> string
-val make : string -> ty:term -> t
-val ty : t -> term
+val make : string -> t
 
 include PRINT with type t := t
