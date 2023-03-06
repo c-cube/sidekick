@@ -57,7 +57,7 @@ let parse ?(max_errors = max_int) (input : input) (cb : callback) : unit =
     match IN.next_line () with
     | None -> ()
     | Some line ->
-      Log.debugf 50 (fun k -> k "(leancheck.parse-line %S)" line);
+      Log.debugf 50 (fun k -> k "(leancheck.parse-line[%d] %S)" !n_line line);
       CB.line line;
 
       (try
@@ -69,12 +69,29 @@ let parse ?(max_errors = max_int) (input : input) (cb : callback) : unit =
          | [ I at; S "#UM"; I i; I j ] -> CB.um ~at i j
          | [ I at; S "#UIM"; I i; I j ] -> CB.uim ~at i j
          | [ I at; S "#UP"; I i ] -> CB.up ~at i
-         | _ -> ()
+         | [ I at; S "#EV"; I i ] -> CB.ev ~at i
+         | [ I at; S "#EA"; I i; I j ] -> CB.ea ~at i j
+         | I at :: S "#EC" :: I i :: args ->
+           let args =
+             List.map
+               (function
+                 | I i -> i
+                 | _ -> failwith "argument must be an int")
+               args
+           in
+           CB.ec ~at i args
+         | [ I at; S "#ES"; I i ] -> CB.es ~at i
+         | [ I at; S "#EL"; S b; I n; I i; I j ] -> CB.el ~at b n i j
+         | [ I at; S "#EP"; S b; I n; I i; I j ] -> CB.ep ~at b n i j
+         | _ ->
+           incr n_errors;
+           Fmt.eprintf "warn: unhandled line %d: %s@." !n_line line
        with e ->
          incr n_errors;
          Fmt.eprintf "error on line %d:@.%s@." !n_line (Printexc.to_string e));
 
       incr n_line;
+      CB.after_line ();
 
       if !n_errors < max_errors then loop ()
   in

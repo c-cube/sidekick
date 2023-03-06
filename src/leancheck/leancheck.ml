@@ -1,4 +1,5 @@
 module T = Sidekick_cic_lib.Term
+module Const = Sidekick_cic_lib.Const
 module Level = Sidekick_cic_lib.Level
 
 let ( let@ ) = ( @@ )
@@ -16,7 +17,7 @@ module Obj = struct
   let pp out = function
     | O_level lvl -> Fmt.fprintf out "(#lvl %a)" Level.pp lvl
     | O_name n -> Fmt.fprintf out "(#name %S)" n
-    | O_term t -> T.pp_debug out t
+    | O_term t -> Fmt.fprintf out "(@[#term %a@])" T.pp_debug t
     | O_ind (n, _) -> Fmt.fprintf out "(#ind %s)" n
 
   let dummy : t = O_name ""
@@ -24,49 +25,56 @@ end
 
 (** Map indexes to objects *)
 module Idx = struct
-  type t = { obj: obj Vec.t }
+  type t = { names: string Vec.t; levels: Level.t Vec.t; terms: T.t Vec.t }
 
   (* create. The slot 0 is already filled with name "" *)
   let create () : t =
-    let obj = Vec.create () in
-    Vec.push obj Obj.dummy;
-    { obj }
+    let names = Vec.create () in
+    Vec.push names "";
+    let levels = Vec.create () in
+    let terms = Vec.create () in
+    { names; levels; terms }
 
   (** ensure that index [n] is valid *)
-  let ensure_size (self : t) (n : int) : unit =
-    if n >= Vec.size self.obj then Vec.ensure_size self.obj ~elt:Obj.dummy n
+  let ensure_size (v : _ Vec.t) ~dummy (n : int) : unit =
+    if n >= Vec.size v then Vec.ensure_size v ~elt:dummy n
 
-  let[@inline] get (self : t) (i : int) : obj =
-    try Vec.get self.obj i
-    with _ -> Error.errorf "cannot access object at index %d" i
-
-  let[@inline] set (self : t) (i : int) o : unit =
-    ensure_size self i;
-    Vec.set self.obj i o
-
-  let[@inline] set_name self i n : unit = set self i (O_name n)
-  let[@inline] set_level self i l : unit = set self i (O_level l)
-  let[@inline] set_term self i t : unit = set self i (O_term t)
+  let set_name self i n : unit =
+    ensure_size self.names ~dummy:"" (i + 1);
+    Vec.set self.names i n
 
   let get_name self i : string =
-    match get self i with
-    | O_name s -> s
-    | _o -> Error.errorf "expected a name at %d, got %a" i Obj.pp _o
+    match Vec.get self.names i with
+    | s -> s
+    | exception _ -> Error.errorf "invalid name at %d" i
 
-  let get_level self i : Level.t =
-    match get self i with
-    | O_level l -> l
-    | _o -> Error.errorf "expected a level at %d, got %a" i Obj.pp _o
+  let set_term self i t : unit =
+    ensure_size self.terms ~dummy:T.type_ (i + 1);
+    Vec.set self.terms i t
 
   let get_term self i : T.t =
-    match get self i with
-    | O_term t -> t
-    | _o -> Error.errorf "expected a term at %d, got %a" i Obj.pp _o
+    match Vec.get self.terms i with
+    | s -> s
+    | exception _ -> Error.errorf "invalid term at %d" i
+
+  let set_level self i l : unit =
+    ensure_size self.levels ~dummy:Level.zero (i + 1);
+    Vec.set self.levels i l
+
+  let get_level self i : Level.t =
+    match Vec.get self.levels i with
+    | s -> s
+    | exception _ -> Error.errorf "invalid level at %d" i
 
   let dump out (self : t) : unit =
-    Fmt.fprintf out "(@[idx %a@])"
-      (Fmt.iter ~sep:(Fmt.return "@ ") Obj.pp)
-      (Vec.to_iter self.obj)
+    Fmt.fprintf out
+      "(@[idx {@ names: [@[%a@]],@ terms: [@[%a@]],@ levels: [@[%a@]]}@])"
+      (Fmt.iter ~sep:(Fmt.return "@ ") Fmt.Dump.string)
+      (Vec.to_iter self.names)
+      (Fmt.iter ~sep:(Fmt.return "@ ") T.pp_debug)
+      (Vec.to_iter self.terms)
+      (Fmt.iter ~sep:(Fmt.return "@ ") Level.pp)
+      (Vec.to_iter self.levels)
 end
 
 (** Join two names with "." *)
@@ -75,6 +83,13 @@ let name_join a b =
     b
   else
     a ^ "." ^ b
+
+let binder_of_string = function
+  | "#BD" -> T.BD
+  | "#BI" -> T.BI
+  | "#BS" -> T.BS
+  | "#BC" -> T.BC
+  | s -> failwith (Printf.sprintf "invalid binder: %S" s)
 
 let process_files ~max_err (files : string list) : unit =
   let start = Mtime_clock.now () in
@@ -117,6 +132,31 @@ let process_files ~max_err (files : string list) : unit =
 
         let up ~at i : unit =
           Idx.set_level idx at (Level.var @@ Idx.get_name idx i)
+
+        let ev ~at i : unit = Idx.set_term idx at (T.bvar_i i)
+
+        let ea ~at i j : unit =
+          Idx.set_term idx at (T.app (Idx.get_term idx i) (Idx.get_term idx j))
+
+        let ec ~at i_name i_args : unit =
+          let name = Idx.get_name idx i_name in
+          let args = List.map (Idx.get_level idx) i_args in
+          Idx.set_term idx at (T.const (Const.make name) args)
+
+        let es ~at i : unit =
+          Idx.set_term idx at (T.type_of_univ (Idx.get_level idx i))
+
+        let el ~at b n i j : unit =
+          Idx.set_term idx at
+            (T.lam (binder_of_string b) (Idx.get_name idx n)
+               ~var_ty:(Idx.get_term idx i) (Idx.get_term idx j))
+
+        let ep ~at b n i j : unit =
+          Idx.set_term idx at
+            (T.pi (binder_of_string b) (Idx.get_name idx n)
+               ~var_ty:(Idx.get_term idx i) (Idx.get_term idx j))
+
+        let after_line () = Fmt.eprintf "%a@." Idx.dump idx
       end)
   in
 
