@@ -1,5 +1,7 @@
 module H = CCHash
 
+type binder = BD | BI | BS | BC
+
 (** A level expression *)
 type level =
   | L_zero
@@ -11,13 +13,13 @@ type level =
 type term_view =
   | E_type of level
   | E_bound_var of bvar
-  | E_const of const
+  | E_const of const * level list  (** constant instantiated with universes *)
   | E_app of term * term
-  | E_lam of term * term
-  | E_pi of term * term
+  | E_lam of binder * string * term * term
+  | E_pi of binder * string * term * term
 
-and bvar = { bv_idx: int }
-and const = { c_name: string; c_ty: term }
+and bvar = { bv_idx: int } [@@unboxed]
+and const = { c_name: string } [@@unboxed]
 
 and term = {
   view: term_view;
