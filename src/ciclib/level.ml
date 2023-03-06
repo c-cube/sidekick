@@ -45,7 +45,7 @@ let rec is_ground (l : t) : bool =
 
 let zero : t = L_zero
 let[@inline] succ t : t = L_succ t
-let[@inline] one = succ zero
+let one = succ zero
 let[@inline] var n : t = L_var n
 
 let rec max a b : t =

@@ -15,16 +15,18 @@ type nonrec term = term
 type t = term
 (** A term, in the calculus of constructions *)
 
+type nonrec binder = binder = BD | BI | BS | BC
+
 (** View.
 
     A view is the shape of the root node of a term. *)
 type view = term_view =
   | E_type of level
   | E_bound_var of bvar
-  | E_const of const
+  | E_const of const * level list
   | E_app of t * t
-  | E_lam of t * t
-  | E_pi of t * t
+  | E_lam of binder * string * t * t
+  | E_pi of binder * string * t * t
 
 val pp_debug : t Fmt.printer
 
@@ -61,11 +63,11 @@ val type_of_univ : level -> t
 val type_of_univ_int : int -> t
 val bvar : bvar -> t
 val bvar_i : int -> t
-val const : const -> t
+val const : const -> level list -> t
 val app : t -> t -> t
 val app_l : t -> t list -> t
-val lam : var_ty:t -> t -> t
-val pi : var_ty:t -> t -> t
+val lam : binder -> string -> var_ty:t -> t -> t
+val pi : binder -> string -> var_ty:t -> t -> t
 
 (** De bruijn indices *)
 module DB : sig

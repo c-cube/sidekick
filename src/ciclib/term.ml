@@ -2,14 +2,15 @@ open Types_
 
 type bvar = Bvar.t
 type nonrec term = term
+type nonrec binder = binder = BD | BI | BS | BC
 
 type view = term_view =
   | E_type of level
   | E_bound_var of bvar
-  | E_const of const
+  | E_const of const * level list
   | E_app of term * term
-  | E_lam of term * term
-  | E_pi of term * term
+  | E_lam of binder * string * term * term
+  | E_pi of binder * string * term * term
 
 type t = term
 
@@ -47,6 +48,12 @@ let as_type e : level option =
   | E_type l -> Some l
   | _ -> None
 
+let string_of_binder = function
+  | BI -> "BI"
+  | BS -> "BS"
+  | BC -> "BC"
+  | BD -> "BD"
+
 (* debug printer *)
 let expr_pp_with_ ~max_depth out (e : term) : unit =
   let rec loop k ~depth names out e =
@@ -59,17 +66,21 @@ let expr_pp_with_ ~max_depth out (e : term) : unit =
       (match CCList.nth_opt names idx with
       | Some n when n <> "" -> Fmt.fprintf out "%s[%d]" n idx
       | _ -> Fmt.fprintf out "_[%d]" idx)
-    | E_const c -> Const.pp out c
+    | E_const (c, []) -> Const.pp out c
+    | E_const (c, args) ->
+      Fmt.fprintf out "(@[%a@ %a@])" Const.pp c (Util.pp_list Level.pp) args
     | (E_app _ | E_lam _) when depth > max_depth -> Fmt.fprintf out "@<1>…"
     | E_app _ ->
       let f, args = unfold_app e in
       Fmt.fprintf out "(%a@ %a)" pp' f (Util.pp_list pp') args
-    | E_lam (_ty, bod) ->
-      Fmt.fprintf out "(@[\\_:@[%a@].@ %a@])" pp' _ty
+    | E_lam (binder, name, _ty, bod) ->
+      Fmt.fprintf out "(@[\\[%s]%s:@[%a@].@ %a@])" (string_of_binder binder)
+        name pp' _ty
         (loop (k + 1) ~depth:(depth + 1) ("" :: names))
         bod
-    | E_pi (ty_arg, bod) ->
-      Fmt.fprintf out "(@[Pi _:@[%a@].@ %a@])" pp' ty_arg
+    | E_pi (binder, name, ty_arg, bod) ->
+      Fmt.fprintf out "(@[Pi[%s] %s:@[%a@].@ %a@])" (string_of_binder binder)
+        name pp' ty_arg
         (loop (k + 1) ~depth:(depth + 1) ("" :: names))
         bod
   in
@@ -93,7 +104,7 @@ let iter_shallow ~f (e : term) : unit =
     | E_app (hd, a) ->
       f false hd;
       f false a
-    | E_lam (tyv, bod) | E_pi (tyv, bod) ->
+    | E_lam (_, _, tyv, bod) | E_pi (_, _, tyv, bod) ->
       f false tyv;
       f true bod)
 
@@ -125,7 +136,7 @@ let compute_db_depth_ e : int =
       | E_type _ | E_const _ -> 0
       | E_bound_var v -> v.bv_idx + 1
       | E_app (a, b) -> max (db_depth a) (db_depth b)
-      | E_lam (ty, bod) | E_pi (ty, bod) ->
+      | E_lam (_, _, ty, bod) | E_pi (_, _, ty, bod) ->
         max (db_depth ty) (max 0 (db_depth bod - 1))
     in
     d
@@ -147,20 +158,20 @@ let map_shallow ~f (e : term) : term =
       e
     else
       make_ (E_app (f false hd, f false a))
-  | E_lam (tyv, bod) ->
+  | E_lam (b, name, tyv, bod) ->
     let tyv' = f false tyv in
     let bod' = f true bod in
     if tyv == tyv' && bod == bod' then
       e
     else
-      make_ (E_lam (tyv', bod'))
-  | E_pi (tyv, bod) ->
+      make_ (E_lam (b, name, tyv', bod'))
+  | E_pi (b, name, tyv, bod) ->
     let tyv' = f false tyv in
     let bod' = f true bod in
     if tyv == tyv' && bod == bod' then
       e
     else
-      make_ (E_pi (tyv', bod'))
+      make_ (E_pi (b, name, tyv', bod'))
 
 (* shift open bound variables of [e] by [n] *)
 let db_shift_ ~make (e : term) (n : int) =
@@ -226,11 +237,11 @@ let type_of_univ_int i : term = type_of_univ (Level.of_int i)
 let type_ : term = type_of_univ Level.one
 let bvar v : term = make_ (E_bound_var v)
 let bvar_i i : term = make_ (E_bound_var (Bvar.make i))
-let const c : term = make_ (E_const c)
+let const c args : term = make_ (E_const (c, args))
 let app f a = make_ (E_app (f, a))
 let app_l f l = List.fold_left app f l
-let lam ~var_ty bod : term = make_ (E_lam (var_ty, bod))
-let pi ~var_ty bod : term = make_ (E_pi (var_ty, bod))
+let lam b str ~var_ty bod : term = make_ (E_lam (b, str, var_ty, bod))
+let pi b str ~var_ty bod : term = make_ (E_pi (b, str, var_ty, bod))
 
 module DB = struct
   let subst_db0 e ~by : t = db_0_replace_ ~make:make_ e ~by
