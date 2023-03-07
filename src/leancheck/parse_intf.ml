@@ -13,4 +13,12 @@ module type CALLBACK = sig
   val es : at:int -> int -> unit
   val el : at:int -> string -> int -> int -> int -> unit
   val ep : at:int -> string -> int -> int -> int -> unit
+
+  val ind :
+    n_params:int ->
+    nidx:int ->
+    tyidx:int ->
+    intros:(int * int) list ->
+    univ_params:int list ->
+    unit
 end
