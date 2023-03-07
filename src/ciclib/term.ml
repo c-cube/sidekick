@@ -174,9 +174,9 @@ let map_shallow ~f (e : term) : term =
       make_ (E_pi (b, name, tyv', bod'))
 
 (* shift open bound variables of [e] by [n] *)
-let db_shift_ ~make (e : term) (n : int) =
+let db_shift_ (e : term) (n : int) =
   let rec loop e k : term =
-    if is_closed e then
+    if is_closed e || db_depth e < k then
       e
     else if is_type e then
       e
@@ -184,7 +184,7 @@ let db_shift_ ~make (e : term) (n : int) =
       match view e with
       | E_bound_var bv ->
         if bv.bv_idx >= k then
-          make (E_bound_var (Bvar.make (bv.bv_idx + n)))
+          make_ (E_bound_var (Bvar.make (bv.bv_idx + n)))
         else
           e
       | _ ->
@@ -203,21 +203,25 @@ let db_shift_ ~make (e : term) (n : int) =
     loop e 0
 
 (* replace DB0 in [e] with [u] *)
-let db_0_replace_ ~make e ~by:u : term =
+let db_replace_ e (env : t list) : term =
+  let len_env = List.length env in
+
   (* recurse in subterm [e], under [k] intermediate binders (so any
      bound variable under k is bound by them) *)
   let rec aux e k : term =
     if is_type e then
       e
     else if db_depth e < k then
+      (* no open variable *)
       e
     else (
       match view e with
       | E_const _ -> e
-      | E_bound_var bv when bv.bv_idx = k ->
-        (* replace [bv] with [u], and shift [u] to account for the
+      | E_bound_var v when v.bv_idx >= k && v.bv_idx < k + len_env ->
+        (* replace [v] with [env[v-k]], and shift it to account for the
            [k] intermediate binders we traversed to get to [bv] *)
-        db_shift_ ~make u k
+        let u = List.nth env (v.bv_idx - k) in
+        db_shift_ u k
       | _ ->
         map_shallow e ~f:(fun inb u ->
             aux u
@@ -229,24 +233,27 @@ let db_0_replace_ ~make e ~by:u : term =
   in
   if is_closed e then
     e
+  else if len_env = 0 then
+    e
   else
     aux e 0
 
-let type_of_univ lvl : term = make_ (E_type lvl)
-let type_of_univ_int i : term = type_of_univ (Level.of_int i)
+let[@inline] type_of_univ lvl : term = make_ (E_type lvl)
+let[@inline] type_of_univ_int i : term = type_of_univ (Level.of_int i)
 let type_ : term = type_of_univ Level.one
-let bvar v : term = make_ (E_bound_var v)
-let bvar_i i : term = make_ (E_bound_var (Bvar.make i))
-let const c args : term = make_ (E_const (c, args))
-let app f a = make_ (E_app (f, a))
-let app_l f l = List.fold_left app f l
-let lam b str ~var_ty bod : term = make_ (E_lam (b, str, var_ty, bod))
-let pi b str ~var_ty bod : term = make_ (E_pi (b, str, var_ty, bod))
+let[@inline] bvar v : term = make_ (E_bound_var v)
+let[@inline] bvar_i i : term = make_ (E_bound_var (Bvar.make i))
+let[@inline] const c args : term = make_ (E_const (c, args))
+let[@inline] app f a = make_ (E_app (f, a))
+let[@inline] app_l f l = List.fold_left app f l
+let[@inline] lam b str ~var_ty bod : term = make_ (E_lam (b, str, var_ty, bod))
+let[@inline] pi b str ~var_ty bod : term = make_ (E_pi (b, str, var_ty, bod))
 
 module DB = struct
-  let subst_db0 e ~by : t = db_0_replace_ ~make:make_ e ~by
+  let[@inline] subst_db0 e ~by : t = db_replace_ e [ by ]
+  let[@inline] subst_db_l e env : t = db_replace_ e env
 
-  let shift t ~by : t =
+  let[@inline] shift t ~by : t =
     assert (by >= 0);
-    db_shift_ ~make:make_ t by
+    db_shift_ t by
 end
