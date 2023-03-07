@@ -85,7 +85,7 @@ let parse ?(max_errors = max_int) (input : input) (cb : callback) : unit =
          | [ I at; S "#EP"; S b; I n; I i; I j ] -> CB.ep ~at b n i j
          | _ ->
            incr n_errors;
-           Fmt.eprintf "warn: unhandled line %d: %s@." !n_line line
+           Fmt.eprintf "@{<Yellow>warn@}: unhandled line %d: %s@." !n_line line
        with e ->
          incr n_errors;
          Fmt.eprintf "error on line %d:@.%s@." !n_line (Printexc.to_string e));

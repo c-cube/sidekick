@@ -4,25 +4,6 @@ module Level = Sidekick_cic_lib.Level
 
 let ( let@ ) = ( @@ )
 
-type obj =
-  | O_level of Level.t
-  | O_name of string
-  | O_term of T.t
-  | O_ind of string * T.t
-
-(** Intermediate objects in a proof *)
-module Obj = struct
-  type t = obj
-
-  let pp out = function
-    | O_level lvl -> Fmt.fprintf out "(#lvl %a)" Level.pp lvl
-    | O_name n -> Fmt.fprintf out "(#name %S)" n
-    | O_term t -> Fmt.fprintf out "(@[#term %a@])" T.pp_debug t
-    | O_ind (n, _) -> Fmt.fprintf out "(#ind %s)" n
-
-  let dummy : t = O_name ""
-end
-
 (** Map indexes to objects *)
 module Idx = struct
   type t = { names: string Vec.t; levels: Level.t Vec.t; terms: T.t Vec.t }
@@ -67,13 +48,14 @@ module Idx = struct
     | exception _ -> Error.errorf "invalid level at %d" i
 
   let dump out (self : t) : unit =
+    let pp_with_idx ppx out (i, x) = Fmt.fprintf out "[%d]=%a" i ppx x in
     Fmt.fprintf out
       "(@[idx {@ names: [@[%a@]],@ terms: [@[%a@]],@ levels: [@[%a@]]}@])"
-      (Fmt.iter ~sep:(Fmt.return "@ ") Fmt.Dump.string)
-      (Vec.to_iter self.names)
-      (Fmt.iter ~sep:(Fmt.return "@ ") T.pp_debug)
-      (Vec.to_iter self.terms)
-      (Fmt.iter ~sep:(Fmt.return "@ ") Level.pp)
+      (Fmt.iter ~sep:(Fmt.return ";@ ") (pp_with_idx Fmt.Dump.string))
+      (Vec.to_iter self.names |> Iter.zip_i)
+      (Fmt.iter ~sep:(Fmt.return ";@ ") (pp_with_idx T.pp_debug))
+      (Vec.to_iter self.terms |> Iter.zip_i)
+      (Fmt.iter ~sep:(Fmt.return ";@ ") Level.pp)
       (Vec.to_iter self.levels)
 end
 
@@ -180,6 +162,12 @@ let () =
       ( "--max-err",
         Arg.Set_int max_err,
         " maximum number of errors before bailing out" );
+      ( "-c",
+        Arg.Unit (fun () -> CCFormat.set_color_default true),
+        " enable colors" );
+      ( "-nc",
+        Arg.Unit (fun () -> CCFormat.set_color_default false),
+        " disable colors" );
     ]
     |> Arg.align
   in
