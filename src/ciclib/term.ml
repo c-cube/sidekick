@@ -219,7 +219,7 @@ let db_replace_ e (env : t list) : term =
       | E_const _ -> e
       | E_bound_var v when v.bv_idx >= k && v.bv_idx < k + len_env ->
         (* replace [v] with [env[v-k]], and shift it to account for the
-           [k] intermediate binders we traversed to get to [bv] *)
+           [k] intermediate binders we traversed to get to [v] *)
         let u = List.nth env (v.bv_idx - k) in
         db_shift_ u k
       | _ ->
@@ -244,8 +244,8 @@ let type_ : term = type_of_univ Level.one
 let[@inline] bvar v : term = make_ (E_bound_var v)
 let[@inline] bvar_i i : term = make_ (E_bound_var (Bvar.make i))
 let[@inline] const c args : term = make_ (E_const (c, args))
-let[@inline] app f a = make_ (E_app (f, a))
-let[@inline] app_l f l = List.fold_left app f l
+let[@inline] app f a : term = make_ (E_app (f, a))
+let[@inline] app_l f l : term = List.fold_left app f l
 let[@inline] lam b str ~var_ty bod : term = make_ (E_lam (b, str, var_ty, bod))
 let[@inline] pi b str ~var_ty bod : term = make_ (E_pi (b, str, var_ty, bod))
 
