@@ -138,6 +138,25 @@ let process_files ~max_err (files : string list) : unit =
             (T.pi (binder_of_string b) (Idx.get_name idx n)
                ~var_ty:(Idx.get_term idx i) (Idx.get_term idx j))
 
+        let ind ~n_params ~nidx ~tyidx ~intros ~univ_params : unit =
+          let name = Idx.get_name idx nidx in
+          let ty = Idx.get_term idx tyidx in
+          let intros =
+            List.map
+              (fun (i, j) -> Idx.get_name idx i, Idx.get_term idx j)
+              intros
+          in
+          let univ_params =
+            List.map (fun i -> Idx.get_name idx i) univ_params
+          in
+          Fmt.eprintf "@[<2>>> @{<Green>Ind@} %s %a:%a [%d params] :=@ %a@]@."
+            name
+            Fmt.Dump.(list string)
+            univ_params T.pp_debug ty n_params
+            Fmt.(hvbox @@ Dump.(list @@ pair string T.pp_debug))
+            intros;
+          ()
+
         let after_line () = Fmt.eprintf "%a@." Idx.dump idx
       end)
   in
