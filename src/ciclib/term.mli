@@ -76,8 +76,9 @@ module DB : sig
       the term [by]. This is useful, for example, to implement beta-reduction.
 
       For example, with [t] being [_[0] = (\x. _[2] _[1] x[0])],
-      [subst_db0 store t ~by:"hello"] is ["hello" = (\x. _[2] "hello" x[0])].
-  *)
+      [subst_db0 store t ~by:"hello"] is ["hello" = (\x. _[2] "hello" x[0])]. *)
+
+  val subst_db_l : t -> t list -> t
 
   val shift : t -> by:int -> t
   (** [shift t ~by] shifts all bound variables in [t] that are not
