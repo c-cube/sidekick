@@ -83,6 +83,23 @@ let parse ?(max_errors = max_int) (input : input) (cb : callback) : unit =
          | [ I at; S "#ES"; I i ] -> CB.es ~at i
          | [ I at; S "#EL"; S b; I n; I i; I j ] -> CB.el ~at b n i j
          | [ I at; S "#EP"; S b; I n; I i; I j ] -> CB.ep ~at b n i j
+         | S "#IND" :: I n_params :: I nidx :: I tyidx :: I n_intros :: tl ->
+           let rec get_intros n acc = function
+             | l when n = 0 -> List.rev acc, l
+             | [] | [ _ ] -> failwith "missing intro"
+             | I nidx :: I tyidx :: tl ->
+               get_intros (n - 1) ((nidx, tyidx) :: acc) tl
+             | _ -> failwith "invalid intro"
+           in
+           let intros, l = get_intros n_intros [] tl in
+           let univ_params =
+             List.map
+               (function
+                 | I i -> i
+                 | _ -> failwith "invalid param")
+               l
+           in
+           CB.ind ~n_params ~nidx ~tyidx ~intros ~univ_params
          | _ ->
            incr n_errors;
            Fmt.eprintf "@{<Yellow>warn@}: unhandled line %d: %s@." !n_line line
