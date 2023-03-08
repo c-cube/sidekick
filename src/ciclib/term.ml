@@ -48,14 +48,16 @@ let as_type e : level option =
   | E_type l -> Some l
   | _ -> None
 
-let string_of_binder = function
-  | BI -> "BI"
-  | BS -> "BS"
-  | BC -> "BC"
-  | BD -> "BD"
-
 (* debug printer *)
 let expr_pp_with_ ~max_depth out (e : term) : unit =
+  let pp_binder b name pp_ty ty out =
+    match b with
+    | BD -> Fmt.fprintf out "(@[%s : %a@])" name pp_ty ty
+    | BI -> Fmt.fprintf out "{@[%s : %a@]}" name pp_ty ty
+    | BS -> Fmt.fprintf out "{{@[%s : %a@]}}" name pp_ty ty
+    | BC -> Fmt.fprintf out "[@[%s : %a@]]" name pp_ty ty
+  in
+
   let rec loop k ~depth names out e =
     let pp' = loop k ~depth:(depth + 1) names in
     match e.view with
@@ -73,15 +75,15 @@ let expr_pp_with_ ~max_depth out (e : term) : unit =
     | E_app _ ->
       let f, args = unfold_app e in
       Fmt.fprintf out "(%a@ %a)" pp' f (Util.pp_list pp') args
-    | E_lam (binder, name, _ty, bod) ->
-      Fmt.fprintf out "(@[\\[%s]%s:@[%a@].@ %a@])" (string_of_binder binder)
-        name pp' _ty
-        (loop (k + 1) ~depth:(depth + 1) ("" :: names))
+    | E_lam (binder, name, ty, bod) ->
+      Fmt.fprintf out "(@[fun %t.@ %a@])"
+        (pp_binder binder name pp' ty)
+        (loop (k + 1) ~depth:(depth + 1) (name :: names))
         bod
     | E_pi (binder, name, ty_arg, bod) ->
-      Fmt.fprintf out "(@[Pi[%s] %s:@[%a@].@ %a@])" (string_of_binder binder)
-        name pp' ty_arg
-        (loop (k + 1) ~depth:(depth + 1) ("" :: names))
+      Fmt.fprintf out "(@[@<1>∀ %t.@ %a@])"
+        (pp_binder binder name pp' ty_arg)
+        (loop (k + 1) ~depth:(depth + 1) (name :: names))
         bod
   in
   Fmt.fprintf out "@[%a@]" (loop 0 ~depth:0 []) e
@@ -96,17 +98,14 @@ let as_type_exn e : level =
 let iter_shallow ~f (e : term) : unit =
   match e.view with
   | E_type _ -> ()
-  | _ ->
-    (match e.view with
-    | E_const _ -> ()
-    | E_type _ -> assert false
-    | E_bound_var _ -> ()
-    | E_app (hd, a) ->
-      f false hd;
-      f false a
-    | E_lam (_, _, tyv, bod) | E_pi (_, _, tyv, bod) ->
-      f false tyv;
-      f true bod)
+  | E_const _ -> ()
+  | E_bound_var _ -> ()
+  | E_app (hd, a) ->
+    f false hd;
+    f false a
+  | E_lam (_, _, tyv, bod) | E_pi (_, _, tyv, bod) ->
+    f false tyv;
+    f true bod
 
 let[@inline] is_type e =
   match e.view with
@@ -248,6 +247,13 @@ let[@inline] app f a : term = make_ (E_app (f, a))
 let[@inline] app_l f l : term = List.fold_left app f l
 let[@inline] lam b str ~var_ty bod : term = make_ (E_lam (b, str, var_ty, bod))
 let[@inline] pi b str ~var_ty bod : term = make_ (E_pi (b, str, var_ty, bod))
+
+let rec subst_level (s : Level.subst) (e : t) : t =
+  match view e with
+  | E_type u -> type_of_univ (Level.subst s u)
+  | E_const (_, []) -> e
+  | E_const (c, args) -> const c (List.map (Level.subst s) args)
+  | _ -> map_shallow e ~f:(fun _ e' -> subst_level s e')
 
 module DB = struct
   let[@inline] subst_db0 e ~by : t = db_replace_ e [ by ]

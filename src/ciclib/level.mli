@@ -1,9 +1,11 @@
 open Types_
 
+type var = string
+
 type t = level =
   | L_zero
   | L_succ of level
-  | L_var of string  (** variable *)
+  | L_var of var  (** variable *)
   | L_max of level * level  (** max *)
   | L_imax of level * level  (** impredicative max. *)
 
@@ -16,7 +18,7 @@ val as_offset : t -> t * int
 
 val zero : t
 val one : t
-val var : string -> t
+val var : var -> t
 val succ : t -> t
 val of_int : int -> t
 val max : t -> t -> t
@@ -28,6 +30,12 @@ val is_zero : t -> bool
 val is_one : t -> bool
 val is_int : t -> bool
 val as_int : t -> int option
+
+(** {2 Substitutions} *)
+
+type subst = t Util.Str_map.t
+
+val subst : subst -> t -> t
 
 (** {2 Judgements}
 
