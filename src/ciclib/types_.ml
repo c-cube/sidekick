@@ -25,3 +25,14 @@ and term = {
   view: term_view;
   mutable flags: int;  (** contains: [highest DB var | 1:has free vars] *)
 }
+
+type cstor = { c_name: string; c_ty: term }
+
+type spec = {
+  name: string;
+  univ_params: string list;
+  n_params: int;
+  ty: term;
+  cstors: cstor list;
+}
+(** Inductive spec *)

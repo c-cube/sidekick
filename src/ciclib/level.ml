@@ -1,9 +1,11 @@
 open Types_
 
+type var = string
+
 type t = level =
   | L_zero
   | L_succ of level
-  | L_var of string  (** variable *)
+  | L_var of var  (** variable *)
   | L_max of level * level  (** max *)
   | L_imax of level * level  (** impredicative max. *)
 
@@ -94,22 +96,29 @@ let[@inline] is_zero l =
   | L_zero -> true
   | _ -> false
 
+type subst = t Util.Str_map.t
+
 (** [subst_v store lvl v u] replaces [v] with [u] in [lvl] *)
-let subst_v (lvl : t) (v : string) (u : t) =
+let subst (subst : subst) (lvl : t) : t =
   let rec loop lvl : t =
     if is_ground lvl then
       lvl
     else (
       match lvl with
-      | L_var v' when v = v' -> u
-      | L_var _ -> lvl
-      | L_zero -> assert false
+      | L_var v ->
+        (match Util.Str_map.find v subst with
+        | l -> l
+        | exception Not_found -> lvl)
+      | L_zero -> lvl
       | L_succ a -> succ (loop a)
       | L_max (a, b) -> max (loop a) (loop b)
       | L_imax (a, b) -> imax (loop a) (loop b)
     )
   in
   loop lvl
+
+let subst_v (lvl : t) (v : string) (u : t) =
+  subst (Util.Str_map.singleton v u) lvl
 
 let is_one l =
   match l with

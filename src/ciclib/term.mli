@@ -69,6 +69,9 @@ val app_l : t -> t list -> t
 val lam : binder -> string -> var_ty:t -> t -> t
 val pi : binder -> string -> var_ty:t -> t -> t
 
+val subst_level : Level.subst -> t -> t
+(** Substitute level variables in a term *)
+
 (** De bruijn indices *)
 module DB : sig
   val subst_db0 : t -> by:t -> t
