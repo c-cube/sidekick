@@ -53,7 +53,7 @@
   (smtlib-utils
    (and
     (>= "0.1")
-    (< "0.4")))
+    (< "0.5")))
   (sidekick
    (= :version))
   (qcheck

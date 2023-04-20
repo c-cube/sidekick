@@ -10,7 +10,7 @@ bug-reports: "https://github.com/c-cube/sidekick/issues/"
 depends: [
   "dune" {>= "2.0"}
   "zarith"
-  "smtlib-utils" {>= "0.1" & < "0.4"}
+  "smtlib-utils" {>= "0.1" & < "0.5"}
   "sidekick" {= version}
   "qcheck" {with-test & >= "0.16"}
   "mdx" {with-test}
