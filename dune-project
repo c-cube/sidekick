@@ -33,7 +33,8 @@
   (alcotest :with-test)
   (odoc :with-doc))
  (depopts
-  mtime ; for profiling stuff
+  (mtime
+   (>= 2.0)) ; for profiling stuff
   memtrace ; memory profiling
   zarith ; for arith
   )

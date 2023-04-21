@@ -16,7 +16,11 @@ depends: [
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]
-depopts: ["mtime" "memtrace" "zarith"]
+depopts: [
+  "mtime" {>= "2.0"}
+  "memtrace"
+  "zarith"
+]
 conflicts: [
   "zarith" {< "1.8"}
 ]

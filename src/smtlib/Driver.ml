@@ -69,7 +69,10 @@ let decl_fun (self : t) f args ret const : unit =
 let build_model (self : t) (sat : Solver.sat_result) : Model.t =
   Build_model.build self.build_model sat
 
-let check_model (self : t) (m : Model.t) : unit = assert false
+(* FIXME *)
+let check_model (_self : t) (_m : Model.t) : unit =
+  Log.debugf 0 (fun k -> k "; TODO: check model");
+  ()
 
 (* call the solver to check satisfiability *)
 let solve (self : t) ~assumptions () : Solver.res =
