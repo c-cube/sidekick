@@ -1,6 +1,7 @@
 module T = Sidekick_cic_lib.Term
 module Const = Sidekick_cic_lib.Const
 module Level = Sidekick_cic_lib.Level
+module Inductive = Sidekick_cic_lib.Inductive
 
 let ( let@ ) = ( @@ )
 
@@ -141,20 +142,24 @@ let process_files ~max_err (files : string list) : unit =
         let ind ~n_params ~nidx ~tyidx ~intros ~univ_params : unit =
           let name = Idx.get_name idx nidx in
           let ty = Idx.get_term idx tyidx in
-          let intros =
+          let cstors =
             List.map
-              (fun (i, j) -> Idx.get_name idx i, Idx.get_term idx j)
+              (fun (i, j) ->
+                {
+                  Inductive.c_name = Idx.get_name idx i;
+                  c_ty = Idx.get_term idx j;
+                })
               intros
           in
           let univ_params =
             List.map (fun i -> Idx.get_name idx i) univ_params
           in
-          Fmt.eprintf "@[<2>>> @{<Green>Ind@} %s %a:%a [%d params] :=@ %a@]@."
-            name
-            Fmt.Dump.(list string)
-            univ_params T.pp_debug ty n_params
-            Fmt.(hvbox @@ Dump.(list @@ pair string T.pp_debug))
-            intros;
+
+          let spec = { Inductive.name; ty; n_params; univ_params; cstors } in
+
+          Fmt.eprintf "@[<2>@{<Green>Ind@}@ %a@]@." Inductive.pp_spec spec;
+          (* TODO: register to the conversion relation *)
+          Fmt.eprintf "is valid: %B@." (Inductive.is_valid spec);
           ()
 
         let after_line () = Fmt.eprintf "%a@." Idx.dump idx
