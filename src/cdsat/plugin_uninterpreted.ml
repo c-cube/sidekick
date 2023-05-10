@@ -60,7 +60,7 @@ let term_to_var_hooks (self : t) : _ list =
     ) else
       None
   in
-  [ h ]
+  [ { Term_to_var.conv = h } ]
 
 let iter_theory_view _ (v : TVar.theory_view) k : unit =
   match v with

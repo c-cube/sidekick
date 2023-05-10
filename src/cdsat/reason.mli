@@ -8,6 +8,7 @@ type t = TVar.reason =
       hyps: TVar.Vec_of.t;
       proof: Sidekick_proof.step_id;
     }
+(* TODO: merge is also a reason *)
 
 include Sidekick_sigs.PRINT with type t := t
 

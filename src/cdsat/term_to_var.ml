@@ -1,5 +1,5 @@
 type t = { vst: TVar.store; mutable hooks: hook list }
-and hook = t -> Term.t -> TVar.theory_view option
+and hook = { conv: t -> Term.t -> TVar.theory_view option } [@@unboxed]
 
 let create vst : t = { vst; hooks = [] }
 let add_hook self h = self.hooks <- h :: self.hooks
@@ -12,7 +12,7 @@ let rec convert (self : t) (t : Term.t) : TVar.t =
         (Term.pp_limit ~max_depth:5 ~max_nodes:30)
         t
     | h :: tl_h ->
-      (match h self t with
+      (match h.conv self t with
       | Some theory_view ->
         let v = TVar.Internal.create self.vst t ~theory_view in
         v

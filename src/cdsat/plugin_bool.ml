@@ -16,8 +16,8 @@ type TVar.theory_view +=
 (* our internal state *)
 type t = { arg: (module ARG); tst: Term.store; vst: TVar.store }
 
-let push_level (self : t) = ()
-let pop_levels (self : t) n = ()
+let push_level (_self : t) = ()
+let pop_levels (_self : t) _n = ()
 
 let decide (self : t) (v : TVar.t) : Value.t option =
   match TVar.theory_view self.vst v with
@@ -60,7 +60,7 @@ let propagate (self : t) (act : Core.Plugin_action.t) (v : TVar.t)
       k "(@[bool-plugin.propagate %a@])" (TVar.pp self.vst) v);
   ()
 
-let term_to_var_hooks (self : t) : _ list =
+let term_to_var_hooks (self : t) : Term_to_var.hook list =
   let (module A) = self.arg in
 
   let rec to_tlit t2v (t : Term.t) : TLit.t =
@@ -85,7 +85,7 @@ let term_to_var_hooks (self : t) : _ list =
       Some (T_or lits)
     | _ -> None
   in
-  [ h ]
+  [ { Term_to_var.conv = h } ]
 
 let iter_theory_view _ (v : TVar.theory_view) k =
   match v with

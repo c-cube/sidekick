@@ -22,7 +22,7 @@ val convert : t -> Term.t -> TVar.t
     Hooks are responsible for converting {b some} terms (the terms their theory
     knows) into variables. *)
 
-type hook = t -> Term.t -> TVar.theory_view option
+type hook = { conv: t -> Term.t -> TVar.theory_view option } [@@unboxed]
 (** A hook, responsible to keep some internal state and assigning a theory
     view if it "accepts" the term. A term that is recognized by no hook
     cannot be turned into a variable. *)
