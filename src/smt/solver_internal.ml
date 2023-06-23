@@ -460,7 +460,8 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
       if new_intf_eqns <> [] then (
         let (module A) = acts in
         List.iter (fun lit -> A.add_lit ~default_pol:false lit) new_intf_eqns
-      ) else if not (has_delayed_actions self) then (
+      );
+      if not (has_delayed_actions self) then (
         (* if theory combination didn't add new clauses, compute a model *)
         let m = mk_model_ self lits in
         self.last_model <- Some m
