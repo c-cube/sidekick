@@ -60,13 +60,5 @@
       (timeout 10)
       (dirs ()))))
 
-(task
-  (name sidekick-smt-all)
-  (action
-    (run_provers
-      (provers (sidekick-dev z3))
-      (timeout 10)
-      (dirs ($HOME/workspace/smtlib)))))
-
 (set-options (progress true))
 
