@@ -228,13 +228,24 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       comb;
     !cur
 
-  (* encode back into a term *)
+  (** encode back into a term *)
   let t_of_linexp (self : state) (le : LE.t) : Term.t =
     let comb = LE.comb le in
     let const = LE.const le in
     t_of_comb self comb ~init:(A.mk_lra self.tst (LRA_const const))
 
-  (* return a variable that is equal to [le_comb] in the simplex. *)
+  (** encode that [proxy := le_comb] into the simplex. *)
+  let encode_def self (proxy : Term.t) (le_comb : LE_.Comb.t) : unit =
+    assert (not (LE_.Comb.is_empty le_comb));
+    Log.debugf 50 (fun k ->
+        k "(@[lra.encode-linexp@ `@[%a@]`@ :into-var %a@])" LE_.Comb.pp le_comb
+          Term.pp proxy);
+
+    LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
+    SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
+    ()
+
+  (** return a variable that is equal to [le_comb] in the simplex. *)
   let var_encoding_comb ~pre self (le_comb : LE_.Comb.t) : Term.t =
     assert (not (LE_.Comb.is_empty le_comb));
     match LE_.Comb.as_singleton le_comb with
@@ -245,14 +256,8 @@ module Make (A : ARG) = (* : S with module A = A *) struct
       | exception Not_found ->
         (* new variable to represent [le_comb] *)
         let proxy = fresh_term self ~pre (A.ty_real self.tst) in
-        (* TODO: define proxy *)
         self.encoded_le <- Comb_map.add le_comb proxy self.encoded_le;
-        Log.debugf 50 (fun k ->
-            k "(@[lra.encode-linexp@ `@[%a@]`@ :into-var %a@])" LE_.Comb.pp
-              le_comb Term.pp proxy);
-
-        LE_.Comb.iter (fun v _ -> SimpSolver.add_var self.simplex v) le_comb;
-        SimpSolver.define self.simplex proxy (LE_.Comb.to_list le_comb);
+        encode_def self proxy le_comb;
         proxy)
 
   let add_clause_lra_ ?using (module PA : SI.PREPROCESS_ACTS) lits =
@@ -397,6 +402,25 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         (* we define these terms so their value in the model make sense *)
         let le = as_linexp t |> LE.map ~f:recurse in
         Term.Tbl.add self.simp_defined t (box_t, le);
+        Log.debugf 50 (fun k -> k "COUCOU def %a as %a" Term.pp box_t LE.pp le);
+
+        let le_comb, le_const = LE.comb le, LE.const le in
+        if A.Q.equal le_const A.Q.zero then
+          (* we can directly {i define} [box_t] as equal to [le_comb] *)
+          encode_def self box_t le_comb
+        else (
+          let le_comb_minus_t =
+            var_encoding_comb ~pre:"diff_def" self
+              LE_.Comb.(le_comb - monomial1 box_t)
+          in
+          SimpSolver.add_constraint self.simplex
+            (SimpSolver.Constraint.geq le_comb_minus_t le_const) Tag.By_def
+            ~on_propagate:(fun _ ~reason:_ -> ());
+          SimpSolver.add_constraint self.simplex
+            (SimpSolver.Constraint.leq le_comb_minus_t le_const) Tag.By_def
+            ~on_propagate:(fun _ ~reason:_ -> ())
+        );
+
         Some box_t)
     | LRA_const _n -> None
     | LRA_other _ -> None
