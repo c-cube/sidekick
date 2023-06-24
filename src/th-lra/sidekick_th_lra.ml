@@ -8,12 +8,13 @@ include Intf
 module SI = SMT.Solver_internal
 
 module Tag = struct
-  type t = Lit of Lit.t | CC_eq of E_node.t * E_node.t
+  type t = Lit of Lit.t | CC_eq of E_node.t * E_node.t | By_def
 
   let pp out = function
     | Lit l -> Fmt.fprintf out "(@[lit %a@])" Lit.pp l
     | CC_eq (n1, n2) ->
       Fmt.fprintf out "(@[cc-eq@ %a@ %a@])" E_node.pp n1 E_node.pp n2
+    | By_def -> Fmt.string out "by-def"
 
   let to_lits si = function
     | Lit l -> [ l ]
@@ -23,6 +24,7 @@ module Tag = struct
          assert (not (SI.CC.Resolved_expl.is_semantic r));
       *)
       r.lits
+    | By_def -> []
 end
 
 module SimpVar : Linear_expr.VAR with type t = Term.t and type lit = Tag.t =
@@ -129,14 +131,14 @@ module Make (A : ARG) = (* : S with module A = A *) struct
     gensym: Gensym.t;
     in_model: unit Term.Tbl.t; (* terms to add to model *)
     encoded_eqs: unit Term.Tbl.t;
-    (* [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
+        (** [a=b] gets clause [a = b <=> (a >= b /\ a <= b)] *)
     encoded_lits: Term.t Term.Tbl.t;  (** [t => lit for t], using gensym *)
     simp_preds: (Term.t * S_op.t * A.Q.t) Term.Tbl.t;
-    (* term -> its simplex meaning *)
+        (** term -> its simplex meaning *)
     simp_defined: (Term.t * LE.t) Term.Tbl.t;
-    (* (rational) terms that are equal to a linexp *)
+        (** (rational) terms that are equal to a linexp *)
     st_exprs: ST_exprs.t;
-    mutable encoded_le: Term.t Comb_map.t; (* [le] -> var encoding [le] *)
+    mutable encoded_le: Term.t Comb_map.t;  (** [le] -> var encoding [le] *)
     simplex: SimpSolver.t;
     mutable last_res: SimpSolver.result option;
     n_propagate: int Stat.counter;
@@ -387,6 +389,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
       Some box_t
     | LRA_op _ | LRA_mult _ ->
+      (* define term *)
       (match Term.Tbl.find_opt self.simp_defined t with
       | Some (t, _le) -> Some t
       | None ->
