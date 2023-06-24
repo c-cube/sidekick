@@ -104,7 +104,9 @@ let tracer ~(sink : Tr.Sink.t) () : SAT.Tracer.t =
           dict_of_list
             [
               "id", int id;
-              "c", list (lits |> Iter.map self#sat_encode_lit |> Iter.to_rev_list);
+              ( "c",
+                list (lits |> Iter.map self#sat_encode_lit |> Iter.to_rev_list)
+              );
             ])
       in
       Tr.Sink.emit sink ~tag:"AssCSat" v
@@ -147,8 +149,7 @@ let tracer ~(sink : Tr.Sink.t) () : SAT.Tracer.t =
 
 let start = Sys.time ()
 
-let solve ?(check = false) (solver : SAT.t) :
-    (unit, string) result =
+let solve ?check:(_ = false) (solver : SAT.t) : (unit, string) result =
   let res = Profile.with_ "solve" (fun () -> SAT.solve solver) in
   let t2 = Sys.time () in
   Printf.printf "\r";
@@ -158,9 +159,7 @@ let solve ?(check = false) (solver : SAT.t) :
     let t3 = Sys.time () in
     Format.printf "Sat (%.3f/%.3f)@." (t2 -. start) (t3 -. t2)
   | SAT.Unsat _ ->
-
-      (* TODO: extract proof from trace; use check_proof *)
-
+    (* TODO: extract proof from trace; use check_proof *)
     let t3 = Sys.time () in
     Format.printf "Unsat (%.3f/%.3f)@." (t2 -. start) (t3 -. t2));
   Ok ()

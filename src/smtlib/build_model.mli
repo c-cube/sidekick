@@ -1,4 +1,3 @@
-open Common_
 open! Sidekick_base
 
 type t

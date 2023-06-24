@@ -120,10 +120,10 @@ let solve (self : t) ~assumptions () : Solver.res =
     *);
 
     (match self.proof_file with
-    | Some file ->
+    | Some _file ->
       (match unsat_proof () with
       | None -> ()
-      | Some step_id ->
+      | Some _step_id ->
         (* TODO: read trace; emit proof
               let proof = Solver.proof self.solver in
               let proof_quip =
