@@ -1,5 +1,3 @@
-open Sidekick_core
-
 (* a boolean variable (positive int) *)
 module Var0 : sig
   include Int_id.S
