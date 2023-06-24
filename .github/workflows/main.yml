@@ -1,6 +1,8 @@
 name: build
 on:
   push:
+    branches:
+      - master
   pull_request:
     branches:
       - master
@@ -14,8 +16,8 @@ jobs:
             #- windows-latest   # see  https://github.com/ocaml/setup-ocaml/issues/361
             #- macos-latest  # clogs CI
         ocaml-compiler:
-          - 4.08.x
-          - 4.14.x
+          - 4.08
+          - 4.14
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
