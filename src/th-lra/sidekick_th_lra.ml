@@ -411,7 +411,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         else (
           let le_comb_minus_t =
             var_encoding_comb ~pre:"diff_def" self
-              LE_.Comb.(le_comb - monomial1 box_t)
+              LE_.Comb.(monomial1 box_t - le_comb)
           in
           SimpSolver.add_constraint self.simplex
             (SimpSolver.Constraint.geq le_comb_minus_t le_const) Tag.By_def
