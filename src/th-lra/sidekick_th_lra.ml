@@ -402,7 +402,6 @@ module Make (A : ARG) = (* : S with module A = A *) struct
         (* we define these terms so their value in the model make sense *)
         let le = as_linexp t |> LE.map ~f:recurse in
         Term.Tbl.add self.simp_defined t (box_t, le);
-        Log.debugf 50 (fun k -> k "COUCOU def %a as %a" Term.pp box_t LE.pp le);
 
         let le_comb, le_const = LE.comb le, LE.const le in
         if A.Q.equal le_const A.Q.zero then
