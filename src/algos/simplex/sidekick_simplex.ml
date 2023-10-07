@@ -1,4 +1,4 @@
-(** {1 Fast Simplex for CDCL(T)}
+(** Fast Simplex for CDCL(T)
 
     We follow the paper "Integrating Simplex with DPLL(T )" from
     de Moura and Dutertre.
@@ -90,7 +90,6 @@ module type S = sig
     type t = unsat_cert
 
     val lits : t -> V.lit list (* unsat core *)
-
     val pp : t Fmt.printer
   end
 
@@ -162,7 +161,7 @@ module type ARG = sig
   (** Create new literals *)
 end
 
-(* TODO(optim): page 14, paragraph 2: we could detect which variables occur in no
+(* TODO: (optim): page 14, paragraph 2: we could detect which variables occur in no
    atom after preprocessing; then these variables can be "inlined" (removed
    by Gaussian elimination) as a preprocessing proof_rule, and this removes one column
    and maybe one row if it was basic. *)
@@ -221,7 +220,7 @@ module Make (Arg : ARG) :
       In a way, an extended rational is a tuple `(base, factor)`
       ordered lexicographically. *)
 
-  (** {2 Epsilon-rationals, used for strict bounds} *)
+  (** Epsilon-rationals, used for strict bounds *)
   module Erat = struct
     type t = erat
 
@@ -287,13 +286,13 @@ module Make (Arg : ARG) :
   type var_state = {
     var: V.t;
     mutable value: erat;
-    idx: int; (* index in {!t.vars} *)
+    idx: int;  (** index in {!t.vars} *)
     mutable basic_idx: int;
-    (* index of the row in the matrix, if any. -1 otherwise *)
+        (** index of the row in the matrix, if any. -1 otherwise *)
     mutable l_bound: bound option;
     mutable u_bound: bound option;
     mutable all_bound_lits: (is_lower * bound) list;
-    (* all known literals on this var *)
+        (** all known literals on this var *)
     mutable is_int: bool;
   }
 
@@ -398,12 +397,12 @@ module Make (Arg : ARG) :
         if i <> skip then f i
       done
 
-    (* add [n] to [m_ij] *)
+    (** add [n] to [m_ij] *)
     let add self i j n : unit =
       let r = Vec.get self.rows i in
       Vec.set r.cols j Q.(Vec.get r.cols j + n)
 
-    (* multiply [m_ij] by [c] *)
+    (** multiply [m_ij] by [c] *)
     let mult self i j c : unit =
       let r = Vec.get self.rows i in
       let n_j = Vec.get r.cols j in
@@ -458,8 +457,8 @@ module Make (Arg : ARG) :
 
   type t = {
     matrix: Matrix.t;
-    vars: var_state Vec.t; (* index -> var with this index *)
-    mutable var_tbl: var_state V_map.t; (* var -> its state *)
+    vars: var_state Vec.t;  (** index -> var with this index *)
+    mutable var_tbl: var_state V_map.t;  (** var -> its state *)
     bound_stack: bound_assertion Backtrack_stack.t;
     undo_stack: (unit -> unit) Backtrack_stack.t;
     stat_check: int Stat.counter;
@@ -495,7 +494,7 @@ module Make (Arg : ARG) :
       "(@[simplex@ @[<1>:vars@ [@[<hov>%a@]]@]@ @[<1>:matrix@ %a@]@])"
       (Vec.pp Var_state.pp) self.vars Matrix.pp self.matrix
 
-  (* for debug purposes *)
+  (** for debug purposes *)
   let _check_invariants self : unit =
     Vec.iteri self.vars ~f:(fun i v -> assert (v.idx = i));
     let n = Vec.size self.vars in
@@ -522,7 +521,7 @@ module Make (Arg : ARG) :
         assert (Erat.(sum = zero)));
     ()
 
-  (* for internal checking *)
+  (** for internal checking *)
   let[@inline] _check_invariants_internal self =
     if false (* FUDGE *) then _check_invariants self
 
@@ -533,7 +532,7 @@ module Make (Arg : ARG) :
     with Not_found ->
       Error.errorf "variable `%a`@ is not in the simplex" V.pp x
 
-  (* define [x] as a basic variable *)
+  (** define [x] as a basic variable *)
   let define ?(is_int = false) (self : t) (x : V.t) (le : _ list) : unit =
     if has_var_ self x then
       Error.errorf "Simplex: cannot define `%a`,@ already a variable" V.pp x;
@@ -596,7 +595,7 @@ module Make (Arg : ARG) :
     _check_invariants_internal self;
     ()
 
-  (* find the state for [x], or add [x] as a non-basic variable *)
+  (** find the state for [x], or add [x] as a non-basic variable *)
   let find_or_create_n_basic_var_ ~is_int (self : t) (x : V.t) : var_state =
     try
       let v = V_map.find x self.var_tbl in
@@ -622,7 +621,7 @@ module Make (Arg : ARG) :
       Vec.push self.vars vs;
       vs
 
-  (* update the simplex so that non-basic [x] is now assigned value [n].
+  (** update the simplex so that non-basic [x] is now assigned value [n].
      See page 14, figure 3.1.
   *)
   let update_n_basic (self : t) (x : var_state) (v : erat) : unit =
@@ -648,7 +647,7 @@ module Make (Arg : ARG) :
     _check_invariants_internal self;
     ()
 
-  (* pivot [x_i] (basic) and [x_j] (non-basic), setting value of [x_i]
+  (** pivot [x_i] (basic) and [x_j] (non-basic), setting value of [x_i]
      to [v] at the same time.
      See page 14, figure 3.1 *)
   let pivot_and_update (self : t) (x_i : var_state) (x_j : var_state) (v : erat)
@@ -774,11 +773,11 @@ module Make (Arg : ARG) :
     ignore (find_or_create_n_basic_var_ ~is_int self v : var_state);
     ()
 
-  (* gather all relevant lower (resp. upper) bounds for the definition
-     of the basic variable [x_i], and collect each relevant variable
-     with [map] into a list.
-     @param get_lower if true, means we select lower bounds of variables
-     with positive coeffs, and upper bounds of variables with negative coeffs. *)
+  (** gather all relevant lower (resp. upper) bounds for the definition
+      of the basic variable [x_i], and collect each relevant variable
+      with [map] into a list.
+      @param get_lower if true, means we select lower bounds of variables
+      with positive coeffs, and upper bounds of variables with negative coeffs. *)
   let gather_bounds_of_row_ (self : t) (x_i : var_state) ~map ~get_lower :
       _ list * _ =
     assert (Var_state.is_basic x_i);
@@ -919,7 +918,7 @@ module Make (Arg : ARG) :
     let new_bnd = is_lower_bnd, { b_val = new_bnd_val; b_lit = lit } in
     vs.all_bound_lits <- new_bnd :: vs.all_bound_lits
 
-  (* try to find basic variable that doesn't respect one of its bounds *)
+  (** try to find basic variable that doesn't respect one of its bounds *)
   let find_basic_var_ (self : t) :
       (var_state * [ `Lower | `Upper ] * bound) option =
     let exception Found of var_state * [ `Lower | `Upper ] * bound in
@@ -949,21 +948,21 @@ module Make (Arg : ARG) :
     in
     aux 0
 
-  (* true if [x.value < x.u_bound] *)
+  (** true if [x.value < x.u_bound] *)
   let has_upper_slack (x : var_state) : bool =
     match x.u_bound with
     | None -> true
     | Some bnd -> Erat.(x.value < bnd.b_val)
 
-  (* true if [x.value > x.l_bound] *)
+  (** true if [x.value > x.l_bound] *)
   let has_lower_slack (x : var_state) : bool =
     match x.l_bound with
     | None -> true
     | Some bnd -> Erat.(x.value > bnd.b_val)
 
-  (* make a certificate from the row of basic variable [x_i] which is outside
-     one of its bound, and whose row is tight on all non-basic variables.
-     @param is_lower is true if the lower bound is not respected
+  (** make a certificate from the row of basic variable [x_i] which is outside
+      one of its bound, and whose row is tight on all non-basic variables.
+      @param is_lower is true if the lower bound is not respected
      (i.e. [x_i] is too small) *)
   let cert_of_row_ (self : t) (x_i : var_state) (bnd : bound) ~is_lower :
       unsat_cert =
@@ -993,8 +992,8 @@ module Make (Arg : ARG) :
     let cert = Unsat_cert.unsat_basic x_i (op, bnd) le bounds in
     cert
 
-  (* main satisfiability check.
-     page 15, figure 3.2 *)
+  (** main satisfiability check.
+      page 15, figure 3.2 *)
   let check_exn ~on_propagate:_ (self : t) : unit =
     let exception Stop in
     Log.debugf 20 (fun k -> k "(@[simplex.check@ %a@])" pp_stats self);
@@ -1089,15 +1088,15 @@ module Make (Arg : ARG) :
     let denom = 1 lsl 10 in
     Q.(one / of_int denom)
 
-  (* Find an epsilon that is small enough for finding a solution, yet
-     it must be positive.
+  (** Find an epsilon that is small enough for finding a solution, yet
+      it must be positive.
 
-     {!Erat.t} values are used to turn strict bounds ([X > 0]) into
-     non-strict bounds ([X >= 0 + ε]), because the simplex algorithm
-     only deals with non-strict bounds.
-     When a solution is found, we need to turn {!Erat.t} into {!Q.t} by
-     finding a rational value that is small enough that it will fit into
-     all the intervals of [t]. This rational will be the actual value of [ε].
+      {!Erat.t} values are used to turn strict bounds ([X > 0]) into
+      non-strict bounds ([X >= 0 + ε]), because the simplex algorithm
+      only deals with non-strict bounds.
+      When a solution is found, we need to turn {!Erat.t} into {!Q.t} by
+      finding a rational value that is small enough that it will fit into
+      all the intervals of [t]. This rational will be the actual value of [ε].
   *)
   let solve_epsilon (self : t) : Q.t =
     let eps =
@@ -1276,7 +1275,6 @@ module Make (Arg : ARG) :
         raise e
     in
     try Some (loop 0) with E_done -> None
-  (* fast exit *)
 
   let rec _check_cert (cert : unsat_cert) : unit =
     match cert with
