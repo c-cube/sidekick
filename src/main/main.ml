@@ -211,7 +211,10 @@ let main_smt ~config () : _ result =
     Solver.Smt_solver.Solver.add_theory solver Sidekick_smtlib.Check_cc.theory;
 
   let parse_res =
-    let@ () = Profile.with_ "parse" ~args:[ "file", !file ] in
+    let@ _sp =
+      Profile.with_span ~__FILE__ ~__LINE__ "parse" ~data:(fun () ->
+          [ "file", `String !file ])
+    in
     Sidekick_smtlib.parse tst !file
   in
 
@@ -252,7 +255,7 @@ let main () =
   Sys.catch_break true;
 
   (* instrumentation and tracing *)
-  Sidekick_tef.with_setup @@ fun () ->
+  let@ () = Sidekick_bin_lib.Trace_setup.with_trace in
   Sidekick_memtrace.trace_if_requested ~context:"sidekick" ();
 
   CCFormat.set_color_default true;

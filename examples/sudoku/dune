@@ -5,7 +5,7 @@
   sidekick.core
   sidekick.util
   sidekick.sat
-  sidekick.tef ; for profiling
+  trace-tef ; for profiling
   iter
   containers)
  (flags :standard -warn-error -a+8 -color always -safe-string

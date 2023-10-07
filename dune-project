@@ -29,8 +29,10 @@
     (< 4.0)))
   (iter
    (>= 1.0))
+  (trace (>= 0.3))
   (zarith :with-test)
   (alcotest :with-test)
+  (trace-tef (and :with-test (>= 0.3)))
   (odoc :with-doc))
  (depopts
   (mtime
@@ -74,4 +76,6 @@
    (= :version))
   (sidekick-base
    (= :version))
-  menhir))
+  menhir)
+ (depopts
+   (trace-tef (>= 0.3))))

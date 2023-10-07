@@ -8,5 +8,6 @@
 
 (rule
  (alias runtest)
+ (package sidekick)
  (action
   (diff head15_top1465.expected head15_top1465.out)))

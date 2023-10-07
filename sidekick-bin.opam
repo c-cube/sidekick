@@ -14,6 +14,9 @@ depends: [
   "sidekick-base" {= version}
   "menhir"
 ]
+depopts: [
+  "trace-tef" {>= "0.3"}
+]
 build: [
   ["dune" "subst"] {pinned}
   [

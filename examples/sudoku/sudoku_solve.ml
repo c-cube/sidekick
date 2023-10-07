@@ -311,7 +311,7 @@ end = struct
   type t = { grid0: Grid.t; tst: Term.store; theory: Theory.t; solver: Sat.t }
 
   let solve (self : t) : _ option =
-    let@ () = Profile.with_ "sudoku.solve" in
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "sudoku.solve" in
     let assumptions =
       Grid.all_cells self.grid0
       |> Iter.filter (fun (_, _, c) -> Cell.is_full c)
@@ -359,7 +359,7 @@ let chrono ~pp_time : (module CHRONO) =
   (module M)
 
 let solve_file ~use_stats ~pp_time file =
-  let@ () = Profile.with_ "solve-file" in
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "solve-file" in
   let open (val chrono ~pp_time) in
   Format.printf "solve grids in file %S@." file;
 
@@ -401,7 +401,7 @@ let solve_file ~use_stats ~pp_time file =
   ()
 
 let () =
-  let@ () = Sidekick_tef.with_setup in
+  let@ () = Trace_tef.with_setup () in
   Fmt.set_color_default true;
   let files = ref [] in
   let debug = ref 0 in

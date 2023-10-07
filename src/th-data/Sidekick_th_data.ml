@@ -712,7 +712,7 @@ end = struct
      need it. *)
   let on_final_check (self : t) (solver : SI.t) (acts : SI.theory_actions)
       _trail =
-    Profile.with_ "data.final-check" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "data.final-check" in
     (* acyclicity check first *)
     Acyclicity_.check self solver acts;
 
@@ -736,7 +736,7 @@ end = struct
       Log.debugf 10 (fun k ->
           k "(@[%s.final-check.must-decide@ %a@])" name (Util.pp_list E_node.pp)
             l);
-      Profile.instant "data.case-split";
+      Profile.message "data.case-split";
       List.iter (decide_class_ self solver acts) l);
     ()
 

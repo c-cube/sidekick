@@ -364,7 +364,7 @@ module Make () : S = struct
     (* perform boolean propagation in a fixpoint
        @raise Conflict if a clause is false *)
     let bcp_fixpoint_ (self : t) : unit =
-      Profile.with_ "bcp-fixpoint" @@ fun () ->
+      let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "bcp-fixpoint" in
       while self.trail_ptr < Atom.Stack.size self.trail do
         let a = Atom.Stack.get self.trail self.trail_ptr in
         Log.debugf 50 (fun k -> k "(@[bcp@ :atom %a@])" Atom.pp a);

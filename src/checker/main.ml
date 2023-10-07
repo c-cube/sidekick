@@ -6,7 +6,7 @@ let clause_of_int_l store atoms : Drup_check.clause =
   |> Drup_check.Clause.of_iter store
 
 let check ?pb proof : bool =
-  Profile.with_ "check" @@ fun () ->
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "check" in
   let cstore = Drup_check.Clause.create () in
   let trace = Drup_check.Trace.create cstore in
 
@@ -14,7 +14,7 @@ let check ?pb proof : bool =
   (match pb with
   | None -> ()
   | Some f when Filename.extension f = ".cnf" ->
-    Profile.with_ "parse-pb.cnf" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "parse-pb.cnf" in
     CCIO.with_in f (fun ic ->
         let parser_ = BL.Dimacs_parser.create ic in
         BL.Dimacs_parser.iter parser_ (fun atoms ->
@@ -42,11 +42,11 @@ let check ?pb proof : bool =
   (match proof with
   | f when Filename.extension f = ".drup" ->
     (* read file *)
-    Profile.with_ "parse-proof.drup" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "parse-proof.drup" in
     CCIO.with_in f add_proof_from_chan
   | f when Filename.extension f = ".gz" ->
     (* read compressed proof *)
-    Profile.with_ "parse-proof.drup" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "parse-proof.drup" in
     (* TODO: more graceful failure mode here *)
     assert (Filename.extension @@ Filename.chop_extension f = ".drup");
     let cmd = Printf.sprintf "gzip --keep -d -c \"%s\"" f in
@@ -70,7 +70,7 @@ let () =
   let files = ref [] in
   let opts = [ "-d", Arg.Int Log.set_debug, " set debug level" ] |> Arg.align in
   Printexc.record_backtrace true;
-  Sidekick_tef.setup ();
+  let@ () = Sidekick_bin_lib.Trace_setup.with_trace in
 
   let t1 = Unix.gettimeofday () in
 

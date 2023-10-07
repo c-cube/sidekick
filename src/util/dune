@@ -2,4 +2,4 @@
  (name sidekick_util)
  (public_name sidekick.util)
  (flags :standard -warn-error -a+8)
- (libraries containers iter sidekick.sigs bigarray unix))
+ (libraries containers iter sidekick.sigs bigarray unix trace.core))

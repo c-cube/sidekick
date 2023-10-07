@@ -328,7 +328,7 @@ let rec pop_lvls_theories_ n = function
 
 (* make model from the congruence closure *)
 let mk_model_ (self : t) (lits : lit Iter.t) : Model.t =
-  let@ () = Profile.with_ "smt-solver.mk-model" in
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "smt-solver.mk-model" in
   Log.debug 1 "(smt.solver.mk-model)";
   let module MB = Model_builder in
   let { cc; tst; model_ask = model_ask_hooks; model_complete; _ } = self in
@@ -483,19 +483,20 @@ let[@inline] iter_atoms_ (acts : theory_actions) : _ Iter.t =
   let (module A) = acts in
   A.iter_assumptions f
 
-(* propagation from the bool solver *)
+(** propagation from the bool solver *)
 let check_ ~final (self : t) (acts : sat_acts) =
-  let pb =
+  let[@inline] with_trace () f =
     if final then
-      Profile.begin_ "solver.final-check"
+      let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "solver.final-check" in
+      f ()
     else
-      Profile.null_probe
+      f ()
   in
+  let@ () = with_trace () in
   let iter = iter_atoms_ acts in
   Log.debugf 5 (fun k -> k "(smt-solver.assume :len %d)" (Iter.length iter));
   Event.emit self.on_progress ();
-  assert_lits_ ~final self acts iter;
-  Profile.exit pb
+  assert_lits_ ~final self acts iter
 
 (* propagation from the bool solver *)
 let[@inline] partial_check (self : t) (acts : Sidekick_sat.acts) : unit =

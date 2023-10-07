@@ -143,7 +143,7 @@ module Make_printer (Out : OUT) = struct
   (* toplevel wrapper *)
   let pp self : printer =
    fun out ->
-    Profile.with_ "quip.print" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "quip.print" in
     l [ a "quip"; a "1"; pp_rec self ] out
 
   let pp_debug self : printer = pp self

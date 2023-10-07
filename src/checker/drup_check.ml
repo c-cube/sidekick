@@ -69,7 +69,7 @@ end = struct
 
   (* check event, return [true] if it's valid *)
   let check_op (self : t) i (op : Trace.op) : bool =
-    Profile.with_ "check-op" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "check-op" in
     Log.debugf 20 (fun k -> k "(@[check-op :idx %d@ :op %a@])" i Trace.pp_op op);
 
     match op with

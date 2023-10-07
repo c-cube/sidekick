@@ -141,11 +141,10 @@ let add_clause_nopreproc_ ~internal (self : t) (c : lit array) (proof : step_id)
   reset_last_res_ self;
   Log.debugf 50 (fun k ->
       k "(@[solver.add-clause@ %a@])" (Util.pp_array Lit.pp) c);
-  let pb = Profile.begin_ "add-clause" in
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "add-clause" in
   Sat_solver.add_clause_a self.solver
     (c :> lit array)
-    (fun () -> Proof.Pterm.ref proof);
-  Profile.exit pb
+    (fun () -> Proof.Pterm.ref proof)
 
 let add_clause_nopreproc_l_ ~internal self c p =
   add_clause_nopreproc_ ~internal self (CCArray.of_list c) p
@@ -181,7 +180,7 @@ let add_ty (self : t) ty = SI.add_ty self.si ~ty
 
 let solve ?(on_exit = []) ?(on_progress = fun _ -> ())
     ?(should_stop = fun _ -> false) ~assumptions (self : t) : res =
-  let@ () = Profile.with_ "smt-solver.solve" in
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "smt-solver.solve" in
   let do_on_exit () = List.iter (fun f -> f ()) on_exit in
 
   let on_progress =

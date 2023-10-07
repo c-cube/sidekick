@@ -419,9 +419,10 @@ let clause_bump_activity self (c : clause) : unit =
   )
 
 let emit_counters_ (self : t) =
-  if Profile.enabled () then
-    Profile.count "sat"
-      [ "decisions", decision_level self; "trail", AVec.size self.trail ]
+  if Profile.enabled () then (
+    Profile.counter_int "sat.decisions" (decision_level self);
+    Profile.counter_int "sat.trail" (AVec.size self.trail)
+  )
 
 (* Simplification of clauses.
 
@@ -1658,7 +1659,7 @@ let pick_branch_lit ~full self : bool =
 (* do some amount of search, until the number of conflicts or clause learnt
    reaches the given parameters *)
 let search (self : t) ~on_progress ~(max_conflicts : int) : unit =
-  let@ () = Profile.with_ "sat.search" in
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "sat.search" in
   Log.debugf 3 (fun k ->
       k "(@[sat.search@ :max-conflicts %d@ :max-learnt %d@])" max_conflicts
         !(self.max_clauses_learnt));
@@ -1683,7 +1684,7 @@ let search (self : t) ~on_progress ~(max_conflicts : int) : unit =
       assert (self.elt_head = AVec.size self.trail);
       assert (self.elt_head = self.th_head);
       if max_conflicts > 0 && !n_conflicts >= max_conflicts then (
-        Profile.instant "sat.restart";
+        Profile.message "sat.restart";
         Log.debug 1 "(sat.restarting)";
         cancel_until self 0;
         Stat.incr self.n_restarts;
@@ -1721,7 +1722,7 @@ let[@inline] eval st lit = fst @@ eval_level st lit
 (* fixpoint of propagation and decisions until a model is found, or a
    conflict is reached *)
 let solve_ ~on_progress (self : t) : unit =
-  let@ () = Profile.with_ "sat.solve" in
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "sat.solve" in
   Log.debugf 5 (fun k ->
       k "(@[sat.solve :assms %d@])" (AVec.size self.assumptions));
   check_unsat_ self;
@@ -1767,7 +1768,7 @@ let solve_ ~on_progress (self : t) : unit =
           Clause.iter self.store c ~f:(fun a ->
               insert_var_order self (Atom.var a));
 
-          Profile.instant "sat.th-conflict";
+          Profile.message "sat.th-conflict";
           Log.debugf 5 (fun k ->
               k "(@[sat.theory-conflict-clause@ %a@])" (Clause.debug self.store)
                 c);

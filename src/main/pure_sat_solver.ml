@@ -150,7 +150,10 @@ let tracer ~(sink : Tr.Sink.t) () : SAT.Tracer.t =
 let start = Sys.time ()
 
 let solve ?check:(_ = false) (solver : SAT.t) : (unit, string) result =
-  let res = Profile.with_ "solve" (fun () -> SAT.solve solver) in
+  let res =
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "solve" in
+    SAT.solve solver
+  in
   let t2 = Sys.time () in
   Printf.printf "\r";
   flush stdout;

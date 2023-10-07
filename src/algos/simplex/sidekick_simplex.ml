@@ -652,6 +652,8 @@ module Make (Arg : ARG) :
      See page 14, figure 3.1 *)
   let pivot_and_update (self : t) (x_i : var_state) (x_j : var_state) (v : erat)
       : unit =
+    Profile.messagef (fun k ->
+        k "pivot x_i=%a x_j=%a" V.pp x_i.var V.pp x_j.var);
     assert (Var_state.is_basic x_i);
     assert (Var_state.is_n_basic x_j);
     _check_invariants_internal self;

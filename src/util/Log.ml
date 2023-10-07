@@ -1,7 +1,6 @@
 (** {1 Logging functions, real version} *)
 
 let enabled = true (* NOTE: change here for 0-overhead? *)
-
 let debug_level_ = ref 0
 let set_debug l = debug_level_ := l
 let get_debug () = !debug_level_
@@ -20,7 +19,7 @@ let[@inline never] debug_real_ l k =
         Format.fprintf _fmt "@]@?";
         let msg = Buffer.contents buf_ in
         (* forward to profiling *)
-        if Profile.enabled () then Profile.instant msg;
+        if Profile.enabled () then Profile.message msg;
         Format.fprintf !debug_fmt_ "@[<2>@{<Blue>[%d|%.3f]@}@ %s@]@." l now msg
       in
 

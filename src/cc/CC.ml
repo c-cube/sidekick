@@ -218,7 +218,7 @@ exception E_confl of Result_action.conflict
 
 let raise_conflict_ (cc : t) ~th (e : Lit.t list) (p : Sidekick_proof.Step.id) :
     _ =
-  Profile.instant "cc.conflict";
+  Profile.message "cc.conflict";
   (* clear tasks queue *)
   Vec.clear cc.pending;
   Vec.clear cc.combine;

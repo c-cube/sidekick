@@ -94,7 +94,7 @@ let solve (self : t) ~assumptions () : Solver.res =
   in
 
   let res =
-    let@ () = Profile.with_ "process.solve" in
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "process.solve" in
     Asolver.solve ~assumptions ?on_progress ~should_stop self.solver ()
   in
   let t2 = now () in
@@ -153,7 +153,7 @@ let known_logics =
 
 (* process a single statement *)
 let process_stmt (self : t) (stmt : Statement.t) : unit or_error =
-  let@ () = Profile.with_ "smtlib.process-stmt" in
+  let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "smtlib.process-stmt" in
   Log.debugf 5 (fun k ->
       k "(@[smtlib.process-statement@ %a@])" Statement.pp stmt);
 

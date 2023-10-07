@@ -499,7 +499,10 @@ module Make (A : ARG) = (* : S with module A = A *) struct
 
   (* raise conflict from certificate *)
   let fail_with_cert (self : state) si acts cert : 'a =
-    Profile.with1 "lra.simplex.check-cert" SimpSolver._check_cert cert;
+    (let@ _sp =
+       Profile.with_span ~__FILE__ ~__LINE__ "lra.simplex.check-cert"
+     in
+     SimpSolver._check_cert cert);
     let confl =
       SimpSolver.Unsat_cert.lits cert
       |> CCList.flat_map (Tag.to_lits si)
@@ -527,7 +530,14 @@ module Make (A : ARG) = (* : S with module A = A *) struct
           (SimpSolver.n_vars self.simplex)
           (SimpSolver.n_rows self.simplex));
     let res =
-      Profile.with_ "lra.simplex.solve" @@ fun () ->
+      let@ _sp =
+        Profile.with_span ~__FILE__ ~__LINE__ "lra.simplex.solve"
+          ~data:(fun () ->
+            [
+              "nvars", `Int (SimpSolver.n_vars self.simplex);
+              "nrows", `Int (SimpSolver.n_rows self.simplex);
+            ])
+      in
       SimpSolver.check self.simplex ~on_propagate:(on_propagate_ self si acts)
     in
     Log.debug 5 "(lra.check-simplex.done)";
@@ -666,7 +676,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   (* partial checks is where we add literals from the trail to the
      simplex. *)
   let partial_check_ self si acts trail : unit =
-    Profile.with_ "lra.partial-check" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "lra.partial-check" in
     reset_res_ self;
     let changed = ref false in
 
@@ -679,7 +689,7 @@ module Make (A : ARG) = (* : S with module A = A *) struct
   let final_check_ (self : state) si (acts : SI.theory_actions)
       (trail : _ Iter.t) : unit =
     Log.debug 5 "(th-lra.final-check)";
-    Profile.with_ "lra.final-check" @@ fun () ->
+    let@ _sp = Profile.with_span ~__FILE__ ~__LINE__ "lra.final-check" in
     reset_res_ self;
 
     let changed = ref false in
