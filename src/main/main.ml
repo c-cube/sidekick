@@ -293,7 +293,7 @@ let () =
     let exit_ n =
       if Printexc.backtrace_status () then
         Format.fprintf Format.std_formatter "%s@." b;
-      CCShims_.Stdlib.exit n
+      Stdlib.exit n
     in
     (match e with
     | Error.Error msg ->
