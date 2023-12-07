@@ -24,6 +24,7 @@ jobs:
     - uses: ocaml/setup-ocaml@v2
       with:
         ocaml-compiler: ${{ matrix.ocaml-compiler }}
+        allow-prerelease-opam: true
     - run: opam pin -n .
     - run: opam depext -yt sidekick sidekick-base sidekick-bin
     - run: opam install -t . --deps-only
