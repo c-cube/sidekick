@@ -4,7 +4,8 @@
  (synopsis "Utils for the sidekick binaries")
  (libraries containers sidekick.util
             (select trace_setup.ml from
-              (trace-tef -> trace_setup.real.ml)
+              (trace-fuchsia -> trace_setup.fuchsia.ml)
+              (trace-tef -> trace_setup.tef.ml)
               (-> trace_setup.dummy.ml)))
  (flags :standard -warn-error -a+8 -open Sidekick_util))
 
