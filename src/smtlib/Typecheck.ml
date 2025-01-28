@@ -84,6 +84,7 @@ let rec conv_ty (ctx : Ctx.t) (t : PA.ty) : Ty.t =
     let l = List.map (conv_ty ctx) l in
     Ty.app_l ctx.tst ty_f l
   | PA.Ty_arrow _ -> ill_typed ctx "cannot handle arrow types"
+  | PA.Ty_bv _ -> ill_typed ctx "cannot handle bitvectors"
 
 let is_num s =
   let is_digit_or_dot = function
