@@ -16,9 +16,10 @@ jobs:
         ocaml-compiler:
           - 4.08
           - 4.14
+          - 5.03
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - uses: ocaml/setup-ocaml@master
       with:
         ocaml-compiler: ${{ matrix.ocaml-compiler }}
@@ -28,4 +29,4 @@ jobs:
     - run: opam install -t . --deps-only
     - run: opam exec -- dune build --ignore-promoted-rules
     - run: opam exec -- dune runtest --ignore-promoted-rules
-      if: ${{ matrix.os == 'ubuntu-latest' && matrix.ocaml-compiler == '4.14.x' }}
+      if: ${{ matrix.os == 'ubuntu-latest' && matrix.ocaml-compiler == '5.03' }}
