@@ -10,7 +10,7 @@ type state = {
   p_reader: Proof.Trace_reader.t;
 }
 
-let show_sat (self : state) ~tag v : unit =
+let show_sat (_self : state) ~tag v : unit =
   match tag with
   | "AssCSat" ->
     (match

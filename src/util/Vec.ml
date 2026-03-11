@@ -1,7 +1,9 @@
 type 'a t = { mutable data: 'a array; mutable sz: int }
 
 let make n x = { data = Array.make n x; sz = 0 }
+
 let[@inline] create () = { data = [||]; sz = 0 }
+
 let[@inline] clear s = s.sz <- 0
 
 let[@inline] shrink t i =

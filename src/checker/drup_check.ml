@@ -53,7 +53,7 @@ end
 
     Each event is checked by reverse-unit propagation on previous events. *)
 module Fwd_check : sig
-  type error = [ `Bad_steps of Veci.t | `No_empty_clause ]
+  type error = [ `Bad_steps of int Vec.t | `No_empty_clause ]
 
   val pp_error : Trace.t -> error Fmt.printer
 
@@ -62,10 +62,10 @@ module Fwd_check : sig
       success. In case of error it returns [Error idxs] where [idxs] are the
       indexes in the trace of the steps that failed. *)
 end = struct
-  type t = { checker: Checker.t; errors: Veci.t }
+  type t = { checker: Checker.t; errors: int Vec.t }
 
   let create cstore : t =
-    { checker = Checker.create cstore; errors = Veci.create () }
+    { checker = Checker.create cstore; errors = Vec.create () }
 
   (* check event, return [true] if it's valid *)
   let check_op (self : t) i (op : Trace.op) : bool =
@@ -85,15 +85,15 @@ end = struct
       Checker.del_clause self.checker c;
       true
 
-  type error = [ `Bad_steps of Veci.t | `No_empty_clause ]
+  type error = [ `Bad_steps of int Vec.t | `No_empty_clause ]
 
   let pp_error trace out = function
     | `No_empty_clause -> Fmt.string out "no empty clause found"
     | `Bad_steps bad ->
-      let n0 = Veci.get bad 0 in
+      let n0 = Vec.get bad 0 in
       Fmt.fprintf out
         "@[<v>checking failed on %d ops.@ @[<2>First failure is op[%d]:@ %a@]@]"
-        (Veci.size bad) n0 Trace.pp_op (Trace.get trace n0)
+        (Vec.size bad) n0 Trace.pp_op (Trace.get trace n0)
 
   let check trace : _ result =
     let self = create (Trace.cstore trace) in
@@ -114,13 +114,13 @@ end = struct
         ) else (
           Log.debugf 10 (fun k ->
               k "(@[check.proof_rule.fail@ :idx %d@ :op %a@])" i Trace.pp_op op);
-          Veci.push self.errors i
+          Vec.push self.errors i
         ));
 
-    Log.debugf 10 (fun k -> k "found %d errors" (Veci.size self.errors));
+    Log.debugf 10 (fun k -> k "found %d errors" (Vec.size self.errors));
     if not !has_false then
       Error `No_empty_clause
-    else if Veci.size self.errors > 0 then
+    else if Vec.size self.errors > 0 then
       Error (`Bad_steps self.errors)
     else
       Ok ()

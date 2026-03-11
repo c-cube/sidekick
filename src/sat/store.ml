@@ -5,8 +5,8 @@ module Lit_tbl = Hashtbl.Make (Lit)
 
 type cstore = {
   c_lits: atom array Vec.t; (* storage for clause content *)
-  c_activity: Vec_float.t;
-  c_recycle_idx: Veci.t; (* recycle clause numbers that were GC'd *)
+  c_activity: float Vec.t;
+  c_recycle_idx: int Vec.t; (* recycle clause numbers that were GC'd *)
   c_proof: Step_vec.t; (* clause -> proof_rule for its proof *)
   c_attached: Bitvec.t;
   c_marked: Bitvec.t;
@@ -19,7 +19,7 @@ type t = {
   v_of_lit: var Lit_tbl.t; (* lit -> var *)
   v_level: int Vec.t; (* decision/assignment level, or -1 *)
   v_heap_idx: int Vec.t; (* index in priority heap *)
-  v_weight: Vec_float.t; (* heuristic activity *)
+  v_weight: float Vec.t; (* heuristic activity *)
   v_reason: var_reason option Vec.t; (* reason for assignment *)
   v_seen: Bitvec.t; (* generic temporary marker *)
   v_default_polarity: Bitvec.t; (* default polarity in decisions *)
@@ -52,7 +52,7 @@ let create ?(size = `Big) ~stat () : t =
     v_of_lit = Lit_tbl.create size_map;
     v_level = Vec.create ();
     v_heap_idx = Vec.create ();
-    v_weight = Vec_float.create ();
+    v_weight = Vec.create ();
     v_reason = Vec.create ();
     v_seen = Bitvec.create ();
     v_default_polarity = Bitvec.create ();
@@ -67,8 +67,8 @@ let create ?(size = `Big) ~stat () : t =
     c_store =
       {
         c_lits = Vec.create ();
-        c_activity = Vec_float.create ();
-        c_recycle_idx = Veci.create ~cap:0 ();
+        c_activity = Vec.create ();
+        c_recycle_idx = Vec.create ();
         c_proof = Step_vec.create ~cap:0 ();
         c_dead = Bitvec.create ();
         c_attached = Bitvec.create ();
@@ -88,10 +88,10 @@ module Var = struct
   let[@inline] set_level self v l = Vec.set self.v_level (v : var :> int) l
   let[@inline] reason self v = Vec.get self.v_reason (v : var :> int)
   let[@inline] set_reason self v r = Vec.set self.v_reason (v : var :> int) r
-  let[@inline] weight self v = Vec_float.get self.v_weight (v : var :> int)
+  let[@inline] weight self v = Vec.get self.v_weight (v : var :> int)
 
   let[@inline] set_weight self v w =
-    Vec_float.set self.v_weight (v : var :> int) w
+    Vec.set self.v_weight (v : var :> int) w
 
   let[@inline] mark self v = Bitvec.set self.v_seen (v : var :> int) true
   let[@inline] unmark self v = Bitvec.set self.v_seen (v : var :> int) false
@@ -208,16 +208,16 @@ module Clause = struct
     in
     (* allocate new ID *)
     let cid =
-      if Veci.is_empty c_recycle_idx then
+      if Vec.is_empty c_recycle_idx then
         Vec.size c_lits
       else
-        Veci.pop c_recycle_idx
+        Vec.pop_exn c_recycle_idx
     in
 
     (* allocate space *)
     (let new_len = cid + 1 in
      Vec.ensure_size c_lits ~elt:[||] new_len;
-     Vec_float.ensure_size c_activity new_len;
+     Vec.ensure_size c_activity ~elt:0. new_len;
      Step_vec.ensure_size c_proof new_len;
      Bitvec.ensure_size c_attached new_len;
      Bitvec.ensure_size c_dead new_len;
@@ -298,17 +298,17 @@ module Clause = struct
     Bitvec.set c_removable cid false;
     Bitvec.set c_marked cid false;
     Vec.set c_lits cid [||];
-    Vec_float.set c_activity cid 0.;
+    Vec.set c_activity cid 0.;
 
-    Veci.push c_recycle_idx cid;
+    Vec.push c_recycle_idx cid;
     (* recycle idx *)
     ()
 
   let[@inline] activity store c =
-    Vec_float.get store.c_store.c_activity (c : t :> int)
+    Vec.get store.c_store.c_activity (c : t :> int)
 
   let[@inline] set_activity store c f =
-    Vec_float.set store.c_store.c_activity (c : t :> int) f
+    Vec.set store.c_store.c_activity (c : t :> int) f
 
   let[@inline] atoms_a store c : atom array =
     Vec.get store.c_store.c_lits (c : t :> int)
@@ -372,7 +372,7 @@ let alloc_var_uncached_ ?default_pol:(pol = true) self (form : Lit.t) : var =
   Vec.push v_level (-1);
   Vec.push v_heap_idx (-1);
   Vec.push v_reason None;
-  Vec_float.push v_weight 0.;
+  Vec.push v_weight 0.;
   Bitvec.ensure_size v_seen v_idx;
   Bitvec.ensure_size v_default_polarity v_idx;
   Bitvec.set v_default_polarity v_idx pol;

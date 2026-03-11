@@ -13,7 +13,7 @@ module Atom = Store.Atom
 module Var = Store.Var
 module Clause = Store.Clause
 
-module H = Heap.Make [@specialise] (struct
+module H = Heap.Make (struct
   type store = Store.t
   type t = var
 
@@ -262,7 +262,7 @@ type t = {
      store them here. *)
   trail: AVec.t;
   (* decision stack + propagated elements (atoms or assignments). *)
-  var_levels: Veci.t; (* decision levels in [trail]  *)
+  var_levels: int Vec.t; (* decision levels in [trail]  *)
   assumptions: AVec.t; (* current assumptions *)
   mutable th_head: int;
   (* Start offset in the queue {!trail} of
@@ -328,7 +328,7 @@ let create_ ~store ~tracer ~stat ~max_clauses_learnt (plugin : plugin) : t =
     th_head = 0;
     elt_head = 0;
     trail = AVec.create ();
-    var_levels = Veci.create ();
+    var_levels = Vec.create ();
     assumptions = AVec.create ();
     order = H.create store;
     var_incr = 1.;
@@ -357,7 +357,7 @@ let iter_clauses_learnt_ (self : t) ~f : unit =
   Vec.iter ~f:iter_pool self.clause_pools;
   ()
 
-let[@inline] decision_level st = Veci.size st.var_levels
+let[@inline] decision_level st = Vec.size st.var_levels
 let[@inline] nb_clauses st = CVec.size st.clauses_hyps
 let stat self = self.stat
 
@@ -578,7 +578,7 @@ let preprocess_clause_ (self : t) (c : Clause.t) : Clause.t =
 let new_decision_level (self : t) =
   assert (self.th_head = AVec.size self.trail);
   assert (self.elt_head = AVec.size self.trail);
-  Veci.push self.var_levels (AVec.size self.trail);
+  Vec.push self.var_levels (AVec.size self.trail);
   let (module P) = self.plugin in
   P.push_level ();
   ()
@@ -613,7 +613,7 @@ let cancel_until (self : t) lvl =
   else (
     Log.debugf 5 (fun k -> k "(@[sat.cancel-until %d@])" lvl);
     (* We set the head of the solver and theory queue to what it was. *)
-    let head = ref (Veci.get self.var_levels lvl) in
+    let head = ref (Vec.get self.var_levels lvl) in
     self.elt_head <- !head;
     self.th_head <- !head;
     (* Now we need to cleanup the vars that are not valid anymore
@@ -646,7 +646,7 @@ let cancel_until (self : t) lvl =
     assert (n > 0);
     (* Resize the vectors according to their new size. *)
     AVec.shrink self.trail !head;
-    Veci.shrink self.var_levels lvl;
+    Vec.shrink self.var_levels lvl;
     let (module P) = self.plugin in
     P.pop_levels n;
     Delayed_actions.clear_on_backtrack self.delayed_actions;
