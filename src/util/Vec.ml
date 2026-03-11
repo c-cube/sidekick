@@ -73,11 +73,12 @@ let[@inline] get t i =
   Array.unsafe_get t.data i
 
 let[@inline] set t i v =
-  if i < 0 || i > t.sz then invalid_arg "vec.set";
   if i = t.sz then
     push t v
-  else
+  else if i >= 0 && i < t.sz then
     Array.unsafe_set t.data i v
+  else
+    invalid_arg "vec.set"
 
 let[@inline] fast_remove t i =
   assert (i >= 0 && i < t.sz);
