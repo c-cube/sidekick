@@ -454,8 +454,11 @@ module Make_ = struct
     else
       aux e 0
 
-  (* TODO: have beta-reduction here; level checking; and pluggable reduction
-     rules (in the store) so we can reduce quotients and recursors *)
+  (* Definitional equality: installed by Reduce, defaults to syntactic equality *)
+  let def_eq_ref : (store -> term -> term -> bool) ref =
+    ref (fun _ a b -> equal a b)
+
+  (* TODO: pluggable reduction rules (in the store) for quotients and recursors *)
 
   (** compute the type of [view]. *)
   let compute_ty_ (self : store) ~make (view : view) : term =
@@ -485,9 +488,8 @@ module Make_ = struct
       let ty_a = ty a in
       (match ty_f.view with
       | E_pi (_, ty_arg_f, ty_bod_f) ->
-        (* check that the expected type matches *)
-        (* FIXME: replace [equal] with definitional equality *)
-        if not (equal ty_arg_f ty_a) then
+        (* check that the expected type matches, using definitional equality *)
+        if not (!def_eq_ref self ty_arg_f ty_a) then
           Error.errorf
             "@[<2>cannot @[apply `%a`@]@ @[to `%a`@],@ expected argument type: \
              `%a`@ @[actual: `%a`@]@]"
@@ -718,4 +720,6 @@ module Internal_ = struct
 
   let subst_ store ~recursive t subst =
     subst_ ~make:(make_ store) ~recursive t subst
+
+  let def_eq_ref = def_eq_ref
 end

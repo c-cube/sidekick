@@ -186,6 +186,10 @@ module Internal_ : sig
     t ->
     f:(recurse:(t -> t) -> t -> t option) ->
     t
+
+  val def_eq_ref : (store -> t -> t -> bool) ref
+  (** Definitional equality hook. Defaults to syntactic equality.
+      Overwritten by [Reduce] at init time. *)
 end
 
 (**/**)

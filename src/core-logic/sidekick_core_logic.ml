@@ -6,6 +6,7 @@ module Subst = Subst
 module T_builtins = T_builtins
 module Store = Term.Store
 module Level = Level
+module Reduce = Reduce
 
 (* TODO: move to separate library? *)
 module Str_const = Str_const
