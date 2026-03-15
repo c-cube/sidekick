@@ -1,6 +1,6 @@
 (** Constants.
 
-  Constants are logical symbols, defined by the user thanks to an open type *)
+    Constants are logical symbols, defined by the user thanks to an open type *)
 
 open Types_
 
@@ -24,10 +24,8 @@ val make : view -> Ops.t -> ty:term -> t
 val ser : ser_t:(term -> Ser_value.t) -> t -> string * Ser_value.t
 val ty : t -> term
 
-type decoders =
-  (string * Ops.t * (term Ser_decode.t -> view Ser_decode.t)) list
-(** Decoders for constants: given a term store, return a list
-    of supported tags, and for each tag, a decoder for constants
-    that have this particular tag. *)
+type decoders = (string * Ops.t * (term Ser_decode.t -> view Ser_decode.t)) list
+(** Decoders for constants: given a term store, return a list of supported tags,
+    and for each tag, a decoder for constants that have this particular tag. *)
 
 include EQ_HASH_PRINT with type t := t
