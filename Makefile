@@ -30,6 +30,12 @@ test:
 test-promote:
 	@dune runtest $(OPTS) --force --no-buffer --auto-promote
 
+format:
+	@dune build @fmt --auto-promote
+
+format-check:
+	@dune build @fmt --quiet
+
 PROGRESS ?= --progress
 TESTOPTS ?= -j $(J) -c tests/benchpress.sexp $(PROGRESS)
 TESTTOOL=benchpress
