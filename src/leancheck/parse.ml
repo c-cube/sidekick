@@ -100,6 +100,15 @@ let parse ?(max_errors = max_int) (input : input) (cb : callback) : unit =
                l
            in
            CB.ind ~n_params ~nidx ~tyidx ~intros ~univ_params
+         | S "#DEF" :: I nidx :: I tyidx :: I validx :: tl ->
+           let univ_params =
+             List.map
+               (function
+                 | I i -> i
+                 | _ -> failwith "invalid param")
+               tl
+           in
+           CB.def ~nidx ~tyidx ~validx ~univ_params
          | _ ->
            incr n_errors;
            Fmt.eprintf "@{<Yellow>warn@}: unhandled line %d: %s@." !n_line line

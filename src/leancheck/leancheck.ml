@@ -175,6 +175,14 @@ let process_files ~max_err ~quiet (files : string list) : unit =
           );
           ()
 
+        let def ~nidx ~tyidx ~validx ~univ_params : unit =
+          let name = Idx.get_name idx nidx in
+          let _ty = Lean_elab.elab_top (Idx.get_term idx tyidx) in
+          let _val = Lean_elab.elab_top (Idx.get_term idx validx) in
+          let _univ_params = List.map (Idx.get_name idx) univ_params in
+          if not quiet then
+            Fmt.eprintf "@[<2>@{<Blue>Def@}@ %s@]@." name
+
         let after_line () =
           if quiet then (
             if !n_lines mod 1000 = 0 then Fmt.eprintf "\rlines: %d%!" !n_lines

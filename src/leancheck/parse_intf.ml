@@ -21,4 +21,7 @@ module type CALLBACK = sig
     intros:(int * int) list ->
     univ_params:int list ->
     unit
+
+  val def :
+    nidx:int -> tyidx:int -> validx:int -> univ_params:int list -> unit
 end
