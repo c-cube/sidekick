@@ -42,16 +42,15 @@ val as_int : t -> int option
 
 (** {2 Judgements}
 
-    These are little proofs of some symbolic properties of levels, even
-    those which contain variables. *)
+    These are little proofs of some symbolic properties of levels, even those
+    which contain variables. *)
 
 val judge_leq : store -> t -> t -> bool
-(** [judge_leq st l1 l2] is [true] if [l1] is proven to be lower
-    or equal to [l2] *)
+(** [judge_leq st l1 l2] is [true] if [l1] is proven to be lower or equal to
+    [l2] *)
 
 val judge_eq : store -> t -> t -> bool
-(** [judge_eq st l1 l2] is [true] iff [judge_leq l1 l2]
-    and [judge_leq l2 l1] *)
+(** [judge_eq st l1 l2] is [true] iff [judge_leq l1 l2] and [judge_leq l2 l1] *)
 
 val judge_is_zero : store -> t -> bool
 (** [judge_is_zero st l] is [true] iff [l <= 0] holds *)

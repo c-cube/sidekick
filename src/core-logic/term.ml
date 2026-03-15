@@ -404,9 +404,9 @@ module Make_ = struct
           map_shallow_ e ~make ~f:(fun inbind u ->
               loop u
                 (if inbind then
-                  k + 1
-                else
-                  k))
+                   k + 1
+                 else
+                   k))
       )
     in
     assert (n >= 0);
@@ -441,9 +441,9 @@ module Make_ = struct
                map_shallow_ e ~make ~f:(fun inb u ->
                    aux u
                      (if inb then
-                       k + 1
-                     else
-                       k))
+                        k + 1
+                      else
+                        k))
              in
              T_int_tbl.add cache_ (e, k) r;
              r)
@@ -610,9 +610,9 @@ module Make_ = struct
         map_shallow_ e ~make ~f:(fun inb u ->
             loop
               (if inb then
-                k + 1
-              else
-                k)
+                 k + 1
+               else
+                 k)
               u)
       | Some u ->
         let u = db_shift_ ~make u k in

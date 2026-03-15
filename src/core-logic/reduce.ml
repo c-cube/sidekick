@@ -9,8 +9,8 @@ module T2_tbl = CCHashtbl.Make (struct
   let hash (a, b) = CCHash.combine3 91 (T.hash a) (T.hash b)
 end)
 
-(** Weak head normal form.
-    Beta-reduces at the head until stuck. Memoised via [cache]. *)
+(** Weak head normal form. Beta-reduces at the head until stuck. Memoised via
+    [cache]. *)
 let whnf ?(cache = T.Tbl.create 16) store e =
   let rec loop e =
     match T.Tbl.find_opt cache e with
@@ -34,17 +34,18 @@ let whnf ?(cache = T.Tbl.create 16) store e =
   in
   loop e
 
-(** Definitional equality: WHNF both sides, then compare structurally.
-    Uses [Level.judge_eq] for universe levels.
-    Memoised via pair cache to handle sharing in DAGs. *)
+(** Definitional equality: WHNF both sides, then compare structurally. Uses
+    [Level.judge_eq] for universe levels. Memoised via pair cache to handle
+    sharing in DAGs. *)
 let def_eq store e1 e2 =
   let whnf_cache = T.Tbl.create 16 in
   let eq_cache : bool T2_tbl.t = T2_tbl.create 16 in
   let whnf = whnf ~cache:whnf_cache store in
 
   let rec go e1 e2 =
-    if T.equal e1 e2 then true
-    else
+    if T.equal e1 e2 then
+      true
+    else (
       (* canonical order to halve cache size *)
       let key =
         if T.compare e1 e2 <= 0 then
@@ -60,11 +61,13 @@ let def_eq store e1 e2 =
         let r = check e1 e2 in
         T2_tbl.replace eq_cache key r;
         r
+    )
   and check e1 e2 =
     let e1 = whnf e1 in
     let e2 = whnf e2 in
-    if T.equal e1 e2 then true
-    else
+    if T.equal e1 e2 then
+      true
+    else (
       match T.view e1, T.view e2 with
       | E_type l1, E_type l2 -> Level.judge_eq (T.Store.lvl_store store) l1 l2
       | E_var v1, E_var v2 -> Var.equal v1 v2
@@ -74,6 +77,7 @@ let def_eq store e1 e2 =
       | E_lam (_, ty1, b1), E_lam (_, ty2, b2) -> go ty1 ty2 && go b1 b2
       | E_pi (_, ty1, b1), E_pi (_, ty2, b2) -> go ty1 ty2 && go b1 b2
       | _ -> false
+    )
   in
   go e1 e2
 
