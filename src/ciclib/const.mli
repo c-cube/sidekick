@@ -1,6 +1,6 @@
 (** Constants.
 
-  Constants are logical symbols, defined by the user thanks to an open type *)
+    Constants are logical symbols, defined by the user thanks to an open type *)
 
 open Types_
 

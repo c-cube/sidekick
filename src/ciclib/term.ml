@@ -190,9 +190,9 @@ let db_shift_ (e : term) (n : int) =
         map_shallow e ~f:(fun inbind u ->
             loop u
               (if inbind then
-                k + 1
-              else
-                k))
+                 k + 1
+               else
+                 k))
     )
   in
   assert (n >= 0);
@@ -225,9 +225,9 @@ let db_replace_ e (env : t list) : term =
         map_shallow e ~f:(fun inb u ->
             aux u
               (if inb then
-                k + 1
-              else
-                k))
+                 k + 1
+               else
+                 k))
     )
   in
   if is_closed e then
