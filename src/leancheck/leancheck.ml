@@ -7,7 +7,11 @@ let ( let@ ) = ( @@ )
 
 (** Map indexes to objects *)
 module Idx = struct
-  type t = { names: string Vec.t; levels: Level.t Vec.t; terms: T.t Vec.t }
+  type t = {
+    names: string Vec.t;
+    levels: Level.t Vec.t;
+    terms: Lean_term.t Vec.t;
+  }
 
   (* create. The slot 0 is already filled with name "" *)
   let create () : t =
@@ -31,10 +35,10 @@ module Idx = struct
     | exception _ -> Error.errorf "invalid name at %d" i
 
   let set_term self i t : unit =
-    ensure_size self.terms ~dummy:T.type_ (i + 1);
+    ensure_size self.terms ~dummy:Lean_term.dummy (i + 1);
     Vec.set self.terms i t
 
-  let get_term self i : T.t =
+  let get_term self i : Lean_term.t =
     match Vec.get self.terms i with
     | s -> s
     | exception _ -> Error.errorf "invalid term at %d" i
@@ -54,7 +58,7 @@ module Idx = struct
       "(@[idx {@ names: [@[%a@]],@ terms: [@[%a@]],@ levels: [@[%a@]]}@])"
       (Fmt.iter ~sep:(Fmt.return ";@ ") (pp_with_idx Fmt.Dump.string))
       (Vec.to_iter self.names |> Iter.zip_i)
-      (Fmt.iter ~sep:(Fmt.return ";@ ") (pp_with_idx T.pp_debug))
+      (Fmt.iter ~sep:(Fmt.return ";@ ") (pp_with_idx Lean_term.pp))
       (Vec.to_iter self.terms |> Iter.zip_i)
       (Fmt.iter ~sep:(Fmt.return ";@ ") Level.pp)
       (Vec.to_iter self.levels)
@@ -68,13 +72,13 @@ let name_join a b =
     a ^ "." ^ b
 
 let binder_of_string = function
-  | "#BD" -> T.BD
-  | "#BI" -> T.BI
-  | "#BS" -> T.BS
-  | "#BC" -> T.BC
+  | "#BD" -> Lean_term.BD
+  | "#BI" -> Lean_term.BI
+  | "#BS" -> Lean_term.BS
+  | "#BC" -> Lean_term.BC
   | s -> failwith (Printf.sprintf "invalid binder: %S" s)
 
-let process_files ~max_err (files : string list) : unit =
+let process_files ~max_err ~quiet (files : string list) : unit =
   let start = Mtime_clock.now () in
 
   Log.debugf 1 (fun k ->
@@ -116,38 +120,45 @@ let process_files ~max_err (files : string list) : unit =
         let up ~at i : unit =
           Idx.set_level idx at (Level.var @@ Idx.get_name idx i)
 
-        let ev ~at i : unit = Idx.set_term idx at (T.bvar_i i)
+        let ev ~at i : unit = Idx.set_term idx at (Lean_term.BVar i)
 
         let ea ~at i j : unit =
-          Idx.set_term idx at (T.app (Idx.get_term idx i) (Idx.get_term idx j))
+          Idx.set_term idx at
+            (Lean_term.App (Idx.get_term idx i, Idx.get_term idx j))
 
         let ec ~at i_name i_args : unit =
           let name = Idx.get_name idx i_name in
           let args = List.map (Idx.get_level idx) i_args in
-          Idx.set_term idx at (T.const (Const.make name) args)
+          Idx.set_term idx at (Lean_term.Const (name, args))
 
         let es ~at i : unit =
-          Idx.set_term idx at (T.type_of_univ (Idx.get_level idx i))
+          Idx.set_term idx at (Lean_term.Sort (Idx.get_level idx i))
 
         let el ~at b n i j : unit =
           Idx.set_term idx at
-            (T.lam (binder_of_string b) (Idx.get_name idx n)
-               ~var_ty:(Idx.get_term idx i) (Idx.get_term idx j))
+            (Lean_term.Lam
+               ( binder_of_string b,
+                 Idx.get_name idx n,
+                 Idx.get_term idx i,
+                 Idx.get_term idx j ))
 
         let ep ~at b n i j : unit =
           Idx.set_term idx at
-            (T.pi (binder_of_string b) (Idx.get_name idx n)
-               ~var_ty:(Idx.get_term idx i) (Idx.get_term idx j))
+            (Lean_term.Pi
+               ( binder_of_string b,
+                 Idx.get_name idx n,
+                 Idx.get_term idx i,
+                 Idx.get_term idx j ))
 
         let ind ~n_params ~nidx ~tyidx ~intros ~univ_params : unit =
           let name = Idx.get_name idx nidx in
-          let ty = Idx.get_term idx tyidx in
+          let ty = Lean_elab.elab_top (Idx.get_term idx tyidx) in
           let cstors =
             List.map
               (fun (i, j) ->
                 {
                   Inductive.c_name = Idx.get_name idx i;
-                  c_ty = Idx.get_term idx j;
+                  c_ty = Lean_elab.elab_top (Idx.get_term idx j);
                 })
               intros
           in
@@ -157,12 +168,18 @@ let process_files ~max_err (files : string list) : unit =
 
           let spec = { Inductive.name; ty; n_params; univ_params; cstors } in
 
-          Fmt.eprintf "@[<2>@{<Green>Ind@}@ %a@]@." Inductive.pp_spec spec;
-          (* TODO: register to the conversion relation *)
-          Fmt.eprintf "is valid: %B@." (Inductive.is_valid spec);
+          if not quiet then (
+            Fmt.eprintf "@[<2>@{<Green>Ind@}@ %a@]@." Inductive.pp_spec spec;
+            (* TODO: register to the conversion relation *)
+            Fmt.eprintf "is valid: %B@." (Inductive.is_valid spec)
+          );
           ()
 
-        let after_line () = Fmt.eprintf "%a@." Idx.dump idx
+        let after_line () =
+          if quiet then (
+            if !n_lines mod 1000 = 0 then Fmt.eprintf "\rlines: %d%!" !n_lines
+          ) else
+            Fmt.eprintf "%a@." Idx.dump idx
       end)
   in
 
@@ -179,6 +196,7 @@ let process_files ~max_err (files : string list) : unit =
 let () =
   let files = ref [] in
   let max_err = ref max_int in
+  let quiet = ref false in
   let opts =
     [
       "--debug", Arg.Int Log.set_debug, " set debug level";
@@ -192,6 +210,10 @@ let () =
       ( "-nc",
         Arg.Unit (fun () -> CCFormat.set_color_default false),
         " disable colors" );
+      ( "-q",
+        Arg.Set quiet,
+        " quiet: suppress verbose output, show progress every 1000 lines" );
+      "--quiet", Arg.Set quiet, " like -q";
     ]
     |> Arg.align
   in
@@ -199,4 +221,4 @@ let () =
   Arg.parse opts (CCList.Ref.push files) "leancheck file+";
   if !files = [] then failwith "provide at least one file";
 
-  process_files ~max_err:!max_err (List.rev !files)
+  process_files ~max_err:!max_err ~quiet:!quiet (List.rev !files)
