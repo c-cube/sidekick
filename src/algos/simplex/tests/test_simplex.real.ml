@@ -124,8 +124,8 @@ module Step = struct
                  | [] -> []
                  | vs ->
                    let gen =
-                     let+ x = oneofl vs
-                     and+ kind = oneofl [ `Leq; `Lt; `Geq; `Gt ]
+                     let+ x = oneof_list vs
+                     and+ kind = oneof_list [ `Leq; `Lt; `Geq; `Gt ]
                      and+ n = rand_q.QC.gen in
                      ( vars,
                        match kind with
@@ -145,11 +145,11 @@ module Step = struct
                  (if List.length vars > 2 then (
                    let v = List.length vars in
                    let gen =
-                     let* vars' = G.shuffle_l vars in
+                     let* vars' = shuffle_list vars in
                      let* n = 1 -- min 12 (List.length vars') in
                      let vars' = CCList.take n vars' in
                      assert (List.length vars' = n);
-                     let* coeffs = list_repeat n rand_q.gen in
+                     let* coeffs = list_size (return n) rand_q.gen in
                      let le = List.combine coeffs vars' in
                      return (v :: vars, S_define (v, le))
                    in
