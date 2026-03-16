@@ -1,0 +1,5 @@
+(library
+ (name sidekick_proof_twp)
+ (public_name sidekick.proof_twp)
+ (libraries sidekick.core sidekick.proof sidekick.sat sidekick.smt-solver containers)
+ (flags :standard -open Sidekick_util -open Sidekick_core))

@@ -31,6 +31,7 @@ let p_progress = ref false
 let enable_trace = ref false
 let proof_file = ref ""
 let trace_file = ref ""
+let proof_twp_file = ref ""
 
 (* Arguments parsing *)
 let int_arg r arg =
@@ -83,6 +84,9 @@ let argspec =
       ( "--trace-file",
         Arg.Set_string trace_file,
         " store trace in given file (no cleanup)" );
+      ( "--proof-twp",
+        Arg.Set_string proof_twp_file,
+        " emit .twp proof to given file (talweg-compatible)" );
       "--no-model", Arg.Clear p_model, " do not print model";
       ( "--bool",
         Arg.Symbol
@@ -161,7 +165,7 @@ let mk_sat_tracer () : Sidekick_sat.Tracer.t =
 let main_smt ~config () : _ result =
   let tst = Term.Store.create ~size:4_096 () in
 
-  let enable_proof = !check || !p_proof || !proof_file <> "" in
+  let enable_proof = !check || !p_proof || !proof_file <> "" || !proof_twp_file <> "" in
   Log.debugf 1 (fun k -> k "(@[proof-enable@ %B@])" enable_proof);
 
   run_with_tmp_file ~enable_proof @@ fun trace_file ->
@@ -179,7 +183,17 @@ let main_smt ~config () : _ result =
      (* main proof object *)
      let proof = Proof.create ~config () in
   *)
-  let tracer = mk_smt_tracer ~trace_file () in
+  let twp_state_opt =
+    if !proof_twp_file <> "" then
+      Some (Sidekick_proof_twp.Twp_state.create ())
+    else
+      None
+  in
+  let tracer =
+    match twp_state_opt with
+    | Some st -> Sidekick_proof_twp.Twp_tracer.create st
+    | None -> mk_smt_tracer ~trace_file ()
+  in
   Proof.Tracer.enable tracer enable_proof;
 
   let solver =
@@ -230,6 +244,16 @@ let main_smt ~config () : _ result =
     try E.fold_l (fun () stmt -> Driver.process_stmt driver stmt) () input
     with Exit -> E.return ()
   in
+  (* If --proof-twp is set, write the accumulated .twp buffer to the file *)
+  (match twp_state_opt with
+  | None -> ()
+  | Some st ->
+    let buf = Sidekick_proof_twp.Twp_state.buffer st in
+    (try
+       CCIO.with_out !proof_twp_file (fun oc ->
+           Buffer.output_buffer oc buf)
+     with Sys_error msg ->
+       Log.debugf 0 (fun k -> k "proof-twp: cannot write file: %s" msg)));
   res
 
 let main_cnf () : _ result =
