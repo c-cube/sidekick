@@ -27,6 +27,12 @@ clean:
 test:
 	@dune runtest $(OPTS) --force --no-buffer
 
+format:
+	@dune build @fmt --auto-promote
+
+format-check:
+	@dune build @fmt --quiet
+
 test-promote:
 	@dune runtest $(OPTS) --force --no-buffer --auto-promote
 
