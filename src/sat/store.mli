@@ -5,8 +5,6 @@ type var = Base_types_.var
 type atom = Base_types_.atom
 type clause = Base_types_.clause
 
-module CVec = Base_types_.CVec
-
 type var_reason = Base_types_.var_reason =
   | Decision
   | Bcp of clause
@@ -58,14 +56,13 @@ module Atom : sig
   val pa : var -> t
   val na : var -> t
 
-  module AVec = Sidekick_sat__Base_types_.Atom0.AVec
   module ATbl = Sidekick_sat__Base_types_.Atom0.ATbl
 
   val lit : store -> atom -> Lit.t
   val mark : store -> atom -> unit
   val unmark : store -> atom -> unit
   val marked : store -> atom -> bool
-  val watched : store -> atom -> CVec.t
+  val watched : store -> atom -> clause Vec.t
   val is_true : store -> atom -> bool
   val set_is_true : store -> atom -> bool -> unit
   val is_false : store -> t -> bool
@@ -95,7 +92,6 @@ module Clause : sig
   val of_int_unsafe : int -> t
 
   module Tbl : Hashtbl.S with type key = t
-  module CVec = Base_types_.CVec
 
   val make_a : store -> removable:bool -> atom array -> Proof.Step.id -> t
   val make_l : store -> removable:bool -> atom list -> Proof.Step.id -> t

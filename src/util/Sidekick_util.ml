@@ -2,9 +2,6 @@
 module Fmt = CCFormat
 module Util = Util
 module Vec = Vec
-module Veci = Veci
-module Vec_float = Vec_float
-module Vec_sig = Vec_sig
 module Bitvec = Bitvec
 module Int_id = Int_id
 

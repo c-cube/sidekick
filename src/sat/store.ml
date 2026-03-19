@@ -7,7 +7,7 @@ type cstore = {
   c_lits: atom array Vec.t; (* storage for clause content *)
   c_activity: float Vec.t;
   c_recycle_idx: int Vec.t; (* recycle clause numbers that were GC'd *)
-  c_proof: Step_vec.t; (* clause -> proof_rule for its proof *)
+  c_proof: Proof.Step.id Vec.t; (* clause -> proof_rule for its proof *)
   c_attached: Bitvec.t;
   c_marked: Bitvec.t;
   c_removable: Bitvec.t;
@@ -30,7 +30,7 @@ type t = {
   a_seen: Bitvec.t;
   a_form: Lit.t Vec.t;
   (* TODO: store watches in clauses instead *)
-  a_watched: Clause0.CVec.t Vec.t;
+  a_watched: clause Vec.t Vec.t;
   a_proof_lvl0: Proof.Step.id ATbl.t;
   (* atom -> proof for it to be true at level 0 *)
   stat_n_atoms: int Stat.counter;
@@ -69,7 +69,7 @@ let create ?(size = `Big) ~stat () : t =
         c_lits = Vec.create ();
         c_activity = Vec.create ();
         c_recycle_idx = Vec.create ();
-        c_proof = Step_vec.create ~cap:0 ();
+        c_proof = Vec.create ();
         c_dead = Bitvec.create ();
         c_attached = Bitvec.create ();
         c_removable = Bitvec.create ();
@@ -218,7 +218,7 @@ module Clause = struct
     (let new_len = cid + 1 in
      Vec.ensure_size c_lits ~elt:[||] new_len;
      Vec.ensure_size c_activity ~elt:0. new_len;
-     Step_vec.ensure_size c_proof new_len;
+     Vec.ensure_size c_proof ~elt:0 new_len;
      Bitvec.ensure_size c_attached new_len;
      Bitvec.ensure_size c_dead new_len;
      Bitvec.ensure_size c_removable new_len;
@@ -227,7 +227,7 @@ module Clause = struct
      Bitvec.set c_removable cid removable);
 
     Vec.set c_lits cid atoms;
-    Step_vec.set c_proof cid proof_step;
+    Vec.set c_proof cid proof_step;
 
     let c = of_int_unsafe cid in
     c
@@ -274,7 +274,7 @@ module Clause = struct
     Bitvec.get store.c_store.c_removable (c : t :> int)
 
   let[@inline] proof_step store c =
-    Step_vec.get store.c_store.c_proof (c : t :> int)
+    Vec.get store.c_store.c_proof (c : t :> int)
 
   let dealloc store c : unit =
     assert (dead store c);
@@ -383,9 +383,9 @@ let alloc_var_uncached_ ?default_pol:(pol = true) self (form : Lit.t) : var =
   Bitvec.ensure_size a_is_true (2 * (v : var :> int));
   Bitvec.ensure_size a_seen (2 * (v : var :> int));
   Vec.push a_form form;
-  Vec.push a_watched (CVec.create ~cap:0 ());
+  Vec.push a_watched (Vec.create ());
   Vec.push a_form (Lit.neg form);
-  Vec.push a_watched (CVec.create ~cap:0 ());
+  Vec.push a_watched (Vec.create ());
   assert (Vec.get a_form (Atom.of_var v : atom :> int) == form);
 
   v

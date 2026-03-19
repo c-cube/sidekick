@@ -5,7 +5,6 @@
 *)
 
 module Fmt = CCFormat
-module Veci = Veci
 
 (* TODO: resolution proof construction, optionally *)
 
@@ -130,9 +129,14 @@ module Make () : S = struct
     end
 
     module Stack = struct
-      include Veci
-
-      let create () = create ()
+      type elt = t
+      type nonrec t = elt Vec.t
+      let create () = Vec.create ()
+      let push = Vec.push
+      let size = Vec.size
+      let get = Vec.get
+      let shrink = Vec.shrink
+      let to_iter = Vec.to_iter
     end
   end
 
