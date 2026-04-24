@@ -30,7 +30,8 @@ test:
 test-promote:
 	@dune runtest $(OPTS) --force --no-buffer --auto-promote
 
-TESTOPTS ?= -j $(J) -c tests/benchpress.sexp --progress
+PROGRESS ?= --progress
+TESTOPTS ?= -j $(J) -c tests/benchpress.sexp $(PROGRESS)
 TESTTOOL=benchpress
 DATE=$(shell date +%FT%H:%M)
 
