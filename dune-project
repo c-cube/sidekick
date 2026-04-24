@@ -56,8 +56,8 @@
   zarith
   (smtlib-utils
    (and
-    (>= "0.1")
-    (< "0.5")))
+    (>= "0.5")
+    (< "0.6")))
   (sidekick
    (= :version))
   (qcheck
