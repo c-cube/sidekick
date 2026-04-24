@@ -18,3 +18,4 @@ perf.*
 *.gz
 .git-blame-ignore-revs
 *.json
+*.tmp
