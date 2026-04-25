@@ -60,5 +60,3 @@
       (timeout 10)
       (dirs ()))))
 
-(set-options (progress true))
-
