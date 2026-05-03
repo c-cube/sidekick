@@ -289,36 +289,29 @@ module Expl_state = struct
     mutable lits: Lit.t list;
     mutable th_lemmas:
       (Lit.t * (Lit.t * Lit.t list) list * Proof.Pterm.delayed) list;
-    mutable local_gen: int;
+
   }
 
-  let create () : t = { lits = []; th_lemmas = []; local_gen = -2 }
+  let create () : t = { lits = []; th_lemmas = [] }
   let[@inline] copy self : t = { self with lits = self.lits }
   let[@inline] add_lit (self : t) lit = self.lits <- lit :: self.lits
-
-  let[@inline] new_local_id (self : t) : Proof.Pterm.local_ref =
-    let n = self.local_gen in
-    self.local_gen <- n - 1;
-    n
 
   let[@inline] add_th (self : t) lit hyps pr : unit =
     self.th_lemmas <- (lit, hyps, pr) :: self.th_lemmas
 
   let merge self other =
-    let { lits = o_lits; th_lemmas = o_lemmas; local_gen = o_l } = other in
+    let { lits = o_lits; th_lemmas = o_lemmas } = other in
     self.lits <- List.rev_append o_lits self.lits;
     self.th_lemmas <- List.rev_append o_lemmas self.th_lemmas;
-    self.local_gen <- min self.local_gen o_l;
+
     ()
 
   (* proof of [\/_i ¬lits[i]] *)
-  let proof_of_th_lemmas (self : t) : Proof.Pterm.delayed =
+  let proof_of_th_lemmas (self : t) (tracer : Proof.Tracer.t) : Proof.Pterm.delayed =
     Proof.Pterm.delay @@ fun () ->
-    let bs = ref [] in
-    let bind (t : Proof.Pterm.t) : Proof.Pterm.local_ref =
-      let n = new_local_id self in
-      bs := (n, t) :: !bs;
-      n
+    (* Emit each sub-proof immediately; use its offset (Step.id) as a P_ref. *)
+    let bind (t : Proof.Pterm.t) : Proof.Step.id =
+      Proof.Tracer.add_step tracer (Proof.Pterm.delay (fun () -> t))
     in
 
     let p_lits1 = List.rev_map Lit.neg self.lits in
@@ -328,18 +321,13 @@ module Expl_state = struct
     let p_cc = Proof.Core_rules.lemma_cc (List.rev_append p_lits1 p_lits2) in
     let resolve_with_th_proof pr (lit_t_u, sub_proofs, pr_th) =
       let pr_th = pr_th () in
-      (* pr_th: [sub_proofs |- t=u].
-          now resolve away [sub_proofs] to get literals that were
-          asserted in the congruence closure *)
       let pr_th =
         List.fold_left
           (fun pr_th (lit_i, hyps_i) ->
-            (* [hyps_i |- lit_i] *)
             let lemma_i =
               bind
               @@ Proof.Core_rules.lemma_cc (lit_i :: List.rev_map Lit.neg hyps_i)
             in
-            (* resolve [lit_i] away. *)
             Proof.Core_rules.proof_res ~pivot:(Lit.term lit_i) lemma_i
               (bind pr_th))
           pr_th sub_proofs
@@ -347,15 +335,12 @@ module Expl_state = struct
       Proof.Core_rules.proof_res ~pivot:(Lit.term lit_t_u) (bind pr_th)
         (bind pr)
     in
-    (* resolve with theory proofs responsible for some merges, if any. *)
     let body = List.fold_left resolve_with_th_proof p_cc self.th_lemmas in
-    Proof.Pterm.let_ (List.rev !bs) body
-
-  let to_resolved_expl (self : t) : Resolved_expl.t =
-    (* FIXME: package the th lemmas too *)
-    let { lits; th_lemmas = _; local_gen = _ } = self in
+    body
+  let to_resolved_expl (self : t) (tracer : Proof.Tracer.t) : Resolved_expl.t =
+    let { lits; th_lemmas = _ } = self in
     let s2 = copy self in
-    let pr proof = proof_of_th_lemmas s2 proof in
+    let pr proof = proof_of_th_lemmas s2 tracer proof in
     { Resolved_expl.lits; pr }
 end
 
@@ -523,8 +508,8 @@ let n_is_bool_value (self : t) n : bool =
    merges. *)
 let lits_and_proof_of_expl (_self : t) (st : Expl_state.t) :
     Lit.t list * Proof.Pterm.delayed =
-  let { Expl_state.lits; th_lemmas = _; local_gen = _ } = st in
-  let pr = Expl_state.proof_of_th_lemmas st in
+  let { Expl_state.lits; th_lemmas = _ } = st in
+  let pr = Expl_state.proof_of_th_lemmas st (proof_tracer _self) in
   lits, pr
 
 (* main CC algo: add terms from [pending] to the signature table,
@@ -840,12 +825,12 @@ let explain_eq self n1 n2 : Resolved_expl.t =
   let st = Expl_state.create () in
   explain_equal_rec_ self st n1 n2;
   (* FIXME: also need to return the proof? *)
-  Expl_state.to_resolved_expl st
+  Expl_state.to_resolved_expl st self.proof
 
 let explain_expl (self : t) expl : Resolved_expl.t =
   let expl_st = Expl_state.create () in
   explain_decompose_expl self expl_st expl;
-  Expl_state.to_resolved_expl expl_st
+  Expl_state.to_resolved_expl expl_st self.proof
 
 let[@inline] on_pre_merge self = Event.of_emitter self.on_pre_merge
 let[@inline] on_pre_merge2 self = Event.of_emitter self.on_pre_merge2

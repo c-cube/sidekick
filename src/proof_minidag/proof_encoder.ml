@@ -161,29 +161,11 @@ let rec encode_rule self (r : Pterm.rule_apply) : E.offset =
         List.iter (E.ref e) prem_offs;
         List.iter (E.ref e) term_offs)
 
-and encode_pterm ?(local_tbl : (int, E.offset) Hashtbl.t option)
-    self (pt : Pterm.t) : E.offset =
+and encode_pterm self (pt : Pterm.t) : E.offset =
   match pt with
   | Pterm.P_ref sid -> step_off self sid
-  | Pterm.P_local id ->
-    (match local_tbl with
-     | Some t ->
-       (match Hashtbl.find_opt t id with
-        | Some off -> off
-        | None -> emit_sorry self (Printf.sprintf "P_local s%d (unresolved)" id))
-     | None -> emit_sorry self (Printf.sprintf "P_local s%d (no context)" id))
   | Pterm.P_apply r -> encode_rule self r
-  | Pterm.P_let (bindings, body) ->
-    (* Evaluate each binding and store in a fresh local table. *)
-    let tbl =
-      match local_tbl with
-      | Some t -> t
-      | None -> Hashtbl.create 4
-    in
-    List.iter (fun (id, pt') ->
-        Hashtbl.replace tbl id (encode_pterm ~local_tbl:tbl self pt'))
-      bindings;
-    encode_pterm ~local_tbl:tbl self body
+
 
 (** Emit a proof step and return its minidag offset (= the new step id). *)
 let emit_step self (_sid : Step.id) (pt : Pterm.delayed) : E.offset =

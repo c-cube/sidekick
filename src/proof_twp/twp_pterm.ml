@@ -124,7 +124,7 @@ let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
 
 (** Translate a Pterm.t and emit .twp lines.
     Returns the P-index of the outermost proof step. *)
-let rec emit_pterm (st : Twp_state.t) (pt : Proof.Pterm.t) : int =
+let emit_pterm (st : Twp_state.t) (pt : Proof.Pterm.t) : int =
   match pt with
   | Proof.Pterm.P_apply r ->
     emit_pterm_rule st r
@@ -140,35 +140,4 @@ let rec emit_pterm (st : Twp_state.t) (pt : Proof.Pterm.t) : int =
       emit_line st (Printf.sprintf "P%d assume E%d" n Twp_state.e_false);
       n)
 
-  | Proof.Pterm.P_local local_ref ->
-    (* Local ref within a P_let binding; resolved by emit_pterm_with_locals *)
-    let n = alloc_p st in
-    emit_line st (Printf.sprintf "# P_local s%d (unresolved) -> P%d" local_ref n);
-    emit_line st (Printf.sprintf "P%d assume E%d" n Twp_state.e_false);
-    n
 
-  | Proof.Pterm.P_let (bindings, body) ->
-    (* Process bindings, then process body with the local map *)
-    let local_map : (int, int) Hashtbl.t = Hashtbl.create 4 in
-    List.iter (fun (local_id, pt_inner) ->
-      let p_inner = emit_pterm st pt_inner in
-      Hashtbl.add local_map local_id p_inner
-    ) bindings;
-    emit_pterm_with_locals st body local_map
-
-and emit_pterm_with_locals (st : Twp_state.t) (pt : Proof.Pterm.t)
-    (locals : (int, int) Hashtbl.t) : int =
-  match pt with
-  | Proof.Pterm.P_local local_ref ->
-    (match Hashtbl.find_opt locals local_ref with
-    | Some n -> n
-    | None ->
-      let n = alloc_p st in
-      emit_line st (Printf.sprintf "# unresolved P_local s%d -> P%d" local_ref n);
-      emit_line st (Printf.sprintf "P%d assume E%d" n Twp_state.e_false);
-      n)
-  | Proof.Pterm.P_apply r ->
-    (* For rule_apply within let, we need to resolve premise refs via locals *)
-    (* For simplicity, just call the regular handler *)
-    emit_pterm_rule st r
-  | other -> emit_pterm st other
