@@ -1,9 +1,8 @@
 (** SMT tracer that writes proof steps as a minidag byte stream.
 
-    Implements [Sidekick_smt_solver.Tracer.t].  The output file uses the
+    Implements [Sidekick_smt_solver.Tracer.t]. The output file uses the
     [.granite] extension and contains a sequence of minidag nodes: first term
-    nodes, then proof nodes.  The last proof node is the root (empty clause).
-*)
+    nodes, then proof nodes. The last proof node is the root (empty clause). *)
 
 module Proof = Sidekick_proof
 module Smt_tracer = Sidekick_smt_solver.Tracer
@@ -20,29 +19,27 @@ let create ~(oc : out_channel) ~(tst : Term.store) () : Smt_tracer.t =
   let pe = Proof_encoder.create te tst in
   at_exit (fun () ->
       (try E.flush enc with _ -> ());
-      (try close_out oc with _ -> ()));
+      try close_out oc with _ -> ());
   object
     val mutable enabled = true
-
     method proof_enabled = enabled
     method proof_enable b = enabled <- b
 
     method emit_proof_step (p : Proof.Pterm.delayed) : Proof.Step.id =
-      if not enabled then Proof.Step.dummy
-      else begin
+      if not enabled then
+        Proof.Step.dummy
+      else (
         (* The step id IS the minidag byte offset of the emitted node. *)
         let off = Proof_encoder.emit_step pe Proof.Step.dummy p in
         Sidekick_trace.Entry_id.of_int_unsafe (off :> int)
-      end
+      )
 
     method emit_proof_delete _id = ()
     method emit_term (_t : Term.t) = Sidekick_trace.Entry_id.dummy
-
     method sat_assert_clause ~id:_ _ _ = Sidekick_trace.Entry_id.dummy
     method sat_delete_clause ~id:_ _ = ()
     method sat_unsat_clause ~id:_ = Sidekick_trace.Entry_id.dummy
     method sat_encode_lit _ = Ser_value.null
-
     method emit_assert_term _ = Sidekick_trace.Entry_id.dummy
   end
 

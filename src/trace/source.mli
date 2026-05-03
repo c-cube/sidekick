@@ -1,9 +1,8 @@
 (** Source to read a trace.
 
-    A source is an IO input source that allows the read of individual
-    entries of the trace, by providing their entry ID. It also allows to
-    iterate on entries in chronological order.
-*)
+    A source is an IO input source that allows the read of individual entries of
+    the trace, by providing their entry ID. It also allows to iterate on entries
+    in chronological order. *)
 
 type tag = string
 

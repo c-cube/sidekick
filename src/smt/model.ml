@@ -1,9 +1,7 @@
 (** SMT models.
 
-  The solver models are partially evaluated; the frontend might ask
-  for values for terms not explicitly present in them.
-
-*)
+    The solver models are partially evaluated; the frontend might ask for values
+    for terms not explicitly present in them. *)
 
 open Sigs
 

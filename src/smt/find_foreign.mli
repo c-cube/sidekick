@@ -1,8 +1,7 @@
 (** Find foreign variables.
 
-  This module is a modular discoverer of foreign variables (and boolean terms).
-  It should run after preprocessing of terms.
-  *)
+    This module is a modular discoverer of foreign variables (and boolean
+    terms). It should run after preprocessing of terms. *)
 
 open Sidekick_core
 
@@ -24,5 +23,5 @@ val add_hook : t -> hook -> unit
 (** Register a hook to detect foreign subterms *)
 
 val traverse_term : t -> actions -> Term.t -> unit
-(** Traverse subterms of this term to detect foreign variables
-    and boolean subterms. *)
+(** Traverse subterms of this term to detect foreign variables and boolean
+    subterms. *)

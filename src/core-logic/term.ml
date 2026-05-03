@@ -180,8 +180,11 @@ module Hcons = Hashcons.Make (struct
 end)
 
 module Store = struct
-  type t = { (* unique ID for this store *)
-             s_uid: int; s_exprs: Hcons.t }
+  type t = {
+    (* unique ID for this store *)
+    s_uid: int;
+    s_exprs: Hcons.t;
+  }
 
   (* TODO: use atomic? CCAtomic? *)
   let n = ref 0
@@ -388,9 +391,9 @@ module Make_ = struct
           map_shallow_ e ~make ~f:(fun inbind u ->
               loop u
                 (if inbind then
-                  k + 1
-                else
-                  k))
+                   k + 1
+                 else
+                   k))
       )
     in
     assert (n >= 0);
@@ -425,9 +428,9 @@ module Make_ = struct
                map_shallow_ e ~make ~f:(fun inb u ->
                    aux u
                      (if inb then
-                       k + 1
-                     else
-                       k))
+                        k + 1
+                      else
+                        k))
              in
              T_int_tbl.add cache_ (e, k) r;
              r)
@@ -534,9 +537,9 @@ module Make_ = struct
       e2.flags <-
         (compute_db_depth_ e lsl (1 + store_id_bits))
         lor (if has_fvars then
-              1 lsl store_id_bits
-            else
-              0)
+               1 lsl store_id_bits
+             else
+               0)
         lor store.s_uid;
       Store.check_e_uid store e2
     );
@@ -584,9 +587,9 @@ module Make_ = struct
         map_shallow_ e ~make ~f:(fun inb u ->
             loop
               (if inb then
-                k + 1
-              else
-                k)
+                 k + 1
+               else
+                 k)
               u)
       | Some u ->
         let u = db_shift_ ~make u k in

@@ -23,9 +23,9 @@ let emit_term_ (self : state) (t : Term.t) =
           ( "Tc",
             let fields =
               (if V.is_null view then
-                []
-              else
-                [ "v", view ])
+                 []
+               else
+                 [ "v", view ])
               @ [ "ty", loop' c_ty; "tag", V.string tag ]
             in
             V.dict_of_list fields )
@@ -50,10 +50,9 @@ let emit_term_ (self : state) (t : Term.t) =
   in
   loop t
 
-class type t =
-  object
-    method emit_term : Term.t -> term_ref
-  end
+class type t = object
+  method emit_term : Term.t -> term_ref
+end
 
 class dummy : t =
   object

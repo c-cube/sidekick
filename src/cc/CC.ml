@@ -289,7 +289,6 @@ module Expl_state = struct
     mutable lits: Lit.t list;
     mutable th_lemmas:
       (Lit.t * (Lit.t * Lit.t list) list * Proof.Pterm.delayed) list;
-
   }
 
   let create () : t = { lits = []; th_lemmas = [] }
@@ -307,7 +306,8 @@ module Expl_state = struct
     ()
 
   (* proof of [\/_i ¬lits[i]] *)
-  let proof_of_th_lemmas (self : t) (tracer : Proof.Tracer.t) : Proof.Pterm.delayed =
+  let proof_of_th_lemmas (self : t) (tracer : Proof.Tracer.t) :
+      Proof.Pterm.delayed =
     Proof.Pterm.delay @@ fun () ->
     (* Emit each sub-proof immediately; use its offset (Step.id) as a P_ref. *)
     let bind (t : Proof.Pterm.t) : Proof.Step.id =
@@ -337,6 +337,7 @@ module Expl_state = struct
     in
     let body = List.fold_left resolve_with_th_proof p_cc self.th_lemmas in
     body
+
   let to_resolved_expl (self : t) (tracer : Proof.Tracer.t) : Resolved_expl.t =
     let { lits; th_lemmas = _ } = self in
     let s2 = copy self in
@@ -947,10 +948,9 @@ module type BUILD = sig
     t
   (** Create a new congruence closure.
 
-      @param term_store used to be able to create new terms. All terms
-      interacting with this congruence closure must belong in this term state
-      as well.
-  *)
+      @param term_store
+        used to be able to create new terms. All terms interacting with this
+        congruence closure must belong in this term state as well. *)
 end
 
 module Make (A : ARG) : BUILD = struct

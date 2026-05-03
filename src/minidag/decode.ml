@@ -4,11 +4,7 @@ type t = { str: string }
 let create str : t = { str }
 
 type offset = int
-
-type node_decoder = {
-  dec: t;
-  mutable off: offset;
-}
+type node_decoder = { dec: t; mutable off: offset }
 
 type value =
   | Stop  (** No other value left *)

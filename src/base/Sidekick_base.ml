@@ -1,20 +1,17 @@
 (** Sidekick base
 
-    This library is a starting point for writing concrete implementations
-    of SMT solvers with Sidekick.
+    This library is a starting point for writing concrete implementations of SMT
+    solvers with Sidekick.
 
-    It provides a representation of terms, boolean formulas,
-    linear arithmetic expressions, datatypes for the functors in Sidekick.
+    It provides a representation of terms, boolean formulas, linear arithmetic
+    expressions, datatypes for the functors in Sidekick.
 
-    In addition, it has a notion of {{!Statement.t} Statement}.
-    Statements are instructions
-    for the SMT solver to do something, such as: define a new constant,
-    declare a new constant, assert a formula as being true,
-    set an option, check satisfiability of the set of statements added so far,
-    etc. Logic formats such as SMT-LIB 2.6 are in fact based on a similar
-    notion of statements, and a [.smt2] files contains a list of statements.
-
-*)
+    In addition, it has a notion of {{!Statement.t} Statement}. Statements are
+    instructions for the SMT solver to do something, such as: define a new
+    constant, declare a new constant, assert a formula as being true, set an
+    option, check satisfiability of the set of statements added so far, etc.
+    Logic formats such as SMT-LIB 2.6 are in fact based on a similar notion of
+    statements, and a [.smt2] files contains a list of statements. *)
 
 module Types_ = Types_
 module Term = Term

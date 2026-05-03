@@ -1,5 +1,5 @@
-(** A signature is a shallow term shape where immediate subterms
-      are representative *)
+(** A signature is a shallow term shape where immediate subterms are
+    representative *)
 
 open Sidekick_core.CC_view
 open Types_

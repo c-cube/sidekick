@@ -89,10 +89,7 @@ module Var = struct
   let[@inline] reason self v = Vec.get self.v_reason (v : var :> int)
   let[@inline] set_reason self v r = Vec.set self.v_reason (v : var :> int) r
   let[@inline] weight self v = Vec.get self.v_weight (v : var :> int)
-
-  let[@inline] set_weight self v w =
-    Vec.set self.v_weight (v : var :> int) w
-
+  let[@inline] set_weight self v w = Vec.set self.v_weight (v : var :> int) w
   let[@inline] mark self v = Bitvec.set self.v_seen (v : var :> int) true
   let[@inline] unmark self v = Bitvec.set self.v_seen (v : var :> int) false
   let[@inline] marked self v = Bitvec.get self.v_seen (v : var :> int)
@@ -273,8 +270,7 @@ module Clause = struct
   let[@inline] removable store c =
     Bitvec.get store.c_store.c_removable (c : t :> int)
 
-  let[@inline] proof_step store c =
-    Vec.get store.c_store.c_proof (c : t :> int)
+  let[@inline] proof_step store c = Vec.get store.c_store.c_proof (c : t :> int)
 
   let dealloc store c : unit =
     assert (dead store c);

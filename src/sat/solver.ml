@@ -73,11 +73,12 @@ end
 type clause_pool = (module CLAUSE_POOL)
 
 (* a pool with garbage collection determined by [P] *)
-module Make_gc_cp (P : sig
-  val descr : unit -> string
-  val max_size : int ref
-end)
-() : CLAUSE_POOL = struct
+module Make_gc_cp
+    (P : sig
+      val descr : unit -> string
+      val max_size : int ref
+    end)
+    () : CLAUSE_POOL = struct
   let clauses_ : clause Vec.t = Vec.create ()
   (* Use a [Vec] so we can sort it.
      TODO: when we can sort any vec, come back to that. *)
@@ -126,8 +127,8 @@ let[@inline] cp_to_iter_ (module P : CLAUSE_POOL) yield : unit = P.iter ~f:yield
     number of clauses by default *)
 let learntsize_factor = 1. /. 3.
 
-(** Actions from theories and user, but to be done in specific points
-      of the solving loops. *)
+(** Actions from theories and user, but to be done in specific points of the
+    solving loops. *)
 module Delayed_actions : sig
   type t
 
@@ -722,8 +723,10 @@ let put_high_level_atoms_first (store : store) (arr : atom array) : unit =
   Array.iteri
     (fun i a ->
       if i > 0 && Atom.level store a > Atom.level store arr.(0) then
-        if (* move first to second, [i]-th to first, second to [i] *)
-           i = 1 then
+        if
+          (* move first to second, [i]-th to first, second to [i] *)
+          i = 1
+        then
           swap_arr arr 0 1
         else (
           let tmp = arr.(1) in
@@ -766,8 +769,8 @@ exception Non_redundant
 
 (* can we remove [a] by self-subsuming resolutions with other lits
    of the learnt clause? *)
-let lit_redundant (self : t) (abstract_levels : int) (steps : Proof.Step.id Vec.t)
-    (v : var) : bool =
+let lit_redundant (self : t) (abstract_levels : int)
+    (steps : Proof.Step.id Vec.t) (v : var) : bool =
   let store = self.store in
   let to_unmark = self.to_clear in
   let steps_size_init = Vec.size steps in
@@ -830,9 +833,7 @@ let minimize_conflict (self : t) (_c_level : int) (learnt : atom Vec.t)
   (* abstraction of the levels involved in the conflict at all,
      as logical "or" of each literal's approximate level *)
   let abstract_levels =
-    Vec.fold
-      (fun lvl a -> lvl lor abstract_level_ self (Atom.var a))
-      0 learnt
+    Vec.fold (fun lvl a -> lvl lor abstract_level_ self (Atom.var a)) 0 learnt
   in
 
   let j = ref 1 in
@@ -1017,8 +1018,7 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
     let p =
       Proof.Tracer.add_step self.tracer @@ fun () ->
       let lits = Util.array_to_list_map (Atom.lit self.store) cr.cr_learnt in
-      Proof.Sat_rules.sat_redundant_clause lits
-        ~hyps:(Vec.to_iter cr.cr_steps)
+      Proof.Sat_rules.sat_redundant_clause lits ~hyps:(Vec.to_iter cr.cr_steps)
     in
     let uclause = Clause.make_a store ~removable:true cr.cr_learnt p in
     Tracer.assert_clause' self.tracer ~id:(Clause.to_int uclause)
@@ -1037,8 +1037,7 @@ let record_learnt_clause (self : t) ~pool (cr : conflict_res) : unit =
     let p =
       Proof.Tracer.add_step self.tracer @@ fun () ->
       let lits = Util.array_to_list_map (Atom.lit self.store) cr.cr_learnt in
-      Proof.Sat_rules.sat_redundant_clause lits
-        ~hyps:(Vec.to_iter cr.cr_steps)
+      Proof.Sat_rules.sat_redundant_clause lits ~hyps:(Vec.to_iter cr.cr_steps)
     in
     let lclause = Clause.make_a store ~removable:true cr.cr_learnt p in
     Tracer.assert_clause' self.tracer ~id:(Clause.to_int lclause)

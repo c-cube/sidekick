@@ -1,10 +1,8 @@
 (** Core of the SMT solver using Sidekick_sat
 
-    Sidekick_sat (in src/sat/) is a modular SAT solver in
-    pure OCaml.
+    Sidekick_sat (in src/sat/) is a modular SAT solver in pure OCaml.
 
-    This builds a SMT solver on top of it.
-*)
+    This builds a SMT solver on top of it. *)
 
 module Sigs = Sigs
 module Model_builder = Model_builder

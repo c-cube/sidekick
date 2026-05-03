@@ -15,9 +15,8 @@ type e_node = {
   mutable n_expl: explanation_forest_link;
       (* the rooted forest for explanations *)
 }
-(** A node of the congruence closure.
-      An equivalence class is represented by its "root" element,
-      the representative. *)
+(** A node of the congruence closure. An equivalence class is represented by its
+    "root" element, the representative. *)
 
 and signature = (Const.t, e_node, e_node list) CC_view.t
 

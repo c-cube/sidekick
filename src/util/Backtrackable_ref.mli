@@ -4,8 +4,9 @@ type 'a t
 
 val create : ?copy:('a -> 'a) -> 'a -> 'a t
 (** Create a backtrackable reference holding the given value initially.
-    @param copy if provided, will be used to copy the value when [push_level]
-    is called. *)
+    @param copy
+      if provided, will be used to copy the value when [push_level] is called.
+*)
 
 val set : 'a t -> 'a -> unit
 (** Set the reference's current content *)

@@ -1,20 +1,17 @@
 (** Translate sidekick Term.t to .twp E-index expressions.
 
-    This module walks Term.t recursively and emits E-lines into the
-    twp_state buffer. Results are memoized by term id.
+    This module walks Term.t recursively and emits E-lines into the twp_state
+    buffer. Results are memoized by term id.
 
-    With -open Sidekick_core:
-      Term  (includes T_builtins: C_bool, C_eq, C_not, C_true, C_false, C_ite, C_proof)
-      Const  (Const.view : Const.t -> const_view)
-      Str_const  (Str_const.Str : string -> const_view)
-      Lit
-*)
+    With -open Sidekick_core: Term (includes T_builtins: C_bool, C_eq, C_not,
+    C_true, C_false, C_ite, C_proof) Const (Const.view : Const.t -> const_view)
+    Str_const (Str_const.Str : string -> const_view) Lit *)
 
 open Twp_state
 
 (* fixed preamble indices from twp_state.ml *)
-let e_type_idx = Twp_state.e_type   (* 1 *)
-let e_bool_idx = Twp_state.e_bool   (* 2 *)
+let e_type_idx = Twp_state.e_type (* 1 *)
+let e_bool_idx = Twp_state.e_bool (* 2 *)
 let e_false_idx = Twp_state.e_false (* 3 *)
 
 (** Escape a name for use as a .twp atom. *)
@@ -31,9 +28,12 @@ let escape_name (s : string) : string =
     Buffer.add_char buf '"';
     String.iter
       (fun c ->
-        if c = '"' then Buffer.add_string buf "\\\""
-        else if c = '\\' then Buffer.add_string buf "\\\\"
-        else Buffer.add_char buf c)
+        if c = '"' then
+          Buffer.add_string buf "\\\""
+        else if c = '\\' then
+          Buffer.add_string buf "\\\\"
+        else
+          Buffer.add_char buf c)
       s;
     Buffer.add_char buf '"';
     Buffer.contents buf
@@ -51,19 +51,14 @@ let rec emit_expr (st : Twp_state.t) (t : Term.t) : int =
 
 and emit_expr_uncached (st : Twp_state.t) (t : Term.t) : int =
   match Term.view t with
-  | Term.E_type _ ->
-    e_type_idx
-
-  | Term.E_const c ->
-    emit_const st t c
-
+  | Term.E_type _ -> e_type_idx
+  | Term.E_const c -> emit_const st t c
   | Term.E_app (f, a) ->
     let f_idx = emit_expr st f in
     let a_idx = emit_expr st a in
     let n = alloc_e st in
     emit_line st (Printf.sprintf "E%d app E%d E%d" n f_idx a_idx);
     n
-
   | Term.E_pi (_, dom, body) ->
     (* Arrow type — for QF_UF, Pi is a non-dependent arrow. *)
     let dom_idx = emit_expr st dom in
@@ -71,7 +66,6 @@ and emit_expr_uncached (st : Twp_state.t) (t : Term.t) : int =
     let n = alloc_e st in
     emit_line st (Printf.sprintf "E%d arrow E%d E%d" n dom_idx range_idx);
     n
-
   | Term.E_lam _ | Term.E_var _ | Term.E_bound_var _ | Term.E_app_fold _ ->
     let n = alloc_e st in
     emit_line st (Printf.sprintf "# unsupported term view at E%d" n);
@@ -104,8 +98,7 @@ and emit_const (st : Twp_state.t) (t : Term.t) (c : Const.t) : int =
     emit_line st (Printf.sprintf "# unsupported builtin E%d" n);
     emit_line st (Printf.sprintf "E%d type" n);
     n
-  | Str_const.Str name ->
-    emit_str_const st t name
+  | Str_const.Str name -> emit_str_const st t name
   | _ ->
     (* For other const_view variants (e.g. uninterpreted sorts/functions from
        sidekick-base Ty module), extract the name via the printer. *)
@@ -133,9 +126,8 @@ and emit_str_const (st : Twp_state.t) (t : Term.t) (name : string) : int =
     n
   )
 
-(** Emit the E-index for a Lit.t.
-    Positive: emit the term directly.
-    Negative: represent as (t = false). *)
+(** Emit the E-index for a Lit.t. Positive: emit the term directly. Negative:
+    represent as (t = false). *)
 let emit_lit (st : Twp_state.t) (lit : Lit.t) : int =
   let t = Lit.term lit in
   let sign = Lit.sign lit in

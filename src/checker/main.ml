@@ -90,8 +90,8 @@ let () =
   let t2 = Unix.gettimeofday () -. t1 in
   Format.printf "c %s@."
     (if ok then
-      "OK"
-    else
-      "FAIL");
+       "OK"
+     else
+       "FAIL");
   Format.printf "c elapsed time: %.3fs@." t2;
   if not ok then exit 1

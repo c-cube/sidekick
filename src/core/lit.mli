@@ -1,8 +1,8 @@
 (** Literals
 
-    Literals are a pair of a boolean-sorted term, and a sign.
-    Positive literals are the same as their term, and negative literals
-    are the negation of their term.
+    Literals are a pair of a boolean-sorted term, and a sign. Positive literals
+    are the same as their term, and negative literals are the negation of their
+    term.
 
     The SAT solver deals only in literals and clauses (sets of literals).
     Everything else belongs in the SMT solver. *)
@@ -34,15 +34,14 @@ val signed_term : t -> term * bool
 (** Return the atom and the sign *)
 
 val atom : ?sign:bool -> Term.store -> term -> t
-(** [atom store t] makes a literal out of a term, possibly normalizing
-      its sign in the process.
-      @param sign if provided, and [sign=false], negate the resulting lit. *)
+(** [atom store t] makes a literal out of a term, possibly normalizing its sign
+    in the process.
+    @param sign if provided, and [sign=false], negate the resulting lit. *)
 
 val make_eq : ?sign:bool -> Term.store -> term -> term -> t
 
 val norm_sign : t -> t * bool
-(** [norm_sign (+t)] is [+t, true],
-      and [norm_sign (-t)] is [+t, false].
-      In both cases the term is positive, and the boolean reflects the initial sign. *)
+(** [norm_sign (+t)] is [+t, true], and [norm_sign (-t)] is [+t, false]. In both
+    cases the term is positive, and the boolean reflects the initial sign. *)
 
 include Sidekick_sigs.WITH_SET_MAP_TBL with type t := t

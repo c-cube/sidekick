@@ -18,6 +18,6 @@ val read_term_exn : t -> term_ref -> Term.t
 (** @raise Error.Error if it fails *)
 
 val deref_term : t -> Term.t -> Term.t
-(** [deref_term reader t] dereferences the root node of [t].
-    If [t] is [Ref id], this returns the term at [id] instead.
+(** [deref_term reader t] dereferences the root node of [t]. If [t] is [Ref id],
+    this returns the term at [id] instead.
     @raise Error.Error if it fails *)

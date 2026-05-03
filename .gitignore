@@ -19,3 +19,4 @@ perf.*
 .git-blame-ignore-revs
 *.json
 *.tmp
+*.granite

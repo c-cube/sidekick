@@ -1,8 +1,7 @@
 (** SMTLib-2.6 Driver *)
 
-(** This library provides a parser, a type-checker, and a driver
-    for processing SMTLib-2 problems.
-*)
+(** This library provides a parser, a type-checker, and a driver for processing
+    SMTLib-2 problems. *)
 
 type 'a or_error = ('a, string) CCResult.t
 

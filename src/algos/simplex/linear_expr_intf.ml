@@ -6,9 +6,8 @@
 
 (** {2 Coefficients}
 
-    Coefficients are used in expressions. They usually
-    are either rationals, or integers.
-*)
+    Coefficients are used in expressions. They usually are either rationals, or
+    integers. *)
 module type COEFF = sig
   type t
 
@@ -39,8 +38,7 @@ end
 
 (** {2 Variable interface}
 
-    Standard interface for variables that are meant to be used
-    in expressions.
+    Standard interface for variables that are meant to be used in expressions.
 *)
 module type VAR = sig
   type t
@@ -65,10 +63,9 @@ type op = Binary_op.t = Plus | Minus
 
 (** Linear expressions & formulas.
 
-    This modules defines linear expressions (which are linear
-    combinations of variables), and linear constraints, where
-    the value of a linear expressions is constrained.
-*)
+    This modules defines linear expressions (which are linear combinations of
+    variables), and linear constraints, where the value of a linear expressions
+    is constrained. *)
 module type S = sig
   module C : COEFF
   (** Coeficients used. Can be integers as well as rationals. *)
@@ -87,9 +84,8 @@ module type S = sig
 
   (** Combinations.
 
-      This module defines linear combnations as mapping from variables
-      to coefficients. This allows for very fast computations.
-  *)
+      This module defines linear combnations as mapping from variables to
+      coefficients. This allows for very fast computations. *)
   module Comb : sig
     type t
     (** The type of linear combinations. *)
@@ -115,7 +111,8 @@ module type S = sig
     (** [monome1 v] creates the linear combination [1 * v] *)
 
     val as_singleton : t -> (C.t * var) option
-    (** [as_singleton l] returns [Some (c,x)] if [l = c * x], [None] otherwise *)
+    (** [as_singleton l] returns [Some (c,x)] if [l = c * x], [None] otherwise
+    *)
 
     val add : C.t -> var -> t -> t
     (** [add n v t] adds the monome [n * v] to the combination [t]. *)
@@ -124,8 +121,8 @@ module type S = sig
 
     (** Infix operations on combinations
 
-        This module defines usual operations on linear combinations,
-        as infix operators to ease reading of complex computations. *)
+        This module defines usual operations on linear combinations, as infix
+        operators to ease reading of complex computations. *)
     module Infix : sig
       val ( + ) : t -> t -> t
       (** Addition between combinations. *)
@@ -158,8 +155,8 @@ module type S = sig
 
   (** {2 Linear expressions.} *)
 
-  (** Linear expressions represent linear arithmetic expressions as
-      a linear combination and a constant.  *)
+  (** Linear expressions represent linear arithmetic expressions as a linear
+      combination and a constant. *)
   module Expr : sig
     type t
     (** The type of linear expressions. *)
@@ -195,8 +192,8 @@ module type S = sig
 
     (** Infix operations on expressions
 
-        This module defines usual operations on linear expressions,
-        as infix operators to ease reading of complex computations. *)
+        This module defines usual operations on linear expressions, as infix
+        operators to ease reading of complex computations. *)
     module Infix : sig
       val ( + ) : t -> t -> t
       (** Addition between expressions. *)
@@ -237,7 +234,8 @@ module type S = sig
     val of_expr : Expr.t -> bool_op -> t
 
     val make : Comb.t -> bool_op -> C.t -> t
-    (** Create a constraint from a linear expression/combination and a constant. *)
+    (** Create a constraint from a linear expression/combination and a constant.
+    *)
 
     val geq : Comb.t -> C.t -> t
     val leq : Comb.t -> C.t -> t

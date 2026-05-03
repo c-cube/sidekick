@@ -158,7 +158,9 @@ let mk_sat_tracer () : Sidekick_sat.Tracer.t =
 let main_smt ~config () : _ result =
   let tst = Term.Store.create ~size:4_096 () in
 
-  let enable_proof = !check || !p_proof || !proof_file <> "" || !proof_twp_file <> "" in
+  let enable_proof =
+    !check || !p_proof || !proof_file <> "" || !proof_twp_file <> ""
+  in
   Log.debugf 1 (fun k -> k "(@[proof-enable@ %B@])" enable_proof);
 
   (* Determine the proof output path.

@@ -69,8 +69,8 @@ module type RATIONAL = sig
   (** Integer equal or above *)
 
   val pp_approx : int -> Format.formatter -> t -> unit
-  (** Pretty print rational with given amount of precision
-      (for example as a floating point number) *)
+  (** Pretty print rational with given amount of precision (for example as a
+      floating point number) *)
 end
 
 module type INT_FULL = sig

@@ -94,9 +94,9 @@ let tracer ~(sink : Tr.Sink.t) () : SAT.Tracer.t =
       in
       Ser_value.int
         (if sign then
-          i
-        else
-          -i)
+           i
+         else
+           -i)
 
     method sat_assert_clause ~id (lits : Lit.t Iter.t) _p =
       let v =

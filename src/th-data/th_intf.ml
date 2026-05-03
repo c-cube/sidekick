@@ -6,15 +6,15 @@ type ty = Term.t
 (** Datatype-oriented view of terms.
 
     - ['c] is the representation of constructors
-    - ['t] is the representation of terms
-*)
+    - ['t] is the representation of terms *)
 type ('c, 't) data_view =
   | T_cstor of 'c * 't list
   | T_select of 'c * int * 't
   | T_is_a of 'c * 't
   | T_other of 't
 
-(** View of types in a way that is directly useful for the theory of datatypes *)
+(** View of types in a way that is directly useful for the theory of datatypes
+*)
 type ('c, 'ty) data_ty_view =
   | Ty_arrow of 'ty list * 'ty
   | Ty_data of { cstors: 'c }
@@ -38,8 +38,8 @@ module type ARG = sig
   (** Constructor symbols.
 
       A constructor is an injective symbol, part of a datatype (or "sum type").
-      For example, in [type option a = Some a | None],
-      the constructors are [Some] and [None]. *)
+      For example, in [type option a = Some a | None], the constructors are
+      [Some] and [None]. *)
   module Cstor : sig
     type t
     (** Constructor *)
@@ -70,8 +70,8 @@ module type ARG = sig
   (** Make a Term.t equality *)
 
   val ty_is_finite : ty -> bool
-  (** Is the given type known to be finite? For example a finite datatype
-      (an "enum" in C parlance), or [Bool], or [Array Bool Bool]. *)
+  (** Is the given type known to be finite? For example a finite datatype (an
+      "enum" in C parlance), or [Bool], or [Array Bool Bool]. *)
 
   val ty_set_is_finite : ty -> bool -> unit
   (** Modify the "finite" field (see {!ty_is_finite}) *)

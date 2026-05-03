@@ -1,9 +1,8 @@
 (** Mini congruence closure
 
     This implementation is as simple as possible, and doesn't provide
-    backtracking, theories, or explanations.
-    It just decides the satisfiability of a set of (dis)equations.
-*)
+    backtracking, theories, or explanations. It just decides the satisfiability
+    of a set of (dis)equations. *)
 
 open Sidekick_core
 
@@ -27,14 +26,14 @@ val clear : t -> unit
 (** Fully reset the congruence closure's state *)
 
 val add_lit : t -> Term.t -> bool -> unit
-(** [add_lit cc p sign] asserts that [p] is true if [sign],
-      or [p] is false if [not sign]. If [p] is an equation and [sign]
-      is [true], this adds a new equation to the congruence relation. *)
+(** [add_lit cc p sign] asserts that [p] is true if [sign], or [p] is false if
+    [not sign]. If [p] is an equation and [sign] is [true], this adds a new
+    equation to the congruence relation. *)
 
 val check_sat : t -> bool
 (** [check_sat cc] returns [true] if the current state is satisfiable, [false]
-      if it's unsatisfiable. *)
+    if it's unsatisfiable. *)
 
 val classes : t -> Term.t Iter.t Iter.t
-(** Traverse the set of classes in the congruence closure.
-      This should be called only if {!check} returned [Sat]. *)
+(** Traverse the set of classes in the congruence closure. This should be called
+    only if {!check} returned [Sat]. *)

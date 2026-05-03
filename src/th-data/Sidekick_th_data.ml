@@ -147,8 +147,8 @@ module Make (A : ARG) : sig
 end = struct
   module Card = Compute_card (A)
 
-  (** Monoid mapping each class to the (unique) constructor it contains,
-      if any *)
+  (** Monoid mapping each class to the (unique) constructor it contains, if any
+  *)
   module Monoid_cstor = struct
     let name = "th-data.cstor"
 
@@ -219,8 +219,8 @@ end = struct
       )
   end
 
-  (** Monoid mapping each class to the set of is-a/select of which it
-      is the argument *)
+  (** Monoid mapping each class to the set of is-a/select of which it is the
+      argument *)
   module Monoid_parents = struct
     let name = "th-data.parents"
 

@@ -143,19 +143,19 @@ module Step = struct
                   [ 2, gen ]);
                  (* make a definition *)
                  (if List.length vars > 2 then (
-                   let v = List.length vars in
-                   let gen =
-                     let* vars' = shuffle_list vars in
-                     let* n = 1 -- min 12 (List.length vars') in
-                     let vars' = CCList.take n vars' in
-                     assert (List.length vars' = n);
-                     let* coeffs = list_size (return n) rand_q.gen in
-                     let le = List.combine coeffs vars' in
-                     return (v :: vars, S_define (v, le))
-                   in
-                   [ 5, gen ]
-                 ) else
-                   []);
+                    let v = List.length vars in
+                    let gen =
+                      let* vars' = shuffle_list vars in
+                      let* n = 1 -- min 12 (List.length vars') in
+                      let vars' = CCList.take n vars' in
+                      assert (List.length vars' = n);
+                      let* coeffs = list_size (return n) rand_q.gen in
+                      let le = List.combine coeffs vars' in
+                      return (v :: vars, S_define (v, le))
+                    in
+                    [ 5, gen ]
+                  ) else
+                    []);
                ]
         in
         aux (n - 1) vars (proof_rule :: acc)

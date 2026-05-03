@@ -1,11 +1,9 @@
 (** Preprocessor
 
     The preprocessor turn mixed, raw literals (possibly simplified) into
-    literals suitable for reasoning.
-    Every literal undergoes preprocessing.
+    literals suitable for reasoning. Every literal undergoes preprocessing.
     Typically some clauses are also added to the solver on the side, and some
-    subterms are found to be foreign variables.
-*)
+    subterms are found to be foreign variables. *)
 
 open Sigs
 
@@ -46,13 +44,12 @@ type preprocess_hook =
   term option
 (** Given a term, preprocess it.
 
-    The idea is to add literals and clauses to help define the meaning of
-    the term, if needed. For example for boolean formulas, clauses
-    for their Tseitin encoding can be added, with the formula acting
-    as its own proxy symbol; or a new symbol might be added.
+    The idea is to add literals and clauses to help define the meaning of the
+    term, if needed. For example for boolean formulas, clauses for their Tseitin
+    encoding can be added, with the formula acting as its own proxy symbol; or a
+    new symbol might be added.
 
-    @param preprocess_actions actions available during preprocessing.
-*)
+    @param preprocess_actions actions available during preprocessing. *)
 
 val on_preprocess : t -> preprocess_hook -> unit
 (** Add a hook that will be called when terms are preprocessed *)

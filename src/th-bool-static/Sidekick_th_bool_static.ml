@@ -170,32 +170,32 @@ end = struct
       PA.add_clause
         [ Lit.neg lit; Lit.neg a; b ]
         (if is_xor then
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e+" [ t ]
-        else
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-e" [ t; t_a ]);
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e+" [ t ]
+         else
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-e" [ t; t_a ]);
 
       Stat.incr self.n_clauses;
       PA.add_clause
         [ Lit.neg lit; Lit.neg b; a ]
         (if is_xor then
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e-" [ t ]
-        else
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-e" [ t; t_b ]);
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-e-" [ t ]
+         else
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-e" [ t; t_b ]);
 
       Stat.incr self.n_clauses;
       PA.add_clause [ lit; a; b ]
         (if is_xor then
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-i" [ t; t_a ]
-        else
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i+" [ t ]);
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-i" [ t; t_a ]
+         else
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i+" [ t ]);
 
       Stat.incr self.n_clauses;
       PA.add_clause
         [ lit; Lit.neg a; Lit.neg b ]
         (if is_xor then
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-i" [ t; t_b ]
-        else
-          mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i-" [ t ])
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "xor-i" [ t; t_b ]
+         else
+           mk_step_ @@ fun () -> Proof_rules.lemma_bool_c "eq-i-" [ t ])
     in
 
     match A.view_as_bool t with

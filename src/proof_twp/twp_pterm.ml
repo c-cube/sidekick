@@ -1,15 +1,13 @@
 (** Translate Proof.Pterm.t rules to .twp P-lines.
 
-    Maps each sidekick rule name to the corresponding .twp proof step.
-    Returns the P-index of the emitted step.
-*)
+    Maps each sidekick rule name to the corresponding .twp proof step. Returns
+    the P-index of the emitted step. *)
 
 module Proof = Sidekick_proof
 open Twp_state
 
 let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
   match r.Proof.Pterm.rule_name with
-
   | "sat.input" ->
     (* Input clause assumption.
        lits = the literals of the clause.
@@ -23,14 +21,14 @@ let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
     | lits ->
       (* Multi-literal input clause: emit each lit as comments, then sorry *)
       let p = alloc_p st in
-      List.iter (fun lit ->
-        let e_idx = Twp_term.emit_lit st lit in
-        emit_line st (Printf.sprintf "# sat.input lit E%d" e_idx)
-      ) lits;
+      List.iter
+        (fun lit ->
+          let e_idx = Twp_term.emit_lit st lit in
+          emit_line st (Printf.sprintf "# sat.input lit E%d" e_idx))
+        lits;
       emit_line st (Printf.sprintf "# sat.input multi-literal (sorry) P%d" p);
       emit_line st (Printf.sprintf "P%d assume E%d" p Twp_state.e_false);
       p)
-
   | "core.lemma-cc" ->
     (* CC conflict lemma: the lits form a conflict clause (tautology by CC).
        Encode as: Q<k> seq [pos_lits] [neg_lits] and P<n> ext cc *)
@@ -39,17 +37,19 @@ let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
     let pos_lits = List.filter Lit.sign lits in
     let neg_lits = List.filter (fun l -> not (Lit.sign l)) lits in
     let pos_e = List.map (Twp_term.emit_lit st) pos_lits in
-    let neg_e = List.map (fun l ->
-      Twp_term.emit_expr st (Lit.term l)
-    ) neg_lits in
+    let neg_e =
+      List.map (fun l -> Twp_term.emit_expr st (Lit.term l)) neg_lits
+    in
     let q = alloc_q st in
-    let fmt_e_list es = String.concat " " (List.map (Printf.sprintf "E%d") es) in
+    let fmt_e_list es =
+      String.concat " " (List.map (Printf.sprintf "E%d") es)
+    in
     emit_line st
-      (Printf.sprintf "Q%d seq [%s] [%s]" q (fmt_e_list pos_e) (fmt_e_list neg_e));
+      (Printf.sprintf "Q%d seq [%s] [%s]" q (fmt_e_list pos_e)
+         (fmt_e_list neg_e));
     let p = alloc_p st in
     emit_line st (Printf.sprintf "P%d ext cc" p);
     p
-
   | "core.r1" | "core.res" ->
     (* Resolution: cut P<a> P<b> *)
     (match r.Proof.Pterm.premises with
@@ -75,7 +75,6 @@ let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
         (Printf.sprintf "# core.r1/res: wrong premise count (sorry) P%d" p);
       emit_line st (Printf.sprintf "P%d assume E%d" p Twp_state.e_false);
       p)
-
   | "sat.rc" ->
     (* SAT redundant clause (RUP).
        premises = list of step_ids for the premise proofs. *)
@@ -86,12 +85,13 @@ let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
           Hashtbl.find_opt st.step_tbl s_int)
         r.Proof.Pterm.premises
     in
-    let fmt_p_list ps = String.concat " " (List.map (Printf.sprintf "P%d") ps) in
+    let fmt_p_list ps =
+      String.concat " " (List.map (Printf.sprintf "P%d") ps)
+    in
     let p = alloc_p st in
     emit_line st
       (Printf.sprintf "P%d ext sk.sat_rup [%s]" p (fmt_p_list hyp_idxs));
     p
-
   | "core.define-term" ->
     (* new_def E<k> *)
     (match r.Proof.Pterm.term_args with
@@ -105,16 +105,13 @@ let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
       emit_line st (Printf.sprintf "# core.define-term: no terms (sorry) P%d" p);
       emit_line st (Printf.sprintf "P%d assume E%d" p Twp_state.e_false);
       p)
-
-  | "core.with-defs" | "core.preprocess" | "core.rw-clause"
-  | "core.true" | "core.p1" ->
+  | "core.with-defs" | "core.preprocess" | "core.rw-clause" | "core.true"
+  | "core.p1" ->
     (* Sorry-style: emit a dummy step *)
     let p = alloc_p st in
-    emit_line st
-      (Printf.sprintf "# %s (sorry) P%d" r.Proof.Pterm.rule_name p);
+    emit_line st (Printf.sprintf "# %s (sorry) P%d" r.Proof.Pterm.rule_name p);
     emit_line st (Printf.sprintf "P%d assume E%d" p Twp_state.e_false);
     p
-
   | name ->
     (* Unknown rule: sorry *)
     let p = alloc_p st in
@@ -122,13 +119,11 @@ let emit_pterm_rule (st : Twp_state.t) (r : Proof.Pterm.rule_apply) : int =
     emit_line st (Printf.sprintf "P%d assume E%d" p Twp_state.e_false);
     p
 
-(** Translate a Pterm.t and emit .twp lines.
-    Returns the P-index of the outermost proof step. *)
+(** Translate a Pterm.t and emit .twp lines. Returns the P-index of the
+    outermost proof step. *)
 let emit_pterm (st : Twp_state.t) (pt : Proof.Pterm.t) : int =
   match pt with
-  | Proof.Pterm.P_apply r ->
-    emit_pterm_rule st r
-
+  | Proof.Pterm.P_apply r -> emit_pterm_rule st r
   | Proof.Pterm.P_ref step_id ->
     (* Reference to a previously emitted step *)
     let s_int = Sidekick_trace.Entry_id.to_int step_id in
@@ -139,5 +134,3 @@ let emit_pterm (st : Twp_state.t) (pt : Proof.Pterm.t) : int =
       emit_line st (Printf.sprintf "# P_ref step %d not found -> P%d" s_int n);
       emit_line st (Printf.sprintf "P%d assume E%d" n Twp_state.e_false);
       n)
-
-

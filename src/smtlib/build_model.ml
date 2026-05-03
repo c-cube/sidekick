@@ -18,7 +18,7 @@ let build (self : t) (sat : Solver.sat_result) : Model.t =
     (* TODO: types *)
     if Term.Tbl.mem self.fun_symbols f then (
       (* add entry for [f], to build a if-then-else tree *)
-      match List.map (fun t -> sat.get_value t |> Option.get) args with
+        match List.map (fun t -> sat.get_value t |> Option.get) args with
       | exception _ ->
         Log.debugf 1 (fun k ->
             k "(@[build-model.warn@ :no-entry-for %a@])" Term.pp t)

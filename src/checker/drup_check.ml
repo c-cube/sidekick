@@ -58,9 +58,9 @@ module Fwd_check : sig
   val pp_error : Trace.t -> error Fmt.printer
 
   val check : Trace.t -> (unit, error) result
-  (** [check tr] checks the trace and returns [Ok ()] in case of
-      success. In case of error it returns [Error idxs] where [idxs] are the
-      indexes in the trace of the steps that failed. *)
+  (** [check tr] checks the trace and returns [Ok ()] in case of success. In
+      case of error it returns [Error idxs] where [idxs] are the indexes in the
+      trace of the steps that failed. *)
 end = struct
   type t = { checker: Checker.t; errors: int Vec.t }
 

@@ -1,8 +1,7 @@
 (** Proofs of unsatisfiability in the Quip proof format..
 
-    This targets {{: https://c-cube.github.io/quip-book/ } Quip}
-    as an {b experimental} proof backend.
-*)
+    This targets {{:https://c-cube.github.io/quip-book/} Quip} as an
+    {b experimental} proof backend. *)
 
 module Proof = Proof
 

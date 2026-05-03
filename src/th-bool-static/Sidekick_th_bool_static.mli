@@ -1,7 +1,6 @@
 (** Theory of boolean formulas.
 
-    This handles formulas containing "and", "or", "=>", "if-then-else", etc.
-*)
+    This handles formulas containing "and", "or", "=>", "if-then-else", etc. *)
 
 module Intf = Intf
 module Proof_rules = Proof_rules

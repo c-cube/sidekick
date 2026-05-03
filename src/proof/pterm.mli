@@ -12,10 +12,7 @@ type rule_apply = {
   indices: int list;
 }
 
-type t =
-  | P_ref of step_id
-  | P_apply of rule_apply
-
+type t = P_ref of step_id | P_apply of rule_apply
 type delayed = unit -> t
 
 include Sidekick_sigs.PRINT with type t := t

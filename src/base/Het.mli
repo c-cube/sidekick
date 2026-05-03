@@ -1,7 +1,6 @@
 (** {1 Associative containers with Heterogeneous Values}
 
-    This is similar to {!CCMixtbl}, but the injection is directly used as
-    a key.
+    This is similar to {!CCMixtbl}, but the injection is directly used as a key.
 
     @since 0.17 *)
 

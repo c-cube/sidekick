@@ -1,16 +1,15 @@
 (** Signature for the main SMT solver types.
 
-    Theories and concrete solvers rely on an environment that defines
-    several important types:
+    Theories and concrete solvers rely on an environment that defines several
+    important types:
 
     - sorts
     - terms (to represent logic expressions and formulas)
     - a congruence closure instance
     - a bridge to some SAT solver
 
-    In this module we collect signatures defined elsewhere and define
-    the module types for the main SMT solver.
-*)
+    In this module we collect signatures defined elsewhere and define the module
+    types for the main SMT solver. *)
 
 include Sidekick_core
 module Simplify = Sidekick_simplify
@@ -34,12 +33,12 @@ type th_combination_conflict = {
   semantic: (bool * term * term) list;
       (* set of semantic eqns/diseqns (ie true only in current model) *)
 }
-(** Conflict obtained during theory combination. It involves equalities
-      merged because of the current model so it's not a "true" conflict
-      and doesn't need to kill the current trail. *)
+(** Conflict obtained during theory combination. It involves equalities merged
+    because of the current model so it's not a "true" conflict and doesn't need
+    to kill the current trail. *)
 
-(** Argument to pass to the functor {!Make} in order to create a
-    new Msat-based SMT solver. *)
+(** Argument to pass to the functor {!Make} in order to create a new Msat-based
+    SMT solver. *)
 module type ARG = sig
   val view_as_cc : Sidekick_cc.view_as_cc
 end

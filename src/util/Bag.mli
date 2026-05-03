@@ -2,8 +2,8 @@
 
 (** {1 Ordered Bag of Elements}
 
-    A data structure where we can have duplicate elements, optimized for
-    fast concatenation and size. *)
+    A data structure where we can have duplicate elements, optimized for fast
+    concatenation and size. *)
 
 type +'a t = private E | L of 'a | N of 'a t * 'a t
 

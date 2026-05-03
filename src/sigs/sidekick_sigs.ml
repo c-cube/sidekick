@@ -86,7 +86,8 @@ module type BACKTRACKABLE1_CB = sig
   include BACKTRACKABLE1
 
   val pop_levels : 'a t -> int -> f:('a -> unit) -> unit
-  (** [pop_levels st n ~f] removes [n] levels, calling [f] on every removed item *)
+  (** [pop_levels st n ~f] removes [n] levels, calling [f] on every removed item
+  *)
 end
 
 module type WITH_SET_MAP_TBL = sig

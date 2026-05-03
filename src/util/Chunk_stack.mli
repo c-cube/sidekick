@@ -1,15 +1,14 @@
 (** Manage a list of chunks.
 
-    A chunk is used for serializing proof traces, possibly on disk.
-    This way we do not have to keep the whole proof in memory.
-    Each chunk is typically one step of the proof search.
+    A chunk is used for serializing proof traces, possibly on disk. This way we
+    do not have to keep the whole proof in memory. Each chunk is typically one
+    step of the proof search.
 
     We produce chunks in forward order (chronological order of their discovery),
-    but once we find a proof of "false", we work our way backward to find
-    chunks transitively needed by this proof of false.
-    Once we obtain this subset of the chunks (as a graph in memory) we can
-    emit a proper proof with no redundant information.
-*)
+    but once we find a proof of "false", we work our way backward to find chunks
+    transitively needed by this proof of false. Once we obtain this subset of
+    the chunks (as a graph in memory) we can emit a proper proof with no
+    redundant information. *)
 
 (** A hand made buffer *)
 module Buf : sig
@@ -37,7 +36,8 @@ module Reader : sig
   type t
 
   val next : t -> yield:(bytes -> int -> int -> 'a) -> finish:(unit -> 'a) -> 'a
-  (** Read next chunk, call [yield] with a slice of bytes, otherwise call [finish()]. *)
+  (** Read next chunk, call [yield] with a slice of bytes, otherwise call
+      [finish()]. *)
 
   val next_string : t -> string option
   (** Read next chunk as a string *)
@@ -49,8 +49,8 @@ module Reader : sig
   (** Read channel from the end, assuming that is possible. *)
 
   val with_file_backward : string -> (t -> 'a) -> 'a
-  (** [read_file_backward filename f] calls [f] with an iterator
-      over chunks of the file, read from the end.
+  (** [read_file_backward filename f] calls [f] with an iterator over chunks of
+      the file, read from the end.
 
       Each chunk is assumed to be followed by its length as an int32 LE. *)
 end

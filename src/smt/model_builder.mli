@@ -1,10 +1,9 @@
 (** Model Builder.
 
-  This contains a partial model, in construction. It is accessible to every
-  theory, so they can contribute partial values.
+    This contains a partial model, in construction. It is accessible to every
+    theory, so they can contribute partial values.
 
-  TODO: seen values?
-*)
+    TODO: seen values? *)
 
 open Sigs
 
@@ -16,13 +15,14 @@ val create : Term.store -> t
 val mem : t -> Term.t -> bool
 
 val require_eval : t -> Term.t -> unit
-(** Require that this term gets a value, and assign it to all terms
-  in the given class. *)
+(** Require that this term gets a value, and assign it to all terms in the given
+    class. *)
 
 val add : t -> ?subs:Term.t list -> Term.t -> value -> unit
 (** Add a value to the model.
-   @param subs if provided, these terms will be passed to {!require_eval}
-   to ensure they map to a value. *)
+    @param subs
+      if provided, these terms will be passed to {!require_eval} to ensure they
+      map to a value. *)
 
 val gensym : t -> pre:string -> ty:Term.t -> Term.t
 (** New fresh constant *)

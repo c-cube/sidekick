@@ -1,21 +1,20 @@
 (** Tracer for SMT solvers.
 
-  The tracer is used to track clauses and terms used or deduced during proof
-  search. *)
+    The tracer is used to track clauses and terms used or deduced during proof
+    search. *)
 
 open Sidekick_core
 module Tr = Sidekick_trace
 module Proof = Sidekick_proof
 
-class type t =
-  object
-    inherit Term.Tracer.t
-    inherit Sidekick_sat.Tracer.t
-    inherit Sidekick_proof.Tracer.t
+class type t = object
+  inherit Term.Tracer.t
+  inherit Sidekick_sat.Tracer.t
+  inherit Sidekick_proof.Tracer.t
 
-    method emit_assert_term : Term.t -> Tr.Entry_id.t
-    (** Emit an assertion *)
-  end
+  method emit_assert_term : Term.t -> Tr.Entry_id.t
+  (** Emit an assertion *)
+end
 
 class dummy : t
 (** Dummy tracer *)

@@ -9,9 +9,7 @@ module Make (Elt : RANKED) = struct
   let _absent_index = -1
   let create store : t = { store; heap = Vec.create () }
   let[@inline] left i = (i lsl 1) + 1 (* i*2 + 1 *)
-
   let[@inline] right i = (i + 1) lsl 1 (* (i+1)*2 *)
-
   let[@inline] parent i = (i - 1) asr 1 (* (i-1) / 2 *)
 
   (*
@@ -24,9 +22,7 @@ module Make (Elt : RANKED) = struct
   *)
 
   let[@inline] get_elt_ self i = Elt.of_int_unsafe (Vec.get self.heap i)
-
-  let[@inline] set_elt_ self i elt =
-    Vec.set self.heap i (elt : Elt.t :> int)
+  let[@inline] set_elt_ self i elt = Vec.set self.heap i (elt : Elt.t :> int)
 
   (* [elt] is above or at its expected position. Move it up the heap
      (towards high indices) to restore the heap property *)

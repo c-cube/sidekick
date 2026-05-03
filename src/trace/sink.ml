@@ -1,8 +1,7 @@
 (** An IO sink for traces.
 
-    A trace is emitted on the fly into a sink. The sink collects or
-    writes entries that are emitted into it.
-*)
+    A trace is emitted on the fly into a sink. The sink collects or writes
+    entries that are emitted into it. *)
 
 type tag = string
 

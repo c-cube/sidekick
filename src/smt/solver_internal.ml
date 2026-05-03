@@ -433,9 +433,9 @@ let assert_lits_ ~final (self : t) (acts : theory_actions) (lits : Lit.t Iter.t)
   Log.debugf 2 (fun k ->
       k "(@[<hv1>@{<green>smt-solver.assume_lits@}%s[lvl=%d]@ %a@])"
         (if final then
-          "[final]"
-        else
-          "")
+           "[final]"
+         else
+           "")
         self.level
         (Util.pp_iter ~sep:"; " Lit.pp)
         lits);

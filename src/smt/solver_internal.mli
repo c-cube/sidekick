@@ -1,7 +1,7 @@
 (** A view of the solver from a theory's point of view.
 
-    Theories should interact with the solver via this module, to assert
-    new lemmas, propagate literals, access the congruence closure, etc. *)
+    Theories should interact with the solver via this module, to assert new
+    lemmas, propagate literals, access the congruence closure, etc. *)
 
 open Sigs
 
@@ -47,19 +47,16 @@ val add_simplifier : t -> Simplify.hook -> unit
 (** Add a simplifier hook for preprocessing. *)
 
 val simplify_t : t -> term -> (term * step_id) option
-(** Simplify input term, returns [Some u] if some
-      simplification occurred. *)
+(** Simplify input term, returns [Some u] if some simplification occurred. *)
 
 val simp_t : t -> term -> term * step_id option
-(** [simp_t si t] returns [u] even if no simplification occurred
-      (in which case [t == u] syntactically).
-      It emits [|- t=u].
-      (see {!simplifier}) *)
+(** [simp_t si t] returns [u] even if no simplification occurred (in which case
+    [t == u] syntactically). It emits [|- t=u]. (see {!simplifier}) *)
 
 (** {3 Preprocessors}
-      These preprocessors turn mixed, raw literals (possibly simplified) into
-      literals suitable for reasoning.
-      Typically some clauses are also added to the solver. *)
+    These preprocessors turn mixed, raw literals (possibly simplified) into
+    literals suitable for reasoning. Typically some clauses are also added to
+    the solver. *)
 
 module type PREPROCESS_ACTS = Preprocess.PREPROCESS_ACTS
 
@@ -75,13 +72,11 @@ type preprocess_hook =
   term option
 (** Given a term, preprocess it.
 
-      The idea is to add literals and clauses to help define the meaning of
-      the term, if needed. For example for boolean formulas, clauses
-      for their Tseitin encoding can be added, with the formula acting
-      as its own proxy symbol.
+    The idea is to add literals and clauses to help define the meaning of the
+    term, if needed. For example for boolean formulas, clauses for their Tseitin
+    encoding can be added, with the formula acting as its own proxy symbol.
 
-      @param preprocess_actions actions available during preprocessing.
-  *)
+    @param preprocess_actions actions available during preprocessing. *)
 
 val preprocess : t -> Preprocess.t
 
@@ -109,9 +104,8 @@ val raise_conflict :
 
 val push_decision : t -> theory_actions -> lit -> unit
 (** Ask the SAT solver to decide the given literal in an extension of the
-      current trail. This is useful for theory combination.
-      If the SAT solver backtracks, this (potential) decision is removed
-      and forgotten. *)
+    current trail. This is useful for theory combination. If the SAT solver
+    backtracks, this (potential) decision is removed and forgotten. *)
 
 val propagate :
   t ->
@@ -119,23 +113,23 @@ val propagate :
   lit ->
   reason:(unit -> lit list * Proof.Pterm.delayed) ->
   unit
-(** Propagate a boolean using a unit clause.
-      [expl => lit] must be a theory lemma, that is, a T-tautology *)
+(** Propagate a boolean using a unit clause. [expl => lit] must be a theory
+    lemma, that is, a T-tautology *)
 
 val propagate_l :
   t -> theory_actions -> lit -> lit list -> Proof.Pterm.delayed -> unit
-(** Propagate a boolean using a unit clause.
-      [expl => lit] must be a theory lemma, that is, a T-tautology *)
+(** Propagate a boolean using a unit clause. [expl => lit] must be a theory
+    lemma, that is, a T-tautology *)
 
 val add_clause_temp :
   t -> theory_actions -> lit list -> Proof.Pterm.delayed -> unit
-(** Add local clause to the SAT solver. This clause will be
-      removed when the solver backtracks. *)
+(** Add local clause to the SAT solver. This clause will be removed when the
+    solver backtracks. *)
 
 val add_clause_permanent :
   t -> theory_actions -> lit list -> Proof.Pterm.delayed -> unit
-(** Add toplevel clause to the SAT solver. This clause will
-      not be backtracked. *)
+(** Add toplevel clause to the SAT solver. This clause will not be backtracked.
+*)
 
 val add_ty : t -> ty:term -> unit
 (** Declare a sort for the SMT solver *)
@@ -144,13 +138,13 @@ val mk_lit : t -> ?sign:bool -> term -> lit
 (** Create a literal. This automatically preprocesses the term. *)
 
 val add_lit : t -> theory_actions -> ?default_pol:bool -> lit -> unit
-(** Add the given literal to the SAT solver, so it gets assigned
-      a boolean value.
-      @param default_pol default polarity for the corresponding atom *)
+(** Add the given literal to the SAT solver, so it gets assigned a boolean
+    value.
+    @param default_pol default polarity for the corresponding atom *)
 
 val add_lit_t : t -> theory_actions -> ?sign:bool -> term -> unit
-(** Add the given (signed) bool term to the SAT solver, so it gets assigned
-      a boolean value *)
+(** Add the given (signed) bool term to the SAT solver, so it gets assigned a
+    boolean value *)
 
 val cc_find : t -> E_node.t -> E_node.t
 (** Find representative of the node *)
@@ -178,32 +172,34 @@ val cc_resolve_expl : t -> CC_expl.t -> lit list * Proof.Pterm.delayed
   *)
 
 val cc_add_term : t -> term -> E_node.t
-(** Add/retrieve congruence closure node for this term.
-      To be used in theories *)
+(** Add/retrieve congruence closure node for this term. To be used in theories
+*)
 
 val cc_mem_term : t -> term -> bool
-(** Return [true] if the term is explicitly in the congruence closure.
-      To be used in theories *)
+(** Return [true] if the term is explicitly in the congruence closure. To be
+    used in theories *)
 
 val on_cc_pre_merge :
   t ->
   (CC.t * E_node.t * E_node.t * CC_expl.t -> CC.Handler_action.or_conflict) ->
   unit
-(** Callback for when two classes containing data for this key are merged (called before) *)
+(** Callback for when two classes containing data for this key are merged
+    (called before) *)
 
 val on_cc_post_merge :
   t -> (CC.t * E_node.t * E_node.t -> CC.Handler_action.t list) -> unit
-(** Callback for when two classes containing data for this key are merged (called after)*)
+(** Callback for when two classes containing data for this key are merged
+    (called after)*)
 
 val on_cc_new_term :
   t -> (CC.t * E_node.t * term -> CC.Handler_action.t list) -> unit
-(** Callback to add data on terms when they are added to the congruence
-      closure *)
+(** Callback to add data on terms when they are added to the congruence closure
+*)
 
 val on_cc_is_subterm :
   t -> (CC.t * E_node.t * term -> CC.Handler_action.t list) -> unit
-(** Callback for when a term is a subterm of another term in the
-      congruence closure *)
+(** Callback for when a term is a subterm of another term in the congruence
+    closure *)
 
 val on_cc_conflict : t -> (CC.ev_on_conflict -> unit) -> unit
 (** Callback called on every CC conflict *)
@@ -219,25 +215,23 @@ val on_new_ty : t -> (ty, unit) Event.t
 (** Add a callback for when new types are added via {!add_ty} *)
 
 val on_partial_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
-(** Register callbacked to be called with the slice of literals
-      newly added on the trail.
+(** Register callbacked to be called with the slice of literals newly added on
+    the trail.
 
-      This is called very often and should be efficient. It doesn't have
-      to be complete, only correct. It's given only the slice of
-      the trail consisting in new literals. *)
+    This is called very often and should be efficient. It doesn't have to be
+    complete, only correct. It's given only the slice of the trail consisting in
+    new literals. *)
 
 val on_final_check : t -> (t -> theory_actions -> lit Iter.t -> unit) -> unit
 (** Register callback to be called during the final check.
 
-      Must be complete (i.e. must raise a conflict if the set of literals is
-      not satisfiable) and can be expensive. The function
-      is given the whole trail.
-  *)
+    Must be complete (i.e. must raise a conflict if the set of literals is not
+    satisfiable) and can be expensive. The function is given the whole trail. *)
 
 val declare_pb_is_incomplete : t -> unit
-(** Declare that, in some theory, the problem is outside the logic fragment
-      that is decidable (e.g. if we meet proper NIA formulas).
-      The solver will not reply "SAT" from now on. *)
+(** Declare that, in some theory, the problem is outside the logic fragment that
+    is decidable (e.g. if we meet proper NIA formulas). The solver will not
+    reply "SAT" from now on. *)
 
 (** {3 Model production} *)
 
@@ -250,16 +244,15 @@ type model_ask_hook =
     skeleton).
 
     For example, an arithmetic theory might detect that a class contains a
-    numeric constant, and return this constant as a model value. The theory
-    of arrays might return [array.const $v] for an array [Array A B],
-    where [$v] will be picked by the theory of the sort [B].
+    numeric constant, and return this constant as a model value. The theory of
+    arrays might return [array.const $v] for an array [Array A B], where [$v]
+    will be picked by the theory of the sort [B].
 
-    If no hook assigns a value to a class, a fake value is created for it.
-*)
+    If no hook assigns a value to a class, a fake value is created for it. *)
 
 type model_completion_hook = t -> add:(term -> value -> unit) -> unit
-(** A model production hook, for the theory to add values.
-    The hook is given a [add] function to add bindings to the model. *)
+(** A model production hook, for the theory to add values. The hook is given a
+    [add] function to add bindings to the model. *)
 
 val on_model :
   ?ask:model_ask_hook -> ?complete:model_completion_hook -> t -> unit

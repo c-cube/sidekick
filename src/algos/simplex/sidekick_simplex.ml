@@ -1,8 +1,7 @@
 (** Fast Simplex for CDCL(T)
 
-    We follow the paper "Integrating Simplex with DPLL(T )" from
-    de Moura and Dutertre.
-*)
+    We follow the paper "Integrating Simplex with DPLL(T )" from de Moura and
+    Dutertre. *)
 
 open CCMonomorphic
 module Linear_expr_intf = Linear_expr_intf
@@ -80,9 +79,9 @@ module type S = sig
   val pop_levels : t -> int -> unit
 
   val define : ?is_int:bool -> t -> V.t -> (num * V.t) list -> unit
-  (** Define a basic variable in terms of other variables.
-      This is useful to "name" a linear expression and get back a variable
-      that can be used in a {!Constraint.t} *)
+  (** Define a basic variable in terms of other variables. This is useful to
+      "name" a linear expression and get back a variable that can be used in a
+      {!Constraint.t} *)
 
   type unsat_cert
 
@@ -111,26 +110,25 @@ module type S = sig
 
       This is removed upon backtracking by default.
       @param is_int declares whether the constraint's variable is an integer
-      @raise Unsat if it's immediately obvious that this is not satisfiable.
-  *)
+      @raise Unsat if it's immediately obvious that this is not satisfiable. *)
 
   val declare_bound : ?is_int:bool -> t -> Constraint.t -> V.lit -> unit
-  (** Declare that this constraint exists and map it to a literal,
-      so we can possibly propagate it later.
-      Unlike {!add_constraint} this does {b NOT} assert that the constraint
-      is true *)
+  (** Declare that this constraint exists and map it to a literal, so we can
+      possibly propagate it later. Unlike {!add_constraint} this does {b NOT}
+      assert that the constraint is true *)
 
   val check_exn : on_propagate:(V.lit -> reason:V.lit list -> unit) -> t -> unit
   (** Check the whole simplex for satisfiability.
-      @param on_propagate is called with arguments [lit, reason] whenever
-      [reason => lit] is found to be true by the simplex.
+      @param on_propagate
+        is called with arguments [lit, reason] whenever [reason => lit] is found
+        to be true by the simplex.
       @raise Unsat if the constraints are not satisfiable. *)
 
   type result = Sat of Subst.t | Unsat of Unsat_cert.t
 
   val check : on_propagate:(V.lit -> reason:V.lit list -> unit) -> t -> result
-  (** Call {!check_exn} and return a model or a proof of unsat.
-      This does {b NOT} enforce that integer variables map to integer values. *)
+  (** Call {!check_exn} and return a model or a proof of unsat. This does
+      {b NOT} enforce that integer variables map to integer values. *)
 
   val check_branch_and_bound :
     on_propagate:(V.lit -> reason:V.lit list -> unit) ->
@@ -214,11 +212,11 @@ module Make (Arg : ARG) :
     base: num;  (** reference number *)
     eps_factor: num;  (** coefficient for epsilon, the infinitesimal *)
   }
-  (** An extended rational, used to introduce ε so we can use strict
-      comparisons in an algorithm designed to handle >= only.
+  (** An extended rational, used to introduce ε so we can use strict comparisons
+      in an algorithm designed to handle >= only.
 
-      In a way, an extended rational is a tuple `(base, factor)`
-      ordered lexicographically. *)
+      In a way, an extended rational is a tuple `(base, factor)` ordered
+      lexicographically. *)
 
   (** Epsilon-rationals, used for strict bounds *)
   module Erat = struct
@@ -297,12 +295,13 @@ module Make (Arg : ARG) :
   }
 
   (** {2 Matrix}
-    The matrix [A] from the paper, with m rows and n columns.
-    - m is the number of basic variables (defined in terms of non-basic variables)
-    - n is the total number of variables, basic and non-basic.
+      The matrix [A] from the paper, with m rows and n columns.
+      - m is the number of basic variables (defined in terms of non-basic
+        variables)
+      - n is the total number of variables, basic and non-basic.
 
-    The invariant that the simplex maintains at all times is that [Ax = 0],
-    where [x] is the vector of values of all variables (basic and non-basic).
+      The invariant that the simplex maintains at all times is that [Ax = 0],
+      where [x] is the vector of values of all variables (basic and non-basic).
   *)
 
   module Matrix : sig
@@ -446,9 +445,9 @@ module Make (Arg : ARG) :
       in
       Fmt.fprintf out "(@[v%d[%s%a]%s@ :value %a%a%a@ :t-var %a@])" self.idx
         (if is_basic self then
-          "B"
-        else
-          "N")
+           "B"
+         else
+           "N")
         pp_basic_idx () bnd_status Erat.pp self.value (pp_bnd ":lower")
         self.l_bound (pp_bnd ":upper") self.u_bound V.pp self.var
   end
@@ -577,7 +576,7 @@ module Make (Arg : ARG) :
         if Var_state.is_basic v2 then
           (* [v2] is also basic, so instead of depending on it,
              we depend on its definition in terms of non-basic variables. *)
-          Matrix.iter_cols ~skip:v2.idx self.matrix (fun k ->
+            Matrix.iter_cols ~skip:v2.idx self.matrix (fun k ->
               let v2_jk = Matrix.get self.matrix v2.basic_idx k in
               if Q.(v2_jk <> zero) then (
                 let x_k = Vec.get self.vars k in
@@ -621,9 +620,8 @@ module Make (Arg : ARG) :
       Vec.push self.vars vs;
       vs
 
-  (** update the simplex so that non-basic [x] is now assigned value [n].
-     See page 14, figure 3.1.
-  *)
+  (** update the simplex so that non-basic [x] is now assigned value [n]. See
+      page 14, figure 3.1. *)
   let update_n_basic (self : t) (x : var_state) (v : erat) : unit =
     assert (Var_state.is_n_basic x);
     Log.debugf 50 (fun k ->
@@ -647,9 +645,8 @@ module Make (Arg : ARG) :
     _check_invariants_internal self;
     ()
 
-  (** pivot [x_i] (basic) and [x_j] (non-basic), setting value of [x_i]
-     to [v] at the same time.
-     See page 14, figure 3.1 *)
+  (** pivot [x_i] (basic) and [x_j] (non-basic), setting value of [x_i] to [v]
+      at the same time. See page 14, figure 3.1 *)
   let pivot_and_update (self : t) (x_i : var_state) (x_j : var_state) (v : erat)
       : unit =
     Profile.messagef (fun k ->
@@ -775,11 +772,12 @@ module Make (Arg : ARG) :
     ignore (find_or_create_n_basic_var_ ~is_int self v : var_state);
     ()
 
-  (** gather all relevant lower (resp. upper) bounds for the definition
-      of the basic variable [x_i], and collect each relevant variable
-      with [map] into a list.
-      @param get_lower if true, means we select lower bounds of variables
-      with positive coeffs, and upper bounds of variables with negative coeffs. *)
+  (** gather all relevant lower (resp. upper) bounds for the definition of the
+      basic variable [x_i], and collect each relevant variable with [map] into a
+      list.
+      @param get_lower
+        if true, means we select lower bounds of variables with positive coeffs,
+        and upper bounds of variables with negative coeffs. *)
   let gather_bounds_of_row_ (self : t) (x_i : var_state) ~map ~get_lower :
       _ list * _ =
     assert (Var_state.is_basic x_i);
@@ -857,7 +855,7 @@ module Make (Arg : ARG) :
               on_propagate bnd.b_lit ~reason:[ new_bnd.b_lit ]
             ) else if (not is_lower') && Erat.(bnd.b_val < new_bnd.b_val) then (
               (* incompatible upper bound *)
-              match V.not_lit bnd.b_lit with
+                match V.not_lit bnd.b_lit with
               | Some l' ->
                 Stat.incr self.stat_propagate;
                 on_propagate l' ~reason:[ new_bnd.b_lit ]
@@ -890,7 +888,7 @@ module Make (Arg : ARG) :
               on_propagate bnd.b_lit ~reason:[ new_bnd.b_lit ]
             ) else if is_lower' && Erat.(bnd.b_val > new_bnd.b_val) then (
               (* incompatible lower bound *)
-              match V.not_lit bnd.b_lit with
+                match V.not_lit bnd.b_lit with
               | Some l' ->
                 Stat.incr self.stat_propagate;
                 on_propagate l' ~reason:[ new_bnd.b_lit ]
@@ -964,8 +962,8 @@ module Make (Arg : ARG) :
 
   (** make a certificate from the row of basic variable [x_i] which is outside
       one of its bound, and whose row is tight on all non-basic variables.
-      @param is_lower is true if the lower bound is not respected
-     (i.e. [x_i] is too small) *)
+      @param is_lower
+        is true if the lower bound is not respected (i.e. [x_i] is too small) *)
   let cert_of_row_ (self : t) (x_i : var_state) (bnd : bound) ~is_lower :
       unsat_cert =
     Log.debugf 50 (fun k ->
@@ -994,8 +992,7 @@ module Make (Arg : ARG) :
     let cert = Unsat_cert.unsat_basic x_i (op, bnd) le bounds in
     cert
 
-  (** main satisfiability check.
-      page 15, figure 3.2 *)
+  (** main satisfiability check. page 15, figure 3.2 *)
   let check_exn ~on_propagate:_ (self : t) : unit =
     let exception Stop in
     Log.debugf 20 (fun k -> k "(@[simplex.check@ %a@])" pp_stats self);
@@ -1090,16 +1087,15 @@ module Make (Arg : ARG) :
     let denom = 1 lsl 10 in
     Q.(one / of_int denom)
 
-  (** Find an epsilon that is small enough for finding a solution, yet
-      it must be positive.
+  (** Find an epsilon that is small enough for finding a solution, yet it must
+      be positive.
 
-      {!Erat.t} values are used to turn strict bounds ([X > 0]) into
-      non-strict bounds ([X >= 0 + ε]), because the simplex algorithm
-      only deals with non-strict bounds.
-      When a solution is found, we need to turn {!Erat.t} into {!Q.t} by
-      finding a rational value that is small enough that it will fit into
-      all the intervals of [t]. This rational will be the actual value of [ε].
-  *)
+      {!Erat.t} values are used to turn strict bounds ([X > 0]) into non-strict
+      bounds ([X >= 0 + ε]), because the simplex algorithm only deals with
+      non-strict bounds. When a solution is found, we need to turn {!Erat.t}
+      into {!Q.t} by finding a rational value that is small enough that it will
+      fit into all the intervals of [t]. This rational will be the actual value
+      of [ε]. *)
   let solve_epsilon (self : t) : Q.t =
     let eps =
       Iter.fold

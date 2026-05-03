@@ -216,37 +216,37 @@ end = struct
       add_axiom
         [ Lit.neg lit; Lit.neg a; b ]
         (if is_xor then
-          fun () ->
-        Proof_rules.lemma_bool_c "xor-e+" [ t ]
-        else
-          fun () ->
-        Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term a ]);
+           fun () ->
+         Proof_rules.lemma_bool_c "xor-e+" [ t ]
+         else
+           fun () ->
+         Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term a ]);
 
       add_axiom
         [ Lit.neg lit; Lit.neg b; a ]
         (if is_xor then
-          fun () ->
-        Proof_rules.lemma_bool_c "xor-e-" [ t ]
-        else
-          fun () ->
-        Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term b ]);
+           fun () ->
+         Proof_rules.lemma_bool_c "xor-e-" [ t ]
+         else
+           fun () ->
+         Proof_rules.lemma_bool_c "eq-e" [ t; Lit.term b ]);
 
       add_axiom [ lit; a; b ]
         (if is_xor then
-          fun () ->
-        Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term a ]
-        else
-          fun () ->
-        Proof_rules.lemma_bool_c "eq-i+" [ t ]);
+           fun () ->
+         Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term a ]
+         else
+           fun () ->
+         Proof_rules.lemma_bool_c "eq-i+" [ t ]);
 
       add_axiom
         [ lit; Lit.neg a; Lit.neg b ]
         (if is_xor then
-          fun () ->
-        Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term b ]
-        else
-          fun () ->
-        Proof_rules.lemma_bool_c "eq-i-" [ t ])
+           fun () ->
+         Proof_rules.lemma_bool_c "xor-i" [ t; Lit.term b ]
+         else
+           fun () ->
+         Proof_rules.lemma_bool_c "eq-i-" [ t ])
     in
 
     match v with

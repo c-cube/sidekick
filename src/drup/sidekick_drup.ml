@@ -1,8 +1,8 @@
 (** DRUP trace checker.
 
-    This module provides a checker for DRUP traces, including proof_rule-by-proof_rule
-    checking for traces that interleave DRUP steps with other kinds of steps.
-*)
+    This module provides a checker for DRUP traces, including
+    proof_rule-by-proof_rule checking for traces that interleave DRUP steps with
+    other kinds of steps. *)
 
 module Fmt = CCFormat
 
@@ -25,8 +25,8 @@ module type S = sig
     type atom = t
 
     val of_int_dimacs : int -> t
-    (** Turn a signed integer into an atom. Positive integers are
-        positive atoms, and [-i] is [neg (of_int i)].
+    (** Turn a signed integer into an atom. Positive integers are positive
+        atoms, and [-i] is [neg (of_int i)].
         @raise Invalid_argument if the argument is 0 *)
   end
 
@@ -82,17 +82,17 @@ module Make () : S = struct
 
     let[@inline] to_int x =
       (if sign x then
-        1
-      else
-        -1)
+         1
+       else
+         -1)
       * (x lsr 1)
 
     let pp out x =
       Fmt.fprintf out "%s%d"
         (if sign x then
-          "+"
-        else
-          "-")
+           "+"
+         else
+           "-")
         (x lsr 1)
 
     let[@inline] of_int_unsafe i = i
@@ -131,6 +131,7 @@ module Make () : S = struct
     module Stack = struct
       type elt = t
       type nonrec t = elt Vec.t
+
       let create () = Vec.create ()
       let push = Vec.push
       let size = Vec.size

@@ -21,5 +21,5 @@ val pp : term Fmt.printer
 (** Print using {!default_hooks} *)
 
 val pp_limit : max_depth:int -> max_nodes:int -> term Fmt.printer
-(** Print with a limit on the number of nodes printed. An ellipsis is
-    displayed otherwise. *)
+(** Print with a limit on the number of nodes printed. An ellipsis is displayed
+    otherwise. *)

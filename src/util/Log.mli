@@ -10,8 +10,8 @@ val get_debug : unit -> int
 
 val debugf :
   int -> ((('a, Format.formatter, unit, unit) format4 -> 'a) -> unit) -> unit
-(** Emit a debug message at the given level. If the level is lower
-    than [get_debug ()], the message will indeed be emitted *)
+(** Emit a debug message at the given level. If the level is lower than
+    [get_debug ()], the message will indeed be emitted *)
 
 val debug : int -> string -> unit
 (** Simpler version of {!debug}, without formatting *)

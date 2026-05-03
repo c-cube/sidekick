@@ -1,16 +1,15 @@
 (** Main Signatures.
 
-    Theories and concrete solvers rely on an environment that defines
-    several important types:
+    Theories and concrete solvers rely on an environment that defines several
+    important types:
 
-      - types
+    - types
     - terms (to represent logic expressions and formulas)
     - a congruence closure instance
     - a bridge to some SAT solver
 
-    In this module we define most of the main signatures used
-    throughout Sidekick.
-*)
+    In this module we define most of the main signatures used throughout
+    Sidekick. *)
 
 module Fmt = CCFormat
 

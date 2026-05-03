@@ -5,28 +5,23 @@
     - P<n> = proof step
     - Q<n> = sequent
 
-    After the preamble the following E-indices are fixed:
-      E1 = type
-      E2 = bool
-      E3 = false
-      E4 = type variable A (for polymorphic =)
-      E5 = A -> bool
-      E6 = A -> A -> bool   (type of =)
+    After the preamble the following E-indices are fixed: E1 = type E2 = bool E3
+    = false E4 = type variable A (for polymorphic =) E5 = A -> bool E6 = A -> A
+    -> bool (type of =)
 
-    Subsequent E-indices are allocated on demand.
-*)
+    Subsequent E-indices are allocated on demand. *)
 
 open Sidekick_core
 
 type t = {
-  buf : Buffer.t;
+  buf: Buffer.t;
   (* maps term id → E-index *)
-  term_tbl : int Term.Tbl.t;
+  term_tbl: int Term.Tbl.t;
   (* maps step id → P-index *)
-  step_tbl : (int, int) Hashtbl.t;
-  mutable next_e : int;
-  mutable next_p : int;
-  mutable next_q : int;
+  step_tbl: (int, int) Hashtbl.t;
+  mutable next_e: int;
+  mutable next_p: int;
+  mutable next_q: int;
 }
 
 (* Fixed E-indices from the preamble *)
@@ -35,14 +30,15 @@ let e_bool = 2
 let e_false = 3
 let _e_tyvar_a = 4
 let _e_a_arrow_bool = 5
-let _e_eq_ty = 6  (* A -> A -> bool, the type of = *)
+let _e_eq_ty = 6 (* A -> A -> bool, the type of = *)
 
 let create () : t =
   {
     buf = Buffer.create 4096;
     term_tbl = Term.Tbl.create 64;
     step_tbl = Hashtbl.create 64;
-    next_e = 7;   (* E1-E6 reserved by preamble *)
+    next_e = 7;
+    (* E1-E6 reserved by preamble *)
     next_p = 1;
     next_q = 1;
   }
@@ -66,8 +62,8 @@ let alloc_q (self : t) : int =
   self.next_q <- n + 1;
   n
 
-(** Emit the fixed preamble that every .twp file needs.
-    Declares bool, false, and the polymorphic = constant. *)
+(** Emit the fixed preamble that every .twp file needs. Declares bool, false,
+    and the polymorphic = constant. *)
 let emit_preamble (self : t) : unit =
   emit_line self "# preamble: bool, false, polymorphic =";
   emit_line self "E1 type";

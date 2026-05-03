@@ -1,10 +1,8 @@
 (** Serialization representation.
 
-    A [Ser_value.t] describes how to serialized some structured
-    data into bytes.
+    A [Ser_value.t] describes how to serialized some structured data into bytes.
     It reflects the shape of the structured data but does not commit to a
-    particular serialization format.
-*)
+    particular serialization format. *)
 
 type t = private
   | Null

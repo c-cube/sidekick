@@ -3,8 +3,7 @@
     Implements Sidekick_smt_solver.Tracer.t:
     - Proof.Tracer.t methods: capture proof steps and emit .twp lines
     - Sidekick_sat.Tracer.t methods: no-ops (we don't trace SAT)
-    - emit_assert_term: no-op
-*)
+    - emit_assert_term: no-op *)
 
 module Proof = Sidekick_proof
 module Sat_tracer = Sidekick_sat.Tracer

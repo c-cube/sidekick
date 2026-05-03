@@ -10,10 +10,7 @@ type rule_apply = {
   indices: int list;
 }
 
-type t =
-  | P_ref of step_id
-  | P_apply of rule_apply
-
+type t = P_ref of step_id | P_apply of rule_apply
 type delayed = unit -> t
 
 let pp out = function
@@ -63,7 +60,10 @@ let ser_apply_rule (tracer : Term.Tracer.t) (r : rule_apply) : Ser_value.t =
   let enc_t t = V.int (Term.Tracer.emit tracer t) in
   let enc_premise (p : step_id) = V.int p in
   let enc_indice (p : step_id) = V.int p in
-  let enc_subst (_s : Subst.t) : V.t = assert false (* TODO *) in
+  let enc_subst (_s : Subst.t) : V.t =
+    assert false
+    (* TODO *)
+  in
 
   let add_ x v enc_v l =
     match v with

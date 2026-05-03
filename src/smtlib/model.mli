@@ -1,7 +1,7 @@
 (** Models
 
-    A model can be produced when the solver is found to be in a
-    satisfiable state after a call to {!solve}. *)
+    A model can be produced when the solver is found to be in a satisfiable
+    state after a call to {!solve}. *)
 
 open Sidekick_core
 

@@ -2,14 +2,13 @@ module Tr = Sidekick_trace
 
 type step_id = Step.id
 
-class type t =
-  object
-    inherit Term.Tracer.t
-    method proof_enabled : bool
-    method proof_enable : bool -> unit
-    method emit_proof_step : Pterm.delayed -> step_id
-    method emit_proof_delete : step_id -> unit
-  end
+class type t = object
+  inherit Term.Tracer.t
+  method proof_enabled : bool
+  method proof_enable : bool -> unit
+  method emit_proof_step : Pterm.delayed -> step_id
+  method emit_proof_delete : step_id -> unit
+end
 
 let[@inline] enabled (self : #t) : bool = self#proof_enabled
 let[@inline] enable (self : #t) (b : bool) : unit = self#proof_enable b

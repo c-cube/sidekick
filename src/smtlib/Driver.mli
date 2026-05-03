@@ -1,9 +1,8 @@
 (** Driver.
 
-  The driver is responsible for processing statements from a SMTLIB file,
-  and interacting with the solver based on the statement (asserting formulas,
-  calling "solve", etc.)
-*)
+    The driver is responsible for processing statements from a SMTLIB file, and
+    interacting with the solver based on the statement (asserting formulas,
+    calling "solve", etc.) *)
 
 module Asolver = Solver.Asolver
 open Sidekick_base

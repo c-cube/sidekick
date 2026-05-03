@@ -1,8 +1,8 @@
 (** Statements.
 
-    A statement is an instruction for the SMT solver to do something,
-    like asserting that a formula is true, declaring a new constant,
-    or checking satisfiabilty of the current set of assertions. *)
+    A statement is an instruction for the SMT solver to do something, like
+    asserting that a formula is true, declaring a new constant, or checking
+    satisfiabilty of the current set of assertions. *)
 
 open Types_
 

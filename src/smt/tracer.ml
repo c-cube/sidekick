@@ -3,13 +3,12 @@ module Tr = Sidekick_trace
 module Proof = Sidekick_proof
 module V = Ser_value
 
-class type t =
-  object
-    inherit Term.Tracer.t
-    inherit Sidekick_proof.Tracer.t
-    inherit Sidekick_sat.Tracer.t
-    method emit_assert_term : Term.t -> Tr.Entry_id.t
-  end
+class type t = object
+  inherit Term.Tracer.t
+  inherit Sidekick_proof.Tracer.t
+  inherit Sidekick_sat.Tracer.t
+  method emit_assert_term : Term.t -> Tr.Entry_id.t
+end
 
 class concrete (sink : Tr.Sink.t) : t =
   object (self)

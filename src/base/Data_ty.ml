@@ -28,8 +28,8 @@ let hash a = ID.hash a.data_id
 
 (** Datatype selectors.
 
-    A selector is a kind of function that allows to obtain an argument
-    of a given constructor. *)
+    A selector is a kind of function that allows to obtain an argument of a
+    given constructor. *)
 module Select = struct
   type t = Types_.select = {
     select_id: ID.t;
@@ -57,8 +57,8 @@ end
 
 (** Datatype constructors.
 
-    A datatype has one or more constructors, each of which is a special
-    kind of function symbol. Constructors are injective and pairwise distinct. *)
+    A datatype has one or more constructors, each of which is a special kind of
+    function symbol. Constructors are injective and pairwise distinct. *)
 module Cstor = struct
   type t = cstor
 

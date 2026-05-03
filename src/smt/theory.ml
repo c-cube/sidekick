@@ -2,19 +2,16 @@
 
 (** A theory
 
-      Theories are abstracted over the concrete implementation of the solver,
-      so they can work with any implementation.
+    Theories are abstracted over the concrete implementation of the solver, so
+    they can work with any implementation.
 
-      Typically a theory should be a functor taking an argument containing
-      a [SOLVER_INTERNAL] or even a full [SOLVER],
-      and some additional views on terms, literals, etc.
-      that are specific to the theory (e.g. to map terms to linear
-      expressions).
-      The theory can then be instantiated on any kind of solver for any
-      term representation that also satisfies the additional theory-specific
-      requirements. Instantiated theories (ie values of type {!SOLVER.theory})
-      can be added to the solver.
-  *)
+    Typically a theory should be a functor taking an argument containing a
+    [SOLVER_INTERNAL] or even a full [SOLVER], and some additional views on
+    terms, literals, etc. that are specific to the theory (e.g. to map terms to
+    linear expressions). The theory can then be instantiated on any kind of
+    solver for any term representation that also satisfies the additional
+    theory-specific requirements. Instantiated theories (ie values of type
+    {!SOLVER.theory}) can be added to the solver. *)
 module type S = sig
   type t
 
@@ -28,8 +25,8 @@ type t = (module S)
 (** A theory that can be used for this particular solver. *)
 
 type 'a p = (module S with type t = 'a)
-(** A theory that can be used for this particular solver, with state
-      of type ['a]. *)
+(** A theory that can be used for this particular solver, with state of type
+    ['a]. *)
 
 (** Name of the theory *)
 let name (th : t) =

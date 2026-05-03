@@ -117,7 +117,8 @@ type t =
     }
   | DT_isa_split of ty * term list
   | DT_isa_disj of ty * term * term
-  | DT_cstor_inj of Cstor.t * int * term list * term list (* [c t…=c u… |- t_i=u_i] *)
+  | DT_cstor_inj of
+      Cstor.t * int * term list * term list (* [c t…=c u… |- t_i=u_i] *)
   | Bool_true_is_true
   | Bool_true_neq_false
   | Bool_eq of term * term (* equal by pure boolean reasoning *)
@@ -139,13 +140,13 @@ and composite_step =
       res: clause; (* result of [proof] *)
       proof: t; (* sub-proof *)
     }
-      (** A named step in {!Composite}, with the expected result.
-      This decouples the checking of the sub-proof, from its use in the rest
-      of the proof, as we can use [res] even if checking [proof] failed. *)
+      (** A named step in {!Composite}, with the expected result. This decouples
+          the checking of the sub-proof, from its use in the rest of the proof,
+          as we can use [res] even if checking [proof] failed. *)
   | S_step_anon of { name: string; (* name of step *) proof: t (* proof *) }
-      (** A named intermediate proof, to be reused in subsequent proofs.
-        Unlike {!S_step_c} we do not specify the expected result
-        so if this fails, any proof downstream will also fail. *)
+      (** A named intermediate proof, to be reused in subsequent proofs. Unlike
+          {!S_step_c} we do not specify the expected result so if this fails,
+          any proof downstream will also fail. *)
   | S_define_t of term * term (* [const := t] *)
   | S_define_t_name of string * term
 (* [const := t] *)
