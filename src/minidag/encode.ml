@@ -132,6 +132,8 @@ let ref self i =
   assert (i < abs_offset_ self);
   uint_ self ~high:7 i
 
+let offset_of_int (i : int) : offset = Obj.magic i
+
 let write_node (self : t) cmd (f : node_encoder -> unit) : offset =
   let offset = abs_offset_ self in
   string self cmd;

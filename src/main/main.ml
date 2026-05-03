@@ -143,24 +143,17 @@ let run_with_tmp_file ~enable_proof k =
   else
     k ""
 
-let mk_smt_tracer ~trace_file () =
-  if !enable_trace || trace_file <> "" then (
-    Log.debugf 1 (fun k -> k "(@[emit-trace-into@ %S@])" trace_file);
-    let oc = open_out_bin trace_file in
-    Sidekick_smt_solver.Tracer.make
-      ~sink:(Sidekick_trace.Sink.of_out_channel_using_bencode oc)
-      ()
+(** Create a minidag proof tracer writing to [path]. *)
+let mk_smt_tracer ~path ~tst () =
+  if path <> "" then (
+    Log.debugf 1 (fun k -> k "(@[emit-proof-minidag-into@ %S@])" path);
+    Sidekick_proof_minidag.open_file ~path ~tst ()
   ) else
     Sidekick_smt_solver.Tracer.dummy
 
 let mk_sat_tracer () : Sidekick_sat.Tracer.t =
-  if !trace_file = "" then
-    Sidekick_sat.Tracer.dummy
-  else (
-    let oc = open_out_bin !trace_file in
-    let sink = Sidekick_trace.Sink.of_out_channel_using_bencode oc in
-    Pure_sat_solver.tracer ~sink ()
-  )
+  (* SAT-only mode: no proof support yet for minidag *)
+  Sidekick_sat.Tracer.dummy
 
 let main_smt ~config () : _ result =
   let tst = Term.Store.create ~size:4_096 () in
@@ -168,32 +161,25 @@ let main_smt ~config () : _ result =
   let enable_proof = !check || !p_proof || !proof_file <> "" || !proof_twp_file <> "" in
   Log.debugf 1 (fun k -> k "(@[proof-enable@ %B@])" enable_proof);
 
-  run_with_tmp_file ~enable_proof @@ fun trace_file ->
-  Log.debugf 1 (fun k -> k "(@[trace_file@ %S@])" trace_file);
-
-  (* FIXME
-     let config =
-       if enable_proof_ then
-         Proof.Config.default |> Proof.Config.enable true
-         |> Proof.Config.store_on_disk_at temp_proof_file
-       else
-         Proof.Config.empty
-     in
-
-     (* main proof object *)
-     let proof = Proof.create ~config () in
-  *)
-  let twp_state_opt =
-    if !proof_twp_file <> "" then
-      Some (Sidekick_proof_twp.Twp_state.create ())
-    else
-      None
+  (* Determine the proof output path.
+     Priority: --trace-file > --proof-twp (legacy) > auto-generate if needed.
+     We always use minidag format (.granite). *)
+  let proof_path =
+    if !trace_file <> "" then
+      !trace_file
+    else if !proof_twp_file <> "" then
+      (* Accept --proof-twp path but write minidag there instead *)
+      !proof_twp_file
+    else if enable_proof then (
+      (* Auto-generate a temp path so proofs are available for --check *)
+      let base = Filename.remove_extension !file in
+      base ^ ".granite"
+    ) else
+      ""
   in
-  let tracer =
-    match twp_state_opt with
-    | Some st -> Sidekick_proof_twp.Twp_tracer.create st
-    | None -> mk_smt_tracer ~trace_file ()
-  in
+  Log.debugf 1 (fun k -> k "(@[proof-path@ %S@])" proof_path);
+
+  let tracer = mk_smt_tracer ~path:proof_path ~tst () in
   Proof.Tracer.enable tracer enable_proof;
 
   let solver =
@@ -244,16 +230,6 @@ let main_smt ~config () : _ result =
     try E.fold_l (fun () stmt -> Driver.process_stmt driver stmt) () input
     with Exit -> E.return ()
   in
-  (* If --proof-twp is set, write the accumulated .twp buffer to the file *)
-  (match twp_state_opt with
-  | None -> ()
-  | Some st ->
-    let buf = Sidekick_proof_twp.Twp_state.buffer st in
-    (try
-       CCIO.with_out !proof_twp_file (fun oc ->
-           Buffer.output_buffer oc buf)
-     with Sys_error msg ->
-       Log.debugf 0 (fun k -> k "proof-twp: cannot write file: %s" msg)));
   res
 
 let main_cnf () : _ result =

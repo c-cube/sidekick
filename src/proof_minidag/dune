@@ -1,0 +1,7 @@
+(library
+ (name sidekick_proof_minidag)
+ (public_name sidekick.proof-minidag)
+ (synopsis "Minidag proof emitter for sidekick (granite-compatible)")
+ (libraries sidekick.core sidekick.proof sidekick.sat sidekick.smt-solver
+   sidekick.minidag containers)
+ (flags :standard -open Sidekick_util -open Sidekick_core))

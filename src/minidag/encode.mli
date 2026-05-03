@@ -15,6 +15,10 @@ type node_encoder
 
 type offset = private int
 
+val offset_of_int : int -> offset
+(** Reinterpret an integer as an offset. Only safe when the integer was
+    originally returned by {!write_node}. *)
+
 val write_node : t -> string -> (node_encoder -> unit) -> offset
 (** [write_node enc command f] starts a new node with "command", calls [f] to
     add the arguments, and returns the offset of this new node. The node encoder
