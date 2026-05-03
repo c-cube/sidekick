@@ -1,0 +1,5 @@
+(library
+ (name sidekick_minidag)
+ (public_name sidekick.minidag)
+ (synopsis "Minidag binary serialization format for proof traces")
+ (libraries))
