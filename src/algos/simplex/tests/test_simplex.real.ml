@@ -116,7 +116,7 @@ module Step = struct
         return (List.rev acc)
       else
         let* vars, proof_rule =
-          frequency
+          oneof_weighted
           @@ List.flatten
                [
                  (* add a bound *)

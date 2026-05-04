@@ -10,11 +10,3 @@
    sidekick.smt-solver sidekick-base.smtlib sidekick.drup sidekick.memtrace
    sidekick-bin.lib sidekick.proof_twp sidekick.proof-minidag)
  (flags :standard -safe-string -color always -open Sidekick_util))
-
-(executable
- (name show_trace)
- (modules show_trace)
- (modes native)
- (libraries containers sidekick.util sidekick.core sidekick.trace
-   sidekick.smt-solver sidekick.proof sidekick-base)
- (flags :standard -safe-string -color always -open Sidekick_util))
