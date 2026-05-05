@@ -287,59 +287,74 @@ let find_common_ancestor self (a : e_node) (b : e_node) : e_node =
 module Expl_state = struct
   type t = {
     mutable lits: Lit.t list;
+    mutable congr_terms: Term.t list;
     mutable th_lemmas:
       (Lit.t * (Lit.t * Lit.t list) list * Proof.Pterm.delayed) list;
   }
 
-  let create () : t = { lits = []; th_lemmas = [] }
+  let create () : t = { lits = []; congr_terms = []; th_lemmas = [] }
   let[@inline] copy self : t = { self with lits = self.lits }
   let[@inline] add_lit (self : t) lit = self.lits <- lit :: self.lits
+
+  let[@inline] add_congr (self : t) t1 t2 =
+    self.congr_terms <- t1 :: t2 :: self.congr_terms
 
   let[@inline] add_th (self : t) lit hyps pr : unit =
     self.th_lemmas <- (lit, hyps, pr) :: self.th_lemmas
 
   let merge self other =
-    let { lits = o_lits; th_lemmas = o_lemmas } = other in
+    let { lits = o_lits; congr_terms = o_congr; th_lemmas = o_lemmas } =
+      other
+    in
     self.lits <- List.rev_append o_lits self.lits;
+    self.congr_terms <- List.rev_append o_congr self.congr_terms;
     self.th_lemmas <- List.rev_append o_lemmas self.th_lemmas;
-
     ()
+
+  let emit_cc_eq_proof (self : t) (_tracer : Proof.Tracer.t) : Proof.Pterm.t =
+    let neg_lits = List.rev_map Lit.neg self.lits in
+    let terms = List.rev self.congr_terms in
+    Proof.Pterm.apply_rule ~lits:neg_lits ~terms "core.cc-eq-proof"
 
   (* proof of [\/_i ¬lits[i]] *)
   let proof_of_th_lemmas (self : t) (tracer : Proof.Tracer.t) :
       Proof.Pterm.delayed =
     Proof.Pterm.delay @@ fun () ->
-    (* Emit each sub-proof immediately; use its offset (Step.id) as a P_ref. *)
-    let bind (t : Proof.Pterm.t) : Proof.Step.id =
-      Proof.Tracer.add_step tracer (Proof.Pterm.delay (fun () -> t))
-    in
-
-    let p_lits1 = List.rev_map Lit.neg self.lits in
-    let p_lits2 =
-      self.th_lemmas |> List.rev_map (fun (lit_t_u, _, _) -> Lit.neg lit_t_u)
-    in
-    let p_cc = Proof.Core_rules.lemma_cc (List.rev_append p_lits1 p_lits2) in
-    let resolve_with_th_proof pr (lit_t_u, sub_proofs, pr_th) =
-      let pr_th = pr_th () in
-      let pr_th =
-        List.fold_left
-          (fun pr_th (lit_i, hyps_i) ->
-            let lemma_i =
-              bind
-              @@ Proof.Core_rules.lemma_cc (lit_i :: List.rev_map Lit.neg hyps_i)
-            in
-            Proof.Core_rules.proof_res ~pivot:(Lit.term lit_i) lemma_i
-              (bind pr_th))
-          pr_th sub_proofs
+    if self.th_lemmas = [] then
+      emit_cc_eq_proof self tracer
+    else (
+      let bind (t : Proof.Pterm.t) : Proof.Step.id =
+        Proof.Tracer.add_step tracer (Proof.Pterm.delay (fun () -> t))
       in
-      Proof.Core_rules.proof_res ~pivot:(Lit.term lit_t_u) (bind pr_th)
-        (bind pr)
-    in
-    let body = List.fold_left resolve_with_th_proof p_cc self.th_lemmas in
-    body
+
+      let p_lits1 = List.rev_map Lit.neg self.lits in
+      let p_lits2 =
+        self.th_lemmas |> List.rev_map (fun (lit_t_u, _, _) -> Lit.neg lit_t_u)
+      in
+      let p_cc = Proof.Core_rules.lemma_cc (List.rev_append p_lits1 p_lits2) in
+      let resolve_with_th_proof pr (lit_t_u, sub_proofs, pr_th) =
+        let pr_th = pr_th () in
+        let pr_th =
+          List.fold_left
+            (fun pr_th (lit_i, hyps_i) ->
+              let lemma_i =
+                bind
+                @@ Proof.Core_rules.lemma_cc
+                     (lit_i :: List.rev_map Lit.neg hyps_i)
+              in
+              Proof.Core_rules.proof_res ~pivot:(Lit.term lit_i) lemma_i
+                (bind pr_th))
+            pr_th sub_proofs
+        in
+        Proof.Core_rules.proof_res ~pivot:(Lit.term lit_t_u) (bind pr_th)
+          (bind pr)
+      in
+      let body = List.fold_left resolve_with_th_proof p_cc self.th_lemmas in
+      body
+    )
 
   let to_resolved_expl (self : t) (tracer : Proof.Tracer.t) : Resolved_expl.t =
-    let { lits; th_lemmas = _ } = self in
+    let { lits; th_lemmas = _; _ } = self in
     let s2 = copy self in
     let pr proof = proof_of_th_lemmas s2 tracer proof in
     { Resolved_expl.lits; pr }
@@ -352,6 +367,7 @@ let rec explain_decompose_expl self (st : Expl_state.t) (e : explanation) : unit
   match e with
   | E_trivial -> ()
   | E_congruence (n1, n2) ->
+    Expl_state.add_congr st n1.n_term n2.n_term;
     (match n1.n_sig0, n2.n_sig0 with
     | Some (App_fun (f1, a1)), Some (App_fun (f2, a2)) ->
       assert (Const.equal f1 f2);
@@ -509,7 +525,7 @@ let n_is_bool_value (self : t) n : bool =
    merges. *)
 let lits_and_proof_of_expl (_self : t) (st : Expl_state.t) :
     Lit.t list * Proof.Pterm.delayed =
-  let { Expl_state.lits; th_lemmas = _ } = st in
+  let { Expl_state.lits; th_lemmas = _; _ } = st in
   let pr = Expl_state.proof_of_th_lemmas st (proof_tracer _self) in
   lits, pr
 

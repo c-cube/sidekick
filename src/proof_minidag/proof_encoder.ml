@@ -34,7 +34,7 @@ let emit_seq self ~hyps ~concls =
 (** Emit [p.hyp] with the given conclusion offsets and no hypotheses. *)
 let emit_hyp self concls =
   let seq = emit_seq self ~hyps:[] ~concls in
-  nd self "p.hyp" (fun e -> E.ref e seq)
+  nd self "hol.hypothesis" (fun e -> E.ref e seq)
 
 (** Emit [sk.sorry] with a descriptive message. *)
 let emit_sorry self msg = nd self "sk.sorry" (fun e -> E.string e msg)
@@ -60,10 +60,56 @@ let emit_sat_rup self hyp_sids =
   let dag_offs = List.map (step_off self) hyp_sids in
   nd self "sk.sat_rup" (fun e -> List.iter (E.ref e) dag_offs)
 
-(** CC conflict: oracle step referencing all conflicting lits. *)
-let emit_cc_conflict self lits =
-  let lit_offs = List.map (encode_lit' self) lits in
-  nd self "sk.cc_conflict" (fun e -> List.iter (E.ref e) lit_offs)
+(** Emit a [p.eq] proof from negated conflict literals and congruence pairs.
+    - [lit_args]: the negated conflict literals (positive equalities become
+      [eq.u])
+    - [term_args]: congruence pairs from CC, flattened [t1; u1; t2; u2; ...] *)
+let emit_cc_eq_proof self lit_args term_args =
+  let true_off = encode_term' self (Term.true_ self.tst) in
+  let false_off = encode_term' self (Term.false_ self.tst) in
+  let lit_offs = List.map (encode_lit' self) lit_args in
+  (* Build dag: one hypothesis per negated literal *)
+  let dag_offs =
+    Array.of_list
+      (List.map
+         (fun lit_off ->
+           let seq = emit_seq self ~hyps:[] ~concls:[ lit_off ] in
+           nd self "hol.hypothesis" (fun e -> E.ref e seq))
+         lit_offs)
+  in
+  let eq_step_offs = ref [] in
+  (* Emit eq.u for each positive equality literal in the dag *)
+  Array.iteri
+    (fun i lit ->
+      if Lit.sign lit then (
+        let step =
+          nd self "eq.u" (fun e ->
+              E.ref e dag_offs.(i);
+              E.ref e (encode_lit' self lit))
+        in
+        eq_step_offs := !eq_step_offs @ [ step ]
+      ))
+    (Array.of_list lit_args);
+  (* Emit eq.c for each congruence pair (pairs of terms in term_args) *)
+  let rec emit_congr = function
+    | [] -> ()
+    | [ _ ] -> ()
+    | t :: u :: rest ->
+      let step =
+        nd self "eq.c" (fun e ->
+            E.ref e (encode_term' self t);
+            E.ref e (encode_term' self u))
+      in
+      eq_step_offs := !eq_step_offs @ [ step ];
+      emit_congr rest
+  in
+  emit_congr term_args;
+  nd self "p.eq" (fun e ->
+      E.ref e true_off;
+      E.ref e false_off;
+      List.iter (E.ref e) !eq_step_offs;
+      E.null e;
+      Array.iter (E.ref e) dag_offs)
 
 (** Boolean axiom: any [bool.*] rule name. *)
 let emit_bool_ax self name term_args =
@@ -111,7 +157,10 @@ let rec encode_rule self (r : Pterm.rule_apply) : E.offset =
           E.ref e o1;
           E.ref e o2)
     | _ -> emit_sorry self "core.p1: bad args")
-  | "core.lemma-cc" -> emit_cc_conflict self lit_args
+  | "core.lemma-cc" ->
+    let lit_offs = List.map (encode_lit' self) lit_args in
+    nd self "sk.cc_conflict" (fun e -> List.iter (E.ref e) lit_offs)
+  | "core.cc-eq-proof" -> emit_cc_eq_proof self lit_args term_args
   | "core.define-term" ->
     (match term_args with
     | [ c; rhs ] -> emit_hyp self [ encode_term' self (Term.eq self.tst c rhs) ]
